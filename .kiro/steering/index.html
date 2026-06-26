@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>UBC CIC Kiro Steering Files Documentation</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+:root {
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f4f5f7;
+  --color-text: #172b4d;
+  --color-text-secondary: #44546f;
+  --color-text-muted: #8993a4;
+  --color-border-light: #ebecf0;
+  --color-border: #dfe1e6;
+  --color-primary: #0052CC;
+  --color-primary-light: #deebff;
+  --color-success: #36b37e;
+  --color-warning: #ff991f;
+  --color-error: #de350b;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', Consolas, monospace;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background: var(--color-bg);
+  line-height: 1.6;
+  padding: 32px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  margin-bottom: 32px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  margin-bottom: 40px;
+}
+
+.card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 12px rgba(0, 82, 204, 0.08);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.card-icon.cdk { background: #ff9900; }
+.card-icon.python { background: #306998; }
+.card-icon.react { background: #61dafb; color: #20232a; }
+.card-icon.database { background: #527fff; }
+.card-icon.git { background: #f05032; }
+.card-icon.dev { background: #6554c0; }
+.card-icon.security { background: #de350b; }
+.card-icon.production { background: #ff991f; color: #172b4d; }
+.card-icon.lambda { background: #ff9900; }
+.card-icon.docker { background: #2496ed; }
+.card-icon.structure { background: #00875a; }
+.card-icon.wellarchitected { background: #232f3e; }
+.card-icon.apigateway { background: #cc2264; }
+.card-icon.docs { background: #0052CC; }
+
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.card-description {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  flex-grow: 1;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-family: var(--font-mono);
+}
+
+.badge-always {
+  background: #deebff;
+  color: #0052CC;
+}
+
+.badge-filematch {
+  background: #e3fcef;
+  color: #006644;
+}
+
+.badge-auto {
+  background: #fff0b3;
+  color: #172b4d;
+}
+
+.card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-primary);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-light);
+  transition: background 0.15s ease;
+  align-self: flex-start;
+}
+
+.card-link:hover {
+  background: #b3d4ff;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.install-block {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+
+.install-block p {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
+}
+
+.install-block code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: #f0f2f5;
+  color: #1a2a3a;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+
+footer {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-light);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+</style>
+</head>
+<body>
+
+<h1><i class="fa-brands fa-aws"></i> UBC CIC Kiro Steering Files</h1>
+<p class="subtitle">Best practice references for AWS Well-Architected, CDK, API Gateway, Python, React, Databases, Docker, Git, Security, and Production Safety. Place the <code>.kiro/steering/</code> folder in your project root for Kiro to automatically apply these standards.</p>
+
+<div class="grid">
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon wellarchitected"><i class="fa-brands fa-aws"></i></div>
+      <div>
+        <div class="card-title">AWS Well-Architected Best Practices</div>
+        <span class="badge badge-always">always</span>
+      </div>
+    </div>
+    <div class="card-description">The six pillars — operational excellence, security, reliability, performance efficiency, cost optimization, and sustainability — as the default design and review lens.</div>
+    <a class="card-link" href="ubc-cic-aws-well-architected.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon cdk"><i class="fa-solid fa-cloud"></i></div>
+      <div>
+        <div class="card-title">CDK Best Practices</div>
+        <span class="badge badge-always">always</span>
+      </div>
+    </div>
+    <div class="card-description">Project structure with projen, stacks/constructs/stages pattern, testing strategies, and Lambda function conventions.</div>
+    <a class="card-link" href="ubc-cic-cdk-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon python"><i class="fa-brands fa-python"></i></div>
+      <div>
+        <div class="card-title">Python Best Practices</div>
+        <span class="badge badge-filematch">fileMatch: *.py</span>
+      </div>
+    </div>
+    <div class="card-description">PEP 8 style, type hints, error handling, pytest patterns, and performance optimization.</div>
+    <a class="card-link" href="ubc-cic-python-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon react"><i class="fa-brands fa-react"></i></div>
+      <div>
+        <div class="card-title">React Best Practices</div>
+        <span class="badge badge-filematch">fileMatch: *.tsx, *.jsx</span>
+      </div>
+    </div>
+    <div class="card-description">Functional components, hooks, TypeScript interfaces, performance patterns, and React Testing Library.</div>
+    <a class="card-link" href="ubc-cic-react-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon database"><i class="fa-solid fa-database"></i></div>
+      <div>
+        <div class="card-title">Database Best Practices</div>
+        <span class="badge badge-filematch">fileMatch: *.sql, models/, migrations/</span>
+      </div>
+    </div>
+    <div class="card-description">PostgreSQL schema design, DynamoDB patterns, migrations, ORM layer, connection pooling, and audit logging.</div>
+    <a class="card-link" href="ubc-cic-database-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon git"><i class="fa-brands fa-git-alt"></i></div>
+      <div>
+        <div class="card-title">Git Best Practices</div>
+        <span class="badge badge-always">always</span>
+      </div>
+    </div>
+    <div class="card-description">Command execution safety, conventional commits, repository integrity rules, squashing workflows, and emergency recovery.</div>
+    <a class="card-link" href="ubc-cic-git-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon dev"><i class="fa-solid fa-code"></i></div>
+      <div>
+        <div class="card-title">Development Standards</div>
+        <span class="badge badge-always">always</span>
+      </div>
+    </div>
+    <div class="card-description">Dependency management, code quality, file organization, documentation approach, and quality assurance.</div>
+    <a class="card-link" href="ubc-cic-development-standards.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon security"><i class="fa-solid fa-shield-halved"></i></div>
+      <div>
+        <div class="card-title">Security Best Practices</div>
+        <span class="badge badge-always">always</span>
+      </div>
+    </div>
+    <div class="card-description">Code security, dependency scanning, data protection, infrastructure hardening, and CI/CD security testing.</div>
+    <a class="card-link" href="ubc-cic-security-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon production"><i class="fa-solid fa-triangle-exclamation"></i></div>
+      <div>
+        <div class="card-title">Production Safety</div>
+        <span class="badge badge-always">always</span>
+      </div>
+    </div>
+    <div class="card-description">Mandatory rules for AWS credentials, destructive action confirmation, and production resource identification.</div>
+    <a class="card-link" href="ubc-cic-production-safety.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon lambda"><i class="fa-solid fa-bolt"></i></div>
+      <div>
+        <div class="card-title">CDK + Python Lambda Patterns</div>
+        <span class="badge badge-auto">auto</span>
+      </div>
+    </div>
+    <div class="card-description">Combined patterns for deploying Python Lambdas with database access, Secrets Manager, RDS Proxy, and environment separation.</div>
+    <a class="card-link" href="ubc-cic-cdk-python-lambda.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon docker"><i class="fa-brands fa-docker"></i></div>
+      <div>
+        <div class="card-title">Docker Best Practices</div>
+        <span class="badge badge-filematch">fileMatch: Dockerfile*, docker-compose*</span>
+      </div>
+    </div>
+    <div class="card-description">Multi-stage build optimization, minimal base images, layer caching, non-root users, and image vulnerability scanning.</div>
+    <a class="card-link" href="ubc-cic-docker-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon structure"><i class="fa-solid fa-folder-tree"></i></div>
+      <div>
+        <div class="card-title">Serverless Project Structure</div>
+        <span class="badge badge-auto">auto</span>
+      </div>
+    </div>
+    <div class="card-description">CDK serverless app layout separating infrastructure, backend, and frontend, with deployment scripts, docs folders, and default READMEs and .gitignores.</div>
+    <a class="card-link" href="ubc-cic-serverless-project-structure.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon lambda"><i class="fa-solid fa-bolt"></i></div>
+      <div>
+        <div class="card-title">Lambda Best Practices</div>
+        <span class="badge badge-filematch">fileMatch: handler/**, handlers/**, lambda/**</span>
+      </div>
+    </div>
+    <div class="card-description">Thin idempotent handlers, runtime secret resolution, cold-start and cost tuning, least-privilege IAM, structured logging with Powertools, and packaging via CDK.</div>
+    <a class="card-link" href="ubc-cic-lambda-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon apigateway"><i class="fa-solid fa-plug"></i></div>
+      <div>
+        <div class="card-title">API Gateway Best Practices</div>
+        <span class="badge badge-filematch">fileMatch: openapi*, swagger*, *Api*.ts, api/</span>
+      </div>
+    </div>
+    <div class="card-description">Spec-first REST APIs with OpenAPI + SpecRestApi, Cognito/Lambda authorizers, WAF, throttling, observability, and generating API docs from the spec.</div>
+    <a class="card-link" href="ubc-cic-api-gateway-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon docs"><i class="fa-solid fa-book"></i></div>
+      <div>
+        <div class="card-title">Documentation Best Practices</div>
+        <span class="badge badge-filematch">fileMatch: README*, docs/**, CHANGELOG*, CONTRIBUTING*</span>
+      </div>
+    </div>
+    <div class="card-description">Standard CIC README structure — project description, table of contents linking focused docs/ guides, directory structure, credits, and MIT licensing.</div>
+    <a class="card-link" href="ubc-cic-documentation-best-practices.md"><i class="fa-solid fa-file-lines"></i> View File</a>
+  </div>
+
+</div>
+
+<h2 class="section-title">Installation</h2>
+
+<div class="install-block">
+  <p>Copy the steering files into your project:</p>
+  <code>cp *.md /path/to/your-project/.kiro/steering/</code>
+</div>
+
+<div class="install-block">
+  <p>Or clone from the boilerplate and add your UBC CIC files:</p>
+  <code>cd your-project &amp;&amp; mkdir -p .kiro/steering &amp;&amp; cp /path/to/ubc-cic-*.md .kiro/steering/</code>
+</div>
+
+<h2 class="section-title">Inclusion Modes</h2>
+
+<div class="install-block">
+  <p><strong>always</strong> — Loaded in every Kiro interaction. Use for universal standards (Git, Security, Production Safety).</p>
+  <p><strong>fileMatch</strong> — Loaded only when editing files matching the pattern. Use for language/framework specific rules.</p>
+  <p><strong>auto</strong> — Loaded when Kiro determines the request matches the description. Use for specialized workflow patterns.</p>
+  <p><strong>manual</strong> — Available on demand via <code>#filename</code> in chat. Use for troubleshooting or migration guides.</p>
+</div>
+
+<footer>
+  UBC Cloud Innovation Centre &bull; AWS &bull; Generated for Kiro IDE
+</footer>
+
+</body>
+</html>
