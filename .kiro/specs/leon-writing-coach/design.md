@@ -2,7 +2,7 @@
 
 ## Overview
 
-LEON (Literary Expression Organization & Navigation) is an MIT-licensed, AWS-hosted, AI-powered writing coach whose central rule is **no ghostwriting**: LEON surfaces Socratic questions and error-type flags anchored to a writer's own text, tracks recurring patterns across drafts, and never produces replacement prose. This document translates the approved requirements (`requirements.md`) into an implementable architecture on the UBC CIC baseline stack (AWS CDK v2 TypeScript, Lambda + Fargate, RDS PostgreSQL 16 + `pgvector`, DynamoDB, S3, Cognito, Amazon Bedrock via `langchain-aws`, React 19 / Vite / Tailwind / shadcn/ui), with all persistent personal data resident in `ca-central-1`.
+WREN (Writing Refinement, Expression & Navigation) is an MIT-licensed, AWS-hosted, AI-powered writing coach whose central rule is **no ghostwriting**: WREN surfaces Socratic questions and error-type flags anchored to a writer's own text, tracks recurring patterns across drafts, and never produces replacement prose. This document translates the approved requirements (`requirements.md`) into an implementable architecture on the UBC CIC baseline stack (AWS CDK v2 TypeScript, Lambda + Fargate, RDS PostgreSQL 16 + `pgvector`, DynamoDB, S3, Cognito, Amazon Bedrock via `langchain-aws`, React 19 / Vite / Tailwind / shadcn/ui), with all persistent personal data resident in `ca-central-1`.
 
 ### Design Goals and Driving Constraints
 
@@ -62,7 +62,7 @@ graph TB
 
     subgraph Data["Persistence (ca-central-1)"]
         RDS[(RDS PostgreSQL 16<br/>+ pgvector, via RDS Proxy)]
-        DDB[(DynamoDB<br/>Ask L.E.O.N session state)]
+        DDB[(DynamoDB<br/>Ask WREN session state)]
         S3[(S3<br/>documents + reference files)]
         SM[Secrets Manager / SSM]
     end
@@ -144,7 +144,7 @@ Following the CDK steering (one stack per concern, `${StackPrefix}-<Concern>`, S
 
 - **`Vpc`** — public / private-with-egress / isolated subnets; interface endpoints (Secrets Manager, SSM, RDS, API Gateway, Bedrock), gateway endpoint (DynamoDB, S3); VPC flow logs.
 - **`Database`** — RDS PostgreSQL 16 with RDS Proxy (TLS enforced, `rds.force_ssl`), `pgvector`; credentials in Secrets Manager.
-- **`Storage`** — S3 buckets (documents, reference materials) with block-public-access, `enforceSSL`, KMS, lifecycle rules; DynamoDB table for Ask L.E.O.N session state.
+- **`Storage`** — S3 buckets (documents, reference materials) with block-public-access, `enforceSSL`, KMS, lifecycle rules; DynamoDB table for Ask WREN session state.
 - **`Api`** — `SpecRestApi` from an OpenAPI spec, regional endpoint, Lambda authorizer, throttling, ERROR-level logging; AppSync/WebSocket for feedback streaming.
 - **`Compute`** — the Lambda functions / container Lambda above, each with a scoped IAM role; SQS queue + DLQ for async feedback jobs.
 - **`CloudFrontWaf`** — CloudFront distribution + WAF (managed rule sets, rate limiting).
@@ -152,7 +152,7 @@ Following the CDK steering (one stack per concern, `${StackPrefix}-<Concern>`, S
 - **`Observability`** — CloudWatch log groups with deliberate retention, Lambda Powertools (Python), metrics/alarms on latency, throttles, queue depth.
 - **`CICD`** — CodePipeline + CodeBuild, ECR with `imageScanOnPush`.
 
-The application name (REQ-NFR-APPNAME-01) and model identifier (REQ-NFR-MODEL-01) are SSM parameters; no backend literal carries the app name.
+The application name (REQ-NFR-APPNAME-01) and model identifier (REQ-NFR-MODEL-01) are SSM parameters; no backend literal carries the app name. The application-name parameter defaults to `leon` in development/code and is set to the desired display name (e.g., "WREN") via configuration only.
 
 ---
 
@@ -287,7 +287,7 @@ Compliance-shaping components:
 
 ## Data Models
 
-All relational data is in RDS PostgreSQL 16 (via RDS Proxy, TLS enforced); document/reference bytes in S3; reference embeddings in `pgvector`; Ask L.E.O.N session/conversation state in DynamoDB.
+All relational data is in RDS PostgreSQL 16 (via RDS Proxy, TLS enforced); document/reference bytes in S3; reference embeddings in `pgvector`; Ask WREN session/conversation state in DynamoDB.
 
 ```mermaid
 erDiagram
@@ -368,9 +368,9 @@ erDiagram
 **AggregateCounter** (read model for analytics)
 - `scopeKind`, `scopeId`, `metric`, `windowStart`, `value`. All-users totals only; never per-User.
 
-### Ask L.E.O.N Session State (DynamoDB)
+### Ask WREN Session State (DynamoDB)
 
-- PK `sessionId`, attributes: `userId`, `documentId`, `draftId`, `messages[]`, `ttl`. Anchored to a specific draft version; Ask L.E.O.N answers are Socratic-only and subject to the same no-ghostwriting guardrail.
+- PK `sessionId`, attributes: `userId`, `documentId`, `draftId`, `messages[]`, `ttl`. Anchored to a specific draft version; Ask WREN answers are Socratic-only and subject to the same no-ghostwriting guardrail.
 
 ### Key Invariants Captured in the Model
 
@@ -409,7 +409,7 @@ The properties below were derived from the acceptance-criteria prework. Redundan
 
 *For any* document word count and any effective size limit (default, or an Organization/Writing-Domain override where the domain value wins), the submission is rejected iff the word count exceeds the effective limit; on rejection no Draft is created and the Feedback Engine is not invoked.
 
-**Validates: Requirements 7.2, 7.3, 7.4**
+**Validates: Requirements 7.2, 7.3, 7.4**1
 
 ### Property 5: Draft history accumulation
 
