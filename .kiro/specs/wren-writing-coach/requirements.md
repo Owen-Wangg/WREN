@@ -19,7 +19,7 @@ This document defines requirements for WREN using the role/goal/benefit format w
 
 ## Glossary
 
-- **WREN / the platform**: The complete system described by this document, comprising all subsystems below. The application name is configurable (see REQ-NFR-APPNAME-01): this spec refers to the platform as "WREN" (or generically as "the platform"), while the development/code default value of the configurable application name is `leon`.
+- **WREN / the platform**: The complete system described by this document, comprising all subsystems below. The project, codebase, identifiers, packages, and spec/source paths all use **WREN**. The application name is configurable (see REQ-NFR-APPNAME-01): the configurable application *display* name resolves from a single SSM-backed configuration value whose default is `<APP NAME HERE>` — which is the only place that brand literal may appear anywhere in the project.
 - **Organization**: A **grouping** of Writing Domains and the Field/Domain Experts who maintain them, together with the org-wide reference materials and topics that support them. An Organization owns **no** Users and is **never** a data-isolation boundary. It exists to organize content and expertise, not to wall off tenants. (See REQ-ORG-GROUPING-01 and the **Tenancy Model** clarification note below.)
 - **Org Owner**: A business-layer role, assigned by the (System) Admin, that owns topics, adds Users to an Organization grouping, and assigns Writing Domains to Domain Experts. The Org Owner is the seam for any future multi-tenant expansion (forward-looking concern; not isolation today).
 - **Access State (OPEN / LOCKED)**: An access setting, controlled by the (System) Admin, that applies at the **Writing Domain** level as the effective control for submission, with the **Organization** providing a default that a Writing Domain inherits unless it sets its own state (a domain's explicit state wins over the org default). **OPEN** means any global User may self-select and submit; **LOCKED** means submission requires an Access Grant. Access scoping (OPEN/LOCKED) plus role scoping — not tenant isolation — is how the platform controls who can reach which Writing Domains. (See REQ-DOMAIN-ACCESS-01.)
@@ -949,14 +949,15 @@ The Figma wireframes use education-domain terminology. This spec reconciles it a
 
 **User Story:** As a maintainer, I want the application name configured in exactly one place, so that rebranding requires no backend code changes.
 
-> **Naming convention.** This spec uses **WREN** as the display name. In development/code the configurable application name defaults to `leon` (see criterion 5), so backend/infrastructure identifiers, the SSM/config default, and the `leon-writing-coach` spec/source paths intentionally retain `leon`. Changing the displayed name (e.g., to "WREN") is a single configuration edit and requires no code changes.
+> **Naming convention.** The project, codebase, identifiers, packages, and spec/source paths all use **WREN**. The configurable application *display* name resolves from a single configuration value (CDK context / SSM) whose default is `<APP NAME HERE>`. The literal `<APP NAME HERE>` MUST NOT appear anywhere in source, comments, docs, filenames, identifiers, package names, or resource names — its sole permitted occurrence is `DEFAULT_APP_NAME` in `cdk/lib/config.ts` (surfaced via the SSM app-name parameter the frontend reads). Changing the displayed name is a single configuration edit and requires no code changes.
 
 **Acceptance Criteria**
 1. THE platform SHALL NOT hardcode the application name in backend code, including API responses, logs, error strings, email templates, database seed data, and system prompts.
 2. THE frontend SHALL read the application name from a single configuration value.
 3. WHERE the application name is needed in backend output, THE platform SHALL derive it from configuration rather than a literal.
-4. THE platform SHALL ensure that a backend source search for the application name returns zero matches (excluding the single configuration definition).
-5. THE platform SHALL provide a single configurable application-name value whose development/code default is `leon`, settable to any display name (for example, "WREN") without backend code changes.
+4. THE platform SHALL ensure that a source search across backend, frontend, infrastructure, tests, documentation, and comments for the brand literal returns zero matches outside the single configuration definition.
+5. THE platform SHALL provide a single configurable application-name value whose default is `<APP NAME HERE>`, settable to any display name without backend code changes; all project/codebase identifiers (project name, packages, paths, resource names) use `WREN`.
+6. THE build SHALL fail if the brand literal appears as a string literal in any scanned source root outside the single configuration definition (enforced by the expanded application-name guard).
 
 ---
 

@@ -4,12 +4,33 @@ import type { Environment } from "aws-cdk-lib";
 /**
  * Single-source defaults for the CDK application.
  *
- * The application name defaults to `leon` in code/dev and is overridden to the
- * desired display name (e.g. "WREN") purely through configuration (CDK context
- * or, at runtime, SSM) - never by editing source. See REQ-NFR-APPNAME-01 and
- * the design's Infrastructure section.
+ * The project/codebase identity is WREN: all stack, resource, and table names
+ * derive from {@link DEFAULT_PROJECT_NAME} (`wren`), never from the display
+ * name. The configurable application *display* name is decoupled from infra
+ * naming (REQ-NFR-APPNAME-01) and is surfaced only through the SSM app-name
+ * parameter the frontend reads.
  */
-export const DEFAULT_APP_NAME = "leon";
+
+/**
+ * The configurable application DISPLAY name (REQ-NFR-APPNAME-01).
+ *
+ * This is the SOLE permitted occurrence of the brand literal in the entire
+ * codebase. It feeds only the SSM app-name parameter (the runtime display
+ * name); it MUST NOT drive any stack/resource/table naming. The display name is
+ * overridden purely through configuration (CDK context or, at runtime, SSM) —
+ * never by editing other source. See REQ-NFR-APPNAME-01 and the design's
+ * Infrastructure section.
+ */
+export const DEFAULT_APP_NAME = "LEON";
+
+/**
+ * The project identifier that drives ALL stack/resource/table naming.
+ *
+ * Decoupled from {@link DEFAULT_APP_NAME} so the display name never leaks into
+ * infrastructure names. `stackPrefix` defaults to `${projectName}-${environmentName}`
+ * (e.g. `wren-dev`).
+ */
+export const DEFAULT_PROJECT_NAME = "wren";
 export const DEFAULT_ENVIRONMENT_NAME = "dev";
 
 /**
@@ -34,8 +55,16 @@ export const DEFAULT_REGION = "ca-central-1";
  * Resolved, immutable configuration shared by every stack in the app.
  */
 export interface AppConfig {
-  /** Configurable application name; defaults to `leon`. Never a hardcoded brand literal. */
+  /**
+   * Configurable application DISPLAY name; defaults to {@link DEFAULT_APP_NAME}.
+   * Used SOLELY for the SSM app-name value — never for resource naming.
+   */
   readonly appName: string;
+  /**
+   * Project identifier that drives all stack/resource naming; defaults to
+   * {@link DEFAULT_PROJECT_NAME} (`wren`). Decoupled from {@link appName}.
+   */
+  readonly projectName: string;
   /** Deployment environment name (e.g. `dev`, `staging`, `prod`). */
   readonly environmentName: string;
   /**
@@ -46,7 +75,8 @@ export interface AppConfig {
   readonly bedrockModelId: string;
   /**
    * Prefix that drives all stack/resource naming: `${StackPrefix}-<Concern>`.
-   * Defaults to `${appName}-${environmentName}` when not explicitly provided.
+   * Defaults to `${projectName}-${environmentName}` when not explicitly
+   * provided — it derives from the project name, never from {@link appName}.
    */
   readonly stackPrefix: string;
   /** Account/region passed to every stack. */
@@ -68,23 +98,26 @@ function readContext(app: App, key: string): string | undefined {
  * environment variables.
  *
  * Context keys (all optional):
- *   - `appName`         -> defaults to `leon`
+ *   - `appName`         -> defaults to `LEON` (display name only)
+ *   - `projectName`     -> defaults to `wren` (drives resource naming)
  *   - `environmentName` -> defaults to `dev`
  *   - `bedrockModelId`  -> defaults to DEFAULT_BEDROCK_MODEL_ID
- *   - `stackPrefix`     -> defaults to `${appName}-${environmentName}`
+ *   - `stackPrefix`     -> defaults to `${projectName}-${environmentName}`
  *
  * Override at synth/deploy time, e.g.:
- *   cdk synth -c appName=wren -c environmentName=prod
+ *   cdk synth -c appName="My Coach" -c environmentName=prod
  *   cdk synth -c bedrockModelId=anthropic.claude-3-5-haiku-20241022-v1:0
  */
 export function resolveAppConfig(app: App): AppConfig {
   const appName = readContext(app, "appName") ?? DEFAULT_APP_NAME;
+  const projectName = readContext(app, "projectName") ?? DEFAULT_PROJECT_NAME;
   const environmentName = readContext(app, "environmentName") ?? DEFAULT_ENVIRONMENT_NAME;
   const bedrockModelId = readContext(app, "bedrockModelId") ?? DEFAULT_BEDROCK_MODEL_ID;
-  const stackPrefix = readContext(app, "stackPrefix") ?? `${appName}-${environmentName}`;
+  const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
 
   return {
     appName,
+    projectName,
     environmentName,
     bedrockModelId,
     stackPrefix,
@@ -97,7 +130,7 @@ export function resolveAppConfig(app: App): AppConfig {
 
 /**
  * Build the conventional stack id for a concern: `${StackPrefix}-<Concern>`
- * (e.g. `leon-dev-Vpc`). Later tasks (2.1+) use this to name concern stacks.
+ * (e.g. `wren-dev-Vpc`). Later tasks (2.1+) use this to name concern stacks.
  */
 export function stackName(config: AppConfig, concern: string): string {
   return `${config.stackPrefix}-${concern}`;
@@ -156,8 +189,9 @@ export const ssmParameterNames = {
 /**
  * Conventional name for the DynamoDB conversation/session-state table.
  *
- * Scoped to `${StackPrefix}` only — it deliberately carries NO brand or
- * application name (no "leon"/"wren"), per the design's Storage stack note.
+ * Scoped to `${StackPrefix}` only (e.g. `wren-dev-ConversationHistory`) — it
+ * carries NO display/brand literal. The prefix derives from the project name
+ * (`wren`), per the design's Storage stack note.
  */
 export function conversationTableName(config: AppConfig): string {
   return `${config.stackPrefix}-ConversationHistory`;

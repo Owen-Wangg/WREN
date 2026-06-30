@@ -1,8 +1,8 @@
 {
-  "name": "leon-writing-coach",
+  "name": "wren-writing-coach",
   "version": "0.0.0",
   "private": true,
-  "description": "LEON Writing Coach monorepo — shared test tooling (Jest + ts-jest + fast-check)",
+  "description": "WREN Writing Coach monorepo — shared test tooling (Jest + ts-jest + fast-check)",
   "license": "MIT",
   "workspaces": [
     "types",

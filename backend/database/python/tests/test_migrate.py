@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional, Sequence, Tuple
 
-from leon_db.migrate import (
+from wren_db.migrate import (
     DEFAULT_MIGRATIONS_DIR,
     list_migration_files,
     run_migrations,

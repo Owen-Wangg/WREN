@@ -13,9 +13,9 @@ function mockClient(secretString: string | undefined): {
 const SECRET = JSON.stringify({
   host: 'db.internal',
   port: 5432,
-  username: 'leon_app',
+  username: 'wren_app',
   password: 'super-secret',
-  dbname: 'leon',
+  dbname: 'wren',
 });
 
 describe('resolveDatabaseCredentials — runtime resolution (no hardcoded creds)', () => {
@@ -30,26 +30,26 @@ describe('resolveDatabaseCredentials — runtime resolution (no hardcoded creds)
     expect(creds).toEqual({
       host: 'db.internal',
       port: 5432,
-      username: 'leon_app',
+      username: 'wren_app',
       password: 'super-secret',
-      dbname: 'leon',
+      dbname: 'wren',
     });
   });
 
   it('lets non-secret overrides supply the RDS Proxy endpoint', async () => {
     const onlyAuth = JSON.stringify({
-      username: 'leon_app',
+      username: 'wren_app',
       password: 'super-secret',
     });
     const { client } = mockClient(onlyAuth);
 
     const creds = await resolveDatabaseCredentials('arn:secret', {
       client,
-      overrides: { host: 'proxy.rds', port: 5432, dbname: 'leon' },
+      overrides: { host: 'proxy.rds', port: 5432, dbname: 'wren' },
     });
 
     expect(creds.host).toBe('proxy.rds');
-    expect(creds.dbname).toBe('leon');
+    expect(creds.dbname).toBe('wren');
     expect(creds.port).toBe(5432);
   });
 
@@ -59,7 +59,7 @@ describe('resolveDatabaseCredentials — runtime resolution (no hardcoded creds)
       port: '5432',
       username: 'u',
       password: 'p',
-      dbname: 'leon',
+      dbname: 'wren',
     });
     const { client } = mockClient(stringPort);
 

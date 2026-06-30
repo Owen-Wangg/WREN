@@ -1,7 +1,7 @@
-"""Pytest bootstrap for the LEON Writing Coach repo.
+"""Pytest bootstrap for the WREN Writing Coach repo.
 
 Adds the shared Python testing package (``testing/python``) to ``sys.path`` so
-tests can ``import leon_testing`` without an editable install. Python Lambda
+tests can ``import wren_testing`` without an editable install. Python Lambda
 services scaffolded later under ``cdk/lambda`` can rely on the same helper.
 """
 import sys

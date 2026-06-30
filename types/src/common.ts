@@ -1,5 +1,5 @@
 /**
- * Shared primitive schemas used across LEON domain entities.
+ * Shared primitive schemas used across WREN domain entities.
  *
  * Identifiers are modelled as non-empty strings (the persistence layer assigns
  * the concrete format — UUID, ULID, etc.); timestamps are ISO-8601 strings so

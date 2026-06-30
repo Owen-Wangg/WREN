@@ -5,15 +5,15 @@
  * a trivial tooling self-check that verifies the runner, the helper's iteration
  * floor, and the tag convention all work before real property tests are written.
  *
- * Feature: leon-writing-coach, Property 0: test tooling smoke check
+ * Feature: wren-writing-coach, Property 0: test tooling smoke check
  */
 import fc from 'fast-check';
-import { FEATURE_SLUG, MIN_PROPERTY_RUNS, leonProperty, propertyTag } from './property';
+import { FEATURE_SLUG, MIN_PROPERTY_RUNS, wrenProperty, propertyTag } from './property';
 
 describe('TypeScript property-test tooling', () => {
   it('runs a fast-check property with the enforced iteration floor', () => {
-    // Feature: leon-writing-coach, Property 0: test tooling smoke check
-    const tag = leonProperty(
+    // Feature: wren-writing-coach, Property 0: test tooling smoke check
+    const tag = wrenProperty(
       { number: 0, text: 'test tooling smoke check' },
       fc.property(fc.integer(), fc.integer(), (a, b) => a + b === b + a),
     );
@@ -22,7 +22,7 @@ describe('TypeScript property-test tooling', () => {
 
   it('raises a sub-floor iteration request up to the minimum', () => {
     let observedRuns = 0;
-    leonProperty(
+    wrenProperty(
       { number: 0, text: 'iteration floor check' },
       fc.property(fc.constant(null), () => {
         observedRuns += 1;
@@ -35,7 +35,7 @@ describe('TypeScript property-test tooling', () => {
 
   it('formats the canonical property tag', () => {
     expect(propertyTag({ number: 10, text: 'No-ghostwriting guardrail' })).toBe(
-      'Feature: leon-writing-coach, Property 10: No-ghostwriting guardrail',
+      'Feature: wren-writing-coach, Property 10: No-ghostwriting guardrail',
     );
   });
 });

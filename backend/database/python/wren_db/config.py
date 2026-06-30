@@ -7,8 +7,8 @@ Security invariants (Requirement 39.2 / UBC CIC security + DB steering):
   connection kwargs always set ``sslmode='require'`` and there is no code path
   that disables it.
 * Credentials are never hardcoded; they arrive as :class:`DatabaseCredentials`
-  resolved from Secrets Manager at runtime (see :mod:`leon_db.secrets`).
-* Connection pooling is provided by :mod:`leon_db.pool` so warm Lambda
+  resolved from Secrets Manager at runtime (see :mod:`wren_db.secrets`).
+* Connection pooling is provided by :mod:`wren_db.pool` so warm Lambda
   invocations reuse connections through RDS Proxy.
 """
 from __future__ import annotations

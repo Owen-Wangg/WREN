@@ -5,7 +5,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
   "Outputs": {
     "ExportsOutputRefNetworkVpc7FB7348F649FC110": {
       "Export": {
-        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
+        "Name": "wren-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
       },
       "Value": {
         "Ref": "NetworkVpc7FB7348F",
@@ -13,7 +13,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "ExportsOutputRefNetworkVpcIsolatedSubnet1Subnet0400477E0480198B": {
       "Export": {
-        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet1Subnet0400477E0480198B",
+        "Name": "wren-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet1Subnet0400477E0480198B",
       },
       "Value": {
         "Ref": "NetworkVpcIsolatedSubnet1Subnet0400477E",
@@ -21,7 +21,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "ExportsOutputRefNetworkVpcIsolatedSubnet2SubnetF65B365A08912845": {
       "Export": {
-        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet2SubnetF65B365A08912845",
+        "Name": "wren-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet2SubnetF65B365A08912845",
       },
       "Value": {
         "Ref": "NetworkVpcIsolatedSubnet2SubnetF65B365A",
@@ -29,7 +29,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5": {
       "Export": {
-        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5",
+        "Name": "wren-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5",
       },
       "Value": {
         "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
@@ -37,7 +37,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15": {
       "Export": {
-        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15",
+        "Name": "wren-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15",
       },
       "Value": {
         "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
@@ -69,7 +69,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
       },
@@ -98,7 +98,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcEndpointType": "Interface",
@@ -110,7 +110,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcApiGatewayEndpointSecurityGroup3D1CAB50": {
       "Properties": {
-        "GroupDescription": "leon-test-Vpc/Network/Vpc/ApiGatewayEndpoint/SecurityGroup",
+        "GroupDescription": "wren-test-Vpc/Network/Vpc/ApiGatewayEndpoint/SecurityGroup",
         "SecurityGroupEgress": [
           {
             "CidrIp": "0.0.0.0/0",
@@ -149,7 +149,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcId": {
@@ -181,7 +181,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcEndpointType": "Interface",
@@ -193,7 +193,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcBedrockRuntimeEndpointSecurityGroup132E297A": {
       "Properties": {
-        "GroupDescription": "leon-test-Vpc/Network/Vpc/BedrockRuntimeEndpoint/SecurityGroup",
+        "GroupDescription": "wren-test-Vpc/Network/Vpc/BedrockRuntimeEndpoint/SecurityGroup",
         "SecurityGroupEgress": [
           {
             "CidrIp": "0.0.0.0/0",
@@ -232,7 +232,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcId": {
@@ -278,7 +278,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcEndpointType": "Gateway",
@@ -307,7 +307,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/FlowLog",
+            "Value": "wren-test-Vpc/Network/Vpc/FlowLog",
           },
         ],
         "TrafficType": "ALL",
@@ -331,7 +331,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/FlowLog",
+            "Value": "wren-test-Vpc/Network/Vpc/FlowLog",
           },
         ],
       },
@@ -372,7 +372,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
       },
@@ -394,7 +394,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/IsolatedSubnet1",
+            "Value": "wren-test-Vpc/Network/Vpc/IsolatedSubnet1",
           },
         ],
         "VpcId": {
@@ -419,7 +419,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
           },
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/IsolatedSubnet1",
+            "Value": "wren-test-Vpc/Network/Vpc/IsolatedSubnet1",
           },
         ],
         "VpcId": {
@@ -433,7 +433,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/IsolatedSubnet2",
+            "Value": "wren-test-Vpc/Network/Vpc/IsolatedSubnet2",
           },
         ],
         "VpcId": {
@@ -469,7 +469,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
           },
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/IsolatedSubnet2",
+            "Value": "wren-test-Vpc/Network/Vpc/IsolatedSubnet2",
           },
         ],
         "VpcId": {
@@ -495,7 +495,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PrivateSubnet1",
+            "Value": "wren-test-Vpc/Network/Vpc/PrivateSubnet1",
           },
         ],
         "VpcId": {
@@ -531,7 +531,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
           },
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PrivateSubnet1",
+            "Value": "wren-test-Vpc/Network/Vpc/PrivateSubnet1",
           },
         ],
         "VpcId": {
@@ -568,7 +568,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PrivateSubnet2",
+            "Value": "wren-test-Vpc/Network/Vpc/PrivateSubnet2",
           },
         ],
         "VpcId": {
@@ -593,7 +593,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
           },
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PrivateSubnet2",
+            "Value": "wren-test-Vpc/Network/Vpc/PrivateSubnet2",
           },
         ],
         "VpcId": {
@@ -623,7 +623,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet1",
+            "Value": "wren-test-Vpc/Network/Vpc/PublicSubnet1",
           },
         ],
       },
@@ -647,7 +647,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet1",
+            "Value": "wren-test-Vpc/Network/Vpc/PublicSubnet1",
           },
         ],
       },
@@ -658,7 +658,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet1",
+            "Value": "wren-test-Vpc/Network/Vpc/PublicSubnet1",
           },
         ],
         "VpcId": {
@@ -694,7 +694,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
           },
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet1",
+            "Value": "wren-test-Vpc/Network/Vpc/PublicSubnet1",
           },
         ],
         "VpcId": {
@@ -723,7 +723,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet2",
+            "Value": "wren-test-Vpc/Network/Vpc/PublicSubnet2",
           },
         ],
         "VpcId": {
@@ -759,7 +759,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
           },
           {
             "Key": "Name",
-            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet2",
+            "Value": "wren-test-Vpc/Network/Vpc/PublicSubnet2",
           },
         ],
         "VpcId": {
@@ -791,7 +791,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcEndpointType": "Interface",
@@ -803,7 +803,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcRdsEndpointSecurityGroup365EDE15": {
       "Properties": {
-        "GroupDescription": "leon-test-Vpc/Network/Vpc/RdsEndpoint/SecurityGroup",
+        "GroupDescription": "wren-test-Vpc/Network/Vpc/RdsEndpoint/SecurityGroup",
         "SecurityGroupEgress": [
           {
             "CidrIp": "0.0.0.0/0",
@@ -842,7 +842,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcId": {
@@ -888,7 +888,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcEndpointType": "Gateway",
@@ -921,7 +921,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcEndpointType": "Interface",
@@ -933,7 +933,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcSecretsManagerEndpointSecurityGroup21FC5B38": {
       "Properties": {
-        "GroupDescription": "leon-test-Vpc/Network/Vpc/SecretsManagerEndpoint/SecurityGroup",
+        "GroupDescription": "wren-test-Vpc/Network/Vpc/SecretsManagerEndpoint/SecurityGroup",
         "SecurityGroupEgress": [
           {
             "CidrIp": "0.0.0.0/0",
@@ -972,7 +972,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcId": {
@@ -1004,7 +1004,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcEndpointType": "Interface",
@@ -1016,7 +1016,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcSsmEndpointSecurityGroup70BA50F1": {
       "Properties": {
-        "GroupDescription": "leon-test-Vpc/Network/Vpc/SsmEndpoint/SecurityGroup",
+        "GroupDescription": "wren-test-Vpc/Network/Vpc/SsmEndpoint/SecurityGroup",
         "SecurityGroupEgress": [
           {
             "CidrIp": "0.0.0.0/0",
@@ -1055,7 +1055,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         "Tags": [
           {
             "Key": "Name",
-            "Value": "leon-test-vpc",
+            "Value": "wren-test-vpc",
           },
         ],
         "VpcId": {
@@ -1078,7 +1078,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     "VpcIdParameter44761537": {
       "Properties": {
         "Description": "VPC id for the platform network (published for downstream stacks).",
-        "Name": "/leon-test/network/vpc-id",
+        "Name": "/wren-test/network/vpc-id",
         "Type": "String",
         "Value": {
           "Ref": "NetworkVpc7FB7348F",

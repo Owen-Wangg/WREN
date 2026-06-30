@@ -1,6 +1,6 @@
-# `leon_db` — Python data-access layer
+# `wren_db` — Python data-access layer
 
-Parameterized PostgreSQL data access for LEON Writing Coach **Python 3.12**
+Parameterized PostgreSQL data access for WREN Writing Coach **Python 3.12**
 Lambdas. Built on [`psycopg[binary,pool]`](https://www.psycopg.org/psycopg3/).
 Connects to RDS PostgreSQL 16 through **RDS Proxy with TLS enforced**, resolves
 credentials from **Secrets Manager** at runtime, pools connections, and runs
@@ -21,8 +21,8 @@ forward-only migrations.
 ## Usage
 
 ```python
-from leon_db import DataAccess
-from leon_db.pool import get_pool
+from wren_db import DataAccess
+from wren_db.pool import get_pool
 
 db = DataAccess(get_pool())  # reads DB_SECRET_ARN, DB_PROXY_HOST, DB_PORT, DB_NAME
 rows = db.query("SELECT id, email FROM app_user WHERE email = %s", [email])
@@ -31,8 +31,8 @@ rows = db.query("SELECT id, email FROM app_user WHERE email = %s", [email])
 Run migrations programmatically (lexical filename order, idempotent):
 
 ```python
-from leon_db.migrate import run_migrations
-from leon_db.pool import get_pool
+from wren_db.migrate import run_migrations
+from wren_db.pool import get_pool
 
 applied = run_migrations(get_pool())  # applies backend/database/migrations/*.sql
 ```

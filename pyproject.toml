@@ -1,7 +1,7 @@
 [project]
-name = "leon-writing-coach-tests"
+name = "wren-writing-coach-tests"
 version = "0.0.0"
-description = "LEON Writing Coach — Python test tooling (pytest + Hypothesis, managed via uv)"
+description = "WREN Writing Coach — Python test tooling (pytest + Hypothesis, managed via uv)"
 requires-python = ">=3.12"
 dependencies = []
 

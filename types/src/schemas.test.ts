@@ -1,5 +1,5 @@
 /**
- * Tests for the shared LEON domain schemas.
+ * Tests for the shared WREN domain schemas.
  *
  * Two concerns are covered:
  *   1. Strict schemas parse valid examples and reject malformed ones.

@@ -1,4 +1,4 @@
-# `@leon/types` — shared domain contract
+# `@wren/types` — shared domain contract
 
 Single source of truth for the platform's core domain types and runtime
 validation schemas (frontend steering §7: shared types live in `/types`). Both
@@ -40,18 +40,18 @@ No DTO may carry a `replacementProse` field. This is enforced two ways:
 `types` is an npm workspace, so it resolves by name:
 
 ```ts
-import { feedbackItemSchema, type FeedbackItem } from '@leon/types';
+import { feedbackItemSchema, type FeedbackItem } from '@wren/types';
 
 const item: FeedbackItem = feedbackItemSchema.parse(await response.json());
 ```
 
-A consuming package (`cdk/`, `frontend/`) adds `"@leon/types": "*"` to its
+A consuming package (`cdk/`, `frontend/`) adds `"@wren/types": "*"` to its
 dependencies (or joins the root workspaces) to pull it in. Validate API
 responses at the boundary with the exported schemas.
 
 ## Verify
 
 ```bash
-npm run -w @leon/types typecheck   # tsc --noEmit
+npm run -w @wren/types typecheck   # tsc --noEmit
 npx jest types/src                 # unit + property tests
 ```

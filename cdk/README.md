@@ -1,6 +1,6 @@
-# LEON Writing Coach - Infrastructure (`cdk/`)
+# WREN Writing Coach - Infrastructure (`cdk/`)
 
-AWS CDK v2 (TypeScript) infrastructure for the LEON Writing Coach platform.
+AWS CDK v2 (TypeScript) infrastructure for the WREN Writing Coach platform.
 One stack per concern, named `${StackPrefix}-<Concern>`.
 
 ## Purpose
@@ -23,14 +23,17 @@ npm install
 
 ## Configuration
 
-Naming and environment are driven by configuration, never source edits. The
-application name defaults to `leon`; override it (e.g. to `wren`) via context:
+Naming and environment are driven by configuration, never source edits. All
+stack/resource naming derives from the project name (`wren`). The application
+*display* name is decoupled from infra naming and defaults to the single
+configured value; override it via context:
 
-| Context key       | Default                        | Purpose                                   |
-| ----------------- | ------------------------------ | ----------------------------------------- |
-| `appName`         | `leon`                         | Configurable application name             |
-| `environmentName` | `dev`                          | Deployment environment                    |
-| `stackPrefix`     | `${appName}-${environmentName}`| Drives `${StackPrefix}-<Concern>` naming  |
+| Context key       | Default                          | Purpose                                       |
+| ----------------- | -------------------------------- | --------------------------------------------- |
+| `appName`         | (the single configured value)    | Configurable application display name (SSM)   |
+| `projectName`     | `wren`                           | Drives `${StackPrefix}` / resource naming     |
+| `environmentName` | `dev`                            | Deployment environment                        |
+| `stackPrefix`     | `${projectName}-${environmentName}`| Drives `${StackPrefix}-<Concern>` naming    |
 
 Account/region come from the standard CDK environment variables
 (`CDK_DEFAULT_ACCOUNT`, `CDK_DEFAULT_REGION`); region falls back to
@@ -48,14 +51,14 @@ npm run synth       # cdk synth (uses cdk.json context defaults)
 npm run cdk -- ...  # invoke the CDK CLI
 
 # Override configuration at synth/deploy time:
-npm run cdk -- synth -c appName=wren -c environmentName=prod
+npm run cdk -- synth -c projectName=wren -c environmentName=prod
 ```
 
 ## Layout
 
 ```
 cdk/
-├── bin/leon.ts          # CDK app entry point
+├── bin/wren.ts          # CDK app entry point
 ├── lib/
 │   ├── config.ts        # StackPrefix / environmentName / env resolution
 │   ├── tags.ts          # Cost-allocation tagging helper

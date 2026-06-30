@@ -1,5 +1,5 @@
 /**
- * `@leon/db-node` — parameterized PostgreSQL data-access layer for Node 22
+ * `@wren/db-node` — parameterized PostgreSQL data-access layer for Node 22
  * Lambdas. Connects to RDS PostgreSQL 16 through RDS Proxy with TLS enforced,
  * resolves credentials from Secrets Manager at runtime, pools connections, and
  * runs forward-only migrations.

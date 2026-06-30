@@ -1,7 +1,7 @@
 """TLS-enforcement and option-mapping tests for the config module (Req 39.2)."""
 import pytest
 
-from leon_db.config import (
+from wren_db.config import (
     REQUIRED_SSL_MODE,
     DatabaseCredentials,
     connection_kwargs,
@@ -10,9 +10,9 @@ from leon_db.config import (
 CREDS = DatabaseCredentials(
     host="proxy.example.ca-central-1.rds.amazonaws.com",
     port=5432,
-    username="leon_app",
+    username="wren_app",
     password="resolved-at-runtime",
-    dbname="leon",
+    dbname="wren",
 )
 
 
@@ -33,9 +33,9 @@ def test_maps_credentials_onto_connection_kwargs():
 
 def test_rejects_empty_host():
     with pytest.raises(ValueError, match="host"):
-        connection_kwargs(DatabaseCredentials("", 5432, "u", "p", "leon"))
+        connection_kwargs(DatabaseCredentials("", 5432, "u", "p", "wren"))
 
 
 def test_rejects_invalid_port():
     with pytest.raises(ValueError, match="port"):
-        connection_kwargs(DatabaseCredentials("h", 0, "u", "p", "leon"))
+        connection_kwargs(DatabaseCredentials("h", 0, "u", "p", "wren"))

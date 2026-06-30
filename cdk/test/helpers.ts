@@ -20,10 +20,11 @@ export const TEST_ACCOUNT = "123456789012";
 /** Build a deterministic, fully-resolved {@link AppConfig} for tests. */
 export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    appName: "leon",
+    appName: "LEON",
+    projectName: "wren",
     environmentName: "test",
     bedrockModelId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
-    stackPrefix: "leon-test",
+    stackPrefix: "wren-test",
     env: { account: TEST_ACCOUNT, region: TEST_REGION },
     ...overrides,
   };
@@ -40,25 +41,25 @@ export interface SynthesizedStacks {
 
 /**
  * Instantiate all four foundational stacks in a single app, wired exactly as
- * `bin/leon.ts` wires them (the Database stack receives the concrete VPC).
+ * `bin/wren.ts` wires them (the Database stack receives the concrete VPC).
  */
 export function synthStacks(config: AppConfig = testConfig()): SynthesizedStacks {
   const app = new App();
 
-  const configStack = new ConfigStack(app, "leon-test-Config", {
+  const configStack = new ConfigStack(app, "wren-test-Config", {
     env: config.env,
     config,
   });
-  const vpcStack = new VpcStack(app, "leon-test-Vpc", {
+  const vpcStack = new VpcStack(app, "wren-test-Vpc", {
     env: config.env,
     config,
   });
-  const databaseStack = new DatabaseStack(app, "leon-test-Database", {
+  const databaseStack = new DatabaseStack(app, "wren-test-Database", {
     env: config.env,
     config,
     vpc: vpcStack.vpc,
   });
-  const storageStack = new StorageStack(app, "leon-test-Storage", {
+  const storageStack = new StorageStack(app, "wren-test-Storage", {
     env: config.env,
     config,
   });

@@ -1,5 +1,5 @@
 /**
- * Jest configuration for the LEON Writing Coach CDK package.
+ * Jest configuration for the WREN Writing Coach CDK package.
  *
  * The CDK sources are authored as NodeNext ESM and import sibling modules with
  * explicit `.js` extensions (e.g. `import { ... } from "../config.js"`). Under

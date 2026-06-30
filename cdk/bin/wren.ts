@@ -8,7 +8,7 @@ import { DatabaseStack } from "../lib/stacks/DatabaseStack.js";
 import { StorageStack } from "../lib/stacks/StorageStack.js";
 
 /**
- * CDK application entry point for the LEON Writing Coach infrastructure.
+ * CDK application entry point for the WREN Writing Coach infrastructure.
  *
  * This file resolves the shared configuration (StackPrefix / environmentName /
  * account / region), applies cost-allocation tags at the app scope so every

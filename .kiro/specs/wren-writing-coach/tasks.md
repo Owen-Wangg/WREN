@@ -1,8 +1,8 @@
-# Implementation Plan: LEON Writing Coach
+# Implementation Plan: WREN Writing Coach
 
 ## Overview
 
-This plan converts the LEON design into incremental, code-focused implementation steps on the
+This plan converts the WREN design into incremental, code-focused implementation steps on the
 UBC CIC baseline stack (AWS CDK v2 TypeScript; Node 22 + Python 3.12 Lambdas; RDS PostgreSQL 16 +
 `pgvector`; DynamoDB; S3; Cognito; Amazon Bedrock via `langchain-aws`; React 19 / Vite / Tailwind /
 shadcn/ui). Each task builds on prior tasks and ends by wiring new code into the running system, so
@@ -18,11 +18,11 @@ they conflict:
    implemented as a configurable **Writing Type** catalog that any global User can self-select when its
    effective access state is OPEN — never a hardcoded domain enumeration.
 3. **The document editor is built on `docx-editor.dev`** (the open-source `eigenpal/docx-editor`
-   React component with canonical OOXML and a tracked-changes / comments layer). LEON's inline
+   React component with canonical OOXML and a tracked-changes / comments layer). WREN's inline
    anchored feedback renders through that comment layer; we do not hand-roll a custom editor.
 
 Property-based tests (one per design property, Properties 1–30) are optional sub-tasks marked `*`.
-Each is tagged `Feature: leon-writing-coach, Property N` and runs ≥100 iterations
+Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterations
 (Hypothesis for Python logic, fast-check for TypeScript logic).
 
 ## Tasks
@@ -39,7 +39,7 @@ Each is tagged `Feature: leon-writing-coach, Property N` and runs ≥100 iterati
     - _Requirements: 1.1, 11.1, 28.2_
   - [x] 1.3 Stand up test tooling for both runtimes  〔Prelude · P0〕
     - Configure Jest + ts-jest + `fast-check` (Node/TS) and `pytest` + Hypothesis with `property`/`integration`/`slow` markers (Python via `uv`)
-    - Add a shared property-test helper that enforces ≥100 iterations and the `Feature: leon-writing-coach, Property N` tag convention
+    - Add a shared property-test helper that enforces ≥100 iterations and the `Feature: wren-writing-coach, Property N` tag convention
     - _Requirements: 52.2_
   - [x] 1.4 Centralize application name and model identifier as single-source config  〔Track A · A0〕
     - Read app name and Bedrock model id from SSM/config; forbid backend literals
@@ -331,8 +331,8 @@ Each is tagged `Feature: leon-writing-coach, Property N` and runs ≥100 iterati
   - [ ]* 18.5 Write property test for writer-facing progress carrying no numeric scoring  〔Track B · B4〕
     - **Property 19: Writer-facing progress carries no numeric scoring**
     - **Validates: Requirements 18.3**
-  - [ ] 18.6 Implement document creation, re-upload, citations, and Ask L.E.O.N  〔Track B · B2〕
-    - New-document form (type select, configurable metadata incl. "Writing Topic", reference upload, Activate Editor disabled until required fields set); re-upload to create a new Draft; citation display on items; Ask L.E.O.N panel (Socratic-only, draft-anchored, same guardrail)
+  - [ ] 18.6 Implement document creation, re-upload, citations, and Ask WREN  〔Track B · B2〕
+    - New-document form (type select, configurable metadata incl. "Writing Topic", reference upload, Activate Editor disabled until required fields set); re-upload to create a new Draft; citation display on items; Ask WREN panel (Socratic-only, draft-anchored, same guardrail)
     - _Requirements: 6.6, 6.7, 8.1, 21.2, 11.1_
   - [ ]* 18.7 Write compliance render tests for the editor and debrief  〔Track B · B3〕
     - Assert AI feedback is visually/structurally distinguishable from writer text and that no Apply/Insert/Accept affordance exists; AI Debrief modal focus trap, Escape/×, focus return
@@ -362,7 +362,7 @@ Each is tagged `Feature: leon-writing-coach, Property N` and runs ≥100 iterati
 ## Notes
 
 - Tasks marked with `*` are optional (property/unit/integration tests) and can be skipped for a faster MVP; core implementation tasks are never optional.
-- Each property (1–30) is implemented by exactly one property-based test, tagged `Feature: leon-writing-coach, Property N`, running ≥100 iterations, with generators exercising the prework edge cases (empty/whitespace, non-ASCII, duplicated anchored text, identical drafts, config-changed-text-unchanged spans, cross-organization Field-Expert assignments, adversarial injected instructions).
+- Each property (1–30) is implemented by exactly one property-based test, tagged `Feature: wren-writing-coach, Property N`, running ≥100 iterations, with generators exercising the prework edge cases (empty/whitespace, non-ASCII, duplicated anchored text, identical drafts, config-changed-text-unchanged spans, cross-organization Field-Expert assignments, adversarial injected instructions).
 - "Writing Type" is the configurable, user-selectable implementation of the design's "Writing Domain"; OPEN types are self-selectable by any global User. There is no hardcoded domain enumeration.
 - "Location Reference" is intentionally omitted as a seeded metadata field; the configurable custom-metadata mechanism still supports arbitrary Org-Owner-defined fields. Draft anchoring of feedback to text spans is fully implemented (tasks 8.3–8.5, 18.2).
 - The document editor is built on `docx-editor.dev`; its comments/tracked-changes layer renders AI feedback, which must remain visually distinct from writer text with no content-insertion affordance.

@@ -48,7 +48,7 @@ Use these as the canonical reference for student-facing component scope:
 | Dashboard (populated) | `WritingEnvironmentCard` (env id, title, status badge, content tag, date, overflow menu) |
 | Editor | `DocumentEditor`, `EditorSidebar` (View/Regenerate AI Debrief, Ask WREN, Download) |
 | AI Debrief | `AiDebriefModal`, `FeedbackDimension` (star rating \+ "What's Done Well" / "Areas for Improvement" bullets), `FeedbackHelpfulnessPrompt` (Yes/No \+ comment) |
-| Ask WREN | `LeonChatPanel` (slides in alongside debrief, doesn't replace it) |
+| Ask WREN | `WrenChatPanel` (slides in alongside debrief, doesn't replace it) |
 | Document review | Read-only rendered draft view (no editor controls) |
 
 Status badges seen: **Still Drafting** (default), **Polishing** (green) — treat status as an enum, not free text, so new states can be added without UI rewrites.

@@ -1,7 +1,7 @@
 /**
  * No-ghostwriting invariant (REQ-CORE-NOGHOST-01 / Requirements 11.1, 11.3, 11.4).
  *
- * LEON surfaces Socratic questions and error-type flags only. No data transfer
+ * WREN surfaces Socratic questions and error-type flags only. No data transfer
  * object that crosses an API boundary, and no persisted record, may carry a
  * `replacementProse` field (or any field that would smuggle machine-generated
  * substitute text back to a writer).
@@ -65,7 +65,7 @@ export function containsReplacementProse(value: unknown): boolean {
 export function assertNoReplacementProse<T>(value: T): T {
   if (containsReplacementProse(value)) {
     throw new Error(
-      `No-ghostwriting invariant violated: a "${FORBIDDEN_PROSE_KEY}" field is forbidden on any LEON DTO (REQ-CORE-NOGHOST-01).`,
+      `No-ghostwriting invariant violated: a "${FORBIDDEN_PROSE_KEY}" field is forbidden on any WREN DTO (REQ-CORE-NOGHOST-01).`,
     );
   }
   return value;

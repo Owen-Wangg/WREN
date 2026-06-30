@@ -78,7 +78,7 @@ describe("StorageStack", () => {
 
   it("names the conversation table from StackPrefix with no brand literal", () => {
     template.hasResourceProperties("AWS::DynamoDB::Table", {
-      TableName: "leon-test-ConversationHistory",
+      TableName: "wren-test-ConversationHistory",
     });
   });
 

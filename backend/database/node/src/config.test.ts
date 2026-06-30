@@ -3,9 +3,9 @@ import { buildConnectionOptions, type DatabaseCredentials } from './config';
 const creds: DatabaseCredentials = {
   host: 'proxy.example.ca-central-1.rds.amazonaws.com',
   port: 5432,
-  username: 'leon_app',
+  username: 'wren_app',
   password: 'resolved-at-runtime',
-  dbname: 'leon',
+  dbname: 'wren',
 };
 
 describe('buildConnectionOptions — TLS enforcement (Requirement 39.2)', () => {

@@ -1,4 +1,4 @@
--- Migration 0002 — initial relational schema for LEON Writing Coach.
+-- Migration 0002 — initial relational schema for WREN Writing Coach.
 --
 -- Source of truth: design.md "Data Models" (Core Entities + Key Invariants) and
 -- tasks.md task 2.3. Naming follows the product decision in tasks.md / the shared

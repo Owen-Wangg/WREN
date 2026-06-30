@@ -13,7 +13,7 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
     "ConversationTableNameParameterC3DDF4CB": {
       "Properties": {
         "Description": "Name of the DynamoDB conversation/session-state table.",
-        "Name": "/leon-test/storage/conversation-table-name",
+        "Name": "/wren-test/storage/conversation-table-name",
         "Type": "String",
         "Value": {
           "Ref": "StorageConversationHistory53512F71",
@@ -24,7 +24,7 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
     "DocumentsBucketNameParameter92CB8643": {
       "Properties": {
         "Description": "Name of the S3 bucket holding submitted document bytes.",
-        "Name": "/leon-test/storage/documents-bucket-name",
+        "Name": "/wren-test/storage/documents-bucket-name",
         "Type": "String",
         "Value": {
           "Ref": "StorageDocumentsBucket59145458",
@@ -35,7 +35,7 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
     "ReferenceBucketNameParameter1F9B3410": {
       "Properties": {
         "Description": "Name of the S3 bucket holding Reference Material bytes.",
-        "Name": "/leon-test/storage/reference-bucket-name",
+        "Name": "/wren-test/storage/reference-bucket-name",
         "Type": "String",
         "Value": {
           "Ref": "StorageReferenceBucket77460B50",
@@ -72,7 +72,7 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
           "SSEEnabled": true,
           "SSEType": "KMS",
         },
-        "TableName": "leon-test-ConversationHistory",
+        "TableName": "wren-test-ConversationHistory",
         "TimeToLiveSpecification": {
           "AttributeName": "ttl",
           "Enabled": true,
@@ -187,7 +187,7 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
     "StorageEncryptionKeyD712D8B8": {
       "DeletionPolicy": "Retain",
       "Properties": {
-        "Description": "leon-test storage encryption key (S3 + DynamoDB).",
+        "Description": "wren-test storage encryption key (S3 + DynamoDB).",
         "EnableKeyRotation": true,
         "KeyPolicy": {
           "Statement": [

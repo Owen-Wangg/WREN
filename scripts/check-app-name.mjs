@@ -12,20 +12,20 @@
  *
  * The app-name token is NOT hardcoded here — it is read from `DEFAULT_APP_NAME`
  * in `cdk/lib/config.ts`, keeping a single source of truth. With the default
- * the token is `leon`.
+ * the token is `wren`.
  *
  * WHAT COUNTS AS A VIOLATION
  *   A quoted string literal whose *entire* value is exactly the app-name token,
- *   case-insensitively: "leon", 'leon', or `leon`. This is the shape a
+ *   case-insensitively: "wren", 'wren', or `wren`. This is the shape a
  *   hardcoded app name takes in API responses, logs, error strings, email
  *   templates, seed data, and system prompts.
  *
  * WHAT IS DELIBERATELY NOT A VIOLATION (legitimate path/package identifiers)
- *   - File/path identifiers and bin names: `bin/leon.ts`, `bin/leon.js`
- *   - Package names and slugs: `leon-cdk`, `leon-writing-coach`
- *   - Stack-prefix-derived names: `leon-dev`, `leon-dev-Skeleton`
+ *   - File/path identifiers and bin names: `bin/wren.ts`, `bin/wren.js`
+ *   - Package names and slugs: `wren-cdk`, `wren-writing-coach`
+ *   - Stack-prefix-derived names: `wren-dev`, `wren-dev-Skeleton`
  *   These never match because the token must be the WHOLE quoted value
- *   (a `-`, `/`, or `.` after `leon` breaks the match), and because the scan
+ *   (a `-`, `/`, or `.` after `wren` breaks the match), and because the scan
  *   only inspects source code — not `package.json`, `cdk.json`, lockfiles, or
  *   generated `cdk.out` artifacts.
  *
@@ -137,7 +137,7 @@ function hasSourceExtension(file) {
 function main() {
   const token = readAppNameToken();
   // Match a quoted string literal whose ENTIRE value is exactly the app name.
-  // e.g. "leon" / 'leon' / `leon`  — but NOT "leon-cdk", "bin/leon.ts", etc.
+  // e.g. "wren" / 'wren' / `wren`  — but NOT "wren-cdk", "bin/wren.ts", etc.
   const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const literalRe = new RegExp(`(["'\`])${escaped}\\1`, "i");
 

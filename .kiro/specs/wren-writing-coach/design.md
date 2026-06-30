@@ -9,7 +9,7 @@ WREN (Writing Refinement, Expression & Navigation) is an MIT-licensed, AWS-hoste
 The design is shaped by a small set of non-negotiable constraints drawn directly from the requirements. These constraints, rather than any single feature, drive most architectural decisions:
 
 1. **No ghostwriting is a system invariant, not a prompt suggestion** (REQ-CORE-NOGHOST-01). The internal "correct version" the model derives to *detect* an error must never leave the backend. This forces a two-stage pipeline (internal detection context → externally-stored Feedback Item) and an output guardrail that strips/rejects replacement prose before persistence.
-2. **Feedback is anchored to draft versions and must survive revision** (REQ-ANCHOR-01, draft anchoring in `leon-frontend.md`). Anchors carry positional + content-fingerprint data so they can be re-mapped via diff across drafts, and feedback can never silently drift onto unrelated text.
+2. **Feedback is anchored to draft versions and must survive revision** (REQ-ANCHOR-01, draft anchoring in `wren-frontend.md`). Anchors carry positional + content-fingerprint data so they can be re-mapped via diff across drafts, and feedback can never silently drift onto unrelated text.
 3. **Organizations are groupings, not isolated tenants; Users are global** (REQ-ORG-GROUPING-01). Authorization is resolved in the application database from role scoping + Writing-Domain OPEN/LOCKED access state + Access Grants — never from tenant partitioning or IdP claims (REQ-SEC-AUTHDECOUPLE-01).
 4. **Cost/latency discipline through diff-based, cached processing** (REQ-DRAFT-DIFF-01, REQ-NFR-COST-01, REQ-NFR-LATENCY-01). Only changed spans plus bounded context reach the LLM; unchanged spans carry forward prior Feedback Items unless their governing configuration changed.
 5. **No surveillance**: per-User operational state powers the writer's own experience only; everyone above sees all-users aggregate totals derived from an independent Actor–Verb–Object activity log that outlives deleted documents (REQ-AUDIT-OPSTATE-01, REQ-ACTIVITY-LOG-01, REQ-AUDIT-RETENTION-01).
@@ -144,7 +144,7 @@ Following the CDK steering (one stack per concern, `${StackPrefix}-<Concern>`, S
 
 - **`Vpc`** — public / private-with-egress / isolated subnets; interface endpoints (Secrets Manager, SSM, RDS, API Gateway, Bedrock), gateway endpoint (DynamoDB, S3); VPC flow logs.
 - **`Database`** — RDS PostgreSQL 16 with RDS Proxy (TLS enforced, `rds.force_ssl`), `pgvector`; credentials in Secrets Manager.
-- **`Storage`** — S3 buckets (documents, reference materials) with block-public-access, `enforceSSL`, KMS, lifecycle rules; a DynamoDB table named `${StackPrefix}-ConversationHistory` for conversation/session state. The table name is scoped to `StackPrefix` only and carries no brand/application name (no "leon"/"wren").
+- **`Storage`** — S3 buckets (documents, reference materials) with block-public-access, `enforceSSL`, KMS, lifecycle rules; a DynamoDB table named `${StackPrefix}-ConversationHistory` for conversation/session state. The table name is scoped to `StackPrefix` only and carries no display/brand literal — it derives from the project name (e.g. `wren-...`).
 - **`Api`** — `SpecRestApi` from an OpenAPI spec, regional endpoint, Lambda authorizer, throttling, ERROR-level logging; AppSync/WebSocket for feedback streaming.
 - **`Compute`** — the Lambda functions / container Lambda above, each with a scoped IAM role; SQS queue + DLQ for async feedback jobs.
 - **`CloudFrontWaf`** — CloudFront distribution + WAF (managed rule sets, rate limiting).
@@ -152,7 +152,7 @@ Following the CDK steering (one stack per concern, `${StackPrefix}-<Concern>`, S
 - **`Observability`** — CloudWatch log groups with deliberate retention, Lambda Powertools (Python), metrics/alarms on latency, throttles, queue depth.
 - **`CICD`** — CodePipeline + CodeBuild, ECR with `imageScanOnPush`.
 
-The application name (REQ-NFR-APPNAME-01) and model identifier (REQ-NFR-MODEL-01) are SSM parameters; no backend literal carries the app name. The application-name parameter defaults to `leon` in development/code and is set to the desired display name (e.g., "WREN") via configuration only.
+The application name (REQ-NFR-APPNAME-01) and model identifier (REQ-NFR-MODEL-01) are SSM parameters; no backend literal carries the app name, and all stack/resource names derive from the project identifier `wren`. The application-name parameter is the configurable display name resolved from a single config value whose default is `<APP NAME HERE>` — the only place that brand literal may appear; it is set to any desired display name via configuration only.
 
 ---
 
@@ -273,7 +273,7 @@ No-surveillance analytics and retention (Section 8).
 
 ### Frontend (React 19 / Vite / Tailwind / shadcn/ui)
 
-Per `leon-frontend.md`: feature-based organization (`/features/<feature>/components`), shared primitives in `/components/ui`, design tokens centralized (no hardcoded colors/spacing/fonts), React Query for server state with per-environment cache keys (debrief invalidated on regenerate), React Hook Form + Zod with API-boundary validation, and a single shared API client wrapping Cognito auth/error handling.
+Per `wren-frontend.md`: feature-based organization (`/features/<feature>/components`), shared primitives in `/components/ui`, design tokens centralized (no hardcoded colors/spacing/fonts), React Query for server state with per-environment cache keys (debrief invalidated on regenerate), React Hook Form + Zod with API-boundary validation, and a single shared API client wrapping Cognito auth/error handling.
 
 Compliance-shaping components:
 - `<AiDisclaimerNotice>` — single reusable notice (dashboard, debrief, chat).
@@ -593,7 +593,7 @@ Errors are classified by layer, mapped to stable error codes, logged with struct
 
 ### Frontend Error Posture
 
-API responses are validated at the boundary (Zod), especially AI Debrief payloads, so malformed feedback fails safely rather than rendering broken UI (per `leon-frontend.md` §7). Loading, error (with retry), and empty states are explicit for feedback views.
+API responses are validated at the boundary (Zod), especially AI Debrief payloads, so malformed feedback fails safely rather than rendering broken UI (per `wren-frontend.md` §7). Loading, error (with retry), and empty states are explicit for feedback views.
 
 ---
 
@@ -615,7 +615,7 @@ PBT **is** appropriate here because the backend has substantial pure-function lo
 
 Requirements for property tests:
 - Each property test runs a **minimum of 100 iterations**.
-- Each property test is tagged with a comment referencing its design property in the form: **Feature: leon-writing-coach, Property {number}: {property text}**.
+- Each property test is tagged with a comment referencing its design property in the form: **Feature: wren-writing-coach, Property {number}: {property text}**.
 - Each correctness property (1–30) is implemented by a **single** property-based test.
 - Generators must exercise edge cases called out in the prework: whitespace-only / empty content, non-ASCII characters, duplicated anchored text (ambiguity), identical drafts (empty diff), config-changed-but-text-unchanged spans, cross-organization Field-Expert assignments, and adversarial injected instructions in submitted text.
 
@@ -632,8 +632,8 @@ Mapping of properties to test homes:
 
 ### Example / Unit Tests
 
-- Frontend render tests for every `/features` component; **compliance tests** asserting AI feedback is visually/structurally distinguishable from writer text and that no Apply/Insert/Accept affordance exists (REQ-CORE-NOGHOST-01.2; `leon-frontend.md` §10).
-- AI Debrief modal accessibility: focus trap, Escape/×, focus return (REQ; `leon-frontend.md` §8).
+- Frontend render tests for every `/features` component; **compliance tests** asserting AI feedback is visually/structurally distinguishable from writer text and that no Apply/Insert/Accept affordance exists (REQ-CORE-NOGHOST-01.2; `wren-frontend.md` §10).
+- AI Debrief modal accessibility: focus trap, Escape/×, focus return (REQ; `wren-frontend.md` §8).
 - PDF extraction with representative files; no-recoverable-text fallback (REQ-DOC-SUBMIT-01.3/.4).
 - Access-request → route → approve → grant-created workflow (REQ-DOMAIN-ACCESS-01.6).
 - Reference Material CRUD and upload loading/error states (REQ-REFMAT-01).

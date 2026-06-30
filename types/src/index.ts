@@ -1,5 +1,5 @@
 /**
- * Public entry point for `@leon/types` — the shared domain contract imported by
+ * Public entry point for `@wren/types` — the shared domain contract imported by
  * the backend (CDK / Node Lambdas) and the frontend.
  *
  * In addition to re-exporting every schema and type, this module enforces the

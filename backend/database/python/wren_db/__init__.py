@@ -1,4 +1,4 @@
-"""Parameterized PostgreSQL data-access layer for LEON Writing Coach Python 3.12 Lambdas.
+"""Parameterized PostgreSQL data-access layer for WREN Writing Coach Python 3.12 Lambdas.
 
 Connects to RDS PostgreSQL 16 through RDS Proxy with TLS enforced (``sslmode=require``),
 resolves credentials from Secrets Manager at runtime, pools connections via

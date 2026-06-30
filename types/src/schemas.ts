@@ -1,5 +1,5 @@
 /**
- * Domain entity types and Zod validation schemas for LEON Writing Coach.
+ * Domain entity types and Zod validation schemas for WREN Writing Coach.
  *
  * This file is the single source of truth for the platform's core data shapes
  * (frontend steering §7: shared types live in `/types`). Each schema is declared

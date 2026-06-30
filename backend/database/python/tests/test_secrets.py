@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 import pytest
 
-from leon_db.secrets import resolve_database_credentials
+from wren_db.secrets import resolve_database_credentials
 
 
 class FakeSecretsClient:
@@ -23,9 +23,9 @@ FULL_SECRET = json.dumps(
     {
         "host": "db.internal",
         "port": 5432,
-        "username": "leon_app",
+        "username": "wren_app",
         "password": "super-secret",
-        "dbname": "leon",
+        "dbname": "wren",
     }
 )
 
@@ -38,13 +38,13 @@ def test_reads_and_parses_credentials_from_secrets_manager():
     assert client.requested_id == "arn:secret"
     assert creds.host == "db.internal"
     assert creds.port == 5432
-    assert creds.username == "leon_app"
+    assert creds.username == "wren_app"
     assert creds.password == "super-secret"
-    assert creds.dbname == "leon"
+    assert creds.dbname == "wren"
 
 
 def test_overrides_supply_rds_proxy_endpoint():
-    only_auth = json.dumps({"username": "leon_app", "password": "super-secret"})
+    only_auth = json.dumps({"username": "wren_app", "password": "super-secret"})
     client = FakeSecretsClient(only_auth)
 
     creds = resolve_database_credentials(
@@ -52,11 +52,11 @@ def test_overrides_supply_rds_proxy_endpoint():
         client=client,
         host="proxy.rds",
         port=5432,
-        dbname="leon",
+        dbname="wren",
     )
 
     assert creds.host == "proxy.rds"
-    assert creds.dbname == "leon"
+    assert creds.dbname == "wren"
     assert creds.port == 5432
 
 
@@ -67,7 +67,7 @@ def test_coerces_string_port():
             "port": "5432",
             "username": "u",
             "password": "p",
-            "dbname": "leon",
+            "dbname": "wren",
         }
     )
     creds = resolve_database_credentials(

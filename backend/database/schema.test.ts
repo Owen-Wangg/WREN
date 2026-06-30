@@ -1,5 +1,5 @@
 /**
- * Schema-invariant guard for the LEON Writing Coach relational migrations.
+ * Schema-invariant guard for the WREN Writing Coach relational migrations.
  *
  * Task 2.3 calls out a set of structural invariants the schema MUST uphold. A
  * live PostgreSQL instance is not available in unit-test CI, so this suite reads

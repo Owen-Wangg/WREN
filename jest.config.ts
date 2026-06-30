@@ -1,7 +1,7 @@
 import type { Config } from 'jest';
 
 /**
- * Root Jest configuration for LEON Writing Coach Node/TypeScript code
+ * Root Jest configuration for WREN Writing Coach Node/TypeScript code
  * (CDK infrastructure + frontend logic). Uses ts-jest so tests can be
  * authored in TypeScript with the repo's strict compiler settings.
  *

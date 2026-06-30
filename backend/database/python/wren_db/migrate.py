@@ -8,7 +8,7 @@ a parameterized INSERT.
 
 Migrations are trusted, version-controlled DDL (not user input). They are the
 one place raw SQL files are executed; all application/user-derived input flows
-through the parameterized :class:`leon_db.client.DataAccess` API instead.
+through the parameterized :class:`wren_db.client.DataAccess` API instead.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from typing import Any, List
 _MIGRATION_FILE_RE = re.compile(r"^\d+_.*\.sql$")
 
 # Default location of the shared SQL migrations relative to this module:
-# backend/database/python/leon_db/migrate.py -> backend/database/migrations.
+# backend/database/python/wren_db/migrate.py -> backend/database/migrations.
 DEFAULT_MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
 _CREATE_TRACKING_TABLE = (

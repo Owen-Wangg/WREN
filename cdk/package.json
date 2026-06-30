@@ -1,11 +1,11 @@
 {
-  "name": "leon-cdk",
+  "name": "wren-cdk",
   "version": "0.1.0",
   "private": true,
-  "description": "LEON Writing Coach - AWS CDK v2 infrastructure (TypeScript).",
+  "description": "WREN Writing Coach - AWS CDK v2 infrastructure (TypeScript).",
   "license": "MIT",
   "bin": {
-    "leon": "bin/leon.js"
+    "wren": "bin/wren.js"
   },
   "scripts": {
     "build": "tsc",

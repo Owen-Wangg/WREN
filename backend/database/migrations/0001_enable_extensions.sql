@@ -1,6 +1,6 @@
 -- Migration 0001 — enable required PostgreSQL extensions.
 --
--- LEON Writing Coach runs on RDS PostgreSQL 16. Two capabilities are needed
+-- WREN Writing Coach runs on RDS PostgreSQL 16. Two capabilities are needed
 -- before any application schema is created:
 --
 --   * pgvector  — vector similarity search over indexed Reference Material

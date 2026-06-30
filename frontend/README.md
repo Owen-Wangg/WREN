@@ -1,7 +1,7 @@
-# LEON Writing Coach - Frontend (`frontend/`)
+# WREN Writing Coach - Frontend (`frontend/`)
 
 React 19 + Vite + Tailwind CSS + shadcn/ui single-page application for the
-LEON Writing Coach platform.
+WREN Writing Coach platform.
 
 ## Status
 

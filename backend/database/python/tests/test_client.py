@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional, Sequence, Tuple
 
-from leon_db.client import DataAccess
+from wren_db.client import DataAccess
 
 
 class FakeCursor:

@@ -13,16 +13,16 @@ exports[`ConfigStack matches the synthesized template snapshot 1`] = `
     "AppConfigAppName561D32C0": {
       "Properties": {
         "Description": "Configurable application/display name (REQ-NFR-APPNAME-01). Resolved from configuration; set to any display name with no backend code change.",
-        "Name": "/leon-test/config/app-name",
+        "Name": "/wren-test/config/app-name",
         "Type": "String",
-        "Value": "leon",
+        "Value": "LEON",
       },
       "Type": "AWS::SSM::Parameter",
     },
     "AppConfigBedrockModelId9D1DBB2D": {
       "Properties": {
         "Description": "Configurable Bedrock model identifier (REQ-NFR-MODEL-01). Resolved at runtime; changing it requires configuration only, not code.",
-        "Name": "/leon-test/config/bedrock-model-id",
+        "Name": "/wren-test/config/bedrock-model-id",
         "Type": "String",
         "Value": "anthropic.claude-3-5-sonnet-20241022-v2:0",
       },

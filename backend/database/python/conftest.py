@@ -1,4 +1,4 @@
-"""Make the ``leon_db`` package importable when pytest collects this tree."""
+"""Make the ``wren_db`` package importable when pytest collects this tree."""
 import sys
 from pathlib import Path
 

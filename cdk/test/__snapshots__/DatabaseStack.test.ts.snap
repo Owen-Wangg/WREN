@@ -33,7 +33,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
             [
               "{{resolve:secretsmanager:",
               {
-                "Ref": "leontestDatabaseInstanceSecret716E85543fdaad7efa858a3daf9490cf0a702aeb",
+                "Ref": "wrentestDatabaseInstanceSecret19D330873fdaad7efa858a3daf9490cf0a702aeb",
               },
               ":SecretString:password::}}",
             ],
@@ -67,7 +67,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
             },
           },
         ],
-        "DBProxyName": "leon-test-db-proxy",
+        "DBProxyName": "wren-test-db-proxy",
         "EngineFamily": "POSTGRESQL",
         "RequireTLS": true,
         "RoleArn": {
@@ -86,10 +86,10 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         ],
         "VpcSubnetIds": [
           {
-            "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5",
+            "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5",
           },
           {
-            "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15",
+            "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15",
           },
         ],
       },
@@ -156,7 +156,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
     "DatabaseInstanceSecretAttachmentFCA06D38": {
       "Properties": {
         "SecretId": {
-          "Ref": "leontestDatabaseInstanceSecret716E85543fdaad7efa858a3daf9490cf0a702aeb",
+          "Ref": "wrentestDatabaseInstanceSecret19D330873fdaad7efa858a3daf9490cf0a702aeb",
         },
         "TargetId": {
           "Ref": "DatabaseInstanceAA8A5FDE",
@@ -178,12 +178,12 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           },
         ],
         "VpcId": {
-          "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
+          "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
         },
       },
       "Type": "AWS::EC2::SecurityGroup",
     },
-    "DatabaseInstanceSecurityGroupfromleontestDatabaseProxySecurityGroup2A91DF3A5432AF27DEE0": {
+    "DatabaseInstanceSecurityGroupfromwrentestDatabaseProxySecurityGroup69A2A5B754322168C5E1": {
       "Properties": {
         "Description": "Allow RDS Proxy to reach PostgreSQL",
         "FromPort": 5432,
@@ -204,7 +204,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       },
       "Type": "AWS::EC2::SecurityGroupIngress",
     },
-    "DatabaseInstanceSecurityGroupfromleontestDatabaseProxySecurityGroup2A91DF3AIndirectPortA9890763": {
+    "DatabaseInstanceSecurityGroupfromwrentestDatabaseProxySecurityGroup69A2A5B7IndirectPort59852540": {
       "Properties": {
         "Description": "Allow connections to the database Instance from the Proxy",
         "FromPort": {
@@ -241,10 +241,10 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "DBSubnetGroupDescription": "Subnet group for Instance database",
         "SubnetIds": [
           {
-            "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet1Subnet0400477E0480198B",
+            "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet1Subnet0400477E0480198B",
           },
           {
-            "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet2SubnetF65B365A08912845",
+            "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet2SubnetF65B365A08912845",
           },
         ],
       },
@@ -272,7 +272,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           },
         ],
         "VpcId": {
-          "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
+          "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
         },
       },
       "Type": "AWS::EC2::SecurityGroup",
@@ -280,7 +280,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
     "ProxyEndpointParameter64BC4BC6": {
       "Properties": {
         "Description": "RDS Proxy endpoint hostname (TLS-enforced PostgreSQL access).",
-        "Name": "/leon-test/database/proxy-endpoint",
+        "Name": "/wren-test/database/proxy-endpoint",
         "Type": "String",
         "Value": {
           "Fn::GetAtt": [
@@ -294,7 +294,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
     "SecretArnParameterA7E53EB8": {
       "Properties": {
         "Description": "ARN of the Secrets Manager secret holding DB admin credentials.",
-        "Name": "/leon-test/database/secret-arn",
+        "Name": "/wren-test/database/secret-arn",
         "Type": "String",
         "Value": {
           "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
@@ -302,7 +302,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       },
       "Type": "AWS::SSM::Parameter",
     },
-    "leontestDatabaseInstanceSecret716E85543fdaad7efa858a3daf9490cf0a702aeb": {
+    "wrentestDatabaseInstanceSecret19D330873fdaad7efa858a3daf9490cf0a702aeb": {
       "DeletionPolicy": "Delete",
       "Properties": {
         "Description": {
@@ -322,7 +322,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "PasswordLength": 30,
           "SecretStringTemplate": "{"username":"dbadmin"}",
         },
-        "Name": "leon-test/database/credentials",
+        "Name": "wren-test/database/credentials",
       },
       "Type": "AWS::SecretsManager::Secret",
       "UpdateReplacePolicy": "Delete",

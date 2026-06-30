@@ -1,6 +1,6 @@
-# `@leon/db-node` — Node data-access layer
+# `@wren/db-node` — Node data-access layer
 
-Parameterized PostgreSQL data access for LEON Writing Coach **Node 22** Lambdas.
+Parameterized PostgreSQL data access for WREN Writing Coach **Node 22** Lambdas.
 Built on the [`postgres`](https://github.com/porsager/postgres) driver. Connects
 to RDS PostgreSQL 16 through **RDS Proxy with TLS enforced**, resolves
 credentials from **Secrets Manager** at runtime, pools connections, and runs
@@ -21,7 +21,7 @@ forward-only migrations.
 ## Usage
 
 ```ts
-import { getDataAccess, runMigrations } from '@leon/db-node';
+import { getDataAccess, runMigrations } from '@wren/db-node';
 
 const db = await getDataAccess(); // reads DB_SECRET_ARN, DB_PROXY_HOST, DB_PORT, DB_NAME
 const users = await db.query(
@@ -34,7 +34,7 @@ Run migrations programmatically (lexical filename order, idempotent):
 
 ```ts
 import postgres from 'postgres';
-import { buildConnectionOptions, resolveDatabaseCredentials, runMigrations } from '@leon/db-node';
+import { buildConnectionOptions, resolveDatabaseCredentials, runMigrations } from '@wren/db-node';
 
 const creds = await resolveDatabaseCredentials(process.env.DB_SECRET_ARN!);
 const sql = postgres(buildConnectionOptions(creds));

@@ -1,6 +1,6 @@
 # Database Migrations
 
-Ordered, forward-only SQL migrations for the LEON Writing Coach relational store
+Ordered, forward-only SQL migrations for the WREN Writing Coach relational store
 (RDS PostgreSQL 16 + `pgvector`, reached through RDS Proxy with TLS enforced).
 
 Migrations are plain `.sql` files so they are runtime-agnostic — the Node
@@ -57,8 +57,8 @@ psql "$DATABASE_URL?sslmode=require" -f 0002_initial_schema.sql
 ```
 
 A programmatic migration runner is provided by the data-access layer (task 2.4):
-`runMigrations` in `../node` (`@leon/db-node`) and `run_migrations` in
-`../python` (`leon_db.migrate`). Both apply these files in lexical filename order
+`runMigrations` in `../node` (`@wren/db-node`) and `run_migrations` in
+`../python` (`wren_db.migrate`). Both apply these files in lexical filename order
 over the TLS-enforced RDS Proxy endpoint, tracking applied files in a
 `schema_migrations` table so re-runs are idempotent. Migrations are forward-only;
 add a new numbered file rather than editing an applied one.
