@@ -27,27 +27,27 @@ Each is tagged `Feature: leon-writing-coach, Property N` and runs ≥100 iterati
 
 ## Tasks
 
-- [ ] 1. Project scaffolding and shared foundations  〔Prelude/Track A〕
-  - [ ] 1.1 Initialize the CDK TypeScript monorepo  〔Prelude · P0〕
+- [x] 1. Project scaffolding and shared foundations  〔Prelude/Track A〕
+  - [x] 1.1 Initialize the CDK TypeScript monorepo  〔Prelude · P0〕
     - Create `cdk/` (bin, lib/stacks, lib/constructs, lambda, layers) and `frontend/` per project structure
     - Configure `tsconfig` with `strict`, `noImplicitAny`, `strictNullChecks`; pin TypeScript with `~`; commit `package-lock.json`
     - Add `StackPrefix`/`environmentName` context plumbing and per-stack cost tags
     - _Requirements: 52.2, 52.3_
-  - [ ] 1.2 Define shared domain types and validation schemas  〔Prelude · P1〕
+  - [x] 1.2 Define shared domain types and validation schemas  〔Prelude · P1〕
     - Implement TypeScript types + Zod schemas in `/types`: `Role`, `AccessState`, `WritingType`, `Document`, `Draft`, `FeedbackItem`, `ResolutionStatus`, `Anchor`, `AccessGrant`, `Override`, `ActivityEvent`
     - Encode the invariant that no DTO carries a `replacementProse` field
     - _Requirements: 1.1, 11.1, 28.2_
-  - [ ] 1.3 Stand up test tooling for both runtimes  〔Prelude · P0〕
+  - [x] 1.3 Stand up test tooling for both runtimes  〔Prelude · P0〕
     - Configure Jest + ts-jest + `fast-check` (Node/TS) and `pytest` + Hypothesis with `property`/`integration`/`slow` markers (Python via `uv`)
     - Add a shared property-test helper that enforces ≥100 iterations and the `Feature: leon-writing-coach, Property N` tag convention
     - _Requirements: 52.2_
-  - [ ] 1.4 Centralize application name and model identifier as single-source config  〔Track A · A0〕
+  - [x] 1.4 Centralize application name and model identifier as single-source config  〔Track A · A0〕
     - Read app name and Bedrock model id from SSM/config; forbid backend literals
     - Add a build-time scan that fails if the app-name literal appears anywhere except its single config definition
     - _Requirements: 51.2, 51.3, 53.1, 53.2, 53.3, 53.4_
 
 - [ ] 2. Persistence and infrastructure base  〔Track A〕
-  - [ ] 2.1 Implement foundational CDK stacks  〔Track A · A0〕
+  - [x] 2.1 Implement foundational CDK stacks  〔Track A · A0〕
     - `Vpc` (public / private-with-egress / isolated subnets; interface + gateway endpoints; flow logs)
     - `Database` (RDS PostgreSQL 16 + `pgvector`, RDS Proxy, `rds.force_ssl`, `storageEncrypted`, `deletionProtection`, `RETAIN`)
     - `Storage` (S3 documents + reference buckets with block-public-access, `enforceSSL`, KMS, lifecycle; DynamoDB table `${StackPrefix}-ConversationHistory` for conversation/session state — name scoped to `StackPrefix`, no brand name) — all in `ca-central-1`

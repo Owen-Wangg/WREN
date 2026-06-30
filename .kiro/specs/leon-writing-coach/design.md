@@ -62,7 +62,7 @@ graph TB
 
     subgraph Data["Persistence (ca-central-1)"]
         RDS[(RDS PostgreSQL 16<br/>+ pgvector, via RDS Proxy)]
-        DDB[(DynamoDB<br/>Ask WREN session state)]
+        DDB[(DynamoDB<br/>ConversationHistory table)]
         S3[(S3<br/>documents + reference files)]
         SM[Secrets Manager / SSM]
     end
@@ -144,7 +144,7 @@ Following the CDK steering (one stack per concern, `${StackPrefix}-<Concern>`, S
 
 - **`Vpc`** — public / private-with-egress / isolated subnets; interface endpoints (Secrets Manager, SSM, RDS, API Gateway, Bedrock), gateway endpoint (DynamoDB, S3); VPC flow logs.
 - **`Database`** — RDS PostgreSQL 16 with RDS Proxy (TLS enforced, `rds.force_ssl`), `pgvector`; credentials in Secrets Manager.
-- **`Storage`** — S3 buckets (documents, reference materials) with block-public-access, `enforceSSL`, KMS, lifecycle rules; DynamoDB table for Ask WREN session state.
+- **`Storage`** — S3 buckets (documents, reference materials) with block-public-access, `enforceSSL`, KMS, lifecycle rules; a DynamoDB table named `${StackPrefix}-ConversationHistory` for conversation/session state. The table name is scoped to `StackPrefix` only and carries no brand/application name (no "leon"/"wren").
 - **`Api`** — `SpecRestApi` from an OpenAPI spec, regional endpoint, Lambda authorizer, throttling, ERROR-level logging; AppSync/WebSocket for feedback streaming.
 - **`Compute`** — the Lambda functions / container Lambda above, each with a scoped IAM role; SQS queue + DLQ for async feedback jobs.
 - **`CloudFrontWaf`** — CloudFront distribution + WAF (managed rule sets, rate limiting).
@@ -368,8 +368,9 @@ erDiagram
 **AggregateCounter** (read model for analytics)
 - `scopeKind`, `scopeId`, `metric`, `windowStart`, `value`. All-users totals only; never per-User.
 
-### Ask WREN Session State (DynamoDB)
+### Ask WREN Session State — `${StackPrefix}-ConversationHistory` (DynamoDB)
 
+- Stored in a DynamoDB table named `${StackPrefix}-ConversationHistory` (scoped to `StackPrefix` only; the table name carries no brand/application name).
 - PK `sessionId`, attributes: `userId`, `documentId`, `draftId`, `messages[]`, `ttl`. Anchored to a specific draft version; Ask WREN answers are Socratic-only and subject to the same no-ghostwriting guardrail.
 
 ### Key Invariants Captured in the Model
