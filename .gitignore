@@ -1,6 +1,13 @@
 node_modules
 .kirograph
 
+# Secrets / local environment (never commit real env files; commit *.env.example only)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
 # Python (uv-managed)
 .venv/
 __pycache__/
@@ -10,5 +17,15 @@ __pycache__/
 
 # Build / synth output
 dist/
+build/
 cdk.out/
 coverage/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
