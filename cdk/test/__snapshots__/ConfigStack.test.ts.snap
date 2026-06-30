@@ -1,0 +1,60 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`ConfigStack matches the synthesized template snapshot 1`] = `
+{
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "AppConfigAppName561D32C0": {
+      "Properties": {
+        "Description": "Configurable application/display name (REQ-NFR-APPNAME-01). Resolved from configuration; set to any display name with no backend code change.",
+        "Name": "/leon-test/config/app-name",
+        "Type": "String",
+        "Value": "leon",
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "AppConfigBedrockModelId9D1DBB2D": {
+      "Properties": {
+        "Description": "Configurable Bedrock model identifier (REQ-NFR-MODEL-01). Resolved at runtime; changing it requires configuration only, not code.",
+        "Name": "/leon-test/config/bedrock-model-id",
+        "Type": "String",
+        "Value": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

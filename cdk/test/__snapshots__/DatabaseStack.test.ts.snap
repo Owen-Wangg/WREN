@@ -1,0 +1,359 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
+{
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "DatabaseInstanceAA8A5FDE": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AllocatedStorage": "50",
+        "BackupRetentionPeriod": 7,
+        "CopyTagsToSnapshot": true,
+        "DBInstanceClass": "db.t3.medium",
+        "DBName": "appdb",
+        "DBParameterGroupName": {
+          "Ref": "DatabaseParameterGroup2A921026",
+        },
+        "DBSubnetGroupName": {
+          "Ref": "DatabaseInstanceSubnetGroupDE121BB6",
+        },
+        "DeletionProtection": true,
+        "Engine": "postgres",
+        "EngineVersion": "16.8",
+        "MasterUserPassword": {
+          "Fn::Join": [
+            "",
+            [
+              "{{resolve:secretsmanager:",
+              {
+                "Ref": "leontestDatabaseInstanceSecret716E85543fdaad7efa858a3daf9490cf0a702aeb",
+              },
+              ":SecretString:password::}}",
+            ],
+          ],
+        },
+        "MasterUsername": "dbadmin",
+        "MultiAZ": false,
+        "PubliclyAccessible": false,
+        "StorageEncrypted": true,
+        "StorageType": "gp2",
+        "VPCSecurityGroups": [
+          {
+            "Fn::GetAtt": [
+              "DatabaseInstanceSecurityGroup3D830840",
+              "GroupId",
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::RDS::DBInstance",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "DatabaseInstanceProxyA71C974C": {
+      "Properties": {
+        "Auth": [
+          {
+            "AuthScheme": "SECRETS",
+            "IAMAuth": "DISABLED",
+            "SecretArn": {
+              "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+            },
+          },
+        ],
+        "DBProxyName": "leon-test-db-proxy",
+        "EngineFamily": "POSTGRESQL",
+        "RequireTLS": true,
+        "RoleArn": {
+          "Fn::GetAtt": [
+            "DatabaseInstanceProxyIAMRole44981669",
+            "Arn",
+          ],
+        },
+        "VpcSecurityGroupIds": [
+          {
+            "Fn::GetAtt": [
+              "DatabaseProxySecurityGroupCCC9DB86",
+              "GroupId",
+            ],
+          },
+        ],
+        "VpcSubnetIds": [
+          {
+            "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5",
+          },
+          {
+            "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15",
+          },
+        ],
+      },
+      "Type": "AWS::RDS::DBProxy",
+    },
+    "DatabaseInstanceProxyIAMRole44981669": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "rds.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "DatabaseInstanceProxyIAMRoleDefaultPolicyC6AAC763": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "DatabaseInstanceProxyIAMRoleDefaultPolicyC6AAC763",
+        "Roles": [
+          {
+            "Ref": "DatabaseInstanceProxyIAMRole44981669",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "DatabaseInstanceProxyProxyTargetGroup86ABC4C1": {
+      "Properties": {
+        "ConnectionPoolConfigurationInfo": {},
+        "DBInstanceIdentifiers": [
+          {
+            "Ref": "DatabaseInstanceAA8A5FDE",
+          },
+        ],
+        "DBProxyName": {
+          "Ref": "DatabaseInstanceProxyA71C974C",
+        },
+        "TargetGroupName": "default",
+      },
+      "Type": "AWS::RDS::DBProxyTargetGroup",
+    },
+    "DatabaseInstanceSecretAttachmentFCA06D38": {
+      "Properties": {
+        "SecretId": {
+          "Ref": "leontestDatabaseInstanceSecret716E85543fdaad7efa858a3daf9490cf0a702aeb",
+        },
+        "TargetId": {
+          "Ref": "DatabaseInstanceAA8A5FDE",
+        },
+        "TargetType": "AWS::RDS::DBInstance",
+      },
+      "Type": "AWS::SecretsManager::SecretTargetAttachment",
+    },
+    "DatabaseInstanceSecurityGroup3D830840": {
+      "Properties": {
+        "GroupDescription": "Ingress to the PostgreSQL instance from the RDS Proxy only.",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "255.255.255.255/32",
+            "Description": "Disallow all traffic",
+            "FromPort": 252,
+            "IpProtocol": "icmp",
+            "ToPort": 86,
+          },
+        ],
+        "VpcId": {
+          "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "DatabaseInstanceSecurityGroupfromleontestDatabaseProxySecurityGroup2A91DF3A5432AF27DEE0": {
+      "Properties": {
+        "Description": "Allow RDS Proxy to reach PostgreSQL",
+        "FromPort": 5432,
+        "GroupId": {
+          "Fn::GetAtt": [
+            "DatabaseInstanceSecurityGroup3D830840",
+            "GroupId",
+          ],
+        },
+        "IpProtocol": "tcp",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "DatabaseProxySecurityGroupCCC9DB86",
+            "GroupId",
+          ],
+        },
+        "ToPort": 5432,
+      },
+      "Type": "AWS::EC2::SecurityGroupIngress",
+    },
+    "DatabaseInstanceSecurityGroupfromleontestDatabaseProxySecurityGroup2A91DF3AIndirectPortA9890763": {
+      "Properties": {
+        "Description": "Allow connections to the database Instance from the Proxy",
+        "FromPort": {
+          "Fn::GetAtt": [
+            "DatabaseInstanceAA8A5FDE",
+            "Endpoint.Port",
+          ],
+        },
+        "GroupId": {
+          "Fn::GetAtt": [
+            "DatabaseInstanceSecurityGroup3D830840",
+            "GroupId",
+          ],
+        },
+        "IpProtocol": "tcp",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "DatabaseProxySecurityGroupCCC9DB86",
+            "GroupId",
+          ],
+        },
+        "ToPort": {
+          "Fn::GetAtt": [
+            "DatabaseInstanceAA8A5FDE",
+            "Endpoint.Port",
+          ],
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroupIngress",
+    },
+    "DatabaseInstanceSubnetGroupDE121BB6": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "DBSubnetGroupDescription": "Subnet group for Instance database",
+        "SubnetIds": [
+          {
+            "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet1Subnet0400477E0480198B",
+          },
+          {
+            "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet2SubnetF65B365A08912845",
+          },
+        ],
+      },
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "DatabaseParameterGroup2A921026": {
+      "Properties": {
+        "Description": "Enforce TLS for all PostgreSQL client connections (rds.force_ssl).",
+        "Family": "postgres16",
+        "Parameters": {
+          "rds.force_ssl": "1",
+        },
+      },
+      "Type": "AWS::RDS::DBParameterGroup",
+    },
+    "DatabaseProxySecurityGroupCCC9DB86": {
+      "Properties": {
+        "GroupDescription": "RDS Proxy security group.",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "VpcId": {
+          "Fn::ImportValue": "leon-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "ProxyEndpointParameter64BC4BC6": {
+      "Properties": {
+        "Description": "RDS Proxy endpoint hostname (TLS-enforced PostgreSQL access).",
+        "Name": "/leon-test/database/proxy-endpoint",
+        "Type": "String",
+        "Value": {
+          "Fn::GetAtt": [
+            "DatabaseInstanceProxyA71C974C",
+            "Endpoint",
+          ],
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "SecretArnParameterA7E53EB8": {
+      "Properties": {
+        "Description": "ARN of the Secrets Manager secret holding DB admin credentials.",
+        "Name": "/leon-test/database/secret-arn",
+        "Type": "String",
+        "Value": {
+          "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "leontestDatabaseInstanceSecret716E85543fdaad7efa858a3daf9490cf0a702aeb": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": {
+          "Fn::Join": [
+            "",
+            [
+              "Generated by the CDK for stack: ",
+              {
+                "Ref": "AWS::StackName",
+              },
+            ],
+          ],
+        },
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 30,
+          "SecretStringTemplate": "{"username":"dbadmin"}",
+        },
+        "Name": "leon-test/database/credentials",
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

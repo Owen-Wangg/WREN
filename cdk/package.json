@@ -11,6 +11,7 @@
     "build": "tsc",
     "watch": "tsc -w",
     "typecheck": "tsc --noEmit",
+    "test": "jest",
     "synth": "cdk synth",
     "cdk": "cdk"
   },

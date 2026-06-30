@@ -13,7 +13,7 @@ const config: Config = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   testMatch: ['<rootDir>/**/*.test.ts'],
-  testPathIgnorePatterns: ['/node_modules/', '/cdk.out/', '/dist/'],
+  testPathIgnorePatterns: ['/node_modules/', '/cdk.out/', '/dist/', '/cdk/'],
   modulePathIgnorePatterns: ['/node_modules/', '/cdk.out/', '/dist/'],
   clearMocks: true,
 };

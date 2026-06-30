@@ -1,0 +1,1118 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`VpcStack matches the synthesized template snapshot 1`] = `
+{
+  "Outputs": {
+    "ExportsOutputRefNetworkVpc7FB7348F649FC110": {
+      "Export": {
+        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
+      },
+      "Value": {
+        "Ref": "NetworkVpc7FB7348F",
+      },
+    },
+    "ExportsOutputRefNetworkVpcIsolatedSubnet1Subnet0400477E0480198B": {
+      "Export": {
+        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet1Subnet0400477E0480198B",
+      },
+      "Value": {
+        "Ref": "NetworkVpcIsolatedSubnet1Subnet0400477E",
+      },
+    },
+    "ExportsOutputRefNetworkVpcIsolatedSubnet2SubnetF65B365A08912845": {
+      "Export": {
+        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpcIsolatedSubnet2SubnetF65B365A08912845",
+      },
+      "Value": {
+        "Ref": "NetworkVpcIsolatedSubnet2SubnetF65B365A",
+      },
+    },
+    "ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5": {
+      "Export": {
+        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5",
+      },
+      "Value": {
+        "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
+      },
+    },
+    "ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15": {
+      "Export": {
+        "Name": "leon-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15",
+      },
+      "Value": {
+        "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
+      },
+    },
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "NetworkFlowLogs2BEC3212": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "RetentionInDays": 30,
+      },
+      "Type": "AWS::Logs::LogGroup",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "NetworkVpc7FB7348F": {
+      "Properties": {
+        "CidrBlock": "10.0.0.0/16",
+        "EnableDnsHostnames": true,
+        "EnableDnsSupport": true,
+        "InstanceTenancy": "default",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::VPC",
+    },
+    "NetworkVpcApiGatewayEndpointEC1A864B": {
+      "Properties": {
+        "PrivateDnsEnabled": true,
+        "SecurityGroupIds": [
+          {
+            "Fn::GetAtt": [
+              "NetworkVpcApiGatewayEndpointSecurityGroup3D1CAB50",
+              "GroupId",
+            ],
+          },
+        ],
+        "ServiceName": "com.amazonaws.ca-central-1.execute-api",
+        "SubnetIds": [
+          {
+            "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
+          },
+          {
+            "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcEndpointType": "Interface",
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::VPCEndpoint",
+    },
+    "NetworkVpcApiGatewayEndpointSecurityGroup3D1CAB50": {
+      "Properties": {
+        "GroupDescription": "leon-test-Vpc/Network/Vpc/ApiGatewayEndpoint/SecurityGroup",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": {
+              "Fn::GetAtt": [
+                "NetworkVpc7FB7348F",
+                "CidrBlock",
+              ],
+            },
+            "Description": {
+              "Fn::Join": [
+                "",
+                [
+                  "from ",
+                  {
+                    "Fn::GetAtt": [
+                      "NetworkVpc7FB7348F",
+                      "CidrBlock",
+                    ],
+                  },
+                  ":443",
+                ],
+              ],
+            },
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "NetworkVpcBedrockRuntimeEndpoint3A96BF2A": {
+      "Properties": {
+        "PrivateDnsEnabled": true,
+        "SecurityGroupIds": [
+          {
+            "Fn::GetAtt": [
+              "NetworkVpcBedrockRuntimeEndpointSecurityGroup132E297A",
+              "GroupId",
+            ],
+          },
+        ],
+        "ServiceName": "com.amazonaws.ca-central-1.bedrock-runtime",
+        "SubnetIds": [
+          {
+            "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
+          },
+          {
+            "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcEndpointType": "Interface",
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::VPCEndpoint",
+    },
+    "NetworkVpcBedrockRuntimeEndpointSecurityGroup132E297A": {
+      "Properties": {
+        "GroupDescription": "leon-test-Vpc/Network/Vpc/BedrockRuntimeEndpoint/SecurityGroup",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": {
+              "Fn::GetAtt": [
+                "NetworkVpc7FB7348F",
+                "CidrBlock",
+              ],
+            },
+            "Description": {
+              "Fn::Join": [
+                "",
+                [
+                  "from ",
+                  {
+                    "Fn::GetAtt": [
+                      "NetworkVpc7FB7348F",
+                      "CidrBlock",
+                    ],
+                  },
+                  ":443",
+                ],
+              ],
+            },
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "NetworkVpcDynamoDbEndpoint72B16C3D": {
+      "Properties": {
+        "RouteTableIds": [
+          {
+            "Ref": "NetworkVpcPrivateSubnet1RouteTable7D7AA3CD",
+          },
+          {
+            "Ref": "NetworkVpcPrivateSubnet2RouteTableC48862D1",
+          },
+          {
+            "Ref": "NetworkVpcPublicSubnet1RouteTable30235CE2",
+          },
+          {
+            "Ref": "NetworkVpcPublicSubnet2RouteTable0FACEBB2",
+          },
+          {
+            "Ref": "NetworkVpcIsolatedSubnet1RouteTableC39A3F61",
+          },
+          {
+            "Ref": "NetworkVpcIsolatedSubnet2RouteTable77E6320E",
+          },
+        ],
+        "ServiceName": {
+          "Fn::Join": [
+            "",
+            [
+              "com.amazonaws.",
+              {
+                "Ref": "AWS::Region",
+              },
+              ".dynamodb",
+            ],
+          ],
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcEndpointType": "Gateway",
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::VPCEndpoint",
+    },
+    "NetworkVpcFlowLog9B71FB8D": {
+      "Properties": {
+        "DeliverLogsPermissionArn": {
+          "Fn::GetAtt": [
+            "NetworkVpcFlowLogIAMRole654CF7A1",
+            "Arn",
+          ],
+        },
+        "LogDestinationType": "cloud-watch-logs",
+        "LogGroupName": {
+          "Ref": "NetworkFlowLogs2BEC3212",
+        },
+        "ResourceId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+        "ResourceType": "VPC",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/FlowLog",
+          },
+        ],
+        "TrafficType": "ALL",
+      },
+      "Type": "AWS::EC2::FlowLog",
+    },
+    "NetworkVpcFlowLogIAMRole654CF7A1": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "vpc-flow-logs.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/FlowLog",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "NetworkVpcFlowLogIAMRoleDefaultPolicy65C62FE2": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:DescribeLogStreams",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "NetworkFlowLogs2BEC3212",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "NetworkVpcFlowLogIAMRoleDefaultPolicy65C62FE2",
+        "Roles": [
+          {
+            "Ref": "NetworkVpcFlowLogIAMRole654CF7A1",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "NetworkVpcIGW6BEA7B02": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::InternetGateway",
+    },
+    "NetworkVpcIsolatedSubnet1RouteTableAssociation95EB126D": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "NetworkVpcIsolatedSubnet1RouteTableC39A3F61",
+        },
+        "SubnetId": {
+          "Ref": "NetworkVpcIsolatedSubnet1Subnet0400477E",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "NetworkVpcIsolatedSubnet1RouteTableC39A3F61": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/IsolatedSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "NetworkVpcIsolatedSubnet1Subnet0400477E": {
+      "Properties": {
+        "AvailabilityZone": "dummy1a",
+        "CidrBlock": "10.0.12.0/24",
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "Isolated",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Isolated",
+          },
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/IsolatedSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "NetworkVpcIsolatedSubnet2RouteTable77E6320E": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/IsolatedSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "NetworkVpcIsolatedSubnet2RouteTableAssociationC53FE45A": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "NetworkVpcIsolatedSubnet2RouteTable77E6320E",
+        },
+        "SubnetId": {
+          "Ref": "NetworkVpcIsolatedSubnet2SubnetF65B365A",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "NetworkVpcIsolatedSubnet2SubnetF65B365A": {
+      "Properties": {
+        "AvailabilityZone": "dummy1b",
+        "CidrBlock": "10.0.13.0/24",
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "Isolated",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Isolated",
+          },
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/IsolatedSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "NetworkVpcPrivateSubnet1DefaultRoute08635105": {
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": {
+          "Ref": "NetworkVpcPublicSubnet1NATGateway64781A21",
+        },
+        "RouteTableId": {
+          "Ref": "NetworkVpcPrivateSubnet1RouteTable7D7AA3CD",
+        },
+      },
+      "Type": "AWS::EC2::Route",
+    },
+    "NetworkVpcPrivateSubnet1RouteTable7D7AA3CD": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PrivateSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "NetworkVpcPrivateSubnet1RouteTableAssociation327CA62F": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "NetworkVpcPrivateSubnet1RouteTable7D7AA3CD",
+        },
+        "SubnetId": {
+          "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "NetworkVpcPrivateSubnet1Subnet6DD86AE6": {
+      "Properties": {
+        "AvailabilityZone": "dummy1a",
+        "CidrBlock": "10.0.4.0/22",
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "Private",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Private",
+          },
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PrivateSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "NetworkVpcPrivateSubnet2DefaultRouteA15DC6D5": {
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": {
+          "Ref": "NetworkVpcPublicSubnet1NATGateway64781A21",
+        },
+        "RouteTableId": {
+          "Ref": "NetworkVpcPrivateSubnet2RouteTableC48862D1",
+        },
+      },
+      "Type": "AWS::EC2::Route",
+    },
+    "NetworkVpcPrivateSubnet2RouteTableAssociation89A2F1E8": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "NetworkVpcPrivateSubnet2RouteTableC48862D1",
+        },
+        "SubnetId": {
+          "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "NetworkVpcPrivateSubnet2RouteTableC48862D1": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PrivateSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "NetworkVpcPrivateSubnet2Subnet1BDBE877": {
+      "Properties": {
+        "AvailabilityZone": "dummy1b",
+        "CidrBlock": "10.0.8.0/22",
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "Private",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Private",
+          },
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PrivateSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "NetworkVpcPublicSubnet1DefaultRoute31EC04EC": {
+      "DependsOn": [
+        "NetworkVpcVPCGW8F3799B5",
+      ],
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "NetworkVpcIGW6BEA7B02",
+        },
+        "RouteTableId": {
+          "Ref": "NetworkVpcPublicSubnet1RouteTable30235CE2",
+        },
+      },
+      "Type": "AWS::EC2::Route",
+    },
+    "NetworkVpcPublicSubnet1EIPE0D52090": {
+      "Properties": {
+        "Domain": "vpc",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet1",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::EIP",
+    },
+    "NetworkVpcPublicSubnet1NATGateway64781A21": {
+      "DependsOn": [
+        "NetworkVpcPublicSubnet1DefaultRoute31EC04EC",
+        "NetworkVpcPublicSubnet1RouteTableAssociation643926C7",
+      ],
+      "Properties": {
+        "AllocationId": {
+          "Fn::GetAtt": [
+            "NetworkVpcPublicSubnet1EIPE0D52090",
+            "AllocationId",
+          ],
+        },
+        "SubnetId": {
+          "Ref": "NetworkVpcPublicSubnet1Subnet36933139",
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet1",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::NatGateway",
+    },
+    "NetworkVpcPublicSubnet1RouteTable30235CE2": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "NetworkVpcPublicSubnet1RouteTableAssociation643926C7": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "NetworkVpcPublicSubnet1RouteTable30235CE2",
+        },
+        "SubnetId": {
+          "Ref": "NetworkVpcPublicSubnet1Subnet36933139",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "NetworkVpcPublicSubnet1Subnet36933139": {
+      "Properties": {
+        "AvailabilityZone": "dummy1a",
+        "CidrBlock": "10.0.0.0/24",
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "Public",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Public",
+          },
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "NetworkVpcPublicSubnet2DefaultRoute0CF082AB": {
+      "DependsOn": [
+        "NetworkVpcVPCGW8F3799B5",
+      ],
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "NetworkVpcIGW6BEA7B02",
+        },
+        "RouteTableId": {
+          "Ref": "NetworkVpcPublicSubnet2RouteTable0FACEBB2",
+        },
+      },
+      "Type": "AWS::EC2::Route",
+    },
+    "NetworkVpcPublicSubnet2RouteTable0FACEBB2": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "NetworkVpcPublicSubnet2RouteTableAssociationC662643B": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "NetworkVpcPublicSubnet2RouteTable0FACEBB2",
+        },
+        "SubnetId": {
+          "Ref": "NetworkVpcPublicSubnet2SubnetC427CCE0",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "NetworkVpcPublicSubnet2SubnetC427CCE0": {
+      "Properties": {
+        "AvailabilityZone": "dummy1b",
+        "CidrBlock": "10.0.1.0/24",
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "Public",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Public",
+          },
+          {
+            "Key": "Name",
+            "Value": "leon-test-Vpc/Network/Vpc/PublicSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "NetworkVpcRdsEndpointADB50EF7": {
+      "Properties": {
+        "PrivateDnsEnabled": true,
+        "SecurityGroupIds": [
+          {
+            "Fn::GetAtt": [
+              "NetworkVpcRdsEndpointSecurityGroup365EDE15",
+              "GroupId",
+            ],
+          },
+        ],
+        "ServiceName": "com.amazonaws.ca-central-1.rds",
+        "SubnetIds": [
+          {
+            "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
+          },
+          {
+            "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcEndpointType": "Interface",
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::VPCEndpoint",
+    },
+    "NetworkVpcRdsEndpointSecurityGroup365EDE15": {
+      "Properties": {
+        "GroupDescription": "leon-test-Vpc/Network/Vpc/RdsEndpoint/SecurityGroup",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": {
+              "Fn::GetAtt": [
+                "NetworkVpc7FB7348F",
+                "CidrBlock",
+              ],
+            },
+            "Description": {
+              "Fn::Join": [
+                "",
+                [
+                  "from ",
+                  {
+                    "Fn::GetAtt": [
+                      "NetworkVpc7FB7348F",
+                      "CidrBlock",
+                    ],
+                  },
+                  ":443",
+                ],
+              ],
+            },
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "NetworkVpcS3Endpoint87783328": {
+      "Properties": {
+        "RouteTableIds": [
+          {
+            "Ref": "NetworkVpcPrivateSubnet1RouteTable7D7AA3CD",
+          },
+          {
+            "Ref": "NetworkVpcPrivateSubnet2RouteTableC48862D1",
+          },
+          {
+            "Ref": "NetworkVpcPublicSubnet1RouteTable30235CE2",
+          },
+          {
+            "Ref": "NetworkVpcPublicSubnet2RouteTable0FACEBB2",
+          },
+          {
+            "Ref": "NetworkVpcIsolatedSubnet1RouteTableC39A3F61",
+          },
+          {
+            "Ref": "NetworkVpcIsolatedSubnet2RouteTable77E6320E",
+          },
+        ],
+        "ServiceName": {
+          "Fn::Join": [
+            "",
+            [
+              "com.amazonaws.",
+              {
+                "Ref": "AWS::Region",
+              },
+              ".s3",
+            ],
+          ],
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcEndpointType": "Gateway",
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::VPCEndpoint",
+    },
+    "NetworkVpcSecretsManagerEndpoint522C18D9": {
+      "Properties": {
+        "PrivateDnsEnabled": true,
+        "SecurityGroupIds": [
+          {
+            "Fn::GetAtt": [
+              "NetworkVpcSecretsManagerEndpointSecurityGroup21FC5B38",
+              "GroupId",
+            ],
+          },
+        ],
+        "ServiceName": "com.amazonaws.ca-central-1.secretsmanager",
+        "SubnetIds": [
+          {
+            "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
+          },
+          {
+            "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcEndpointType": "Interface",
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::VPCEndpoint",
+    },
+    "NetworkVpcSecretsManagerEndpointSecurityGroup21FC5B38": {
+      "Properties": {
+        "GroupDescription": "leon-test-Vpc/Network/Vpc/SecretsManagerEndpoint/SecurityGroup",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": {
+              "Fn::GetAtt": [
+                "NetworkVpc7FB7348F",
+                "CidrBlock",
+              ],
+            },
+            "Description": {
+              "Fn::Join": [
+                "",
+                [
+                  "from ",
+                  {
+                    "Fn::GetAtt": [
+                      "NetworkVpc7FB7348F",
+                      "CidrBlock",
+                    ],
+                  },
+                  ":443",
+                ],
+              ],
+            },
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "NetworkVpcSsmEndpointB5FBDFB0": {
+      "Properties": {
+        "PrivateDnsEnabled": true,
+        "SecurityGroupIds": [
+          {
+            "Fn::GetAtt": [
+              "NetworkVpcSsmEndpointSecurityGroup70BA50F1",
+              "GroupId",
+            ],
+          },
+        ],
+        "ServiceName": "com.amazonaws.ca-central-1.ssm",
+        "SubnetIds": [
+          {
+            "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
+          },
+          {
+            "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcEndpointType": "Interface",
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::VPCEndpoint",
+    },
+    "NetworkVpcSsmEndpointSecurityGroup70BA50F1": {
+      "Properties": {
+        "GroupDescription": "leon-test-Vpc/Network/Vpc/SsmEndpoint/SecurityGroup",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": {
+              "Fn::GetAtt": [
+                "NetworkVpc7FB7348F",
+                "CidrBlock",
+              ],
+            },
+            "Description": {
+              "Fn::Join": [
+                "",
+                [
+                  "from ",
+                  {
+                    "Fn::GetAtt": [
+                      "NetworkVpc7FB7348F",
+                      "CidrBlock",
+                    ],
+                  },
+                  ":443",
+                ],
+              ],
+            },
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "leon-test-vpc",
+          },
+        ],
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "NetworkVpcVPCGW8F3799B5": {
+      "Properties": {
+        "InternetGatewayId": {
+          "Ref": "NetworkVpcIGW6BEA7B02",
+        },
+        "VpcId": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+    },
+    "VpcIdParameter44761537": {
+      "Properties": {
+        "Description": "VPC id for the platform network (published for downstream stacks).",
+        "Name": "/leon-test/network/vpc-id",
+        "Type": "String",
+        "Value": {
+          "Ref": "NetworkVpc7FB7348F",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

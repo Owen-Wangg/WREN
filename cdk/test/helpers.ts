@@ -1,0 +1,67 @@
+import { App } from "aws-cdk-lib";
+import type { AppConfig } from "../lib/config.js";
+import { ConfigStack } from "../lib/stacks/ConfigStack.js";
+import { DatabaseStack } from "../lib/stacks/DatabaseStack.js";
+import { StorageStack } from "../lib/stacks/StorageStack.js";
+import { VpcStack } from "../lib/stacks/VpcStack.js";
+
+/**
+ * Shared synthesis helpers for the CDK stack tests.
+ *
+ * Tests build an {@link AppConfig} with a fixed account/region rather than
+ * resolving it from `process.env`, so snapshots and residency assertions are
+ * deterministic and independent of the developer's local AWS environment.
+ */
+
+/** The data-residency region every persistent store must live in (REQ 46.1). */
+export const TEST_REGION = "ca-central-1";
+export const TEST_ACCOUNT = "123456789012";
+
+/** Build a deterministic, fully-resolved {@link AppConfig} for tests. */
+export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
+  return {
+    appName: "leon",
+    environmentName: "test",
+    bedrockModelId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    stackPrefix: "leon-test",
+    env: { account: TEST_ACCOUNT, region: TEST_REGION },
+    ...overrides,
+  };
+}
+
+export interface SynthesizedStacks {
+  readonly app: App;
+  readonly config: AppConfig;
+  readonly configStack: ConfigStack;
+  readonly vpcStack: VpcStack;
+  readonly databaseStack: DatabaseStack;
+  readonly storageStack: StorageStack;
+}
+
+/**
+ * Instantiate all four foundational stacks in a single app, wired exactly as
+ * `bin/leon.ts` wires them (the Database stack receives the concrete VPC).
+ */
+export function synthStacks(config: AppConfig = testConfig()): SynthesizedStacks {
+  const app = new App();
+
+  const configStack = new ConfigStack(app, "leon-test-Config", {
+    env: config.env,
+    config,
+  });
+  const vpcStack = new VpcStack(app, "leon-test-Vpc", {
+    env: config.env,
+    config,
+  });
+  const databaseStack = new DatabaseStack(app, "leon-test-Database", {
+    env: config.env,
+    config,
+    vpc: vpcStack.vpc,
+  });
+  const storageStack = new StorageStack(app, "leon-test-Storage", {
+    env: config.env,
+    config,
+  });
+
+  return { app, config, configStack, vpcStack, databaseStack, storageStack };
+}
