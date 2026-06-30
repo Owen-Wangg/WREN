@@ -46,21 +46,21 @@ Each is tagged `Feature: leon-writing-coach, Property N` and runs ≥100 iterati
     - Add a build-time scan that fails if the app-name literal appears anywhere except its single config definition
     - _Requirements: 51.2, 51.3, 53.1, 53.2, 53.3, 53.4_
 
-- [ ] 2. Persistence and infrastructure base  〔Track A〕
+- [x] 2. Persistence and infrastructure base  〔Track A〕
   - [x] 2.1 Implement foundational CDK stacks  〔Track A · A0〕
     - `Vpc` (public / private-with-egress / isolated subnets; interface + gateway endpoints; flow logs)
     - `Database` (RDS PostgreSQL 16 + `pgvector`, RDS Proxy, `rds.force_ssl`, `storageEncrypted`, `deletionProtection`, `RETAIN`)
     - `Storage` (S3 documents + reference buckets with block-public-access, `enforceSSL`, KMS, lifecycle; DynamoDB table `${StackPrefix}-ConversationHistory` for conversation/session state — name scoped to `StackPrefix`, no brand name) — all in `ca-central-1`
     - _Requirements: 39.2, 46.1, 46.3_
-  - [ ]* 2.2 Snapshot/assertion tests for foundational stacks  〔Track A · A1〕
+  - [x]* 2.2 Snapshot/assertion tests for foundational stacks  〔Track A · A1〕
     - Assert `ca-central-1` residency, no cross-region persistent store, TLS/encryption/block-public-access enforced
     - _Requirements: 46.1, 46.3, 39.2_
-  - [ ] 2.3 Author the relational schema and migrations  〔Track A · A1〕
+  - [x] 2.3 Author the relational schema and migrations  〔Track A · A1〕
     - Create tables for `AppUser`, `RoleAssignment`, `Organization`, `WritingType`, `WritingTypeConfig`, `ErrorCategory`, `ContentType`, `CustomMetadataField`, `Topic`, `AccessGrant`, `Document`, `Draft`, `Anchor`, `FeedbackItem`, `ResolutionStatusHistory`, `ReferenceMaterial`, `UsageLimit`, `UsageCounter`, `Override`, `ActivityEvent`, `AggregateCounter`
     - Model `WritingType` as configurable, self-selectable data with `accessState` (`OPEN`/`LOCKED`/`INHERIT`); no enumerated domain literals
     - Enforce schema invariants: immutable Drafts, category linkage by id, no `replacementProse` column, ActivityEvent independent of Documents
     - _Requirements: 1.1, 8.1, 11.4, 15.3, 28.1, 28.2, 44.2_
-  - [ ] 2.4 Build the parameterized data-access layer  〔Track A · A2〕
+  - [x] 2.4 Build the parameterized data-access layer  〔Track A · A2〕
     - Implement Node (`postgres` layer) and Python (`psycopg` pool) access modules using parameterized queries only, over RDS Proxy with TLS
     - _Requirements: 39.2_
 
