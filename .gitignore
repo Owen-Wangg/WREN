@@ -1,2 +1,14 @@
 node_modules
 .kirograph
+
+# Python (uv-managed)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+
+# Build / synth output
+dist/
+cdk.out/
+coverage/

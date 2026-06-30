@@ -1,0 +1,18 @@
+{
+  "name": "@leon/types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared domain types and Zod validation schemas for the LEON Writing Coach platform (single source of truth for backend Node Lambdas and the frontend).",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  }
+}

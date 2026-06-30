@@ -1,0 +1,30 @@
+[project]
+name = "leon-writing-coach-tests"
+version = "0.0.0"
+description = "LEON Writing Coach — Python test tooling (pytest + Hypothesis, managed via uv)"
+requires-python = ">=3.12"
+dependencies = []
+
+# uv-managed dev tooling. Install with `uv sync` / run with `uv run pytest`.
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "hypothesis>=6.122",
+]
+
+[tool.uv]
+# This is a test-tooling root, not a distributable package.
+package = false
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+# Discover the shared helper's smoke tests now; Python Lambda services
+# (cdk/lambda/**) get added here as they are scaffolded.
+testpaths = ["testing/python"]
+# Keep property tests fast/quiet in automation; use markers when debugging.
+addopts = "-ra"
+markers = [
+    "property: property-based tests (Hypothesis), each runs >=100 examples",
+    "integration: tests that exercise external/infra wiring (mocked deps)",
+    "slow: tests that are expensive to run",
+]

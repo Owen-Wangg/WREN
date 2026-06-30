@@ -1,0 +1,2 @@
+# Fine-grained construct tests + stack snapshot tests. Test tooling (Jest +
+# ts-jest + fast-check) is configured in task 1.3; tests are added from 2.2 on.

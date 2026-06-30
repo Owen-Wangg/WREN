@@ -1,0 +1,2 @@
+# Reusable custom constructs live here, one construct per PascalCase-named file
+# (e.g. SomeConstruct.ts). Constructs never import resources directly.
