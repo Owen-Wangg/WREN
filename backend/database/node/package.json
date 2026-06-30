@@ -1,0 +1,19 @@
+{
+  "name": "@leon/db-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Parameterized PostgreSQL data-access layer for LEON Writing Coach Node 22 Lambdas. Connects to RDS PostgreSQL 16 via RDS Proxy with TLS enforced, resolves credentials from Secrets Manager at runtime, pools connections, and runs forward-only migrations. Packaged as a Lambda layer.",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.717.0",
+    "postgres": "^3.4.5"
+  }
+}

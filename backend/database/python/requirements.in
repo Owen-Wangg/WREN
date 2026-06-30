@@ -1,0 +1,3 @@
+# Runtime dependency for the Python data-access Lambda layer.
+# boto3 is intentionally omitted — it is provided by the Lambda Python runtime.
+psycopg[binary,pool]>=3.2

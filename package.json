@@ -5,7 +5,8 @@
   "description": "LEON Writing Coach monorepo — shared test tooling (Jest + ts-jest + fast-check)",
   "license": "MIT",
   "workspaces": [
-    "types"
+    "types",
+    "backend/database/node"
   ],
   "scripts": {
     "test": "jest",
