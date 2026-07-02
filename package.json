@@ -6,7 +6,8 @@
   "license": "MIT",
   "workspaces": [
     "types",
-    "backend/database/node"
+    "backend/database/node",
+    "backend/auth"
   ],
   "scripts": {
     "test": "jest",

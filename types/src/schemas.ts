@@ -40,6 +40,25 @@ export type AccessState = z.infer<typeof accessStateSchema>;
 export const writingTypeAccessStateSchema = z.enum(['OPEN', 'LOCKED', 'INHERIT']);
 export type WritingTypeAccessState = z.infer<typeof writingTypeAccessStateSchema>;
 
+/**
+ * Outcome of the Auth_Service access-resolution check for a (User, Writing Type)
+ * pair, consumed by the Document submission gate (design "Admin / Auth / Usage
+ * Service"; Requirements 4.2, 4.3, 6.8, 28.3).
+ *
+ * - `OPEN`    — the effective access state is OPEN; any authenticated global
+ *               User may self-select and submit without an Access Grant.
+ * - `GRANTED` — the effective access state is LOCKED, but the User holds an
+ *               applicable Access Grant (scoped to the Writing Type or its
+ *               Organization grouping), so submission is permitted.
+ * - `DENIED`  — the effective access state is LOCKED and the User holds no
+ *               applicable grant; submission is refused and the access-request
+ *               flow should be offered (Requirement 4.6).
+ *
+ * `OPEN` and `GRANTED` both permit submission; `DENIED` does not.
+ */
+export const accessDecisionSchema = z.enum(['OPEN', 'GRANTED', 'DENIED']);
+export type AccessDecision = z.infer<typeof accessDecisionSchema>;
+
 /* -------------------------------------------------------------------------- */
 /* WritingType (configurable, self-selectable — design "Writing Domain")       */
 /* -------------------------------------------------------------------------- */

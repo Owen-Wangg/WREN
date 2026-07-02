@@ -11,7 +11,11 @@
 export * from './common';
 export * from './no-ghostwriting';
 export * from './schemas';
+export * from './auth';
+export * from './authorization';
 
+import type { AuthContext } from './auth';
+import type { AuthorizationDecision, CapabilityRequest } from './authorization';
 import type { Expect, LacksReplacementProse } from './no-ghostwriting';
 import type {
   AccessGrant,
@@ -47,6 +51,9 @@ type _GuardAccessGrant = Expect<LacksReplacementProse<AccessGrant>>;
 type _GuardOverrideBounds = Expect<LacksReplacementProse<OverrideBounds>>;
 type _GuardOverride = Expect<LacksReplacementProse<Override>>;
 type _GuardActivityEvent = Expect<LacksReplacementProse<ActivityEvent>>;
+type _GuardAuthContext = Expect<LacksReplacementProse<AuthContext>>;
+type _GuardAuthorizationDecision = Expect<LacksReplacementProse<AuthorizationDecision>>;
+type _GuardCapabilityRequest = Expect<LacksReplacementProse<CapabilityRequest>>;
 
 /**
  * Aggregates the compile-time guards so they participate in type-checking even
@@ -64,4 +71,7 @@ export type NoGhostwritingGuards = [
   _GuardOverrideBounds,
   _GuardOverride,
   _GuardActivityEvent,
+  _GuardAuthContext,
+  _GuardAuthorizationDecision,
+  _GuardCapabilityRequest,
 ];

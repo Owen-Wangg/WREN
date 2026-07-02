@@ -64,21 +64,21 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
     - Implement Node (`postgres` layer) and Python (`psycopg` pool) access modules using parameterized queries only, over RDS Proxy with TLS
     - _Requirements: 39.2_
 
-- [ ] 3. Authentication and authorization core (Auth_Service)  〔Track A〕
-  - [ ] 3.1 Implement Cognito + Lambda authorizer with app-DB identity mapping  〔Track A · A3〕
+- [x] 3. Authentication and authorization core (Auth_Service)  〔Track A〕
+  - [x] 3.1 Implement Cognito + Lambda authorizer with app-DB identity mapping  〔Track A · A3〕
     - `Api`-adjacent authorizer verifies JWT (`aws-jwt-verify`), maps subject → app identity + roles + writing-type assignments + grants from Postgres
     - Authorization never reads IdP groups/claims as a source of truth
     - _Requirements: 37.1, 37.2, 37.3, 37.5, 36.1, 36.2_
   - [ ]* 3.2 Write property test for IdP-independent authorization  〔Track A · A4〕
     - **Property 25: Authorization is identity-provider independent**
     - **Validates: Requirements 37.2, 37.3, 37.4**
-  - [ ] 3.3 Implement access resolution and submission-permission logic  〔Track A · A3〕
+  - [x] 3.3 Implement access resolution and submission-permission logic  〔Track A · A3〕
     - Effective access = Writing Type's explicit `OPEN`/`LOCKED` else its Organization's; permit submission iff OPEN, or LOCKED with an applicable Access Grant; otherwise deny and offer access-request flow
     - _Requirements: 4.1, 4.2, 4.3, 4.5, 4.7, 6.8, 28.3, 28.4_
   - [ ]* 3.4 Write property test for access resolution and submission permission  〔Track A · A4〕
     - **Property 22: Access resolution and submission permission**
     - **Validates: Requirements 4.1, 4.2, 4.3, 4.5, 6.8, 28.3**
-  - [ ] 3.5 Implement the API-layer capability matrix and role-assignment authority  〔Track A · A3〕
+  - [x] 3.5 Implement the API-layer capability matrix and role-assignment authority  〔Track A · A3〕
     - Enforce per-operation capability checks (incl. Field-Expert scoping to assigned Writing Types across organizations) and the role-assignment matrix (Admin any; Org Owner → Field Expert + grants within owned orgs only; Field Expert/User none)
     - Deny with an authorization error and no mutation when disallowed, independent of UI state
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 23.1, 23.2, 23.5, 23.6, 36.1, 36.3, 36.4_
