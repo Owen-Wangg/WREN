@@ -1,0 +1,201 @@
+/**
+ * `<AnchoredFeedbackEditor>` — renders inline anchored feedback through
+ * `<DocumentEditor>`'s comments/tracked-changes layer (task 18.2;
+ * Requirements 11.2, 12.1, 12.2, 12.3, 12.4).
+ *
+ * Composes, but does not replace, the task-18.1 `<DocumentEditor>`:
+ *  - Attaches a comment mark to each active Anchor's span via
+ *    `editor.commands.setComment(feedbackItemId)` (Requirement 12.1),
+ *    resolving spans with `resolveAnchorRange` (`../anchorRange`).
+ *  - Renders a margin/sidebar list of `<MarginCommentCard>`s, one per inline
+ *    Feedback Item, each showing its category label + Socratic question
+ *    (Requirement 12.3).
+ *  - Implements the select-item ↔ highlight-span linkage (Requirement 12.2):
+ *    clicking a margin card selects/scrolls-to its span in the editor;
+ *    activating a comment mark in the editor (via `onCommentActivated`)
+ *    selects the corresponding margin card.
+ *  - Renders items whose anchor is `removed` (or missing) in a distinct
+ *    "no longer applies" section — never attached to unrelated text, never
+ *    silently dropped from the list (Requirement 12.4).
+ *
+ * The comment id used with `setComment`/`unsetComment` IS the Feedback Item's
+ * id — this is what makes `onCommentActivated`'s `commentId` directly usable
+ * as the margin-card selection key, with no separate lookup table needed.
+ *
+ * **No-ghostwriting compliance:** every margin card and every comment-mark
+ * span carries `data-ai-feedback="true"` (see `DocumentEditor` and
+ * `MarginCommentCard`) and NEITHER renders any Apply/Insert/Accept
+ * affordance — this component only ever reads Feedback Items, it never
+ * writes generated text into the editor's content.
+ */
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+import { DocumentEditor, type DocumentEditorHandle, type DocumentEditorProps } from './DocumentEditor';
+import { MarginCommentCard } from './MarginCommentCard';
+
+import { collectCommentIds, resolveAnchorRange } from '../anchorRange';
+import {
+  buildAnchoredFeedbackItems,
+  partitionAnchoredFeedbackItems,
+  resolveCategoryLabel,
+} from '../feedbackAnchoring';
+
+import type { Anchor, FeedbackItem } from '@wren/types';
+
+export interface AnchoredFeedbackEditorProps
+  extends Pick<DocumentEditorProps, 'initialContent' | 'ariaLabel' | 'onContentChange' | 'className'> {
+  /** Inline + structural Feedback Items for the current draft; only `kind === 'inline'` items render here. */
+  readonly feedbackItems: readonly FeedbackItem[];
+  /** Anchors for the current draft, referenced by `FeedbackItem.currentAnchorId`. */
+  readonly anchors: readonly Anchor[];
+  /**
+   * Resolved `errorCategoryId` → display label. Config Service isn't built
+   * yet (task 18.2 scope note), so callers pass a resolved map; unresolved
+   * ids fall back to the raw id via `resolveCategoryLabel`.
+   */
+  readonly categoryLabels?: Readonly<Record<string, string>>;
+}
+
+export function AnchoredFeedbackEditor({
+  feedbackItems,
+  anchors,
+  categoryLabels,
+  initialContent,
+  ariaLabel,
+  onContentChange,
+  className,
+}: AnchoredFeedbackEditorProps) {
+  const editorRef = useRef<DocumentEditorHandle>(null);
+  const [selectedFeedbackItemId, setSelectedFeedbackItemId] = useState<string | null>(null);
+
+  const anchoredItems = useMemo(
+    () => buildAnchoredFeedbackItems(feedbackItems, anchors),
+    [feedbackItems, anchors],
+  );
+  const { active, removed } = useMemo(
+    () => partitionAnchoredFeedbackItems(anchoredItems),
+    [anchoredItems],
+  );
+
+  // Attach a comment mark to each active anchor's span (Requirement 12.1).
+  // Keyed on the active set's identity-relevant fields (not on every
+  // keystroke) so re-running doesn't fight the writer's own selection while
+  // they type; the editor's document content is otherwise unaffected by this
+  // effect (marks only, no text insertion — no-ghostwriting compliance).
+  const activeAnchorKey = useMemo(
+    () =>
+      active
+        .map(
+          ({ feedbackItem, anchor }) =>
+            `${feedbackItem.id}:${anchor.paragraphIndex}:${anchor.startOffset}:${anchor.endOffset}`,
+        )
+        .join('|'),
+    [active],
+  );
+
+  useEffect(() => {
+    const editor = editorRef.current?.getEditor();
+    if (!editor) return;
+
+    // Unset any comment mark that no longer corresponds to an active anchor
+    // (e.g. its anchor was just marked `removed`) before re-attaching the
+    // current set, so stale marks never linger on text.
+    const activeIds = new Set(active.map(({ feedbackItem }) => feedbackItem.id));
+    for (const commentId of collectCommentIds(editor.state.doc)) {
+      if (!activeIds.has(commentId)) {
+        editor.commands.unsetComment(commentId);
+      }
+    }
+
+    for (const { feedbackItem, anchor } of active) {
+      const range = resolveAnchorRange(editor.state.doc, anchor);
+      if (!range) continue;
+
+      editor.chain().setTextSelection(range).setComment(feedbackItem.id).run();
+    }
+    // Restore an empty/collapsed selection so attaching marks doesn't leave
+    // the writer's cursor jumped to the last-attached span.
+    editor.commands.setTextSelection(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on activeAnchorKey, not `active` identity
+  }, [activeAnchorKey]);
+
+  /** Select-item → highlight-span: clicking a margin card scrolls to/highlights its span. */
+  const handleSelectFromMargin = (feedbackItemId: string) => {
+    setSelectedFeedbackItemId(feedbackItemId);
+
+    const editor = editorRef.current?.getEditor();
+    if (!editor) return;
+
+    const activeItem = active.find(({ feedbackItem }) => feedbackItem.id === feedbackItemId);
+    if (!activeItem) return;
+
+    const range = resolveAnchorRange(editor.state.doc, activeItem.anchor);
+    if (!range) return;
+
+    editor.chain().setTextSelection(range).scrollIntoView().run();
+  };
+
+  /** Highlight-span → select-item: activating a comment mark in the editor selects the margin card. */
+  const handleCommentActivated = (commentId: string | null) => {
+    setSelectedFeedbackItemId(commentId);
+  };
+
+  return (
+    <div className={['flex gap-lg', className].filter(Boolean).join(' ')}>
+      <DocumentEditor
+        ref={editorRef}
+        initialContent={initialContent}
+        ariaLabel={ariaLabel}
+        onContentChange={onContentChange}
+        onCommentActivated={handleCommentActivated}
+        className="flex-1"
+      />
+
+      <aside
+        aria-label="Feedback comments"
+        className="flex w-full max-w-xs flex-col gap-md"
+      >
+        <ul aria-label="Anchored feedback" className="flex flex-col gap-sm">
+          {active.length === 0 && removed.length === 0 && (
+            <p className="text-bodySmall text-text-muted">
+              No inline feedback for this draft.
+            </p>
+          )}
+          {active.map((item) => (
+            <MarginCommentCard
+              key={item.feedbackItem.id}
+              item={item}
+              categoryLabel={resolveCategoryLabel(item.feedbackItem.errorCategoryId, categoryLabels)}
+              isSelected={selectedFeedbackItemId === item.feedbackItem.id}
+              isRemoved={false}
+              onSelect={handleSelectFromMargin}
+            />
+          ))}
+        </ul>
+
+        {removed.length > 0 && (
+          <section aria-labelledby="removed-feedback-heading" className="border-t border-border-subtle pt-md">
+            <h3
+              id="removed-feedback-heading"
+              className="mb-sm text-caption font-sans font-semibold uppercase text-text-muted"
+            >
+              No longer applies
+            </h3>
+            <ul aria-label="Feedback no longer anchored to this draft" className="flex flex-col gap-sm">
+              {removed.map((item) => (
+                <MarginCommentCard
+                  key={item.feedbackItem.id}
+                  item={item}
+                  categoryLabel={resolveCategoryLabel(item.feedbackItem.errorCategoryId, categoryLabels)}
+                  isSelected={false}
+                  isRemoved
+                  onSelect={handleSelectFromMargin}
+                />
+              ))}
+            </ul>
+          </section>
+        )}
+      </aside>
+    </div>
+  );
+}

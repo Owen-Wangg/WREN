@@ -1,0 +1,80 @@
+/*
+ * Tailwind CSS 4 theme — mirrors the TypeScript design tokens in
+ * `src/styles/tokens/*` so Tailwind can generate utility classes (and shadcn/ui
+ * primitives) from the same named scale.
+ *
+ * SINGLE SOURCE OF TRUTH: the token values live in `src/styles/tokens/*.ts`.
+ * This block must be kept in sync with them. A palette change is a two-file edit
+ * (the token module + this mirror); component code changes never.
+ *
+ * Arbitrary Tailwind values (e.g. `bg-[#1a1a1a]`) are forbidden in component
+ * code (frontend steering §9) — use the named scale below only.
+ */
+@theme {
+  /* Colors — semantic tokens (see tokens/colors.ts) */
+  --color-surface-primary: #ffffff;
+  --color-surface-muted: #f9fafb;
+  --color-surface-subtle: #f3f4f6;
+
+  --color-text-primary: #111827;
+  --color-text-secondary: #374151;
+  --color-text-muted: #6b7280;
+  --color-text-on-accent: #ffffff;
+
+  --color-border-subtle: #e5e7eb;
+  --color-border-strong: #d1d5db;
+
+  --color-status-drafting: #6b7280;
+  --color-status-drafting-surface: #f3f4f6;
+  --color-status-polishing: #15803d;
+  --color-status-polishing-surface: #dcfce7;
+
+  --color-notice-surface: #f9fafb;
+  --color-notice-border: #e5e7eb;
+
+  --color-signal-positive: #16a34a;
+  --color-signal-caution: #b45309;
+  --color-signal-caution-surface: #fef3c7;
+  --color-signal-critical: #dc2626;
+  --color-signal-critical-surface: #fee2e2;
+
+  /* Typography (see tokens/typography.ts) */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: 'Source Serif 4', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
+
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+  --text-body-small: 14px;
+  --text-body-small--line-height: 20px;
+  --text-body: 16px;
+  --text-body--line-height: 24px;
+  --text-heading3: 20px;
+  --text-heading3--line-height: 28px;
+  --text-heading2: 24px;
+  --text-heading2--line-height: 32px;
+  --text-heading1: 32px;
+  --text-heading1--line-height: 40px;
+
+  /* Spacing (see tokens/spacing.ts) */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  --spacing-3xl: 48px;
+  --spacing-4xl: 64px;
+
+  /* Border radius (see tokens/radii.ts) */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows (see tokens/shadows.ts) */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
