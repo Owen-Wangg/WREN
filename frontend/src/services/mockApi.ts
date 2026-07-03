@@ -193,6 +193,299 @@ const dashboardMockRoutes: MockRoutes = {
   'POST /access-requests': { requested: true },
 };
 
+/* -------------------------------------------------------------------------- */
+/* Writer progress-summary fixtures (task 18.4 — additive; keep self-contained)*/
+/*                                                                            */
+/* These back `<WriterProgressPanel>` so the qualitative progress summary      */
+/* renders in the running app. Every fixture is shaped by                      */
+/* `writerProgressSummarySchema` (no-numeric-scoring: NO score/grade/rank      */
+/* fields anywhere — Requirement 18.3 / Property 19) and carries the draft-     */
+/* anchoring reference (`draftId` / `reflectsDraftVersion`).                    */
+/*                                                                            */
+/* `doc-1` reflects a ≥2 draft version with qualitative patterns, so the       */
+/* summary renders; `doc-2` is a first draft (`reflectsDraftVersion: 1`, no     */
+/* patterns) so the draft-anchoring gate suppresses it. Do NOT fold these into  */
+/* the fixtures above — kept separate so this block merges trivially alongside  */
+/* other B3 tasks that also append routes here.                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Progress summary for `doc-1` — a later draft (version ≥ 2) with qualitative
+ * patterns. Purely qualitative: tendency enums + Socratic-consistent prose,
+ * with no numeric score, grade, ranking, or comparison field.
+ */
+const sampleProgressSummary = {
+  documentId: 'doc-1',
+  draftId: 'draft-1',
+  reflectsDraftVersion: 2,
+  headline:
+    'Across your drafts, your framing of holdings is getting clearer, while citation phrasing is still worth another look.',
+  patterns: [
+    {
+      id: 'pp-1',
+      errorCategoryId: 'cat-clarity',
+      categoryLabel: 'Clarity of holding',
+      tendency: 'improving',
+      description:
+        'Your main holdings are landing as single, focused sentences more often than in your earlier draft — keep leading with the holding before adding qualifications.',
+    },
+    {
+      id: 'pp-2',
+      errorCategoryId: 'cat-terminology',
+      categoryLabel: 'Legal terminology',
+      tendency: 'persistent',
+      description:
+        'A few terms of art are still standing in for the phrasing courts use — when you revise, check whether each term is the one the court itself would use.',
+    },
+  ],
+};
+
+/**
+ * Progress summary for `doc-2` — a first draft. `reflectsDraftVersion: 1` with
+ * no patterns, so the draft-anchoring gate in `<WriterProgressSummary>` renders
+ * nothing (no pattern-level claims before a comparison point exists).
+ */
+const firstDraftProgressSummary = {
+  documentId: 'doc-2',
+  draftId: 'draft-2',
+  reflectsDraftVersion: 1,
+  headline:
+    'This is your first draft, so there is nothing to compare against yet — write freely and your progress will appear from the next draft onward.',
+  patterns: [],
+};
+
+const progressMockRoutes: MockRoutes = {
+  'GET /documents/doc-1/progress': sampleProgressSummary,
+  'GET /documents/doc-2/progress': firstDraftProgressSummary,
+};
+
+/* -------------------------------------------------------------------------- */
+/* Field Expert configuration fixtures (task 19.2 — additive; self-contained). */
+/*                                                                            */
+/* These back the Field Expert console: Active-Writing-Type selection          */
+/* (Requirement 23.4), the taxonomy editor (Requirement 24.1), the prompt      */
+/* editor with its Admin/Field-Expert edit boundary (Requirement 32.2/32.3/    */
+/* 32.7), the domain-scoped reference manager (Requirement 26), and the        */
+/* all-users aggregate analytics view (Requirement 40.1). Every fixture below  */
+/* is shaped by the schemas in `features/field-expert/fieldExpertSchemas.ts`   */
+/* and validates at the boundary like every other mock. `wt-legal-memo` is the */
+/* fully-populated sample type; `wt-contract-clause` is a second assigned type */
+/* (empty taxonomy / zeroed analytics) so switching the active type has data.  */
+/* Do NOT fold these into the fixtures above — kept separate so this block      */
+/* merges trivially alongside the other B3 console tasks that append routes.    */
+/* -------------------------------------------------------------------------- */
+
+/** The Writing Types this Field Expert is assigned to (Requirement 23.4: may be several). */
+const fieldExpertWritingTypes: WritingType[] = [
+  {
+    id: 'wt-legal-memo',
+    organizationId: 'org-allard-law',
+    name: 'Legal Memo',
+    accessState: 'OPEN',
+    sizeLimitWords: null,
+  },
+  {
+    id: 'wt-contract-clause',
+    organizationId: 'org-allard-law',
+    name: 'Contract Clause',
+    accessState: 'LOCKED',
+    sizeLimitWords: null,
+  },
+];
+
+/** `wt-legal-memo` taxonomy — categories are data with stable ids (Requirement 24.1). */
+const legalMemoTaxonomy = [
+  {
+    id: 'cat-clarity',
+    writingTypeId: 'wt-legal-memo',
+    label: 'Unclear Writing',
+    order: 0,
+  },
+  {
+    id: 'cat-summary',
+    writingTypeId: 'wt-legal-memo',
+    label: 'Inaccurate Summary',
+    order: 1,
+  },
+  {
+    id: 'cat-terminology',
+    writingTypeId: 'wt-legal-memo',
+    label: 'Incorrect Legal Terminology',
+    order: 2,
+  },
+];
+
+/** Adding a category returns the new, server-assigned entry. */
+const addedLegalMemoCategory = {
+  id: 'cat-style',
+  writingTypeId: 'wt-legal-memo',
+  label: 'Incorrect Style',
+  order: 3,
+};
+
+/**
+ * Renaming `cat-clarity` returns the SAME id with a new label — a label-only
+ * update that preserves Feedback-Item linkage (Requirement 24.1), never a
+ * delete + recreate.
+ */
+const renamedLegalMemoCategory = {
+  id: 'cat-clarity',
+  writingTypeId: 'wt-legal-memo',
+  label: 'Clarity of Writing',
+  order: 0,
+};
+
+/** Removing `cat-terminology` returns the remaining taxonomy. */
+const legalMemoTaxonomyAfterRemoval = legalMemoTaxonomy.filter(
+  (category) => category.id !== 'cat-terminology',
+);
+
+/**
+ * `wt-legal-memo` prompt config. `domainPrompt` is Field-Expert-editable
+ * (Requirement 32.2); `systemScaffolding` is Admin-owned, shown read-only, and
+ * always the authoritative outer layer (Requirement 32.3, 32.7). Neither layer
+ * contains any field that would produce replacement prose (REQ-CORE-NOGHOST-01).
+ */
+const legalMemoPromptConfig = {
+  writingTypeId: 'wt-legal-memo',
+  domainPrompt: {
+    instructionText:
+      'Ask Socratic questions that help the writer notice unclear holdings, ' +
+      'misattributed quotations, and imprecise legal terminology. Reference the ' +
+      "domain's conventions; never state the corrected sentence yourself.",
+    tone: 'Encouraging, direct',
+    density: 'standard',
+    priority: 'Surface recurring issues first when the annotation cap binds.',
+  },
+  systemScaffolding: {
+    systemInstructions:
+      'You are WREN, a Socratic writing coach. Emit only {category, question, ' +
+      'anchor?, citation?}. Never produce replacement prose, a candidate ' +
+      'rewrite, or a "suggested revision".',
+    guardrailTemplate:
+      'Discard any internal "correct version". Reject output that contains ' +
+      'replacement prose or asks the writer to accept a rewrite.',
+  },
+  updatedAt: '2024-01-02T00:00:00.000Z',
+};
+
+/** Saving the domain prompt returns the updated config with a fresh `updatedAt`. */
+const savedLegalMemoPromptConfig = {
+  ...legalMemoPromptConfig,
+  updatedAt: '2024-01-03T00:00:00.000Z',
+};
+
+/** `wt-legal-memo` domain-scoped reference materials (tier 2). */
+const legalMemoReferenceMaterials = [
+  {
+    id: 'ref-mcgill',
+    writingTypeId: 'wt-legal-memo',
+    title: 'McGill Citation Guide (excerpt)',
+    inputType: 'file',
+    preview: 'mcgill-guide.pdf',
+    createdAt: '2024-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'ref-holding',
+    writingTypeId: 'wt-legal-memo',
+    title: 'How to state a holding',
+    inputType: 'pasted-text',
+    preview: 'A holding should be stated as a single, complete sentence…',
+    createdAt: '2024-01-01T00:00:00.000Z',
+  },
+];
+
+/** Adding a reference returns the created entry (no partial persistence). */
+const addedLegalMemoReference = {
+  id: 'ref-new',
+  writingTypeId: 'wt-legal-memo',
+  title: 'Plain-language drafting notes',
+  inputType: 'rich-html',
+  preview: 'Prefer active voice; keep sentences under 25 words…',
+  createdAt: '2024-01-04T00:00:00.000Z',
+};
+
+/** Removing `ref-mcgill` returns the remaining domain-scoped materials. */
+const legalMemoReferenceMaterialsAfterRemoval =
+  legalMemoReferenceMaterials.filter(
+    (reference) => reference.id !== 'ref-mcgill',
+  );
+
+/**
+ * `wt-legal-memo` all-users aggregate analytics (Requirement 40.1). Every field
+ * is an all-users total — there are deliberately NO per-user rows, names, or
+ * per-user scores. Aggregate totals across all users ARE permitted in this
+ * Field-Expert cohort view (the writer-facing no-numeric-scoring rule does not
+ * apply here).
+ */
+const legalMemoAggregateAnalytics = {
+  writingTypeId: 'wt-legal-memo',
+  totalDocuments: 42,
+  totalDrafts: 118,
+  totalFeedbackItems: 365,
+  categoryTotals: [
+    { errorCategoryId: 'cat-clarity', label: 'Unclear Writing', total: 120 },
+    { errorCategoryId: 'cat-summary', label: 'Inaccurate Summary', total: 64 },
+    {
+      errorCategoryId: 'cat-terminology',
+      label: 'Incorrect Legal Terminology',
+      total: 181,
+    },
+  ],
+};
+
+/** `wt-contract-clause` — a second assigned type with an empty starting config. */
+const contractClausePromptConfig = {
+  writingTypeId: 'wt-contract-clause',
+  domainPrompt: {
+    instructionText: '',
+    tone: '',
+    density: 'standard',
+    priority: '',
+  },
+  systemScaffolding: legalMemoPromptConfig.systemScaffolding,
+  updatedAt: '2024-01-02T00:00:00.000Z',
+};
+
+const contractClauseAggregateAnalytics = {
+  writingTypeId: 'wt-contract-clause',
+  totalDocuments: 0,
+  totalDrafts: 0,
+  totalFeedbackItems: 0,
+  categoryTotals: [],
+};
+
+const fieldExpertMockRoutes: MockRoutes = {
+  'GET /field-expert/writing-types': fieldExpertWritingTypes,
+
+  // wt-legal-memo — fully populated.
+  'GET /writing-types/wt-legal-memo/taxonomy': legalMemoTaxonomy,
+  'POST /writing-types/wt-legal-memo/taxonomy': addedLegalMemoCategory,
+  'PATCH /writing-types/wt-legal-memo/taxonomy/cat-clarity':
+    renamedLegalMemoCategory,
+  'DELETE /writing-types/wt-legal-memo/taxonomy/cat-terminology':
+    legalMemoTaxonomyAfterRemoval,
+  'GET /writing-types/wt-legal-memo/prompt-config': legalMemoPromptConfig,
+  'PUT /writing-types/wt-legal-memo/prompt-config/domain-prompt':
+    savedLegalMemoPromptConfig,
+  'GET /writing-types/wt-legal-memo/reference-materials':
+    legalMemoReferenceMaterials,
+  'POST /writing-types/wt-legal-memo/reference-materials':
+    addedLegalMemoReference,
+  'DELETE /writing-types/wt-legal-memo/reference-materials/ref-mcgill':
+    legalMemoReferenceMaterialsAfterRemoval,
+  'GET /writing-types/wt-legal-memo/aggregate-analytics':
+    legalMemoAggregateAnalytics,
+
+  // wt-contract-clause — second assigned type, empty starting config.
+  'GET /writing-types/wt-contract-clause/taxonomy': [],
+  'GET /writing-types/wt-contract-clause/prompt-config':
+    contractClausePromptConfig,
+  'GET /writing-types/wt-contract-clause/reference-materials': [],
+  'GET /writing-types/wt-contract-clause/aggregate-analytics':
+    contractClauseAggregateAnalytics,
+};
+
 export const defaultMockRoutes: MockRoutes = {
   'GET /writing-types': sampleWritingTypes,
   'GET /documents': sampleDocuments,
@@ -203,6 +496,8 @@ export const defaultMockRoutes: MockRoutes = {
   'GET /documents/doc-1/feedback-items': sampleInlineFeedbackItems,
   'GET /documents/doc-1/anchors': sampleAnchors,
   ...dashboardMockRoutes,
+  ...progressMockRoutes,
+  ...fieldExpertMockRoutes,
 };
 
 export class MockApiClient implements HttpClient {

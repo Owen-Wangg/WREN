@@ -50,6 +50,7 @@ export const errorCategorySchema = z
 export type ErrorCategory = z.infer<typeof errorCategorySchema>;
 
 export const taxonomySchema = z.array(errorCategorySchema);
+export type Taxonomy = z.infer<typeof taxonomySchema>;
 
 /** Add-category form input — only a label; the server assigns the stable id. */
 export const addCategorySchema = z

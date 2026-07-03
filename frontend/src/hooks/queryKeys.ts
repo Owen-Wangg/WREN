@@ -65,6 +65,29 @@ export const queryKeys = {
 
   /** The current user's Access Grants, used to resolve submission permission for LOCKED types (task 19.1). */
   accessGrants: () => [ns, 'access-grants'] as const,
+
+  /**
+   * The Writing Types a Field Expert is assigned to (task 19.2; Requirement
+   * 23.4). A Field Expert may be assigned several, across organizations; the
+   * console scopes every other Field-Expert query by the active one below.
+   */
+  fieldExpertWritingTypes: () => [ns, 'field-expert', 'writing-types'] as const,
+
+  /** A Writing Type's error taxonomy (task 19.2; Requirement 24.1), scoped per type. */
+  fieldExpertTaxonomy: (writingTypeId: string) =>
+    [ns, 'field-expert', writingTypeId, 'taxonomy'] as const,
+
+  /** A Writing Type's prompt + convention config (task 19.2; Requirement 32.2), scoped per type. */
+  fieldExpertPromptConfig: (writingTypeId: string) =>
+    [ns, 'field-expert', writingTypeId, 'prompt-config'] as const,
+
+  /** A Writing Type's domain-scoped reference materials (task 19.2; Requirement 26), scoped per type. */
+  fieldExpertReferenceMaterials: (writingTypeId: string) =>
+    [ns, 'field-expert', writingTypeId, 'reference-materials'] as const,
+
+  /** A Writing Type's all-users aggregate analytics (task 19.2; Requirement 40.1), scoped per type. */
+  fieldExpertAggregateAnalytics: (writingTypeId: string) =>
+    [ns, 'field-expert', writingTypeId, 'aggregate-analytics'] as const,
 } as const;
 
 export type QueryKeys = typeof queryKeys;
