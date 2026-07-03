@@ -34,8 +34,13 @@ import { idSchema } from './common';
  *   may perform these ONLY for Writing Types they are assigned to, across any
  *   Organization (REQ-SCOPE-01 / Requirement 23.1, 23.6).
  * - `writingType.manageCatalog` — business management of an Organization's
- *   Writing Type catalog, Content Types, custom metadata, and Topics (Org Owner
- *   for owned Organizations; Admin).
+ *   Writing Type catalog, Content Types, and custom metadata (Org Owner for
+ *   owned Organizations; Admin).
+ * - `topic.manage` — CRUD for an Organization's business Topics (REQ-TOPIC-01 /
+ *   Requirement 35.1). Topics are a distinct business entity from the Writing
+ *   Type catalog — they never drive taxonomy or feedback generation — so this
+ *   is a separate capability from `writingType.manageCatalog`, though it is
+ *   granted to the same roles (Org Owner for owned Organizations; Admin).
  * - `organization.manage` / `organization.setAccessState` — technical
  *   Organization lifecycle and OPEN/LOCKED control (Admin only).
  * - `accessGrant.create` / `accessGrant.revoke` — create/revoke Access Grants
@@ -43,17 +48,24 @@ import { idSchema } from './common';
  * - `usageLimit.configure` — configure usage limits (Admin only).
  * - `usageOverride.grant` — grant a temporary, Writing-Type-scoped usage
  *   override (Field Expert for assigned types; Org Owner for owned orgs; Admin).
+ * - `user.search` — system-wide search/filter of global Users by first name,
+ *   last name, email, or role (Admin only, Requirement 29.1 / 2.1-2.3 / 2.5).
+ *   Deliberately NOT granted to `Org Owner` — an Org Owner's user-facing
+ *   authority is limited to creating/revoking Access Grants within owned
+ *   Organizations, never a system-wide directory search.
  */
 export const capabilitySchema = z.enum([
   'writingType.readConfig',
   'writingType.modifyConfig',
   'writingType.manageCatalog',
+  'topic.manage',
   'organization.manage',
   'organization.setAccessState',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageLimit.configure',
   'usageOverride.grant',
+  'user.search',
 ]);
 export type Capability = z.infer<typeof capabilitySchema>;
 

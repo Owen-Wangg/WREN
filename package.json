@@ -7,7 +7,9 @@
   "workspaces": [
     "types",
     "backend/database/node",
-    "backend/auth"
+    "backend/auth",
+    "backend/admin",
+    "backend/document"
   ],
   "scripts": {
     "test": "jest",
