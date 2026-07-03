@@ -28,6 +28,12 @@
  *                      `assignedWritingTypeIds`, never by a home Organization
  *                      (REQ-SCOPE-01 / Requirements 23.1, 23.6).
  *   - `User`         — no privileged capability.
+ *
+ * `user.search` (system-wide User directory search, Requirement 29.1) is
+ * deliberately `Admin`-only: it is handled entirely by the Admin short-circuit
+ * below and is NOT added to `ORG_OWNER_CAPABILITIES` — an Org Owner's
+ * user-facing authority is limited to Access Grants within owned Organizations,
+ * never a system-wide directory search (Requirements 2.1, 2.5).
  */
 import type {
   AuthContext,
@@ -40,6 +46,7 @@ import type {
 /** Capabilities an `Org Owner` may exercise within Organizations they own. */
 const ORG_OWNER_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
   'writingType.manageCatalog',
+  'topic.manage',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageOverride.grant',

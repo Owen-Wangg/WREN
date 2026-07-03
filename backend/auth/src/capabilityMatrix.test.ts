@@ -65,12 +65,14 @@ const ALL_CAPABILITIES: Capability[] = [
   'writingType.readConfig',
   'writingType.modifyConfig',
   'writingType.manageCatalog',
+  'topic.manage',
   'organization.manage',
   'organization.setAccessState',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageLimit.configure',
   'usageOverride.grant',
+  'user.search',
 ];
 
 describe('authorizeCapability — Admin (Requirement 5.1: technical superuser)', () => {
@@ -105,6 +107,14 @@ describe('authorizeCapability — Org Owner (Requirement 5.1: owned orgs only)',
     expect(
       isCapabilityAllowed(owner, req('writingType.manageCatalog', orgScope(OWNED_ORG))),
     ).toBe(true);
+  });
+
+  it('allows managing business Topics within an owned Organization (Requirement 35.1)', () => {
+    expect(isCapabilityAllowed(owner, req('topic.manage', orgScope(OWNED_ORG)))).toBe(true);
+  });
+
+  it('DENIES managing business Topics on a non-owned Organization (no mutation)', () => {
+    expect(isCapabilityAllowed(owner, req('topic.manage', orgScope(OTHER_ORG)))).toBe(false);
   });
 
   it('allows creating/revoking Access Grants within an owned Organization', () => {
@@ -143,6 +153,13 @@ describe('authorizeCapability — Org Owner (Requirement 5.1: owned orgs only)',
     expect(
       isCapabilityAllowed(owner, req('usageLimit.configure', platformScope)),
     ).toBe(false);
+  });
+
+  it('DENIES the system-wide user-search capability (Requirements 2.1, 2.5)', () => {
+    expect(
+      isCapabilityAllowed(owner, req('user.search', orgScope(OWNED_ORG))),
+    ).toBe(false);
+    expect(isCapabilityAllowed(owner, req('user.search', platformScope))).toBe(false);
   });
 
   it('DENIES editing a Writing Type configuration (Field-Expert territory)', () => {
