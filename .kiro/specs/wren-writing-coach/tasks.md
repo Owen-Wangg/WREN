@@ -325,7 +325,7 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 18.3 Implement the AI Debrief and structural-feedback view  〔Track B · B2〕
     - View/Regenerate AI Debrief (triggers engine re-run; loading/error/empty states; React Query invalidation on regenerate); distinct presentation of document-wide structural feedback; no Apply/Insert/Accept affordance anywhere; helpfulness rating emits an audit event
     - _Requirements: 11.2, 14.2, 16.1, 16.2, 16.3, 16.4, 16.5, 48.2, 48.3_
-  - [-] 18.4 Implement the writer progress summary (no numeric scoring)  〔Track B · B3〕
+  - [x] 18.4 Implement the writer progress summary (no numeric scoring)  〔Track B · B3〕
     - Show qualitative pattern-level progress summary before remaining items on drafts with ≥1 prior draft; no scores/grades/rankings/comparisons; bind feedback components to the draft version they were generated against
     - _Requirements: 18.1, 18.3, 18.4_
   - [ ]* 18.5 Write property test for writer-facing progress carrying no numeric scoring  〔Track B · B4〕
@@ -339,10 +339,10 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
     - _Requirements: 11.2_
 
 - [ ] 19. Role consoles and writer dashboard  〔Track B〕
-  - [-] 19.1 Implement the writer dashboard and self-selection of OPEN writing types  〔Track B · B3〕
+  - [x] 19.1 Implement the writer dashboard and self-selection of OPEN writing types  〔Track B · B3〕
     - "My Documents" cards (Topic, Status, search/status filter); self-select any OPEN Writing Type; access-request flow for LOCKED types
     - _Requirements: 4.2, 4.6, 6.8, 28.2_
-  - [-] 19.2 Implement the Field Expert configuration surface  〔Track B · B3〕
+  - [x] 19.2 Implement the Field Expert configuration surface  〔Track B · B3〕
     - Active-Writing-Type selection; taxonomy editor (add/remove/rename); convention + prompt editor with the edit boundary; domain-scoped reference manager; aggregate (domain-scoped) analytics view
     - _Requirements: 23.4, 24.1, 32.2, 40.1_
   - [-] 19.3 Implement the Org Owner business console  〔Track B · B3〕
