@@ -39,10 +39,10 @@ export function StatusFilter({
       <select
         id={id}
         value={value}
-        className="rounded-md border border-border-strong bg-surface-primary px-md py-sm text-body text-text-primary"
+        className="appearance-none rounded-lg border border-border-strong/40 bg-surface-primary px-lg py-sm pr-[40px] text-body text-text-primary"
         onChange={(event) => onChange(event.target.value as StatusFilterValue)}
       >
-        <option value={ALL_STATUSES}>All statuses</option>
+        <option value={ALL_STATUSES}>All</option>
         {STATUS_OPTIONS.map((status) => (
           <option key={status} value={status}>
             {statusColorMap[status].label}

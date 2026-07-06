@@ -40,7 +40,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
 
   return (
     <form
-      className="flex w-full max-w-sm flex-col gap-lg"
+      className="flex w-full max-w-[720px] flex-col gap-lg rounded-md border border-border-subtle bg-surface-primary p-2xl"
       noValidate
       onSubmit={handleSubmit(onSubmit)}
     >
@@ -60,7 +60,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
             aria-describedby={
               errors.firstName ? 'signup-first-name-error' : undefined
             }
-            className="rounded-md border border-border-strong bg-surface-primary px-md py-sm text-body text-text-primary"
+            className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary placeholder:text-text-muted/60"
             {...register('firstName')}
           />
           {errors.firstName && (
@@ -88,7 +88,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
             aria-describedby={
               errors.lastName ? 'signup-last-name-error' : undefined
             }
-            className="rounded-md border border-border-strong bg-surface-primary px-md py-sm text-body text-text-primary"
+            className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary placeholder:text-text-muted/60"
             {...register('lastName')}
           />
           {errors.lastName && (
@@ -115,7 +115,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
           autoComplete="email"
           aria-invalid={errors.email ? 'true' : undefined}
           aria-describedby={errors.email ? 'signup-email-error' : undefined}
-          className="rounded-md border border-border-strong bg-surface-primary px-md py-sm text-body text-text-primary"
+          className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary placeholder:text-text-muted/60"
           {...register('email')}
         />
         {errors.email && (
@@ -140,7 +140,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
           aria-describedby={
             errors.password ? 'signup-password-error' : undefined
           }
-          className="rounded-md border border-border-strong bg-surface-primary px-md py-sm text-body text-text-primary"
+          className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary placeholder:text-text-muted/60"
           {...register('password')}
         />
         {errors.password && (
@@ -170,7 +170,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
               ? 'signup-confirm-password-error'
               : undefined
           }
-          className="rounded-md border border-border-strong bg-surface-primary px-md py-sm text-body text-text-primary"
+          className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary placeholder:text-text-muted/60"
           {...register('confirmPassword')}
         />
         {errors.confirmPassword && (
@@ -192,7 +192,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
       <button
         type="submit"
         disabled={isSubmitting}
-        className="rounded-md bg-text-primary px-md py-sm text-body font-sans font-medium text-text-on-accent disabled:opacity-60"
+        className="rounded-md bg-accent-primary px-lg py-sm text-body font-sans font-semibold text-text-on-accent shadow-md disabled:opacity-60"
       >
         {isSubmitting ? 'Creating account…' : 'Create account'}
       </button>

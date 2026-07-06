@@ -81,7 +81,7 @@ export function WrenChatPanel({
     <aside
       aria-label="Ask WREN"
       className={[
-        'flex h-full w-full max-w-sm flex-col gap-md rounded-md border border-border-subtle bg-surface-primary p-lg',
+        'flex h-full w-[320px] shrink-0 flex-col gap-md rounded-md border border-border-subtle bg-surface-panel p-lg',
         className,
       ]
         .filter(Boolean)
@@ -135,13 +135,13 @@ export function WrenChatPanel({
           id="ask-wren-input"
           type="text"
           placeholder="Ask a question about this draft…"
-          className="flex-1 rounded-md border border-border-strong bg-surface-primary px-md py-sm text-body text-text-primary"
+          className="flex-1 rounded-md border border-border-subtle bg-surface-primary px-md py-sm text-bodySmall text-text-primary placeholder:text-text-primary/50"
           {...register('text')}
         />
         <button
           type="submit"
           disabled={isSubmitting}
-          className="rounded-md bg-text-primary px-md py-sm text-body font-sans font-medium text-text-on-accent disabled:opacity-60"
+          className="rounded-md bg-accent-primary px-md py-sm text-bodySmall font-sans font-semibold text-text-on-accent disabled:opacity-60"
         >
           Send
         </button>

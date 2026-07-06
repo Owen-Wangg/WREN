@@ -23,10 +23,10 @@ export function MetadataFieldsInput({
       {fields.map((field) => {
         const inputId = `document-metadata-${field.key.replace(/\s+/g, '-').toLowerCase()}`;
         return (
-          <div key={field.key} className="flex flex-col gap-xs">
+          <div key={field.key} className="flex flex-col gap-sm">
             <label
               htmlFor={inputId}
-              className="text-bodySmall font-sans font-medium text-text-secondary"
+              className="text-body font-sans font-semibold text-text-secondary"
             >
               {field.label}
               {field.required && <span aria-hidden="true"> *</span>}
@@ -37,7 +37,7 @@ export function MetadataFieldsInput({
               required={field.required}
               aria-required={field.required}
               value={values[field.key] ?? ''}
-              className="rounded-md border border-border-strong bg-surface-primary px-md py-sm text-body text-text-primary"
+              className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary"
               onChange={(event) => onChange(field.key, event.target.value)}
             />
           </div>

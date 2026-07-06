@@ -73,17 +73,17 @@ export function NewDocumentForm({
 
   return (
     <form
-      className="flex w-full max-w-lg flex-col gap-lg"
+      className="flex w-full max-w-[920px] flex-col gap-xl rounded-[30px] border border-border-strong/50 bg-surface-primary p-2xl shadow-md"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
         handleActivate();
       }}
     >
-      <div className="flex flex-col gap-xs">
+      <div className="flex flex-col gap-sm">
         <label
           htmlFor="new-document-name"
-          className="text-bodySmall font-sans font-medium text-text-secondary"
+          className="text-body font-sans font-semibold text-text-secondary"
         >
           Document Name
         </label>
@@ -91,7 +91,7 @@ export function NewDocumentForm({
           id="new-document-name"
           type="text"
           value={name}
-          className="rounded-md border border-border-strong bg-surface-primary px-md py-sm text-body text-text-primary"
+          className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary"
           onChange={(event) => setName(event.target.value)}
         />
       </div>
@@ -120,7 +120,7 @@ export function NewDocumentForm({
       <button
         type="submit"
         disabled={!requiredFieldsFilled}
-        className="rounded-md bg-text-primary px-md py-sm text-body font-sans font-medium text-text-on-accent disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-lg bg-accent-primary px-lg py-sm text-body font-sans font-semibold text-text-on-accent shadow-md disabled:cursor-not-allowed disabled:opacity-60"
       >
         Activate Editor
       </button>

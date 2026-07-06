@@ -141,21 +141,72 @@ export function AnchoredFeedbackEditor({
   };
 
   return (
-    <div className={['flex gap-lg', className].filter(Boolean).join(' ')}>
-      <DocumentEditor
-        ref={editorRef}
-        initialContent={initialContent}
-        ariaLabel={ariaLabel}
-        onContentChange={onContentChange}
-        onCommentActivated={handleCommentActivated}
-        className="flex-1"
-      />
+    <div className={['flex min-h-[600px] gap-0', className].filter(Boolean).join(' ')}>
+      {/* Left sidebar — 240px, #F2F2F2 fill */}
+      <aside
+        aria-label="Editor tools"
+        className="flex w-[240px] shrink-0 flex-col gap-md bg-surface-subtle p-lg"
+      >
+        <h2 className="text-heading2 font-sans font-semibold text-text-primary">
+          Document
+        </h2>
+        <hr className="border-border-subtle" />
+        <div className="flex flex-col gap-sm">
+          <button
+            type="button"
+            className="h-[48px] w-[220px] rounded-md bg-accent-primary text-body font-sans font-semibold text-text-on-accent shadow-md"
+          >
+            View AI Debrief
+          </button>
+          <button
+            type="button"
+            className="h-[48px] w-[220px] rounded-md bg-accent-primary text-body font-sans font-semibold text-text-on-accent shadow-md"
+          >
+            Regenerate AI Debrief
+          </button>
+          <button
+            type="button"
+            className="h-[48px] w-[220px] rounded-md bg-accent-primary text-body font-sans font-semibold text-text-on-accent shadow-md"
+          >
+            Ask WREN
+          </button>
+          <button
+            type="button"
+            className="h-[48px] w-[220px] rounded-md bg-accent-primary text-body font-sans font-semibold text-text-on-accent shadow-md"
+          >
+            Download Document
+          </button>
+          <button
+            type="button"
+            className="h-[48px] w-[220px] rounded-md bg-accent-primary text-body font-sans font-semibold text-text-on-accent shadow-md"
+          >
+            Re-Upload Document
+          </button>
+        </div>
+      </aside>
 
+      {/* Main editor area */}
+      <div className="flex flex-1 flex-col">
+        <DocumentEditor
+          ref={editorRef}
+          initialContent={initialContent}
+          ariaLabel={ariaLabel}
+          onContentChange={onContentChange}
+          onCommentActivated={handleCommentActivated}
+          className="flex-1"
+        />
+      </div>
+
+      {/* Right panel — 320px with margin comments */}
       <aside
         aria-label="Feedback comments"
-        className="flex w-full max-w-xs flex-col gap-md"
+        className="flex w-[320px] shrink-0 flex-col gap-md bg-surface-panel p-lg"
       >
-        <ul aria-label="Anchored feedback" className="flex flex-col gap-sm">
+        <h3 className="text-heading3 font-sans font-semibold text-text-primary">
+          LLM Feedback
+        </h3>
+
+        <ul aria-label="Anchored feedback" className="flex flex-1 flex-col gap-sm overflow-y-auto">
           {active.length === 0 && removed.length === 0 && (
             <p className="text-bodySmall text-text-muted">
               No inline feedback for this draft.
@@ -195,6 +246,16 @@ export function AnchoredFeedbackEditor({
             </ul>
           </section>
         )}
+
+        {/* Ask WREN input at bottom (Figma: 8px radius, 1px border, 14px placeholder at 50%) */}
+        <div className="mt-auto">
+          <div
+            className="w-full rounded-md border border-border-subtle bg-surface-primary px-md py-sm text-bodySmall text-text-primary/50"
+            aria-hidden="true"
+          >
+            Ask WREN about this draft…
+          </div>
+        </div>
       </aside>
     </div>
   );

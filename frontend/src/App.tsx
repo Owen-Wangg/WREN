@@ -18,6 +18,8 @@ import { AnchoredFeedbackEditorContainer } from '@/features/editor';
 import { AiDebriefModal } from '@/features/debrief';
 import { NewDocumentForm } from '@/features/documents';
 import { WrenChatPanel, MockAskWrenService } from '@/features/ask-wren';
+import { OrgOwnerConsole } from '@/features/org-owner';
+import { AdminConsole } from '@/features/admin';
 import { AiDisclaimerNotice } from '@/components/ui';
 
 import type { JSONContent } from '@tiptap/react';
@@ -89,19 +91,24 @@ function DevHome() {
 
 function DevLogin() {
   return (
-    <div className="flex flex-col gap-2xl md:flex-row">
-      <section className="flex flex-col gap-md">
-        <h2 className="text-heading3 font-sans font-semibold text-text-primary">
-          Log in
-        </h2>
-        <LoginForm onSuccess={() => window.alert('Signed in (mock).')} />
-      </section>
-      <section className="flex flex-col gap-md">
-        <h2 className="text-heading3 font-sans font-semibold text-text-primary">
-          Sign up
-        </h2>
-        <SignupForm onSuccess={() => window.alert('Account created (mock).')} />
-      </section>
+    <div className="flex min-h-[80vh] flex-col items-center justify-center gap-2xl bg-surface-subtle">
+      <h1 className="text-title-hero font-sans font-bold text-text-primary">
+        {appConfig.appName}
+      </h1>
+      <div className="flex gap-lg">
+        <section className="flex flex-col items-center gap-lg">
+          <h2 className="text-heading3 font-sans font-semibold text-text-primary">
+            Log in
+          </h2>
+          <LoginForm onSuccess={() => window.alert('Signed in (mock).')} />
+        </section>
+        <section className="flex flex-col items-center gap-lg">
+          <h2 className="text-heading3 font-sans font-semibold text-text-primary">
+            Sign up
+          </h2>
+          <SignupForm onSuccess={() => window.alert('Account created (mock).')} />
+        </section>
+      </div>
     </div>
   );
 }
@@ -173,6 +180,28 @@ function DevAskWren() {
   );
 }
 
+function DevOrgOwner() {
+  return (
+    <div className="flex flex-col gap-md">
+      <h2 className="text-heading3 font-sans font-semibold text-text-primary">
+        Org Owner Console
+      </h2>
+      <OrgOwnerConsole />
+    </div>
+  );
+}
+
+function DevAdmin() {
+  return (
+    <div className="flex flex-col gap-md">
+      <h2 className="text-heading3 font-sans font-semibold text-text-primary">
+        Admin Console
+      </h2>
+      <AdminConsole />
+    </div>
+  );
+}
+
 const navLinks: readonly { readonly to: string; readonly label: string }[] = [
   { to: '/', label: 'Home' },
   { to: '/login', label: 'Auth' },
@@ -180,6 +209,8 @@ const navLinks: readonly { readonly to: string; readonly label: string }[] = [
   { to: '/debrief', label: 'AI Debrief' },
   { to: '/new-document', label: 'New Document' },
   { to: '/ask-wren', label: 'Ask WREN' },
+  { to: '/org-owner', label: 'Org Owner' },
+  { to: '/admin', label: 'Admin' },
 ];
 
 export function App() {
@@ -190,16 +221,17 @@ export function App() {
   return (
     <div className="min-h-screen bg-surface-muted text-text-primary">
       <header className="border-b border-border-subtle bg-surface-primary">
-        <div className="mx-auto flex max-w-5xl flex-col gap-sm px-xl py-lg">
-          <div className="flex items-baseline gap-md">
-            <h1 className="text-heading2 font-sans font-bold text-text-primary">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-xl py-md">
+          <div className="flex items-center gap-lg">
+            {/* 48px icon slot placeholder (Figma Book icon) */}
+            <div className="flex h-[48px] w-[48px] items-center justify-center">
+              <span className="text-heading2 text-text-primary">📖</span>
+            </div>
+            <h1 className="text-heading2 font-sans font-semibold text-text-primary">
               {appConfig.appName}
             </h1>
-            <span className="text-caption uppercase text-text-muted">
-              dev preview
-            </span>
           </div>
-          <nav className="flex flex-wrap gap-md" aria-label="Preview navigation">
+          <nav className="flex items-center gap-lg" aria-label="Preview navigation">
             {navLinks.map((link) => (
               <NavLink
                 key={link.to}
@@ -207,10 +239,10 @@ export function App() {
                 end={link.to === '/'}
                 className={({ isActive }) =>
                   [
-                    'text-bodySmall font-sans font-medium',
+                    'text-body font-sans',
                     isActive
-                      ? 'text-text-primary underline'
-                      : 'text-text-secondary hover:text-text-primary',
+                      ? 'font-semibold text-text-primary'
+                      : 'text-text-muted',
                   ].join(' ')
                 }
               >
@@ -229,6 +261,8 @@ export function App() {
           <Route path="/debrief" element={<DevDebrief />} />
           <Route path="/new-document" element={<DevNewDocument />} />
           <Route path="/ask-wren" element={<DevAskWren />} />
+          <Route path="/org-owner" element={<DevOrgOwner />} />
+          <Route path="/admin" element={<DevAdmin />} />
         </Routes>
       </main>
     </div>

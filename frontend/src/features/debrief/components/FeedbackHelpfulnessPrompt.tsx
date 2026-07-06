@@ -58,7 +58,7 @@ export function FeedbackHelpfulnessPrompt({
         .filter(Boolean)
         .join(' ')}
     >
-      <legend className="text-bodySmall font-sans font-medium text-text-secondary">
+      <legend className="text-body font-sans italic text-text-secondary">
         Was this feedback helpful?
       </legend>
 
@@ -68,10 +68,10 @@ export function FeedbackHelpfulnessPrompt({
           aria-pressed={helpful === true}
           onClick={() => setHelpful(true)}
           className={[
-            'rounded-md border px-md py-xs text-bodySmall font-sans',
+            'rounded-md px-lg py-sm text-body font-sans font-semibold',
             helpful === true
-              ? 'border-text-primary bg-text-primary text-text-on-accent'
-              : 'border-border-strong bg-surface-primary text-text-secondary',
+              ? 'bg-accent-primary text-text-on-accent'
+              : 'bg-accent-primary text-text-on-accent opacity-70',
           ].join(' ')}
         >
           Yes
@@ -81,10 +81,10 @@ export function FeedbackHelpfulnessPrompt({
           aria-pressed={helpful === false}
           onClick={() => setHelpful(false)}
           className={[
-            'rounded-md border px-md py-xs text-bodySmall font-sans',
+            'rounded-md px-lg py-sm text-body font-sans font-semibold',
             helpful === false
-              ? 'border-text-primary bg-text-primary text-text-on-accent'
-              : 'border-border-strong bg-surface-primary text-text-secondary',
+              ? 'bg-accent-primary text-text-on-accent'
+              : 'bg-accent-primary text-text-on-accent opacity-70',
           ].join(' ')}
         >
           No

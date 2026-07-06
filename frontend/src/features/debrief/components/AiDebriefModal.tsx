@@ -26,6 +26,7 @@
  */
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 import { FeedbackItemsList } from './FeedbackItemsList';
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
@@ -48,6 +49,24 @@ export function AiDebriefModal({
   const debriefQuery = useAiDebrief(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
 
+  // Track the element that had focus when the modal opened so we can return
+  // focus to it on close (accessibility steering §8: "return focus to the
+  // triggering button on close"). Radix Dialog handles this automatically when
+  // using Dialog.Trigger, but in controlled mode with an external trigger it
+  // needs an explicit assist.
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
+    } else if (previousFocusRef.current) {
+      // Restore focus after the DOM has settled (Radix unmounts the portal).
+      const target = previousFocusRef.current;
+      previousFocusRef.current = null;
+      requestAnimationFrame(() => target.focus());
+    }
+  }, [open]);
+
   const debrief = debriefQuery.data;
   const inlineItems = debrief?.items.filter((item) => item.kind === 'inline') ?? [];
   const structuralItems =
@@ -58,13 +77,18 @@ export function AiDebriefModal({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg bg-surface-primary p-lg shadow-lg"
+          className="fixed left-1/2 top-1/2 flex h-[718px] w-full max-w-[824px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border border-border-strong bg-surface-primary p-xl shadow-lg"
           aria-describedby={undefined}
         >
-          <div className="mb-md flex items-center justify-between">
-            <Dialog.Title className="text-heading3 font-sans font-semibold text-text-primary">
-              AI Debrief
-            </Dialog.Title>
+          <div className="mb-lg flex items-start justify-between">
+            <div className="flex flex-col gap-xs">
+              <Dialog.Title className="text-heading2 font-sans font-semibold text-text-primary">
+                AI Debrief
+              </Dialog.Title>
+              <p className="text-body text-text-secondary">
+                Feedback on your written work.
+              </p>
+            </div>
             <Dialog.Close asChild>
               <button
                 type="button"
@@ -76,9 +100,9 @@ export function AiDebriefModal({
             </Dialog.Close>
           </div>
 
-          <AiDisclaimerNotice className="mb-md" />
+          <AiDisclaimerNotice className="mb-lg" />
 
-          <div className="mb-md flex items-center justify-between">
+          <div className="mb-lg flex items-center justify-between">
             <span className="text-caption text-text-muted">
               {debrief ? `Based on draft ${debrief.draftId}` : ' '}
             </span>
@@ -86,7 +110,7 @@ export function AiDebriefModal({
               type="button"
               onClick={() => regenerate.mutate()}
               disabled={regenerate.isPending || debriefQuery.isLoading}
-              className="rounded-md border border-border-strong bg-surface-primary px-md py-xs text-bodySmall font-sans font-medium text-text-primary disabled:opacity-60"
+              className="rounded-md border border-border-strong bg-surface-primary px-lg py-xs text-bodySmall font-sans font-semibold text-text-primary disabled:opacity-60"
             >
               {regenerate.isPending ? 'Regenerating…' : 'Regenerate AI Debrief'}
             </button>
@@ -126,41 +150,46 @@ export function AiDebriefModal({
                   Feedback hasn't been generated for this document yet.
                 </p>
               ) : (
-                <div className="flex flex-col gap-lg">
-                  <section aria-labelledby="ai-debrief-inline-heading">
-                    <h3
-                      id="ai-debrief-inline-heading"
-                      className="mb-sm text-bodySmall font-sans font-semibold text-text-primary"
-                    >
-                      Inline feedback
-                    </h3>
-                    <FeedbackItemsList
-                      items={inlineItems}
-                      emptyMessage="No inline feedback for this draft."
-                    />
-                  </section>
+                <div className="flex flex-1 flex-col overflow-hidden">
+                  <div className="flex-1 overflow-y-auto rounded-md border border-border-strong/25 p-lg shadow-md">
+                    <div className="flex flex-col gap-lg">
+                      <section aria-labelledby="ai-debrief-inline-heading">
+                        <h3
+                          id="ai-debrief-inline-heading"
+                          className="mb-sm text-bodySmall font-sans font-semibold text-text-primary"
+                        >
+                          Inline feedback
+                        </h3>
+                        <FeedbackItemsList
+                          items={inlineItems}
+                          emptyMessage="No inline feedback for this draft."
+                        />
+                      </section>
 
-                  {/* Distinct section: document-wide structural feedback is never
-                      merged into the inline list (Requirement 14.2). */}
-                  <section
-                    aria-labelledby="ai-debrief-structural-heading"
-                    className="border-t border-border-subtle pt-lg"
-                  >
-                    <h3
-                      id="ai-debrief-structural-heading"
-                      className="mb-sm text-bodySmall font-sans font-semibold text-text-primary"
-                    >
-                      Document structure
-                    </h3>
-                    <FeedbackItemsList
-                      items={structuralItems}
-                      emptyMessage="No document-wide structural feedback for this draft."
-                    />
-                  </section>
+                      {/* Distinct section: document-wide structural feedback is never
+                          merged into the inline list (Requirement 14.2). */}
+                      <section
+                        aria-labelledby="ai-debrief-structural-heading"
+                        className="border-t border-border-subtle pt-lg"
+                      >
+                        <h3
+                          id="ai-debrief-structural-heading"
+                          className="mb-sm text-bodySmall font-sans font-semibold text-text-primary"
+                        >
+                          Document structure
+                        </h3>
+                        <FeedbackItemsList
+                          items={structuralItems}
+                          emptyMessage="No document-wide structural feedback for this draft."
+                        />
+                      </section>
+                    </div>
+                  </div>
 
                   <FeedbackHelpfulnessPrompt
                     environmentId={environmentId}
                     draftId={debrief.draftId}
+                    className="mt-lg"
                   />
                 </div>
               )}

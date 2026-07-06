@@ -29,7 +29,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   return (
     <span
       className={[
-        'inline-flex items-center gap-xs rounded-full px-sm py-xs text-caption font-sans font-medium',
+        'inline-flex items-center gap-xs rounded-full px-sm py-xs text-bodySmall font-sans font-semibold',
         surfaceClassByToken[entry.surfaceToken],
         textClassByToken[entry.colorToken],
         className,

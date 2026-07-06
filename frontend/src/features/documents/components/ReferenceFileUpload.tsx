@@ -28,33 +28,33 @@ export function ReferenceFileUpload({
   const tierSelectId = `${id}-tier`;
 
   return (
-    <div className="flex flex-col gap-xs">
+    <div className="flex flex-col gap-sm">
       <label
         htmlFor={id}
-        className="text-bodySmall font-sans font-medium text-text-secondary"
+        className="text-body font-sans font-semibold text-text-secondary"
       >
-        Reference Material (optional)
+        Upload File
       </label>
       <input
         id={id}
         type="file"
-        className="text-bodySmall text-text-primary"
+        className="rounded-md border border-border-subtle bg-border-subtle/50 px-lg py-sm text-bodySmall text-text-primary file:mr-md file:rounded-md file:border-0 file:bg-surface-primary file:px-md file:py-xs file:text-bodySmall file:font-sans file:text-text-secondary"
         onChange={(event) => onFileChange(event.target.files?.[0])}
       />
       {file && (
-        <p className="text-bodySmall text-text-muted">Selected: {file.name}</p>
+        <p className="text-bodySmall text-blue-600">Selected: {file.name}</p>
       )}
 
       <label
         htmlFor={tierSelectId}
-        className="mt-xs text-bodySmall font-sans font-medium text-text-secondary"
+        className="mt-sm text-body font-sans font-semibold text-text-secondary"
       >
         Reference scope
       </label>
       <select
         id={tierSelectId}
         value={tier}
-        className="rounded-md border border-border-strong bg-surface-primary px-md py-sm text-bodySmall text-text-primary"
+        className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary"
         onChange={(event) =>
           onTierChange(event.target.value as ReferenceMaterialTier)
         }

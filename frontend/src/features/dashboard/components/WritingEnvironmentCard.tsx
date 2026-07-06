@@ -34,41 +34,48 @@ export function WritingEnvironmentCard({
   const topic = getDocumentTopic(document);
 
   return (
-    <article className="flex flex-col gap-sm rounded-md border border-border-subtle bg-surface-primary px-md py-sm shadow-sm">
-      <div className="flex items-start justify-between gap-sm">
-        <div className="flex flex-col gap-xs">
-          {topic && (
-            <span className="text-caption font-sans font-medium uppercase text-text-muted">
-              {topic}
-            </span>
-          )}
-          {onOpen ? (
-            <button
-              type="button"
-              onClick={() => onOpen(document)}
-              className="self-start text-left text-body font-sans font-semibold text-text-primary hover:underline"
-            >
-              {document.name}
-            </button>
-          ) : (
-            <h3 className="text-body font-sans font-semibold text-text-primary">
-              {document.name}
-            </h3>
-          )}
-        </div>
-
-        {/* Overflow-menu affordance placeholder (steering §4). No actions wired
-            yet — convergence work owns the eventual menu. */}
-        <button
-          type="button"
-          aria-label={`Actions for ${document.name}`}
-          className="rounded-md p-xs text-text-muted hover:text-text-primary"
-        >
-          <MoreHorizontal size={18} aria-hidden="true" />
-        </button>
+    <article className="relative flex h-[200px] w-[380px] flex-col justify-between rounded-md border border-text-muted/25 bg-surface-primary p-lg shadow-md">
+      <div className="flex flex-col gap-xs">
+        <span className="text-bodySmall font-sans text-text-primary/45">
+          Environment: {document.writingTypeId}
+        </span>
+        {onOpen ? (
+          <button
+            type="button"
+            onClick={() => onOpen(document)}
+            className="self-start text-left text-heading2 font-sans font-semibold text-text-primary hover:underline"
+          >
+            {document.name}
+          </button>
+        ) : (
+          <h3 className="text-heading2 font-sans font-semibold text-text-primary">
+            {document.name}
+          </h3>
+        )}
+        <StatusBadge status={document.status} />
       </div>
 
-      <StatusBadge status={document.status} />
+      <div className="flex flex-col gap-xs">
+        {topic && (
+          <p className="text-bodySmall text-text-primary">
+            <span className="font-bold">Topic:</span> {topic}
+          </p>
+        )}
+        <p className="text-bodySmall text-text-primary">
+          <span className="font-bold">Date Added:</span>{' '}
+          {new Date(document.createdAt).toLocaleDateString()}
+        </p>
+      </div>
+
+      {/* Overflow-menu affordance placeholder (steering §4). No actions wired
+          yet — convergence work owns the eventual menu. */}
+      <button
+        type="button"
+        aria-label={`Actions for ${document.name}`}
+        className="absolute bottom-lg right-lg rounded-md p-xs text-text-muted hover:text-text-primary"
+      >
+        <MoreHorizontal size={18} aria-hidden="true" />
+      </button>
     </article>
   );
 }

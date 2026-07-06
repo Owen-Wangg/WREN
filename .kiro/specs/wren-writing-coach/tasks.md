@@ -328,13 +328,13 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 18.4 Implement the writer progress summary (no numeric scoring)  〔Track B · B3〕
     - Show qualitative pattern-level progress summary before remaining items on drafts with ≥1 prior draft; no scores/grades/rankings/comparisons; bind feedback components to the draft version they were generated against
     - _Requirements: 18.1, 18.3, 18.4_
-  - [ ]* 18.5 Write property test for writer-facing progress carrying no numeric scoring  〔Track B · B4〕
+  - [x]* 18.5 Write property test for writer-facing progress carrying no numeric scoring  〔Track B · B4〕
     - **Property 19: Writer-facing progress carries no numeric scoring**
     - **Validates: Requirements 18.3**
   - [x] 18.6 Implement document creation, re-upload, citations, and Ask WREN  〔Track B · B2〕
     - New-document form (type select, configurable metadata incl. "Writing Topic", reference upload, Activate Editor disabled until required fields set); re-upload to create a new Draft; citation display on items; Ask WREN panel (Socratic-only, draft-anchored, same guardrail)
     - _Requirements: 6.6, 6.7, 8.1, 21.2, 11.1_
-  - [ ]* 18.7 Write compliance render tests for the editor and debrief  〔Track B · B3〕
+  - [x]* 18.7 Write compliance render tests for the editor and debrief  〔Track B · B3〕
     - Assert AI feedback is visually/structurally distinguishable from writer text and that no Apply/Insert/Accept affordance exists; AI Debrief modal focus trap, Escape/×, focus return
     - _Requirements: 11.2_
 
@@ -345,10 +345,10 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 19.2 Implement the Field Expert configuration surface  〔Track B · B3〕
     - Active-Writing-Type selection; taxonomy editor (add/remove/rename); convention + prompt editor with the edit boundary; domain-scoped reference manager; aggregate (domain-scoped) analytics view
     - _Requirements: 23.4, 24.1, 32.2, 40.1_
-  - [-] 19.3 Implement the Org Owner business console  〔Track B · B3〕
+  - [x] 19.3 Implement the Org Owner business console  〔Track B · B3〕
     - Owned Organizations with Writing Types, Content Types, configurable metadata, Topics, members; add users / assign Field Expert + types; aggregate (owned-org) analytics only
     - _Requirements: 34.1, 34.2, 34.3, 34.4, 34.5_
-  - [-] 19.4 Implement the (System) Admin technical console  〔Track B · B3〕
+  - [x] 19.4 Implement the (System) Admin technical console  〔Track B · B3〕
     - Model config, system prompt/guardrail config, app settings; create/remove Organizations and set OPEN/LOCKED; assign Org Owner + system-wide user/role view; usage limits + current usage; platform/org aggregate analytics filterable by Writing Type; no business/topic functions
     - _Requirements: 33.1, 33.2, 33.3, 33.4, 33.5, 41.1, 41.2_
 

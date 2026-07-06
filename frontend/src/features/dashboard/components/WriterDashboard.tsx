@@ -98,21 +98,25 @@ export function WriterDashboard({
     : undefined;
 
   return (
-    <div className="flex flex-col gap-xl">
+    <div className="flex flex-col gap-xl px-[110px]">
       <AiDisclaimerNotice />
+
+      <h1 className="text-title-page font-sans font-bold text-text-primary">
+        Writing Environments
+      </h1>
 
       <section
         aria-labelledby="writer-dashboard-documents-heading"
-        className="flex flex-col gap-md"
+        className="flex flex-col gap-lg"
       >
         <h2
           id="writer-dashboard-documents-heading"
-          className="text-heading3 font-sans font-semibold text-text-primary"
+          className="text-heading3 font-sans font-semibold text-text-primary underline"
         >
-          My Documents
+          My Documents{documents.length > 0 ? ` (${documents.length})` : ''}
         </h2>
 
-        <div className="flex flex-col gap-md sm:flex-row sm:items-end">
+        <div className="flex flex-col gap-lg sm:flex-row sm:items-end">
           <div className="sm:flex-1">
             <WritingEnvironmentSearch value={search} onChange={setSearch} />
           </div>
@@ -152,7 +156,7 @@ export function WriterDashboard({
                 No documents match your search.
               </p>
             ) : (
-              <div className="grid grid-cols-1 gap-md sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-lg sm:grid-cols-2 lg:grid-cols-3">
                 {filteredDocuments.map((document) => (
                   <WritingEnvironmentCard
                     key={document.id}

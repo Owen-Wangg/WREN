@@ -11,52 +11,65 @@
  * code (frontend steering §9) — use the named scale below only.
  */
 @theme {
-  /* Colors — semantic tokens (see tokens/colors.ts) */
+  /* Colors — aligned to Figma "LEON" student views (slides 1–11) */
   --color-surface-primary: #ffffff;
-  --color-surface-muted: #f9fafb;
-  --color-surface-subtle: #f3f4f6;
+  --color-surface-muted: #f5f5f5;
+  --color-surface-subtle: #f2f2f2;
+  --color-surface-panel: #c8c8c8; /* Right sidebar / panel background (#C8C8C8 in Figma) */
 
-  --color-text-primary: #111827;
-  --color-text-secondary: #374151;
-  --color-text-muted: #6b7280;
-  --color-text-on-accent: #ffffff;
+  --color-text-primary: #1e1e1e;
+  --color-text-secondary: #2c2c2c;
+  --color-text-muted: #767676;
+  --color-text-on-accent: #f5f5f5;
 
-  --color-border-subtle: #e5e7eb;
-  --color-border-strong: #d1d5db;
+  --color-border-subtle: #d9d9d9;
+  --color-border-strong: #000000;
 
-  --color-status-drafting: #6b7280;
-  --color-status-drafting-surface: #f3f4f6;
-  --color-status-polishing: #15803d;
-  --color-status-polishing-surface: #dcfce7;
+  --color-accent-primary: #2c2c2c; /* Primary button fill */
+  --color-accent-outline: #767676; /* Outlined button/input stroke */
 
-  --color-notice-surface: #f9fafb;
-  --color-notice-border: #e5e7eb;
+  --color-status-drafting: #008000;
+  --color-status-drafting-surface: #f5f5f5;
+  --color-status-polishing: #008000;
+  --color-status-polishing-surface: #f5f5f5;
 
-  --color-signal-positive: #16a34a;
+  --color-notice-surface: #ffffff;
+  --color-notice-border: #1e1e1e;
+
+  --color-severity-high: rgba(255, 0, 0, 0.2);
+  --color-severity-medium: rgba(255, 255, 0, 0.2);
+  --color-severity-low: rgba(0, 128, 0, 0.15);
+
+  --color-signal-positive: #008000;
   --color-signal-caution: #b45309;
   --color-signal-caution-surface: #fef3c7;
-  --color-signal-critical: #dc2626;
+  --color-signal-critical: #ff0000;
   --color-signal-critical-surface: #fee2e2;
 
-  /* Typography (see tokens/typography.ts) */
+  /* Typography — Inter only (Figma uses Inter throughout) */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-serif: 'Source Serif 4', ui-serif, Georgia, 'Times New Roman', serif;
   --font-mono: ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
 
+  /* Type scale — from Figma text styles */
   --text-caption: 12px;
-  --text-caption--line-height: 16px;
+  --text-caption--line-height: 1em;
   --text-body-small: 14px;
-  --text-body-small--line-height: 20px;
+  --text-body-small--line-height: 1.4em;
   --text-body: 16px;
-  --text-body--line-height: 24px;
+  --text-body--line-height: 1.4em;
   --text-heading3: 20px;
-  --text-heading3--line-height: 28px;
+  --text-heading3--line-height: 1.2em;
   --text-heading2: 24px;
-  --text-heading2--line-height: 32px;
+  --text-heading2--line-height: 1.2em;
   --text-heading1: 32px;
-  --text-heading1--line-height: 40px;
+  --text-heading1--line-height: 1.2em;
+  --text-title-page: 48px;
+  --text-title-page--line-height: 1.2em;
+  --text-title-hero: 72px;
+  --text-title-hero--line-height: 1.2em;
 
-  /* Spacing (see tokens/spacing.ts) */
+  /* Spacing (Figma uses 8/12/16/24/32 increments) */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 12px;
@@ -66,15 +79,16 @@
   --spacing-3xl: 48px;
   --spacing-4xl: 64px;
 
-  /* Border radius (see tokens/radii.ts) */
+  /* Border radius (Figma: 8px on cards/buttons, 12px on search/filter, 16px on modals) */
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
+  --radius-2xl: 20px;
   --radius-full: 9999px;
 
-  /* Shadows (see tokens/shadows.ts) */
+  /* Shadows (Figma: 0 4px 4px rgba(0,0,0,0.25) on cards/buttons) */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 4px 0 rgb(0 0 0 / 0.25);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 }
