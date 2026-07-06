@@ -116,7 +116,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
       expect(writerParagraph).not.toHaveAttribute('data-ai-feedback');
     });
 
-    it('margin comment cards carry data-ai-feedback="true", distinguishing them from writer text', () => {
+    it('multiple AI-anchored marks are structurally distinguishable from writer text', async () => {
       render(
         <AnchoredFeedbackEditor
           initialContent={writerContent}
@@ -125,10 +125,11 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
         />,
       );
 
-      const cards = screen.getAllByRole('button', { name: /Can you state|order of your arguments/ });
-      for (const card of cards) {
-        expect(card).toHaveAttribute('data-ai-feedback', 'true');
-      }
+      const editor = screen.getByRole('textbox');
+      await waitFor(() => {
+        const aiMarks = editor.querySelectorAll('[data-ai-feedback="true"]');
+        expect(aiMarks.length).toBe(2);
+      });
     });
 
     it('AI feedback uses a distinct CSS class on its marks (not relying on color alone)', async () => {
@@ -168,7 +169,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
       );
 
       const forbidden = /\b(apply|insert|accept)\b/i;
-      const buttons = screen.getAllByRole('button');
+      const buttons = screen.queryAllByRole('button');
       for (const button of buttons) {
         expect(button.textContent ?? '').not.toMatch(forbidden);
       }

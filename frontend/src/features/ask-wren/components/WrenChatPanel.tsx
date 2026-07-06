@@ -19,6 +19,7 @@
 import { useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
+import { appConfig } from '@/config/env';
 
 import { useZodForm } from '@/forms/useZodForm';
 
@@ -72,14 +73,14 @@ export function WrenChatPanel({
       setError(
         cause instanceof Error
           ? cause.message
-          : 'Ask WREN could not respond right now. Please try again.',
+          : `Ask ${appConfig.appName} could not respond right now. Please try again.`,
       );
     }
   };
 
   return (
     <aside
-      aria-label="Ask WREN"
+      aria-label={`Ask ${appConfig.appName}`}
       className={[
         'flex h-full w-[320px] shrink-0 flex-col gap-md rounded-md border border-border-subtle bg-surface-panel p-lg',
         className,
@@ -88,10 +89,10 @@ export function WrenChatPanel({
         .join(' ')}
     >
       <h2 className="text-heading3 font-sans font-semibold text-text-primary">
-        Ask WREN
+        Ask {appConfig.appName}
       </h2>
 
-      <AiDisclaimerNotice message="Ask WREN offers questions to help you think through your own draft. It will not rewrite your text for you." />
+      <AiDisclaimerNotice message={`Ask ${appConfig.appName} offers questions to help you think through your own draft. It will not rewrite your text for you.`} />
 
       <p className="text-caption text-text-muted">
         Talking about draft version {draftVersion}.
@@ -129,7 +130,7 @@ export function WrenChatPanel({
         onSubmit={handleSubmit(onSubmit)}
       >
         <label htmlFor="ask-wren-input" className="sr-only">
-          Ask WREN a question about this draft
+          Ask {appConfig.appName} a question about this draft
         </label>
         <input
           id="ask-wren-input"

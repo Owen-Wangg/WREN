@@ -30,6 +30,17 @@ export const palette = {
   amber700: '#b45309',
   red100: '#fee2e2',
   red600: '#dc2626',
+  panelGray: '#c8c8c8',
+  figmaGreen: '#008000',
+  figmaRed: '#ff0000',
+  figmaTextPrimary: '#1e1e1e',
+  figmaTextSecondary: '#2c2c2c',
+  figmaTextMuted: '#767676',
+  figmaTextOnAccent: '#f5f5f5',
+  figmaSurfaceMuted: '#f5f5f5',
+  figmaSurfaceSubtle: '#f2f2f2',
+  figmaBorderSubtle: '#d9d9d9',
+  figmaBorderStrong: '#000000',
 } as const;
 
 /**
@@ -40,6 +51,7 @@ export const colors = {
   surfacePrimary: palette.white,
   surfaceMuted: palette.gray50,
   surfaceSubtle: palette.gray100,
+  surfacePanel: palette.panelGray,
 
   textPrimary: palette.gray900,
   textSecondary: palette.gray700,
@@ -48,6 +60,10 @@ export const colors = {
 
   borderSubtle: palette.gray200,
   borderStrong: palette.gray300,
+
+  // Accent / interactive elements.
+  accentPrimary: palette.figmaTextSecondary,
+  accentOutline: palette.figmaTextMuted,
 
   // Status signaling (mapped from the Document status enum via a single lookup).
   statusDrafting: palette.gray500,
@@ -58,6 +74,11 @@ export const colors = {
   // Feedback / notice accents (calm, not alarming — see steering §9).
   noticeSurface: palette.gray50,
   noticeBorder: palette.gray200,
+
+  // Severity highlight colors (translucent overlays for inline feedback marks).
+  severityHigh: 'rgba(255, 0, 0, 0.2)',
+  severityMedium: 'rgba(255, 255, 0, 0.2)',
+  severityLow: 'rgba(0, 128, 0, 0.15)',
 
   // Feedback dimension signals (severity by color, never a numeric score).
   signalPositive: palette.green600,

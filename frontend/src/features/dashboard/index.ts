@@ -30,6 +30,7 @@ export {
 export {
   useDocuments,
   useWritingTypes,
+  useContentTypes,
   useOrganizations,
   useAccessGrants,
   useRequestAccess,
@@ -57,9 +58,11 @@ export {
 /* Dashboard-scoped schemas / types */
 export {
   organizationAccessSchema,
+  contentTypeSchema,
   accessRequestInputSchema,
   accessRequestAckSchema,
   type OrganizationAccess,
+  type ContentType,
   type AccessRequestInput,
   type AccessRequestAck,
 } from './dashboardTypes';
@@ -68,6 +71,7 @@ export {
 export {
   fetchDocuments,
   fetchWritingTypes,
+  fetchContentTypes,
   fetchOrganizations,
   fetchAccessGrants,
   requestAccess,

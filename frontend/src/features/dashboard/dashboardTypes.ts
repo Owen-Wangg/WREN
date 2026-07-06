@@ -33,6 +33,20 @@ export const organizationAccessSchema = z
   .strict();
 export type OrganizationAccess = z.infer<typeof organizationAccessSchema>;
 
+/* -------------------------------------------------------------------------- */
+/* Content Type (document category within a Writing Type / Writing Domain)    */
+/* -------------------------------------------------------------------------- */
+
+export const contentTypeSchema = z
+  .object({
+    id: idSchema,
+    organizationId: idSchema,
+    writingTypeId: idSchema,
+    name: z.string().min(1),
+  })
+  .strict();
+export type ContentType = z.infer<typeof contentTypeSchema>;
+
 /** The body sent when a writer requests access to a LOCKED Writing Type. */
 export const accessRequestInputSchema = z
   .object({

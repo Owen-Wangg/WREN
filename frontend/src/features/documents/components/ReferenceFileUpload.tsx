@@ -42,7 +42,7 @@ export function ReferenceFileUpload({
         onChange={(event) => onFileChange(event.target.files?.[0])}
       />
       {file && (
-        <p className="text-bodySmall text-blue-600">Selected: {file.name}</p>
+        <p className="text-bodySmall text-accent-primary">Selected: {file.name}</p>
       )}
 
       <label

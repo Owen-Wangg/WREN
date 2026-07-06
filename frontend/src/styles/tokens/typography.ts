@@ -33,6 +33,8 @@ export const fontSizes = {
   heading3: '20px',
   heading2: '24px',
   heading1: '32px',
+  titlePage: '48px',
+  titleHero: '72px',
 } as const;
 
 export const lineHeights = {
@@ -42,6 +44,8 @@ export const lineHeights = {
   heading3: '28px',
   heading2: '32px',
   heading1: '40px',
+  titlePage: '58px',
+  titleHero: '86px',
 } as const;
 
 /** Composite named type styles used across the UI. */
@@ -81,6 +85,18 @@ export const type = {
     fontSize: fontSizes.caption,
     lineHeight: lineHeights.caption,
     fontWeight: fontWeights.regular,
+  },
+  titlePage: {
+    fontFamily: fontFamilies.sans,
+    fontSize: fontSizes.titlePage,
+    lineHeight: lineHeights.titlePage,
+    fontWeight: fontWeights.bold,
+  },
+  titleHero: {
+    fontFamily: fontFamilies.sans,
+    fontSize: fontSizes.titleHero,
+    lineHeight: lineHeights.titleHero,
+    fontWeight: fontWeights.bold,
   },
   /** Reserved for rendered document/draft content only. */
   documentBody: {

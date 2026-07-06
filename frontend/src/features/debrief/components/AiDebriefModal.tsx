@@ -35,6 +35,8 @@ import { useAiDebrief, useRegenerateDebrief } from '../useDebrief';
 
 import { AiDisclaimerNotice } from '@/components/ui';
 
+import type { FeedbackItem } from '@wren/types';
+
 export interface AiDebriefModalProps {
   readonly environmentId: string;
   readonly open: boolean;
@@ -68,16 +70,25 @@ export function AiDebriefModal({
   }, [open]);
 
   const debrief = debriefQuery.data;
-  const inlineItems = debrief?.items.filter((item) => item.kind === 'inline') ?? [];
-  const structuralItems =
-    debrief?.items.filter((item) => item.kind === 'structural') ?? [];
+
+  // Group items by errorCategoryId to match the category-based layout (Content,
+  // Organization, Clarity, etc.) shown in the design mockup.
+  const groupedByCategory = (debrief?.items ?? []).reduce<
+    Record<string, FeedbackItem[]>
+  >((acc, item) => {
+    const key = item.errorCategoryId;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+  const categoryKeys = Object.keys(groupedByCategory);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 flex h-[718px] w-full max-w-[824px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border border-border-strong bg-surface-primary p-xl shadow-lg"
+          className="fixed left-1/2 top-1/2 flex max-h-[80vh] w-full max-w-[620px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border border-border-strong bg-surface-primary p-xl shadow-lg"
           aria-describedby={undefined}
         >
           <div className="mb-lg flex items-start justify-between">
@@ -153,36 +164,23 @@ export function AiDebriefModal({
                 <div className="flex flex-1 flex-col overflow-hidden">
                   <div className="flex-1 overflow-y-auto rounded-md border border-border-strong/25 p-lg shadow-md">
                     <div className="flex flex-col gap-lg">
-                      <section aria-labelledby="ai-debrief-inline-heading">
-                        <h3
-                          id="ai-debrief-inline-heading"
-                          className="mb-sm text-bodySmall font-sans font-semibold text-text-primary"
+                      {categoryKeys.map((category) => (
+                        <section
+                          key={category}
+                          aria-labelledby={`ai-debrief-category-${category}`}
                         >
-                          Inline feedback
-                        </h3>
-                        <FeedbackItemsList
-                          items={inlineItems}
-                          emptyMessage="No inline feedback for this draft."
-                        />
-                      </section>
-
-                      {/* Distinct section: document-wide structural feedback is never
-                          merged into the inline list (Requirement 14.2). */}
-                      <section
-                        aria-labelledby="ai-debrief-structural-heading"
-                        className="border-t border-border-subtle pt-lg"
-                      >
-                        <h3
-                          id="ai-debrief-structural-heading"
-                          className="mb-sm text-bodySmall font-sans font-semibold text-text-primary"
-                        >
-                          Document structure
-                        </h3>
-                        <FeedbackItemsList
-                          items={structuralItems}
-                          emptyMessage="No document-wide structural feedback for this draft."
-                        />
-                      </section>
+                          <h3
+                            id={`ai-debrief-category-${category}`}
+                            className="mb-sm text-bodySmall font-sans font-semibold text-text-primary"
+                          >
+                            {category}
+                          </h3>
+                          <FeedbackItemsList
+                            items={groupedByCategory[category]}
+                            emptyMessage=""
+                          />
+                        </section>
+                      ))}
                     </div>
                   </div>
 

@@ -39,7 +39,7 @@ export function StatusFilter({
       <select
         id={id}
         value={value}
-        className="appearance-none rounded-lg border border-border-strong/40 bg-surface-primary px-lg py-sm pr-[40px] text-body text-text-primary"
+        className="rounded-md border border-border-subtle bg-surface-primary px-md py-xs text-bodySmall text-text-primary"
         onChange={(event) => onChange(event.target.value as StatusFilterValue)}
       >
         <option value={ALL_STATUSES}>All</option>

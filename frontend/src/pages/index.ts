@@ -1,0 +1,10 @@
+export { LandingPage } from './LandingPage';
+export { LoginPage } from './LoginPage';
+export { SignupPage } from './SignupPage';
+export { StudentLayout } from './StudentLayout';
+export { DashboardPage } from './DashboardPage';
+export { NewDocumentPage } from './NewDocumentPage';
+export { DocumentEditorPage } from './DocumentEditorPage';
+export { GuidePage } from './GuidePage';
+export { NotificationsPage } from './NotificationsPage';
+export { ProfilePage } from './ProfilePage';

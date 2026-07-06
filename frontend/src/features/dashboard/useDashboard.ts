@@ -11,13 +11,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   fetchAccessGrants,
+  fetchContentTypes,
   fetchDocuments,
   fetchOrganizations,
   fetchWritingTypes,
   requestAccess,
 } from './dashboardApi';
 
-import type { AccessRequestAck, AccessRequestInput, OrganizationAccess } from './dashboardTypes';
+import type { AccessRequestAck, AccessRequestInput, ContentType, OrganizationAccess } from './dashboardTypes';
 import type { AccessGrant, Document, WritingType } from '@wren/types';
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 
@@ -41,6 +42,18 @@ export function useWritingTypes(
   return useQuery({
     queryKey: queryKeys.writingTypes(),
     queryFn: () => fetchWritingTypes(client),
+  });
+}
+
+/** Content Types for a given Writing Type (Document Type dropdown options). */
+export function useContentTypes(
+  writingTypeId: string,
+  client: HttpClient = apiClient,
+): UseQueryResult<ContentType[]> {
+  return useQuery({
+    queryKey: queryKeys.contentTypes(writingTypeId),
+    queryFn: () => fetchContentTypes(client, writingTypeId),
+    enabled: !!writingTypeId,
   });
 }
 

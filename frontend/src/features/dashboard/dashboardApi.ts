@@ -15,9 +15,11 @@ import {
 import {
   accessRequestAckSchema,
   accessRequestInputSchema,
+  contentTypeSchema,
   organizationAccessSchema,
   type AccessRequestAck,
   type AccessRequestInput,
+  type ContentType,
   type OrganizationAccess,
 } from './dashboardTypes';
 
@@ -29,11 +31,13 @@ export const WRITING_TYPES_PATH = '/writing-types';
 export const ORGANIZATIONS_PATH = '/organizations';
 export const ACCESS_GRANTS_PATH = '/access-grants';
 export const ACCESS_REQUESTS_PATH = '/access-requests';
+export const CONTENT_TYPES_PATH = '/content-types';
 
 const documentsSchema = z.array(documentSchema);
 const writingTypesSchema = z.array(writingTypeSchema);
 const organizationsSchema = z.array(organizationAccessSchema);
 const accessGrantsSchema = z.array(accessGrantSchema);
+const contentTypesSchema = z.array(contentTypeSchema);
 
 /** The current user's Documents for the "My Documents" dashboard (Requirement 4.2). */
 export function fetchDocuments(client: HttpClient): Promise<Document[]> {
@@ -55,6 +59,13 @@ export function fetchOrganizations(
 /** The current user's Access Grants, used to resolve LOCKED submission permission (Requirement 6.8). */
 export function fetchAccessGrants(client: HttpClient): Promise<AccessGrant[]> {
   return client.request(ACCESS_GRANTS_PATH, { schema: accessGrantsSchema });
+}
+
+/** Content Types available for the given Writing Type (scoped dropdown options). */
+export function fetchContentTypes(client: HttpClient, writingTypeId: string): Promise<ContentType[]> {
+  return client.request(`${WRITING_TYPES_PATH}/${writingTypeId}/content-types`, {
+    schema: contentTypesSchema,
+  });
 }
 
 /**

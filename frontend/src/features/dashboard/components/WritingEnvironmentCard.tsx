@@ -13,7 +13,8 @@
  * wires no actions yet — page/route composition (opening the editor, the
  * overflow actions) is convergence work handled elsewhere.
  */
-import { MoreHorizontal } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { MoreHorizontal, Trash2 } from 'lucide-react';
 
 import { getDocumentTopic } from '../documentFilters';
 
@@ -25,57 +26,131 @@ export interface WritingEnvironmentCardProps {
   readonly document: Document;
   /** Optional open handler; when supplied the title becomes an activating control. */
   readonly onOpen?: (document: Document) => void;
+  /** Optional delete handler; when supplied a trash icon is shown. */
+  readonly onDelete?: (document: Document) => void;
 }
 
 export function WritingEnvironmentCard({
   document,
   onOpen,
+  onDelete,
 }: WritingEnvironmentCardProps) {
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
   const topic = getDocumentTopic(document);
+  const writingType = document.metadata['Writing Type'];
+  const writingDomain = document.metadata['Writing Domain'];
+  const documentType = document.metadata['Document Type'];
+
+  const breadcrumb = [writingType, writingDomain, documentType]
+    .filter(Boolean)
+    .join(' › ');
+
+  const handleDeleteClick = () => {
+    setShowDeleteDialog(true);
+    dialogRef.current?.showModal();
+  };
+
+  const handleConfirmDelete = () => {
+    dialogRef.current?.close();
+    setShowDeleteDialog(false);
+    onDelete?.(document);
+  };
+
+  const handleCancelDelete = () => {
+    dialogRef.current?.close();
+    setShowDeleteDialog(false);
+  };
 
   return (
-    <article className="relative flex h-[200px] w-[380px] flex-col justify-between rounded-md border border-text-muted/25 bg-surface-primary p-lg shadow-md">
-      <div className="flex flex-col gap-xs">
-        <span className="text-bodySmall font-sans text-text-primary/45">
-          Environment: {document.writingTypeId}
-        </span>
-        {onOpen ? (
+    <>
+      <article className="relative flex h-[200px] w-[380px] flex-col justify-between rounded-md border border-text-muted/25 bg-surface-primary p-lg shadow-md">
+        <div className="flex flex-col gap-xs">
+          {breadcrumb && (
+            <span className="text-bodySmall font-sans text-text-primary/45">
+              {breadcrumb}
+            </span>
+          )}
+          {onOpen ? (
+            <button
+              type="button"
+              onClick={() => onOpen(document)}
+              className="self-start text-left text-heading2 font-sans font-semibold text-text-primary hover:underline"
+            >
+              {document.name}
+            </button>
+          ) : (
+            <h3 className="text-heading2 font-sans font-semibold text-text-primary">
+              {document.name}
+            </h3>
+          )}
+          <StatusBadge status={document.status} />
+        </div>
+
+        <div className="flex flex-col gap-xs">
+          {topic && (
+            <p className="text-bodySmall text-text-primary">
+              <span className="font-bold">Content:</span> {topic}
+            </p>
+          )}
+          <p className="text-bodySmall text-text-primary">
+            <span className="font-bold">Date Added:</span>{' '}
+            {new Date(document.createdAt).toLocaleDateString()}
+          </p>
+        </div>
+
+        <div className="absolute bottom-lg right-lg flex items-center gap-xs">
           <button
             type="button"
-            onClick={() => onOpen(document)}
-            className="self-start text-left text-heading2 font-sans font-semibold text-text-primary hover:underline"
+            aria-label={`Delete ${document.name}`}
+            className="rounded-md p-xs text-text-muted hover:text-signal-critical"
+            onClick={handleDeleteClick}
           >
-            {document.name}
+            <Trash2 size={18} aria-hidden="true" />
           </button>
-        ) : (
-          <h3 className="text-heading2 font-sans font-semibold text-text-primary">
-            {document.name}
-          </h3>
-        )}
-        <StatusBadge status={document.status} />
-      </div>
+          <button
+            type="button"
+            aria-label={`Actions for ${document.name}`}
+            className="rounded-md p-xs text-text-muted hover:text-text-primary"
+          >
+            <MoreHorizontal size={18} aria-hidden="true" />
+          </button>
+        </div>
+      </article>
 
-      <div className="flex flex-col gap-xs">
-        {topic && (
-          <p className="text-bodySmall text-text-primary">
-            <span className="font-bold">Topic:</span> {topic}
-          </p>
-        )}
-        <p className="text-bodySmall text-text-primary">
-          <span className="font-bold">Date Added:</span>{' '}
-          {new Date(document.createdAt).toLocaleDateString()}
-        </p>
-      </div>
-
-      {/* Overflow-menu affordance placeholder (steering §4). No actions wired
-          yet — convergence work owns the eventual menu. */}
-      <button
-        type="button"
-        aria-label={`Actions for ${document.name}`}
-        className="absolute bottom-lg right-lg rounded-md p-xs text-text-muted hover:text-text-primary"
+      <dialog
+        ref={dialogRef}
+        className="fixed inset-0 m-auto h-fit w-full max-w-md rounded-xl border border-border-strong/50 bg-surface-primary p-2xl shadow-lg backdrop:bg-black/50"
+        onClose={() => setShowDeleteDialog(false)}
       >
-        <MoreHorizontal size={18} aria-hidden="true" />
-      </button>
-    </article>
+        {showDeleteDialog && (
+          <div className="flex flex-col gap-lg">
+            <h2 className="text-heading2 font-sans font-semibold text-text-primary">
+              Delete Document
+            </h2>
+            <p className="text-body text-text-primary">
+              Are you sure you want to delete <strong>{document.name}</strong>? This action is irreversible.
+            </p>
+            <div className="flex justify-end gap-md">
+              <button
+                type="button"
+                onClick={handleCancelDelete}
+                className="rounded-md border border-border-strong px-lg py-sm text-body font-sans font-medium text-text-primary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="rounded-md bg-signal-critical px-lg py-sm text-body font-sans font-medium text-white"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+      </dialog>
+    </>
   );
 }

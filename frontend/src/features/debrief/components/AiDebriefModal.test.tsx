@@ -27,7 +27,7 @@ function renderWithQueryClient(children: ReactNode) {
 }
 
 describe('AiDebriefModal', () => {
-  it('renders inline and structural feedback in visually/structurally distinct sections (Requirement 14.2)', async () => {
+  it('renders feedback grouped by category in distinct sections (Requirement 14.2)', async () => {
     renderWithQueryClient(
       <AiDebriefModal environmentId="doc-1" open onOpenChange={() => {}} />,
     );
@@ -36,31 +36,31 @@ describe('AiDebriefModal', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument(),
     );
 
-    const inlineSection = screen
-      .getByRole('heading', { name: 'Inline feedback' })
+    const claritySection = screen
+      .getByRole('heading', { name: 'cat-clarity' })
       .closest('section');
-    const structuralSection = screen
-      .getByRole('heading', { name: 'Document structure' })
+    const structureSection = screen
+      .getByRole('heading', { name: 'cat-structure' })
       .closest('section');
 
-    expect(inlineSection).not.toBeNull();
-    expect(structuralSection).not.toBeNull();
-    expect(inlineSection).not.toBe(structuralSection);
+    expect(claritySection).not.toBeNull();
+    expect(structureSection).not.toBeNull();
+    expect(claritySection).not.toBe(structureSection);
 
-    // The inline item's Socratic question lives only in the inline section.
+    // The clarity item's Socratic question lives only in the clarity section.
     expect(
-      within(inlineSection as HTMLElement).getByText(/main legal holding/),
+      within(claritySection as HTMLElement).getByText(/main legal holding/),
     ).toBeInTheDocument();
     expect(
-      within(structuralSection as HTMLElement).queryByText(/main legal holding/),
+      within(structureSection as HTMLElement).queryByText(/main legal holding/),
     ).not.toBeInTheDocument();
 
-    // The structural item's question lives only in the structural section.
+    // The structure item's question lives only in the structure section.
     expect(
-      within(structuralSection as HTMLElement).getByText(/order of your arguments/),
+      within(structureSection as HTMLElement).getByText(/order of your arguments/),
     ).toBeInTheDocument();
     expect(
-      within(inlineSection as HTMLElement).queryByText(/order of your arguments/),
+      within(claritySection as HTMLElement).queryByText(/order of your arguments/),
     ).not.toBeInTheDocument();
   });
 

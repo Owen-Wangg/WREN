@@ -77,18 +77,18 @@ describe('AI Debrief — No-Ghostwriting Compliance (Requirement 11.2)', () => {
         expect(screen.queryByRole('status')).not.toBeInTheDocument(),
       );
 
-      // Feedback is rendered in structurally distinct sections (inline vs. structural).
-      const inlineSection = screen
-        .getByRole('heading', { name: 'Inline feedback' })
+      // Feedback is rendered in structurally distinct sections grouped by category.
+      const claritySection = screen
+        .getByRole('heading', { name: 'cat-clarity' })
         .closest('section');
-      const structuralSection = screen
-        .getByRole('heading', { name: 'Document structure' })
+      const structureSection = screen
+        .getByRole('heading', { name: 'cat-structure' })
         .closest('section');
 
-      expect(inlineSection).not.toBeNull();
-      expect(structuralSection).not.toBeNull();
+      expect(claritySection).not.toBeNull();
+      expect(structureSection).not.toBeNull();
       // These are distinct DOM subtrees — never merged.
-      expect(inlineSection).not.toBe(structuralSection);
+      expect(claritySection).not.toBe(structureSection);
     });
 
     it('the debrief modal always includes the AI disclaimer notice (role="note") to mark content as AI-generated', async () => {

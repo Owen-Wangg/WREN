@@ -98,7 +98,7 @@ export function WriterDashboard({
     : undefined;
 
   return (
-    <div className="flex flex-col gap-xl px-[110px]">
+    <div className="flex flex-col gap-xl px-4xl">
       <AiDisclaimerNotice />
 
       <h1 className="text-title-page font-sans font-bold text-text-primary">

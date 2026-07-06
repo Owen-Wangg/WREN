@@ -25,24 +25,104 @@ export type MockRoutes = Record<string, unknown>;
 /** Illustrative fixtures shaped by the shared domain contract (`@wren/types`). */
 const sampleWritingTypes: WritingType[] = [
   {
-    id: 'wt-legal-memo',
-    organizationId: 'org-allard-law',
-    name: 'Legal Memo',
+    id: 'wt-criminal-law',
+    organizationId: 'org-law',
+    name: 'Criminal Law',
     accessState: 'OPEN',
     sizeLimitWords: null,
   },
+  {
+    id: 'wt-tort-law',
+    organizationId: 'org-law',
+    name: 'Tort Law',
+    accessState: 'OPEN',
+    sizeLimitWords: null,
+  },
+  {
+    id: 'wt-property-law',
+    organizationId: 'org-law',
+    name: 'Property and Commercial Law',
+    accessState: 'OPEN',
+    sizeLimitWords: null,
+  },
+  {
+    id: 'wt-poetry',
+    organizationId: 'org-arts',
+    name: 'Poetry',
+    accessState: 'OPEN',
+    sizeLimitWords: null,
+  },
+  {
+    id: 'wt-lab-report',
+    organizationId: 'org-science',
+    name: 'Lab Report',
+    accessState: 'LOCKED',
+    sizeLimitWords: null,
+  },
+];
+
+interface ContentTypeFixture {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly writingTypeId: string;
+  readonly name: string;
+}
+
+const sampleContentTypes: ContentTypeFixture[] = [
+  { id: 'ct-factum', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Factum' },
+  { id: 'ct-memo', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Memo' },
+  { id: 'ct-case-brief', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Case Brief' },
+  { id: 'ct-tort-factum', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Factum' },
+  { id: 'ct-tort-memo', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Memo' },
+  { id: 'ct-prop-memo', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Memo' },
+  { id: 'ct-prop-brief', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Case Brief' },
+  { id: 'ct-free-verse', organizationId: 'org-arts', writingTypeId: 'wt-poetry', name: 'Free Verse' },
+  { id: 'ct-sonnet', organizationId: 'org-arts', writingTypeId: 'wt-poetry', name: 'Sonnet' },
+  { id: 'ct-haiku', organizationId: 'org-arts', writingTypeId: 'wt-poetry', name: 'Haiku' },
+  { id: 'ct-lab-standard', organizationId: 'org-science', writingTypeId: 'wt-lab-report', name: 'Standard Lab Report' },
+  { id: 'ct-lab-research', organizationId: 'org-science', writingTypeId: 'wt-lab-report', name: 'Research Report' },
 ];
 
 const sampleDocuments: Document[] = [
   {
     id: 'doc-1',
     ownerUserId: 'user-1',
-    writingTypeId: 'wt-legal-memo',
-    contentTypeId: 'ct-1',
-    name: 'Charter s.8 analysis',
-    metadata: { 'Writing Topic': 'Search and seizure' },
+    writingTypeId: 'wt-property-law',
+    contentTypeId: 'ct-memo',
+    name: 'Drafting Lien On Property',
+    metadata: { 'Writing Topic': 'Property and Commercial Law', 'Writing Type': 'Law', 'Writing Domain': 'Property and Commercial Law', 'Document Type': 'Memo' },
     status: 'Still Drafting',
-    createdAt: '2024-01-01T00:00:00.000Z',
+    createdAt: '2026-06-18T00:00:00.000Z',
+  },
+  {
+    id: 'doc-2',
+    ownerUserId: 'user-1',
+    writingTypeId: 'wt-tort-law',
+    contentTypeId: 'ct-factum',
+    name: 'Tort Claim Proposal',
+    metadata: { 'Writing Topic': 'Tort Law', 'Writing Type': 'Law', 'Writing Domain': 'Tort Law', 'Document Type': 'Factum' },
+    status: 'Polishing',
+    createdAt: '2026-06-18T00:00:00.000Z',
+  },
+  {
+    id: 'doc-3',
+    ownerUserId: 'user-1',
+    writingTypeId: 'wt-criminal-law',
+    contentTypeId: 'ct-memo',
+    name: 'Appealing judgment',
+    metadata: { 'Writing Topic': 'Criminal Law', 'Writing Type': 'Law', 'Writing Domain': 'Criminal Law', 'Document Type': 'Memo' },
+    status: 'Still Drafting',
+    createdAt: '2026-06-18T00:00:00.000Z',
+  },
+  {
+    id: 'doc-4',
+    ownerUserId: 'user-1',
+    writingTypeId: 'wt-poetry',
+    contentTypeId: 'ct-free-verse',
+    name: 'Ekphrasis Draft',
+    metadata: { 'Writing Topic': 'Modern Art', 'Writing Type': 'Arts', 'Writing Domain': 'Poetry', 'Document Type': 'Free Verse' },
+    status: 'Still Drafting',
+    createdAt: '2026-06-10T00:00:00.000Z',
   },
 ];
 
@@ -181,7 +261,9 @@ interface OrganizationAccessFixture {
 }
 
 const sampleOrganizations: OrganizationAccessFixture[] = [
-  { id: 'org-allard-law', name: 'Allard Law', accessState: 'OPEN' },
+  { id: 'org-law', name: 'Law', accessState: 'OPEN' },
+  { id: 'org-arts', name: 'Arts', accessState: 'OPEN' },
+  { id: 'org-science', name: 'Science', accessState: 'LOCKED' },
 ];
 
 /** The current user holds no Access Grants by default (all LOCKED types stay LOCKED). */
@@ -651,6 +733,14 @@ const adminMockRoutes: MockRoutes = {
   },
 };
 
+const contentTypeMockRoutes: MockRoutes = {
+  'GET /writing-types/wt-criminal-law/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-criminal-law'),
+  'GET /writing-types/wt-tort-law/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-tort-law'),
+  'GET /writing-types/wt-property-law/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-property-law'),
+  'GET /writing-types/wt-poetry/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-poetry'),
+  'GET /writing-types/wt-lab-report/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-lab-report'),
+};
+
 export const defaultMockRoutes: MockRoutes = {
   'GET /writing-types': sampleWritingTypes,
   'GET /documents': sampleDocuments,
@@ -660,6 +750,7 @@ export const defaultMockRoutes: MockRoutes = {
   'POST /feedback-helpfulness': { recorded: true },
   'GET /documents/doc-1/feedback-items': sampleInlineFeedbackItems,
   'GET /documents/doc-1/anchors': sampleAnchors,
+  ...contentTypeMockRoutes,
   ...dashboardMockRoutes,
   ...progressMockRoutes,
   ...fieldExpertMockRoutes,

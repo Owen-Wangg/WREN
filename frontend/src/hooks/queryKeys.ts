@@ -60,6 +60,9 @@ export const queryKeys = {
   /** Writing types available to the current user. */
   writingTypes: () => [ns, 'writing-types'] as const,
 
+  /** Content types (document types) for a given writing type. */
+  contentTypes: (writingTypeId: string) => [ns, 'content-types', writingTypeId] as const,
+
   /** Organization groupings (id + effective access state) for INHERIT resolution (task 19.1). */
   organizations: () => [ns, 'organizations'] as const,
 

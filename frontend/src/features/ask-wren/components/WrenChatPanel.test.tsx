@@ -67,7 +67,7 @@ describe('WrenChatPanel', () => {
     expect(screen.getByText(/draft version 3/i)).toBeInTheDocument();
 
     await user.type(
-      screen.getByLabelText('Ask WREN a question about this draft'),
+      screen.getByLabelText('Ask Writing Coach a question about this draft'),
       'Is my thesis clear?',
     );
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -90,7 +90,7 @@ describe('WrenChatPanel', () => {
     );
 
     await user.type(
-      screen.getByLabelText('Ask WREN a question about this draft'),
+      screen.getByLabelText('Ask Writing Coach a question about this draft'),
       'fix my intro',
     );
     await user.click(screen.getByRole('button', { name: 'Send' }));
