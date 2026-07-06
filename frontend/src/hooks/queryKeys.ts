@@ -88,6 +88,59 @@ export const queryKeys = {
   /** A Writing Type's all-users aggregate analytics (task 19.2; Requirement 40.1), scoped per type. */
   fieldExpertAggregateAnalytics: (writingTypeId: string) =>
     [ns, 'field-expert', writingTypeId, 'aggregate-analytics'] as const,
+
+  /* ---- Admin console (task 19.4; Requirements 33.1–33.4, 41.1, 41.2) ---- */
+
+  /** Bedrock model configuration (editable; Requirement 33.1). */
+  adminModelConfig: () => [ns, 'admin', 'model-config'] as const,
+
+  /** System prompt / guardrail configuration (Requirement 33.1). */
+  adminSystemPrompt: () => [ns, 'admin', 'system-prompt'] as const,
+
+  /** Application-level settings — app name, support email, size limit (Requirement 33.1). */
+  adminAppSettings: () => [ns, 'admin', 'app-settings'] as const,
+
+  /** Organizations list for Admin management (Requirement 33.2). */
+  adminOrganizations: () => [ns, 'admin', 'organizations'] as const,
+
+  /** System-wide user/role view (Requirement 33.3). */
+  adminUsers: () => [ns, 'admin', 'users'] as const,
+
+  /** Usage limits across platform / org / writing-type scopes (Requirement 33.4). */
+  adminUsageLimits: () => [ns, 'admin', 'usage-limits'] as const,
+
+  /** Platform/org aggregate analytics with optional Writing Type filter (Requirements 41.1, 41.2). */
+  adminAnalytics: (writingTypeId?: string) =>
+    [ns, 'admin', 'analytics', writingTypeId ?? 'all'] as const,
+
+  /* ---- Org Owner console (task 19.3; Requirements 34.1–34.5) ---- */
+
+  /** Organizations the current Org Owner owns (Requirement 34.1). */
+  orgOwnerOrganizations: () => [ns, 'org-owner', 'organizations'] as const,
+
+  /** Writing Types within an owned Organization. */
+  orgOwnerWritingTypes: (organizationId: string) =>
+    [ns, 'org-owner', organizationId, 'writing-types'] as const,
+
+  /** Content Types within an owned Organization. */
+  orgOwnerContentTypes: (organizationId: string) =>
+    [ns, 'org-owner', organizationId, 'content-types'] as const,
+
+  /** Topics within an owned Organization. */
+  orgOwnerTopics: (organizationId: string) =>
+    [ns, 'org-owner', organizationId, 'topics'] as const,
+
+  /** Custom metadata fields within an owned Organization. */
+  orgOwnerMetadataFields: (organizationId: string) =>
+    [ns, 'org-owner', organizationId, 'metadata-fields'] as const,
+
+  /** Members (Access Grants) within an owned Organization. */
+  orgOwnerMembers: (organizationId: string) =>
+    [ns, 'org-owner', organizationId, 'members'] as const,
+
+  /** Owned-org aggregate analytics (Requirement 34.5). */
+  orgOwnerAnalytics: (organizationId: string) =>
+    [ns, 'org-owner', organizationId, 'analytics'] as const,
 } as const;
 
 export type QueryKeys = typeof queryKeys;

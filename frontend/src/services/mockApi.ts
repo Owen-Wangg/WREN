@@ -486,6 +486,171 @@ const fieldExpertMockRoutes: MockRoutes = {
     contractClauseAggregateAnalytics,
 };
 
+/* -------------------------------------------------------------------------- */
+/* Org Owner console fixtures (task 19.3 — additive; self-contained).          */
+/*                                                                            */
+/* These back the Org Owner business console: owned Organizations, Writing     */
+/* Types, Content Types, Topics, Metadata Fields, Members, and the owned-org   */
+/* aggregate analytics (Requirements 34.1–34.5). Every fixture is shaped by    */
+/* the schemas in `features/org-owner/orgOwnerTypes.ts` and validates at the   */
+/* boundary like every other mock. `org-allard-law` is the fully-populated     */
+/* sample. Do NOT fold these into the fixtures above — kept separate so this    */
+/* block merges trivially alongside other B3 console tasks.                    */
+/* -------------------------------------------------------------------------- */
+
+const orgOwnerMockRoutes: MockRoutes = {
+  'GET /org-owner/organizations': [
+    { id: 'org-allard-law', name: 'Allard Law', accessState: 'OPEN' },
+  ],
+  'GET /org-owner/organizations/org-allard-law/writing-types': [
+    {
+      id: 'wt-legal-memo',
+      organizationId: 'org-allard-law',
+      name: 'Legal Memo',
+      accessState: 'OPEN',
+      sizeLimitWords: null,
+    },
+    {
+      id: 'wt-contract-clause',
+      organizationId: 'org-allard-law',
+      name: 'Contract Clause',
+      accessState: 'LOCKED',
+      sizeLimitWords: null,
+    },
+  ],
+  'GET /org-owner/organizations/org-allard-law/content-types': [
+    {
+      id: 'ct-case-brief',
+      organizationId: 'org-allard-law',
+      writingTypeId: 'wt-legal-memo',
+      name: 'Case Brief',
+    },
+  ],
+  'GET /org-owner/organizations/org-allard-law/topics': [
+    { id: 'topic-constitutional', organizationId: 'org-allard-law', name: 'Constitutional Law' },
+    { id: 'topic-criminal', organizationId: 'org-allard-law', name: 'Criminal Law' },
+  ],
+  'GET /org-owner/organizations/org-allard-law/metadata-fields': [
+    { key: 'writing-topic', label: 'Writing Topic', required: true },
+  ],
+  'GET /org-owner/organizations/org-allard-law/members': [
+    {
+      userId: 'user-fe-1',
+      firstName: 'Alice',
+      lastName: 'Expert',
+      email: 'alice@law.ubc.ca',
+      role: 'Field Expert',
+      assignedWritingTypeIds: ['wt-legal-memo'],
+    },
+    {
+      userId: 'user-writer-1',
+      firstName: 'Bob',
+      lastName: 'Writer',
+      email: 'bob@law.ubc.ca',
+      role: 'User',
+      assignedWritingTypeIds: [],
+    },
+  ],
+  'GET /org-owner/organizations/org-allard-law/analytics': {
+    organizationId: 'org-allard-law',
+    totalDocuments: 85,
+    totalDrafts: 210,
+    totalFeedbackItems: 512,
+    activeWriterCount: 14,
+    byWritingType: [
+      {
+        writingTypeId: 'wt-legal-memo',
+        writingTypeName: 'Legal Memo',
+        documentCount: 70,
+        draftCount: 180,
+        feedbackItemCount: 420,
+      },
+      {
+        writingTypeId: 'wt-contract-clause',
+        writingTypeName: 'Contract Clause',
+        documentCount: 15,
+        draftCount: 30,
+        feedbackItemCount: 92,
+      },
+    ],
+  },
+};
+
+/* -------------------------------------------------------------------------- */
+/* Admin console fixtures (task 19.4 — additive; self-contained).              */
+/*                                                                            */
+/* These back the Admin technical console: model config, system prompt,        */
+/* app settings, organizations CRUD + access state + Org Owner assignment,     */
+/* system-wide user/role view, usage limits, and platform aggregate analytics  */
+/* (Requirements 33.1–33.5, 41.1, 41.2). Every fixture is shaped by the        */
+/* schemas in `features/admin/adminSchemas.ts`. Do NOT fold these into the     */
+/* fixtures above — kept separate so this block merges trivially.              */
+/* -------------------------------------------------------------------------- */
+
+const adminMockRoutes: MockRoutes = {
+  'GET /admin/model-config': {
+    modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+    temperature: 0.7,
+    maxOutputTokens: 4096,
+    updatedAt: '2024-01-01T00:00:00.000Z',
+  },
+  'PUT /admin/model-config': {
+    modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+    temperature: 0.7,
+    maxOutputTokens: 4096,
+    updatedAt: '2024-01-02T00:00:00.000Z',
+  },
+  'GET /admin/system-prompt': {
+    systemScaffold:
+      'You are WREN, a Socratic writing coach. Emit only {category, question, anchor?, citation?}. Never produce replacement prose.',
+    guardrailInstructions:
+      'Discard any internal "correct version". Reject output that contains replacement prose or asks the writer to accept a rewrite.',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+  },
+  'PUT /admin/system-prompt': {
+    systemScaffold:
+      'You are WREN, a Socratic writing coach. Emit only {category, question, anchor?, citation?}. Never produce replacement prose.',
+    guardrailInstructions:
+      'Discard any internal "correct version". Reject output that contains replacement prose or asks the writer to accept a rewrite.',
+    updatedAt: '2024-01-02T00:00:00.000Z',
+  },
+  'GET /admin/app-settings': {
+    appName: 'WREN',
+    supportEmail: 'support@wren.ubc.ca',
+    defaultSizeLimitWords: 5000,
+    updatedAt: '2024-01-01T00:00:00.000Z',
+  },
+  'PUT /admin/app-settings': {
+    appName: 'WREN',
+    supportEmail: 'support@wren.ubc.ca',
+    defaultSizeLimitWords: 5000,
+    updatedAt: '2024-01-02T00:00:00.000Z',
+  },
+  'GET /admin/organizations': [
+    { id: 'org-allard-law', name: 'Allard Law', accessState: 'OPEN', ownerUserId: 'user-fe-1' },
+    { id: 'org-philosophy', name: 'Philosophy Dept', accessState: 'LOCKED', ownerUserId: null },
+  ],
+  'GET /admin/users': [
+    { id: 'user-admin-1', firstName: 'Sys', lastName: 'Admin', email: 'admin@wren.ubc.ca', role: 'Admin' },
+    { id: 'user-fe-1', firstName: 'Alice', lastName: 'Expert', email: 'alice@law.ubc.ca', role: 'Field Expert' },
+    { id: 'user-writer-1', firstName: 'Bob', lastName: 'Writer', email: 'bob@law.ubc.ca', role: 'User' },
+  ],
+  'GET /admin/usage-limits': [
+    { id: 'limit-platform', scope: 'platform', scopeRef: null, scopeLabel: 'Platform total', limitActions: 50000, currentUsage: 12340 },
+    { id: 'limit-allard', scope: 'organization', scopeRef: 'org-allard-law', scopeLabel: 'Allard Law', limitActions: 20000, currentUsage: 8900 },
+  ],
+  'GET /admin/analytics': {
+    scope: 'platform',
+    writingTypeId: null,
+    metrics: [
+      { label: 'Total documents', value: 320, unit: 'documents' },
+      { label: 'Total drafts', value: 890, unit: 'drafts' },
+      { label: 'Total feedback items', value: 2450, unit: 'items' },
+      { label: 'Active users', value: 47 },
+    ],
+  },
+};
+
 export const defaultMockRoutes: MockRoutes = {
   'GET /writing-types': sampleWritingTypes,
   'GET /documents': sampleDocuments,
@@ -498,6 +663,8 @@ export const defaultMockRoutes: MockRoutes = {
   ...dashboardMockRoutes,
   ...progressMockRoutes,
   ...fieldExpertMockRoutes,
+  ...orgOwnerMockRoutes,
+  ...adminMockRoutes,
 };
 
 export class MockApiClient implements HttpClient {
