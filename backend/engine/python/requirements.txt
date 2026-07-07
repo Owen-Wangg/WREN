@@ -1,0 +1,24 @@
+# Pinned TEST-ONLY toolchain for the wren_engine package.
+#
+# Regenerate the canonical pinning with uv once it is available on the toolchain:
+#    uv pip compile backend/engine/python/requirements.in -o backend/engine/python/requirements.txt
+#
+# The engine core has NO third-party runtime dependencies; these packages are
+# used only to run the pytest + Hypothesis test suites and are never bundled
+# into a Lambda layer. Versions below are pinned to the workspace virtualenv.
+colorama==0.4.6
+    # via pytest
+hypothesis==6.155.7
+    # via -r backend/engine/python/requirements.in
+iniconfig==2.3.0
+    # via pytest
+packaging==26.2
+    # via pytest
+pluggy==1.6.0
+    # via pytest
+pygments==2.20.0
+    # via pytest
+pytest==9.1.1
+    # via -r backend/engine/python/requirements.in
+sortedcontainers==2.4.0
+    # via hypothesis

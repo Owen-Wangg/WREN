@@ -20,9 +20,10 @@ package = false
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-# Discover the shared helper's smoke tests and the data-access layer tests now;
-# Python Lambda services (cdk/lambda/**) get added here as they are scaffolded.
-testpaths = ["testing/python", "backend/database/python"]
+# Discover the shared helper's smoke tests, the data-access layer tests, and the
+# pure-logic engine (Diff/Anchor/Progress) tests now; Python Lambda services
+# (cdk/lambda/**) get added here as they are scaffolded.
+testpaths = ["testing/python", "backend/database/python", "backend/engine/python"]
 # Keep property tests fast/quiet in automation; use markers when debugging.
 addopts = "-ra"
 markers = [
