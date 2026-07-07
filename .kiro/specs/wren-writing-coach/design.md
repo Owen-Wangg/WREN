@@ -92,7 +92,7 @@ The requirements name eleven logical subsystems. They map onto compute as follow
 | Feedback_Engine, Feedback_Presenter (data) | Feedback Engine container Lambda | Python 3.12 | Heavy AI workload; `langchain-aws`, larger deps → container image |
 | Config_Service, Admin_Service, Auth_Service, Usage_Service | Admin/Config Lambda | Node 22 | Transactional Postgres writes; authorization resolution |
 | Audit_Service | Audit Lambda | Node 22 | Append-only activity log + aggregate read models |
-| Reference_Service | Split: upload path in Document Lambda, retrieval/grounding in Feedback Engine | — | Files in S3, embeddings in `pgvector` |
+| Reference_Service | Split: upload path in Document Lambda, retrieval/grounding in Feedback Engine | — | Files in S3; embeddings in a single `pgvector`-backed `embedding` table managed via LlamaIndex's `PGVectorStore` (embeddings/retrieval only — LiteParse/`mammoth` handle document parsing) |
 
 > Feedback generation latency target is 10s for ~500 words (REQ-NFR-LATENCY-01). Feedback runs as an asynchronous job: the API enqueues generation and the client receives streamed/poll-based status, displaying a loading state (REQ-FB-VIEW-01, REQ-NFR-LATENCY-01). For 100–500 concurrent users (REQ-NFR-SCALE-01), Lambda concurrency scales automatically; a queue (SQS) in front of the Feedback Engine provides graceful degradation (queue/throttle rather than hard-fail) when load exceeds range.
 
@@ -162,7 +162,7 @@ The application name (REQ-NFR-APPNAME-01) and model identifier (REQ-NFR-MODEL-01
 
 Responsible for ingestion, format handling, size limits, and draft versioning (REQ-DOC-SUBMIT-01, REQ-DOC-SIZE-01, REQ-DOC-DRAFT-01).
 
-- **Ingestion & extraction**: `.docx` and `.pdf` accepted; all other extensions rejected with an accepted-formats message. PDF text extraction is best-effort (`PyMuPDF` in a helper path) preserving paragraph boundaries; on no-recoverable-text it returns a fallback prompt (upload `.docx` / paste text). Pasted text treats paragraph breaks as boundaries.
+- **Ingestion & extraction**: `.docx` and `.pdf` accepted; all other extensions rejected with an accepted-formats message. `.docx` text extraction uses **`mammoth`** (BSD-2-Clause, MIT-compatible), preserving paragraph boundaries via its semantic HTML/paragraph output. PDF text extraction is best-effort via **LiteParse** (`run-llama/liteparse`, Apache-2.0) — a local, in-Lambda, layout-aware parser (Rust core with native Python bindings; no cloud calls, no API keys) that preserves paragraph boundaries via its spatial/bounding-box output; on no-recoverable-text it returns a fallback prompt (upload `.docx` / paste text). Pasted text treats paragraph breaks as boundaries. LiteParse and `mammoth` both run entirely inside the Document/Draft Lambda (no external service, no per-page cost, no data leaving `ca-central-1`). LlamaIndex is scoped solely to the embeddings/retrieval layer (a `PGVectorStore` over the single `embedding` table — see Reference Materials); it plays no role in document ingestion. Generation remains on Bedrock via `langchain-aws`.
 - **Segmentation**: produces an ordered list of paragraph segments with stable indices; this segmentation is the substrate for anchoring and diffing.
 - **Size enforcement**: rejects documents over the configured max word count (default 10,000 words) *before* creating a Draft or invoking the Feedback Engine; Writing-Domain/Org overrides win over the default.
 - **Metadata**: stores Org-Owner-defined custom metadata fields (e.g., "Writing Topic", "Location Reference") against the Document; required fields are enforced at submission (create/activate disabled while empty).
@@ -219,7 +219,7 @@ Generates Socratic feedback through Bedrock and enforces no-ghostwriting (REQ-CO
 - **No-ghostwriting guardrail (output)**: validates each generated item, strips any internal "correct version"/rewrite, and rejects/transforms output that contains replacement prose or "suggest a revision / explain the improvement" content before persistence. Produces only `{category, question, anchor?, citation?}`.
 - **Density**: number of inline items scales with document length, bounded by the Writing-Domain density setting; recurring patterns are prioritized when the density cap binds.
 - **Structural feedback**: produces document-wide, non-anchored Socratic/structural items, presented distinctly from inline items, subject to the same guardrail.
-- **Citations**: when an item is grounded in specific Reference Material, attaches a source-identity citation (title/section); never reproduces replacement prose. Grounding uses `pgvector` similarity over indexed reference content (both tiers).
+- **Citations**: when an item is grounded in specific Reference Material, attaches a source-identity citation (title/section); never reproduces replacement prose. Grounding uses **LlamaIndex** retrieval (a `PGVectorStore` over the single `embedding` table) for similarity over indexed reference content (both tiers).
 - **Carry-forward & caching**: reuses prior Feedback Items for spans unchanged in text *and* governing config; invalidates on text change or config change (REQ-NFR-COST-01, REQ-CONFIG-CONV-01 criterion 3).
 
 ```python
@@ -287,7 +287,7 @@ Compliance-shaping components:
 
 ## Data Models
 
-All relational data is in RDS PostgreSQL 16 (via RDS Proxy, TLS enforced); document/reference bytes in S3; reference embeddings in `pgvector`; Ask WREN session/conversation state in DynamoDB.
+All relational data is in RDS PostgreSQL 16 (via RDS Proxy, TLS enforced); document/reference bytes in S3; all reference embeddings live in a **single** `pgvector`-backed `embedding` table (managed through a LlamaIndex `PGVectorStore`); Ask WREN session/conversation state in DynamoDB.
 
 ```mermaid
 erDiagram
@@ -310,6 +310,7 @@ erDiagram
     FEEDBACK_ITEM ||--o{ RESOLUTION_STATUS_HISTORY : tracks
     ERROR_CATEGORY ||--o{ FEEDBACK_ITEM : classifies
     REFERENCE_MATERIAL ||--o{ FEEDBACK_ITEM : "cited by"
+    REFERENCE_MATERIAL ||--o{ EMBEDDING : "indexed as"
 ```
 
 ### Core Entities
@@ -355,7 +356,11 @@ erDiagram
 - `id`, `feedbackItemId`, `draftId`, `status` (`resolved` | `partially_resolved` | `still_unresolved` | `removed` | `unchanged`), `evaluatedAt`. Append-only per (item, draft).
 
 **ReferenceMaterial**
-- `id`, `tier` (`org` | `domain`), `organizationId?`, `writingDomainId?`, `title`, `section?`, `contentKind` (`file` | `text` | `html`), `s3Key?`, `inlineContent?`, `embeddingId?`.
+- `id`, `tier` (`org` | `domain`), `organizationId?`, `writingDomainId?`, `title`, `section?`, `contentKind` (`file` | `text` | `html`), `s3Key?`, `inlineContent?`. Its chunk embeddings live in the shared `Embedding` table (linked by `referenceMaterialId`), not inline on this row.
+
+**Embedding** (the single vector table; managed via a LlamaIndex `PGVectorStore`)
+- One table holds **all** embeddings for the platform. Row: `id`, `referenceMaterialId` (nullable FK — the source Reference Material), `tier` (`org` | `domain`), `organizationId?`, `writingDomainId?`, `chunkIndex`, `content` (the chunked text LlamaIndex indexed), `embedding` (`vector`, `pgvector`), `metadata` (JSONB — LlamaIndex node metadata), `createdAt`.
+- Scope filtering (org-wide ∪ the active Writing Type's domain material) is done with a `WHERE` filter on `tier` / `organizationId` / `writingDomainId` against this one table — no per-tier or per-type tables. `ReferenceMaterial.embeddingId` / the schema's `embedding_id` link resolves to rows here.
 
 **UsageLimit** / **UsageCounter** / **Override**
 - `UsageLimit`: `scopeKind` (`platform` | `organization` | `writingDomain`), `scopeId?`, `limit`, `period`.

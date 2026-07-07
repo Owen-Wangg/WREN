@@ -4,7 +4,9 @@
 
 This plan converts the WREN design into incremental, code-focused implementation steps on the
 UBC CIC baseline stack (AWS CDK v2 TypeScript; Node 22 + Python 3.12 Lambdas; RDS PostgreSQL 16 +
-`pgvector`; DynamoDB; S3; Cognito; Amazon Bedrock via `langchain-aws`; React 19 / Vite / Tailwind /
+`pgvector`; DynamoDB; S3; Cognito; Amazon Bedrock via `langchain-aws`; `mammoth` (BSD-2-Clause) for
+`.docx` extraction; LiteParse (Apache-2.0, local/in-Lambda) for PDF extraction; LlamaIndex for
+embedding + retrieval over a single `pgvector` table; React 19 / Vite / Tailwind /
 shadcn/ui). Each task builds on prior tasks and ends by wiring new code into the running system, so
 there is no orphaned code.
 
@@ -69,88 +71,88 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
     - `Api`-adjacent authorizer verifies JWT (`aws-jwt-verify`), maps subject → app identity + roles + writing-type assignments + grants from Postgres
     - Authorization never reads IdP groups/claims as a source of truth
     - _Requirements: 37.1, 37.2, 37.3, 37.5, 36.1, 36.2_
-  - [ ]* 3.2 Write property test for IdP-independent authorization  〔Track A · A4〕
+  - [x]* 3.2 Write property test for IdP-independent authorization  〔Track A · A4〕
     - **Property 25: Authorization is identity-provider independent**
     - **Validates: Requirements 37.2, 37.3, 37.4**
   - [x] 3.3 Implement access resolution and submission-permission logic  〔Track A · A3〕
     - Effective access = Writing Type's explicit `OPEN`/`LOCKED` else its Organization's; permit submission iff OPEN, or LOCKED with an applicable Access Grant; otherwise deny and offer access-request flow
     - _Requirements: 4.1, 4.2, 4.3, 4.5, 4.7, 6.8, 28.3, 28.4_
-  - [ ]* 3.4 Write property test for access resolution and submission permission  〔Track A · A4〕
+  - [x]* 3.4 Write property test for access resolution and submission permission  〔Track A · A4〕
     - **Property 22: Access resolution and submission permission**
     - **Validates: Requirements 4.1, 4.2, 4.3, 4.5, 6.8, 28.3**
   - [x] 3.5 Implement the API-layer capability matrix and role-assignment authority  〔Track A · A3〕
     - Enforce per-operation capability checks (incl. Field-Expert scoping to assigned Writing Types across organizations) and the role-assignment matrix (Admin any; Org Owner → Field Expert + grants within owned orgs only; Field Expert/User none)
     - Deny with an authorization error and no mutation when disallowed, independent of UI state
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 23.1, 23.2, 23.5, 23.6, 36.1, 36.3, 36.4_
-  - [ ]* 3.6 Write property test for capability enforcement at the API layer  〔Track A · A4〕
+  - [x]* 3.6 Write property test for capability enforcement at the API layer  〔Track A · A4〕
     - **Property 23: Capability enforcement at the API layer**
     - **Validates: Requirements 36.1, 36.3, 36.4, 23.1, 23.2, 23.6, 4.7**
-  - [ ]* 3.7 Write property test for the role-assignment authority matrix  〔Track A · A4〕
+  - [x]* 3.7 Write property test for the role-assignment authority matrix  〔Track A · A4〕
     - **Property 24: Role-assignment authority matrix**
     - **Validates: Requirements 5.1, 5.2, 5.3**
 
-- [ ] 4. Checkpoint - foundations and authorization  〔Track A · after A4〕
+- [x] 4. Checkpoint - foundations and authorization  〔Track A · after A4〕
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. Organizations, configurable writing types, roles, and access administration (Admin_Service)  〔Track A〕
-  - [ ] 5.1 Implement Organization groupings and the configurable Writing Type catalog  〔Track A · A4〕
+  - [x] 5.1 Implement Organization groupings and the configurable Writing Type catalog  〔Track A · A4〕
     - CRUD for Organizations (grouping, owns no Users) and self-selectable Writing Types; set OPEN/LOCKED at org and writing-type level; Writing Types are user-configurable records, not a fixed domain set
     - _Requirements: 28.1, 28.4, 28.5, 30.1, 33.2_
-  - [ ] 5.2 Implement Content Types and configurable custom metadata fields  〔Track A · A5〕
+  - [x] 5.2 Implement Content Types and configurable custom metadata fields  〔Track A · A5〕
     - Org-Owner-defined Content Types and custom metadata fields with required/optional flags; seed only "Writing Topic" as the illustrative field (no "Location Reference")
     - Confirmation + impact description when removing a Writing Type with assigned experts/documents
     - _Requirements: 30.2, 30.3, 30.5, 30.6, 30.7_
-  - [ ] 5.3 Implement global user/role management and Access Grants  〔Track A · A5〕
+  - [x] 5.3 Implement global user/role management and Access Grants  〔Track A · A5〕
     - System-wide user search/filter (first/last/email/role), paginated; assign roles per matrix; create/revoke Access Grants (incl. access-request approval that creates a grant); members remain global
     - _Requirements: 2.1, 2.2, 2.3, 2.5, 4.4, 4.6, 29.1, 29.2, 29.3, 29.4, 29.5, 3.3_
-  - [ ] 5.4 Implement business Topics management  〔Track A · A5〕
+  - [x] 5.4 Implement business Topics management  〔Track A · A5〕
     - Org-Owner CRUD for Topics scoped to one owned Organization; Topics never drive taxonomy/feedback; confirmation + value preservation on delete of referenced Topics
     - _Requirements: 35.1, 35.2, 35.3, 35.4, 35.5_
-  - [ ]* 5.5 Write unit tests for admin role/access edge cases  〔Track A · A6〕
+  - [x] 5.5 Write unit tests for admin role/access edge cases  〔Track A · A6〕
     - Superuser fallback when no Org Owner exists (audited as Admin-performed); cross-organization scope denials
     - _Requirements: 2.5, 3.4, 30.7_
 
-- [ ] 6. Document and Draft service (Node 22)  〔Track A〕
-  - [ ] 6.1 Implement ingestion, extraction, and paragraph segmentation  〔Track A · A6〕
-    - Accept `.docx`/`.pdf` (reject others with accepted-formats message); best-effort PDF extraction (`PyMuPDF` helper) preserving paragraph boundaries with `.docx`/paste fallback on failure; pasted-text paragraph handling
+- [x] 6. Document and Draft service (Node 22)  〔Track A〕
+  - [x] 6.1 Implement ingestion, extraction, and paragraph segmentation  〔Track A · A6〕
+    - Accept `.docx`/`.pdf` (reject others with accepted-formats message); `.docx` extraction via **`mammoth`** (BSD-2-Clause, MIT-compatible) and best-effort PDF extraction via **LiteParse** (`run-llama/liteparse`, Apache-2.0, local in-Lambda parsing — no cloud API/per-page cost), both preserving paragraph boundaries, with `.docx`/paste fallback on PDF extraction failure; pasted-text paragraph handling
     - Produce ordered paragraph segments with stable indices (substrate for anchoring/diffing)
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
-  - [ ]* 6.2 Write property test for file-extension acceptance  〔Track A · A7〕
+  - [x]* 6.2 Write property test for file-extension acceptance  〔Track A · A7〕
     - **Property 1: File-extension acceptance**
     - **Validates: Requirements 6.1**
-  - [ ]* 6.3 Write property test for paragraph structure preservation  〔Track A · A7〕
+  - [x]* 6.3 Write property test for paragraph structure preservation  〔Track A · A7〕
     - **Property 2: Paragraph structure preservation**
     - **Validates: Requirements 6.2, 6.5**
-  - [ ] 6.4 Implement metadata capture, required-field gating, and submission gating  〔Track A · A7〕
+  - [x] 6.4 Implement metadata capture, required-field gating, and submission gating  〔Track A · A7〕
     - Validate submitted metadata against configured required custom fields; keep create/activate disabled while required fields empty; call Auth_Service to gate submission by effective access (OPEN self-select / LOCKED grant / access-request)
     - _Requirements: 6.6, 6.7, 6.8, 30.4_
   - [ ]* 6.5 Write property test for required-field gating  〔Track A · A8〕
     - **Property 3: Required-field gating**
     - **Validates: Requirements 6.7, 30.4**
-  - [ ] 6.6 Implement effective size-limit enforcement  〔Track A · A6〕
+  - [x] 6.6 Implement effective size-limit enforcement  〔Track A · A6〕
     - Reject documents over the effective limit (default 10,000 words; Org/Writing-Type override wins) before creating a Draft or invoking the engine; return limit + measured size
     - _Requirements: 7.1, 7.2, 7.3, 7.4_
-  - [ ]* 6.7 Write property test for size-limit enforcement  〔Track A · A7〕
+  - [x]* 6.7 Write property test for size-limit enforcement  〔Track A · A7〕
     - **Property 4: Size-limit enforcement using effective limit**
     - **Validates: Requirements 7.2, 7.3, 7.4**
-  - [ ] 6.8 Implement draft versioning and resubmission  〔Track A · A6〕
+  - [x] 6.8 Implement draft versioning and resubmission  〔Track A · A6〕
     - Create a new immutable Draft per submission, retain prior Drafts, assign monotonically increasing versions, identify highest as current, associate existing Feedback Items for re-evaluation
     - _Requirements: 8.1, 8.2, 8.3_
-  - [ ]* 6.9 Write property test for draft history accumulation  〔Track A · A7〕
+  - [x]* 6.9 Write property test for draft history accumulation  〔Track A · A7〕
     - **Property 5: Draft history accumulation**
     - **Validates: Requirements 8.1, 8.2**
 
-- [ ] 7. Checkpoint - document lifecycle  〔Track A · after A7〕
+- [x] 7. Checkpoint - document lifecycle  〔Track A · after A7〕
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 8. Diff, Anchor, and Progress engine (Python 3.12)  〔Track A〕
-  - [ ] 8.1 Implement the Diff Engine  〔Track A · A7〕
+  - [x] 8.1 Implement the Diff Engine  〔Track A · A7〕
     - Compute paragraph + intra-paragraph change sets between consecutive Drafts; select changed/added spans plus bounded context for the LLM and exclude unchanged spans; empty change set on identical Drafts
     - _Requirements: 10.1, 10.2, 10.4, 10.5_
   - [ ]* 8.2 Write property test for diff selection completeness and identity  〔Track A · A8〕
     - **Property 8: Diff selection completeness and identity**
     - **Validates: Requirements 10.1, 10.2, 10.4**
-  - [ ] 8.3 Implement the Anchor Service (draft anchoring + re-mapping)  〔Track A · A7〕
+  - [x] 8.3 Implement the Anchor Service (draft anchoring + re-mapping)  〔Track A · A7〕
     - Store per-anchor start/end offset, paragraph index, and content fingerprint; re-map anchors across Drafts via the diff; preserve association on confident (possibly shifted) match; mark `removed` on deletion / rewrite-beyond-recognition / ambiguity rather than mis-attach
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
   - [ ]* 8.4 Write property test for anchor re-mapping of surviving spans  〔Track A · A8〕
@@ -212,7 +214,8 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
 
 - [ ] 10. Reference materials and citations  〔Track A〕
   - [ ] 10.1 Implement the two-tier reference store and grounding  〔Track A · A11〕
-    - Org-wide (tier 1) and Writing-Type-scoped (tier 2) Reference Material; index content into `pgvector`; bundle = org-wide ∪ that Writing Type's domain-scoped material, never another type's
+    - Org-wide (tier 1) and Writing-Type-scoped (tier 2) Reference Material; parse/chunk/index content with **LlamaIndex** into the **single** `pgvector`-backed `embedding` table via a LlamaIndex `PGVectorStore`; bundle = org-wide ∪ that Writing Type's domain-scoped material (scoped by a `WHERE` filter on `tier`/`organizationId`/`writingTypeId` over that one table), never another type's
+    - Add a forward-only migration creating the single `embedding` table (vector column + `reference_material_id`, `tier`, `organization_id`, `writing_type_id`, `chunk_index`, `content`, `metadata`) if it does not already exist; resolve `reference_material.embedding_id` against it
     - _Requirements: 20.1, 20.2, 20.3, 20.4, 22.1, 22.2, 22.3, 22.4, 26.1, 26.3_
   - [ ]* 10.2 Write property test for reference bundle scoping  〔Track A · A12〕
     - **Property 21: Reference bundle scoping**
