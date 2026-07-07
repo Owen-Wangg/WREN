@@ -14,7 +14,7 @@
  * overflow actions) is convergence work handled elsewhere.
  */
 import { useRef, useState } from 'react';
-import { MoreHorizontal, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 
 import { getDocumentTopic } from '../documentFilters';
 
@@ -100,7 +100,7 @@ export function WritingEnvironmentCard({
           </p>
         </div>
 
-        <div className="absolute bottom-lg right-lg flex items-center gap-xs">
+        <div className="absolute bottom-lg right-lg">
           <button
             type="button"
             aria-label={`Delete ${document.name}`}
@@ -108,13 +108,6 @@ export function WritingEnvironmentCard({
             onClick={handleDeleteClick}
           >
             <Trash2 size={18} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label={`Actions for ${document.name}`}
-            className="rounded-md p-xs text-text-muted hover:text-text-primary"
-          >
-            <MoreHorizontal size={18} aria-hidden="true" />
           </button>
         </div>
       </article>

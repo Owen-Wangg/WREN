@@ -78,17 +78,17 @@ describe('AI Debrief — No-Ghostwriting Compliance (Requirement 11.2)', () => {
       );
 
       // Feedback is rendered in structurally distinct sections grouped by category.
-      const claritySection = screen
-        .getByRole('heading', { name: 'cat-clarity' })
+      const contentSection = screen
+        .getByRole('heading', { name: 'Content' })
         .closest('section');
-      const structureSection = screen
-        .getByRole('heading', { name: 'cat-structure' })
+      const organizationSection = screen
+        .getByRole('heading', { name: 'Organization' })
         .closest('section');
 
-      expect(claritySection).not.toBeNull();
-      expect(structureSection).not.toBeNull();
+      expect(contentSection).not.toBeNull();
+      expect(organizationSection).not.toBeNull();
       // These are distinct DOM subtrees — never merged.
-      expect(claritySection).not.toBe(structureSection);
+      expect(contentSection).not.toBe(organizationSection);
     });
 
     it('the debrief modal always includes the AI disclaimer notice (role="note") to mark content as AI-generated', async () => {
@@ -151,8 +151,8 @@ describe('AI Debrief — No-Ghostwriting Compliance (Requirement 11.2)', () => {
   });
 });
 
-describe('AI Debrief — Accessibility: Focus Trap & Modal Behavior (Steering §8)', () => {
-  it('pressing Escape closes the modal', async () => {
+describe('AI Debrief — Accessibility: Non-modal Panel Behavior (Steering §8)', () => {
+  it('pressing Escape closes the panel', async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
 
@@ -164,7 +164,7 @@ describe('AI Debrief — Accessibility: Focus Trap & Modal Behavior (Steering §
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('clicking the × close button closes the modal', async () => {
+  it('clicking the × close button closes the panel', async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
 
@@ -177,12 +177,13 @@ describe('AI Debrief — Accessibility: Focus Trap & Modal Behavior (Steering §
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('focus is trapped inside the modal when open (Tab does not escape)', async () => {
+  it('the panel is non-modal — elements outside remain interactive', async () => {
     const user = userEvent.setup();
+    const onClick = vi.fn();
 
     renderWithQueryClient(
       <div>
-        <button type="button" data-testid="outside-button">
+        <button type="button" data-testid="outside-button" onClick={onClick}>
           Outside
         </button>
         <AiDebriefModal environmentId="doc-1" open onOpenChange={() => {}} />
@@ -193,52 +194,22 @@ describe('AI Debrief — Accessibility: Focus Trap & Modal Behavior (Steering §
       expect(screen.queryByRole('status')).not.toBeInTheDocument(),
     );
 
-    // Tab through all focusable elements inside the modal.
-    // Radix Dialog traps focus — the outside button should never receive focus.
     const outsideButton = screen.getByTestId('outside-button');
-
-    // Tab many times to cycle through all modal focusable elements.
-    for (let i = 0; i < 20; i++) {
-      await user.tab();
-      expect(document.activeElement).not.toBe(outsideButton);
-    }
+    await user.click(outsideButton);
+    expect(onClick).toHaveBeenCalled();
   });
 
-  it('focus returns to the triggering button after the modal is closed', async () => {
+  it('focus returns to the triggering button after the panel is closed', async () => {
     const user = userEvent.setup();
 
     render(<ModalWithTrigger />);
 
     const triggerButton = screen.getByTestId('trigger-button');
 
-    // Open the modal.
+    // Open the panel.
     await user.click(triggerButton);
 
-    // Wait for the modal content to appear.
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Close AI Debrief' }),
-      ).toBeInTheDocument(),
-    );
-
-    // Close via Escape.
-    await user.keyboard('{Escape}');
-
-    // Focus should return to the trigger button.
-    await waitFor(() => expect(document.activeElement).toBe(triggerButton));
-  });
-
-  it('focus returns to the triggering button after closing via the × button', async () => {
-    const user = userEvent.setup();
-
-    render(<ModalWithTrigger />);
-
-    const triggerButton = screen.getByTestId('trigger-button');
-
-    // Open the modal.
-    await user.click(triggerButton);
-
-    // Wait for the modal content to appear.
+    // Wait for the panel content to appear.
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'Close AI Debrief' }),

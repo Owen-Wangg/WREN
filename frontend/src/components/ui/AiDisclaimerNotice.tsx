@@ -20,7 +20,7 @@ export interface AiDisclaimerNoticeProps {
 }
 
 export const AI_DISCLAIMER_DEFAULT_MESSAGE =
-  'AI-generated feedback is for support only. It does not rewrite your work — always use your own judgment and consult your instructor or field expert when in doubt.';
+  'The feedback provided by the application is AI-generated and consists of questions and observations to guide your own revision. It will never rewrite your text. Always use your own judgment and consult a field expert when in doubt.';
 
 export function AiDisclaimerNotice({
   message = AI_DISCLAIMER_DEFAULT_MESSAGE,

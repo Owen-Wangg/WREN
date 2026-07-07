@@ -28,7 +28,8 @@ export const liveApiClient = new ApiClient({
  * The client the app currently uses. Mocked until backend convergence; flip to
  * `liveApiClient` (or gate on an env flag) when the real endpoints are ready.
  */
-export const apiClient: HttpClient = new MockApiClient();
+const isTest = typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test';
+export const apiClient: HttpClient = new MockApiClient(undefined, { simulateLatency: !isTest });
 
 export {
   ApiClient,

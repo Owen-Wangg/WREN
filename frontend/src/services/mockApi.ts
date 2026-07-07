@@ -114,24 +114,14 @@ const sampleDocuments: Document[] = [
     status: 'Still Drafting',
     createdAt: '2026-06-18T00:00:00.000Z',
   },
-  {
-    id: 'doc-4',
-    ownerUserId: 'user-1',
-    writingTypeId: 'wt-poetry',
-    contentTypeId: 'ct-free-verse',
-    name: 'Ekphrasis Draft',
-    metadata: { 'Writing Topic': 'Modern Art', 'Writing Type': 'Arts', 'Writing Domain': 'Poetry', 'Document Type': 'Free Verse' },
-    status: 'Still Drafting',
-    createdAt: '2026-06-10T00:00:00.000Z',
-  },
 ];
 
 /**
- * Sample AI Debrief fixture for `doc-1` (task 18.3). Includes one inline
- * (anchored) item and one document-wide structural item so the debrief view's
- * distinct-presentation behavior has fixture data to render against. Every
- * item validates against the shared `feedbackItemSchema` — no `replacementProse`
- * field exists anywhere in this fixture (REQ-CORE-NOGHOST-01).
+ * Sample AI Debrief fixture for `doc-1` (task 18.3). Structured by category
+ * (Content, Organization, Clarity) with "What's Done Well" and "Areas for
+ * Improvement" items. Every item validates against the shared
+ * `feedbackItemSchema` — no `replacementProse` field exists anywhere in this
+ * fixture (REQ-CORE-NOGHOST-01).
  */
 const sampleDebrief = {
   documentId: 'doc-1',
@@ -139,33 +129,191 @@ const sampleDebrief = {
   generatedAt: '2024-01-02T00:00:00.000Z',
   items: [
     {
-      id: 'fb-1',
+      id: 'fb-content-1',
       documentId: 'doc-1',
-      errorCategoryId: 'cat-clarity',
+      errorCategoryId: 'Content',
+      kind: 'structural',
+      questionText:
+        'The document identifies the parties involved and provides a general overview of the incident.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-content-2',
+      documentId: 'doc-1',
+      errorCategoryId: 'Content',
+      kind: 'structural',
+      questionText:
+        'Important topics such as damages, evidence, legal considerations, and recommendations are present.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-content-3',
+      documentId: 'doc-1',
+      errorCategoryId: 'Content',
+      kind: 'structural',
+      questionText:
+        'The document attempts to address both factual circumstances and procedural next steps.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-content-4',
+      documentId: 'doc-1',
+      errorCategoryId: 'Content',
       kind: 'inline',
       questionText:
-        'Your sentence covers several ideas at once — can you identify the main legal holding and state it as a single, complete sentence?',
+        'Some details surrounding the incident and resulting injuries are broad in scope, making it difficult to fully assess the circumstances described.',
       currentAnchorId: 'anchor-1',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
     {
-      id: 'fb-2',
+      id: 'fb-content-5',
       documentId: 'doc-1',
-      errorCategoryId: 'cat-structure',
+      errorCategoryId: 'Content',
+      kind: 'inline',
+      questionText:
+        'Certain conclusions and estimates are presented without sufficient context or supporting information.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-content-6',
+      documentId: 'doc-1',
+      errorCategoryId: 'Content',
+      kind: 'inline',
+      questionText:
+        'The level of detail varies throughout the document, with some sections appearing substantially more developed than others.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-org-1',
+      documentId: 'doc-1',
+      errorCategoryId: 'Organization',
       kind: 'structural',
       questionText:
-        'Does the order of your arguments build toward your conclusion, or could reordering the sections make the analysis easier to follow?',
+        'Information is separated into distinct sections, which helps readers locate key topics.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-org-2',
+      documentId: 'doc-1',
+      errorCategoryId: 'Organization',
+      kind: 'structural',
+      questionText:
+        'The document follows a generally recognizable structure for a case assessment.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-org-3',
+      documentId: 'doc-1',
+      errorCategoryId: 'Organization',
+      kind: 'inline',
+      questionText:
+        'Related information is occasionally dispersed across multiple sections, affecting the continuity of the narrative.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-org-4',
+      documentId: 'doc-1',
+      errorCategoryId: 'Organization',
+      kind: 'inline',
+      questionText:
+        'The progression from factual background to analysis and recommendations could be more cohesive.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-org-5',
+      documentId: 'doc-1',
+      errorCategoryId: 'Organization',
+      kind: 'inline',
+      questionText:
+        'Some sections contain information that may be better suited elsewhere in the document.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-clarity-1',
+      documentId: 'doc-1',
+      errorCategoryId: 'Clarity',
+      kind: 'structural',
+      questionText:
+        'The document communicates the overall situation in a way that is understandable to a general reader.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-clarity-2',
+      documentId: 'doc-1',
+      errorCategoryId: 'Clarity',
+      kind: 'structural',
+      questionText:
+        'Most topics are introduced clearly and remain focused on the subject matter.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-clarity-3',
+      documentId: 'doc-1',
+      errorCategoryId: 'Clarity',
+      kind: 'inline',
+      questionText:
+        'Several sentences combine multiple ideas without clear connective structure, which can obscure the intended meaning.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-clarity-4',
+      documentId: 'doc-1',
+      errorCategoryId: 'Clarity',
+      kind: 'inline',
+      questionText:
+        'Hedging language (maybe, perhaps, probably) appears frequently and can weaken the precision of legal statements.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-clarity-5',
+      documentId: 'doc-1',
+      errorCategoryId: 'Clarity',
+      kind: 'inline',
+      questionText:
+        'Some references to parties and events lack the specificity needed for a reader unfamiliar with the case to follow along.',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
   ],
 };
 
-/** Regenerating returns a fresh `generatedAt` timestamp so callers can observe the re-run. */
+/** Regenerating returns updated feedback with progress patterns (Requirement 18). */
 const regeneratedSampleDebrief = {
   ...sampleDebrief,
+  draftId: 'draft-2',
   generatedAt: '2024-01-03T00:00:00.000Z',
+  progressSummary: [
+    {
+      category: 'Content',
+      tendency: 'improving',
+      description: 'Your factual details are becoming more specific — the damages section now includes concrete figures and the evidence section names particular sources.',
+    },
+    {
+      category: 'Organization',
+      tendency: 'improving',
+      description: 'The progression from background to analysis to recommendation is noticeably more cohesive than in your previous draft.',
+    },
+    {
+      category: 'Clarity',
+      tendency: 'persistent',
+      description: 'Hedging language (maybe, perhaps, probably) still appears frequently in legal conclusions where more direct statements would strengthen your position.',
+    },
+  ],
 };
 
 /** `doc-2` has no generated feedback yet (Requirement 16.5: empty state). */
@@ -189,9 +337,9 @@ const sampleAnchors: Anchor[] = [
     id: 'anchor-1',
     feedbackItemId: 'fb-1',
     draftId: 'draft-1',
-    paragraphIndex: 0,
-    startOffset: 0,
-    endOffset: 7,
+    paragraphIndex: 2,
+    startOffset: 82,
+    endOffset: 288,
     contentFingerprint: 'fp-anchor-1',
     state: 'active',
   },
@@ -199,11 +347,21 @@ const sampleAnchors: Anchor[] = [
     id: 'anchor-2',
     feedbackItemId: 'fb-3',
     draftId: 'draft-1',
-    paragraphIndex: 1,
+    paragraphIndex: 4,
     startOffset: 0,
-    endOffset: 5,
+    endOffset: 112,
     contentFingerprint: 'fp-anchor-2',
-    state: 'removed',
+    state: 'active',
+  },
+  {
+    id: 'anchor-3',
+    feedbackItemId: 'fb-4',
+    draftId: 'draft-1',
+    paragraphIndex: 6,
+    startOffset: 0,
+    endOffset: 86,
+    contentFingerprint: 'fp-anchor-3',
+    state: 'active',
   },
 ];
 
@@ -214,7 +372,7 @@ const sampleInlineFeedbackItems: FeedbackItem[] = [
     errorCategoryId: 'cat-clarity',
     kind: 'inline',
     questionText:
-      'Your sentence covers several ideas at once — can you identify the main legal holding and state it as a single, complete sentence?',
+      'This sentence covers several ideas at once — can you separate the incident from the injuries and state each as its own clear sentence?',
     currentAnchorId: 'anchor-1',
     sourceDraftId: 'draft-1',
     createdAt: '2024-01-02T00:00:00.000Z',
@@ -225,7 +383,7 @@ const sampleInlineFeedbackItems: FeedbackItem[] = [
     errorCategoryId: 'cat-terminology',
     kind: 'inline',
     questionText:
-      'Is this the term courts actually use for what happened here?',
+      'Are "pain and suffering" and "missed work" the precise legal terms for these categories of damages?',
     currentAnchorId: 'anchor-2',
     sourceDraftId: 'draft-1',
     createdAt: '2024-01-01T00:00:00.000Z',
@@ -233,9 +391,11 @@ const sampleInlineFeedbackItems: FeedbackItem[] = [
   {
     id: 'fb-4',
     documentId: 'doc-1',
-    errorCategoryId: 'cat-grammar',
+    errorCategoryId: 'cat-structure',
     kind: 'inline',
-    questionText: 'Is this a complete sentence, or a fragment?',
+    questionText:
+      'What specific evidence exists here? Could you list the actual items rather than stating they exist generally?',
+    currentAnchorId: 'anchor-3',
     sourceDraftId: 'draft-1',
     createdAt: '2024-01-01T00:00:00.000Z',
   },
@@ -262,8 +422,6 @@ interface OrganizationAccessFixture {
 
 const sampleOrganizations: OrganizationAccessFixture[] = [
   { id: 'org-law', name: 'Law', accessState: 'OPEN' },
-  { id: 'org-arts', name: 'Arts', accessState: 'OPEN' },
-  { id: 'org-science', name: 'Science', accessState: 'LOCKED' },
 ];
 
 /** The current user holds no Access Grants by default (all LOCKED types stay LOCKED). */
@@ -759,7 +917,16 @@ export const defaultMockRoutes: MockRoutes = {
 };
 
 export class MockApiClient implements HttpClient {
-  constructor(private readonly routes: MockRoutes = defaultMockRoutes) {}
+  private readonly simulateLatency: boolean;
+  private routes: MockRoutes;
+
+  constructor(
+    routes: MockRoutes = defaultMockRoutes,
+    options?: { simulateLatency?: boolean },
+  ) {
+    this.routes = { ...routes };
+    this.simulateLatency = options?.simulateLatency ?? false;
+  }
 
   async request<T>(path: string, options: RequestOptions<T>): Promise<T> {
     const method = options.method ?? 'GET';
@@ -768,6 +935,16 @@ export class MockApiClient implements HttpClient {
 
     if (fixture === undefined) {
       throw new ApiError(`No mock route registered for ${key}`, 'http', 404);
+    }
+
+    if (this.simulateLatency && method === 'POST') {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+
+    // After regenerate, the GET debrief endpoint should reflect the new data.
+    if (key.endsWith('/debrief/regenerate') && method === 'POST') {
+      const getKey = key.replace('POST ', 'GET ').replace('/regenerate', '');
+      this.routes[getKey] = fixture;
     }
 
     const result = options.schema.safeParse(fixture);

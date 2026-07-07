@@ -92,10 +92,25 @@ export function WrenChatPanel({
         Ask {appConfig.appName}
       </h2>
 
-      <AiDisclaimerNotice message={`Ask ${appConfig.appName} offers questions to help you think through your own draft. It will not rewrite your text for you.`} />
+      {/* Draft progress indicator */}
+      <div className="flex flex-col gap-xs">
+        <div className="h-[6px] w-full overflow-hidden rounded-full bg-surface-subtle">
+          <div
+            className="h-full rounded-full bg-accent-primary transition-all duration-300"
+            style={{ width: `${Math.min((draftVersion / 3) * 100, 100)}%` }}
+            role="progressbar"
+            aria-valuenow={draftVersion}
+            aria-valuemin={1}
+            aria-valuemax={3}
+            aria-label="Draft progress"
+          />
+        </div>
+      </div>
+
+      <AiDisclaimerNotice message={`${appConfig.appName} responds with guiding questions to help you think through your own writing. It will not rewrite your text or provide replacement prose.`} />
 
       <p className="text-caption text-text-muted">
-        Talking about draft version {draftVersion}.
+        Discussing draft version {draftVersion}.
       </p>
 
       <ul

@@ -36,31 +36,31 @@ describe('AiDebriefModal', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument(),
     );
 
-    const claritySection = screen
-      .getByRole('heading', { name: 'cat-clarity' })
+    const contentSection = screen
+      .getByRole('heading', { name: 'Content' })
       .closest('section');
-    const structureSection = screen
-      .getByRole('heading', { name: 'cat-structure' })
+    const organizationSection = screen
+      .getByRole('heading', { name: 'Organization' })
       .closest('section');
 
-    expect(claritySection).not.toBeNull();
-    expect(structureSection).not.toBeNull();
-    expect(claritySection).not.toBe(structureSection);
+    expect(contentSection).not.toBeNull();
+    expect(organizationSection).not.toBeNull();
+    expect(contentSection).not.toBe(organizationSection);
 
-    // The clarity item's Socratic question lives only in the clarity section.
+    // Content items live only in the Content section.
     expect(
-      within(claritySection as HTMLElement).getByText(/main legal holding/),
+      within(contentSection as HTMLElement).getByText(/identifies the parties/),
     ).toBeInTheDocument();
     expect(
-      within(structureSection as HTMLElement).queryByText(/main legal holding/),
+      within(organizationSection as HTMLElement).queryByText(/identifies the parties/),
     ).not.toBeInTheDocument();
 
-    // The structure item's question lives only in the structure section.
+    // Organization items live only in the Organization section.
     expect(
-      within(structureSection as HTMLElement).getByText(/order of your arguments/),
+      within(organizationSection as HTMLElement).getByText(/separated into distinct sections/),
     ).toBeInTheDocument();
     expect(
-      within(claritySection as HTMLElement).queryByText(/order of your arguments/),
+      within(contentSection as HTMLElement).queryByText(/separated into distinct sections/),
     ).not.toBeInTheDocument();
   });
 
@@ -93,30 +93,16 @@ describe('AiDebriefModal', () => {
     ).toBeInTheDocument();
   });
 
-  it('invalidates and refetches the debrief cache entry when "Regenerate AI Debrief" is clicked (Requirement 16.2)', async () => {
-    const user = userEvent.setup();
+  it('invalidates and refetches the debrief cache entry when autoRegenerate is true (Requirement 16.2)', async () => {
     renderWithQueryClient(
-      <AiDebriefModal environmentId="doc-1" open onOpenChange={() => {}} />,
+      <AiDebriefModal environmentId="doc-1" open autoRegenerate onOpenChange={() => {}} />,
     );
 
+    // The mock regenerate route returns a debrief with a newer draftId;
+    // the cache entry was refreshed via setQueryData + invalidateQueries.
     await waitFor(() =>
-      expect(screen.getByText('Based on draft draft-1')).toBeInTheDocument(),
+      expect(screen.getByText('Based on draft draft-2')).toBeInTheDocument(),
     );
-
-    await user.click(
-      screen.getByRole('button', { name: 'Regenerate AI Debrief' }),
-    );
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Regenerate AI Debrief' }),
-      ).not.toBeDisabled(),
-    );
-
-    // The mock regenerate route returns a debrief with a newer generatedAt but
-    // the same draftId; the cache entry was refreshed via setQueryData +
-    // invalidateQueries rather than the stale initial fetch persisting.
-    expect(screen.getByText('Based on draft draft-1')).toBeInTheDocument();
   });
 
   it('always renders the shared AiDisclaimerNotice (steering §3)', async () => {

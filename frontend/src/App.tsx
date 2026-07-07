@@ -28,11 +28,13 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
 
+      {/* Document editor — full viewport, no layout shell */}
+      <Route path="/dashboard/document/:documentId" element={<DocumentEditorPage />} />
+
       {/* Authenticated student routes */}
       <Route element={<StudentLayout />}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/dashboard/new" element={<NewDocumentPage />} />
-        <Route path="/dashboard/document/:documentId" element={<DocumentEditorPage />} />
         <Route path="/guide" element={<GuidePage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />

@@ -19,6 +19,14 @@ import { z } from 'zod';
 
 import { feedbackItemSchema, idSchema, isoDateTimeSchema } from '@wren/types';
 
+/** A single pattern-level progress acknowledgment (Requirement 18, REQ-PROGRESS-ACK-01). */
+export const progressPatternSchema = z.object({
+  category: z.string().min(1),
+  tendency: z.enum(['improving', 'persistent', 'emerging']),
+  description: z.string().min(1),
+});
+export type ProgressPattern = z.infer<typeof progressPatternSchema>;
+
 export const debriefSchema = z
   .object({
     documentId: idSchema,
@@ -26,6 +34,8 @@ export const debriefSchema = z
     draftId: idSchema,
     generatedAt: isoDateTimeSchema,
     items: z.array(feedbackItemSchema),
+    /** Pattern-level progress summary (REQ-PROGRESS-ACK-01); present only when >= 2 drafts exist. */
+    progressSummary: z.array(progressPatternSchema).optional(),
   })
   .strict();
 export type Debrief = z.infer<typeof debriefSchema>;
