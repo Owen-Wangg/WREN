@@ -35,6 +35,7 @@
  */
 import { useEditor, EditorContent, type Editor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Highlight from '@tiptap/extension-highlight';
 import CommentExtension from '@sereneinserenade/tiptap-comment-extension';
 import { useImperativeHandle, useState, type Ref } from 'react';
 
@@ -90,6 +91,12 @@ export function DocumentEditor({
   const editor = useEditor({
     extensions: [
       StarterKit,
+      Highlight.configure({
+        multicolor: true,
+        HTMLAttributes: {
+          style: 'background-color: #FFD700; padding: 2px 4px; border-radius: 4px; font-weight: 500;',
+        },
+      }),
       CommentExtension.configure({
         HTMLAttributes: {
           // Structural, no-ghostwriting-compliant marker (steering §3): AI

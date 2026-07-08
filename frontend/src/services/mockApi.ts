@@ -155,6 +155,9 @@ const sampleDebrief = {
       kind: 'inline',
       questionText:
         'Several run-on sentences appear in this section. Could each independent clause be expressed as its own sentence?',
+      quotedText:
+        'Person 1 had pain and suffering and also had to miss work. It is believed maybe around $25,000 could be awarded but also maybe more because injuries can sometimes last long periods.',
+      currentAnchorId: 'anchor-grammar-2',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
@@ -186,6 +189,9 @@ const sampleDebrief = {
       kind: 'inline',
       questionText:
         'Some phrasing here reads as conversational rather than formal. Is this the register expected for this document type?',
+      quotedText:
+        'Expenses happened too from medications and travel although receipts are not all available currently. Future treatment could happen depending if symptoms stay.',
+      currentAnchorId: 'anchor-tone-2',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
@@ -207,6 +213,9 @@ const sampleDebrief = {
       kind: 'inline',
       questionText:
         'Several sentences combine multiple ideas without clear connective structure. Could the main point be stated first, then qualified?',
+      quotedText:
+        'This is about a negligence claim maybe and happened in Kelowna sometime in January. Person 1 was walking near a building and there was ice.',
+      currentAnchorId: 'anchor-clarity-2',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
@@ -375,6 +384,36 @@ const sampleAnchors: Anchor[] = [
     startOffset: 0,
     endOffset: 86,
     contentFingerprint: 'fp-anchor-3',
+    state: 'active',
+  },
+  {
+    id: 'anchor-grammar-2',
+    feedbackItemId: 'fb-grammar-2',
+    draftId: 'draft-1',
+    paragraphIndex: 4,
+    startOffset: 120,
+    endOffset: 280,
+    contentFingerprint: 'fp-grammar-2',
+    state: 'active',
+  },
+  {
+    id: 'anchor-tone-2',
+    feedbackItemId: 'fb-tone-2',
+    draftId: 'draft-1',
+    paragraphIndex: 4,
+    startOffset: 300,
+    endOffset: 450,
+    contentFingerprint: 'fp-tone-2',
+    state: 'active',
+  },
+  {
+    id: 'anchor-clarity-2',
+    feedbackItemId: 'fb-clarity-2',
+    draftId: 'draft-1',
+    paragraphIndex: 2,
+    startOffset: 0,
+    endOffset: 100,
+    contentFingerprint: 'fp-clarity-2',
     state: 'active',
   },
 ];
@@ -909,6 +948,14 @@ const contentTypeMockRoutes: MockRoutes = {
   'GET /writing-types/wt-criminal-law/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-criminal-law'),
   'GET /writing-types/wt-tort-law/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-tort-law'),
   'GET /writing-types/wt-property-law/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-property-law'),
+  'GET /organizations/org-law/content-types': (() => {
+    const seen = new Set<string>();
+    return sampleContentTypes.filter(ct => {
+      if (ct.organizationId !== 'org-law' || seen.has(ct.name)) return false;
+      seen.add(ct.name);
+      return true;
+    });
+  })(),
 };
 
 export const defaultMockRoutes: MockRoutes = {

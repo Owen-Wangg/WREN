@@ -151,6 +151,8 @@ export type FeedbackKind = z.infer<typeof feedbackKindSchema>;
 /**
  * A single unit of Socratic feedback. There is deliberately NO `replacementProse`
  * field; `.strict()` rejects any payload that tries to add one (REQ-CORE-NOGHOST-01).
+ * `quotedText` is an optional exact quote from the document that triggered this
+ * feedback, for context without generation.
  */
 export const feedbackItemSchema = z
   .object({
@@ -160,6 +162,8 @@ export const feedbackItemSchema = z
     kind: feedbackKindSchema,
     /** The Socratic question / error-type flag shown to the writer. */
     questionText: z.string().min(1),
+    /** Exact quote from the document that triggered this feedback (no generation). */
+    quotedText: z.string().optional(),
     currentAnchorId: idSchema.optional(),
     citationReferenceId: idSchema.optional(),
     sourceDraftId: idSchema,

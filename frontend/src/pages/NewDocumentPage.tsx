@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { useContentTypes, useOrganizations, useWritingTypes } from '@/features/dashboard/useDashboard';
+import { useContentTypes, useOrganizations } from '@/features/dashboard/useDashboard';
 
 export function NewDocumentPage() {
   const navigate = useNavigate();
@@ -9,60 +9,27 @@ export function NewDocumentPage() {
   const organizationsQuery = useOrganizations();
   const organizations = organizationsQuery.data ?? [];
 
-  const writingTypesQuery = useWritingTypes();
-  const allWritingTypes = writingTypesQuery.data ?? [];
-
   const [selectedDepartment, setSelectedDepartment] = useState('');
-  const [selectedWritingDomains, setSelectedWritingDomains] = useState<string[]>([]);
   const [selectedDocumentType, setSelectedDocumentType] = useState('');
   const [documentName, setDocumentName] = useState('');
   const [referenceFile, setReferenceFile] = useState<File | undefined>(undefined);
 
-  const primaryWritingDomain = selectedWritingDomains[0] ?? '';
-  const contentTypesQuery = useContentTypes(primaryWritingDomain);
+  const contentTypesQuery = useContentTypes(selectedDepartment);
   const contentTypes = contentTypesQuery.data ?? [];
 
-  const writingDomainsForDept = allWritingTypes.filter(
-    (wt) => wt.organizationId === selectedDepartment,
-  );
-
-  const canActivate = selectedDepartment && selectedWritingDomains.length > 0 && selectedDocumentType && documentName.trim();
+  const canActivate = selectedDepartment && selectedDocumentType && documentName.trim();
 
   const handleDepartmentChange = (value: string) => {
     setSelectedDepartment(value);
-    setSelectedWritingDomains([]);
     setSelectedDocumentType('');
-  };
-
-  const handleAddWritingDomain = (value: string) => {
-    if (value && !selectedWritingDomains.includes(value)) {
-      setSelectedWritingDomains((prev) => [...prev, value]);
-      if (selectedWritingDomains.length === 0) {
-        setSelectedDocumentType('');
-      }
-    }
-  };
-
-  const handleRemoveWritingDomain = (id: string) => {
-    setSelectedWritingDomains((prev) => {
-      const next = prev.filter((d) => d !== id);
-      if (id === primaryWritingDomain) {
-        setSelectedDocumentType('');
-      }
-      return next;
-    });
   };
 
   const handleActivate = () => {
     const org = organizations.find((o) => o.id === selectedDepartment);
-    const writingDomainNames = selectedWritingDomains
-      .map((id) => allWritingTypes.find((wt) => wt.id === id)?.name)
-      .filter(Boolean);
     const docType = contentTypes.find((ct) => ct.id === selectedDocumentType);
     navigate('/dashboard/document/new-draft', {
       state: {
-        writingType: org?.name,
-        writingDomain: writingDomainNames.join(', '),
+        organizationName: org?.name,
         contentType: docType?.name,
         documentName,
         referenceFile: referenceFile?.name,
@@ -117,74 +84,8 @@ export function NewDocumentPage() {
           )}
         </div>
 
-        {/* Step 2: Writing Domain (multi-select badges + dropdown) */}
+        {/* Step 2: Document Type (Content Type dropdown) */}
         {selectedDepartment && (
-          <div className="flex flex-col gap-sm">
-            <label
-              htmlFor="writing-domain-select"
-              className="text-body font-sans font-semibold text-text-primary"
-            >
-              Writing Domain
-            </label>
-            {writingTypesQuery.isLoading && (
-              <p role="status" className="text-bodySmall text-text-secondary">
-                Loading writing domains…
-              </p>
-            )}
-            {!writingTypesQuery.isLoading && writingDomainsForDept.length === 0 && (
-              <p className="text-bodySmall text-text-secondary">
-                No writing domains available for this department.
-              </p>
-            )}
-            {!writingTypesQuery.isLoading && writingDomainsForDept.length > 0 && (
-              <>
-                {selectedWritingDomains.length > 0 && (
-                  <div className="flex flex-wrap gap-sm">
-                    {selectedWritingDomains.map((id) => {
-                      const domain = allWritingTypes.find((wt) => wt.id === id);
-                      return (
-                        <span
-                          key={id}
-                          className="inline-flex items-center gap-xs rounded-full bg-accent-primary/10 px-md py-xs text-bodySmall font-sans font-medium text-accent-primary"
-                        >
-                          {domain?.name ?? id}
-                          <button
-                            type="button"
-                            aria-label={`Remove ${domain?.name ?? id}`}
-                            onClick={() => handleRemoveWritingDomain(id)}
-                            className="ml-xs inline-flex h-4 w-4 items-center justify-center rounded-full text-accent-primary/70 hover:bg-accent-primary/20 hover:text-accent-primary"
-                          >
-                            &times;
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-                <select
-                  id="writing-domain-select"
-                  value=""
-                  className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary"
-                  onChange={(e) => handleAddWritingDomain(e.target.value)}
-                >
-                  <option value="" disabled>
-                    {selectedWritingDomains.length > 0 ? 'Add another domain…' : 'Select writing domain'}
-                  </option>
-                  {writingDomainsForDept
-                    .filter((wt) => !selectedWritingDomains.includes(wt.id))
-                    .map((wt) => (
-                      <option key={wt.id} value={wt.id}>
-                        {wt.name}
-                      </option>
-                    ))}
-                </select>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Step 3: Document Type (Content Type dropdown) */}
-        {primaryWritingDomain && (
           <div className="flex flex-col gap-sm">
             <label
               htmlFor="document-type-select"
@@ -199,7 +100,7 @@ export function NewDocumentPage() {
             )}
             {!contentTypesQuery.isLoading && contentTypes.length === 0 && (
               <p className="text-bodySmall text-text-secondary">
-                No document types available for this domain.
+                No document types available for this department.
               </p>
             )}
             {!contentTypesQuery.isLoading && contentTypes.length > 0 && (
@@ -222,7 +123,7 @@ export function NewDocumentPage() {
           </div>
         )}
 
-        {/* Step 4: Document Name */}
+        {/* Step 3: Document Name */}
         {selectedDocumentType && (
           <div className="flex flex-col gap-sm">
             <label
@@ -242,7 +143,7 @@ export function NewDocumentPage() {
           </div>
         )}
 
-        {/* Step 5: File Upload */}
+        {/* Step 4: File Upload */}
         {documentName.trim() && (
           <div className="flex flex-col gap-sm">
             <label

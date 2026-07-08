@@ -52,6 +52,10 @@ export interface AnchoredFeedbackEditorProps
    * ids fall back to the raw id via `resolveCategoryLabel`.
    */
   readonly categoryLabels?: Readonly<Record<string, string>>;
+  /** Anchor ID to highlight when student clicks a quote in the AI Debrief. */
+  readonly highlightedAnchorId?: string;
+  /** Show comment marks only after coach has responded (default: false). */
+  readonly showCoachHighlights?: boolean;
 }
 
 export function AnchoredFeedbackEditor({
@@ -61,6 +65,8 @@ export function AnchoredFeedbackEditor({
   ariaLabel,
   onContentChange,
   className,
+  highlightedAnchorId,
+  showCoachHighlights = false,
 }: AnchoredFeedbackEditorProps) {
   const editorRef = useRef<DocumentEditorHandle>(null);
 
@@ -93,6 +99,16 @@ export function AnchoredFeedbackEditor({
     const editor = editorRef.current?.getEditor();
     if (!editor) return;
 
+    // Only show comment marks after coach has responded
+    if (!showCoachHighlights) {
+      // Clear all comment marks
+      const activeIds = new Set<string>();
+      for (const commentId of collectCommentIds(editor.state.doc)) {
+        editor.commands.unsetComment(commentId);
+      }
+      return;
+    }
+
     // Unset any comment mark that no longer corresponds to an active anchor
     // (e.g. its anchor was just marked `removed`) before re-attaching the
     // current set, so stale marks never linger on text.
@@ -112,12 +128,61 @@ export function AnchoredFeedbackEditor({
     // Restore an empty/collapsed selection so attaching marks doesn't leave
     // the writer's cursor jumped to the last-attached span.
     editor.commands.setTextSelection(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on activeAnchorKey, not `active` identity
-  }, [activeAnchorKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on activeAnchorKey and showCoachHighlights
+  }, [activeAnchorKey, showCoachHighlights]);
 
   const handleCommentActivated = (_commentId: string | null) => {
     // Comment activation handler preserved for future margin-card linkage.
   };
+
+  // When student clicks a quote in AI Debrief, scroll to and highlight that anchor
+  useEffect(() => {
+    const editor = editorRef.current?.getEditor();
+    if (!editor) return;
+
+    // Clear any previous highlights
+    editor.chain().unsetHighlight().run();
+
+    if (!highlightedAnchorId) return;
+
+    const anchor = anchors.find((a) => a.id === highlightedAnchorId);
+    if (!anchor) {
+      console.warn('Anchor not found:', highlightedAnchorId);
+      return;
+    }
+
+    const range = resolveAnchorRange(editor.state.doc, anchor);
+    if (!range) {
+      console.warn('Could not resolve anchor range for:', anchor);
+      return;
+    }
+
+    const { from, to } = range;
+
+    // Apply highlight mark without selection
+    const markType = editor.schema.marks.highlight;
+    if (markType) {
+      const tr = editor.state.tr.addMark(from, to, markType.create({ color: '#FFD700' }));
+      editor.view.dispatch(tr);
+    }
+
+    // Scroll to the highlighted text by temporarily selecting then deselecting
+    const scrollTr = editor.state.tr.setSelection(editor.state.selection.constructor.near(editor.state.doc.resolve(from)));
+    editor.view.dispatch(scrollTr);
+    editor.view.focus();
+
+    // Remove highlight after 2 seconds - capture from/to in closure
+    const timeoutId = setTimeout(() => {
+      const currentEditor = editorRef.current?.getEditor();
+      if (currentEditor && markType) {
+        const tr = currentEditor.state.tr.removeMark(from, to, markType);
+        currentEditor.view.dispatch(tr);
+      }
+    }, 2000);
+
+    // Cleanup timeout if component unmounts or effect reruns
+    return () => clearTimeout(timeoutId);
+  }, [highlightedAnchorId, anchors]);
 
   return (
     <div className={['flex h-full gap-0', className].filter(Boolean).join(' ')}>

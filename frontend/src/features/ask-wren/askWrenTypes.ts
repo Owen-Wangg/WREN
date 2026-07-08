@@ -17,6 +17,8 @@ export interface WrenChatMessage {
   readonly role: ChatRole;
   readonly text: string;
   readonly createdAt: string;
+  /** Anchor ID to highlight when coach responds with a specific section reference. */
+  readonly highlightAnchorId?: string;
 }
 
 /** A message scoped to one Draft version — draft anchoring (Requirement 11.1's

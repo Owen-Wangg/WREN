@@ -33,6 +33,8 @@ export interface WrenChatPanelProps {
   readonly draftVersion: number;
   readonly askWrenService: AskWrenService;
   readonly className?: string;
+  /** Called when coach response includes a highlight anchor. */
+  readonly onHighlight?: (anchorId: string) => void;
 }
 
 export function WrenChatPanel({
@@ -41,6 +43,7 @@ export function WrenChatPanel({
   draftVersion,
   askWrenService,
   className,
+  onHighlight,
 }: WrenChatPanelProps) {
   const [messages, setMessages] = useState<readonly WrenChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +72,10 @@ export function WrenChatPanel({
         text,
       });
       setMessages((prev) => [...prev, reply]);
+      // Trigger highlight if coach response references a section
+      if (reply.highlightAnchorId) {
+        onHighlight?.(reply.highlightAnchorId);
+      }
     } catch (cause) {
       setError(
         cause instanceof Error

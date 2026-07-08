@@ -38,6 +38,8 @@ export interface AiDebriefModalProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly autoRegenerate?: boolean;
+  /** Called when student clicks a quoted text to highlight it in the document. */
+  readonly onQuoteClick?: (anchorId: string | undefined) => void;
 }
 
 export function AiDebriefModal({
@@ -45,6 +47,7 @@ export function AiDebriefModal({
   open,
   onOpenChange,
   autoRegenerate = false,
+  onQuoteClick,
 }: AiDebriefModalProps) {
   const debriefQuery = useAiDebrief(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
@@ -216,13 +219,52 @@ export function AiDebriefModal({
                   </p>
                 ) : (
                   <div className="flex flex-col gap-xl">
-                    {/* Progress Summary (REQ-PROGRESS-ACK-01) — shown before feedback when >= 2 drafts */}
+                    {/* Progress Summary Card (REQ-PROGRESS-ACK-01) — shown before feedback when >= 2 drafts */}
                     {debrief.progressSummary && debrief.progressSummary.length > 0 && (
-                      <section>
-                        <h3 className="mb-md flex items-center gap-sm text-heading3 font-sans font-bold text-text-primary">
-                          <TrendingUp size={18} className="text-accent-primary" aria-hidden="true" />
-                          Progress Since Last Draft
-                        </h3>
+                      <section aria-labelledby="progress-card-heading">
+                        {/* Top-level counts card */}
+                        <div className="mb-md rounded-lg border border-accent-primary/20 bg-accent-primary/5 p-lg">
+                          <h3 id="progress-card-heading" className="mb-md flex items-center gap-sm text-heading3 font-sans font-semibold text-text-primary">
+                            <TrendingUp size={20} className="text-signal-positive" aria-hidden="true" />
+                            Your Progress This Draft
+                          </h3>
+                          <div className="flex flex-col gap-md">
+                            {(() => {
+                              const improving = debrief.progressSummary.filter(p => p.tendency === 'improving').length;
+                              const persistent = debrief.progressSummary.filter(p => p.tendency === 'persistent').length;
+                              const emerging = debrief.progressSummary.filter(p => p.tendency === 'emerging').length;
+                              const topImprovement = debrief.progressSummary.find(p => p.tendency === 'improving');
+
+                              return (
+                                <>
+                                  <div className="flex items-center gap-lg">
+                                    <div className="flex items-center gap-sm">
+                                      <ArrowUp size={16} className="text-signal-positive" aria-hidden="true" />
+                                      <span className="text-bodySmall font-sans font-semibold text-text-primary">{improving} Improving</span>
+                                    </div>
+                                    <span className="text-text-muted">|</span>
+                                    <div className="flex items-center gap-sm">
+                                      <Minus size={16} className="text-signal-caution" aria-hidden="true" />
+                                      <span className="text-bodySmall font-sans font-semibold text-text-primary">{persistent} Persistent</span>
+                                    </div>
+                                    <span className="text-text-muted">|</span>
+                                    <div className="flex items-center gap-sm">
+                                      <Star size={16} className="text-accent-primary" aria-hidden="true" />
+                                      <span className="text-bodySmall font-sans font-semibold text-text-primary">{emerging} Emerging</span>
+                                    </div>
+                                  </div>
+                                  {topImprovement && (
+                                    <p className="text-bodySmall font-sans font-medium text-signal-positive">
+                                      Keep the momentum on "{topImprovement.category}"
+                                    </p>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+
+                        {/* Detailed patterns below */}
                         <div className="flex flex-col gap-md">
                           {debrief.progressSummary.map((pattern: ProgressPattern) => (
                             <div
@@ -231,13 +273,13 @@ export function AiDebriefModal({
                             >
                               <div className="mt-[2px] shrink-0">
                                 {pattern.tendency === 'improving' && (
-                                  <ArrowUp size={16} className="text-signal-positive" />
+                                  <ArrowUp size={16} className="text-signal-positive" aria-hidden="true" />
                                 )}
                                 {pattern.tendency === 'persistent' && (
-                                  <Minus size={16} className="text-signal-caution" />
+                                  <Minus size={16} className="text-signal-caution" aria-hidden="true" />
                                 )}
                                 {pattern.tendency === 'emerging' && (
-                                  <Star size={16} className="text-accent-primary" />
+                                  <Star size={16} className="text-accent-primary" aria-hidden="true" />
                                 )}
                               </div>
                               <div className="flex flex-col gap-xs">
@@ -293,10 +335,27 @@ export function AiDebriefModal({
                                 {doneWell.map((item) => (
                                   <li
                                     key={item.id}
-                                    className="flex items-start gap-sm text-bodySmall text-text-primary"
+                                    className="flex flex-col gap-xs text-bodySmall text-text-primary"
                                   >
-                                    <span className="mt-[3px] text-signal-positive">&#x2714;</span>
-                                    {item.questionText}
+                                    <div className="flex items-start gap-sm">
+                                      <span className="mt-[3px] text-signal-positive">&#x2714;</span>
+                                      <span>{item.questionText}</span>
+                                    </div>
+                                    {item.quotedText && (
+                                      <blockquote
+                                        className="ml-sm border-l-2 border-signal-positive/30 pl-md italic text-text-secondary cursor-pointer hover:bg-signal-positive/5 hover:border-signal-positive/60 rounded px-sm transition-colors"
+                                        onClick={() => onQuoteClick?.(item.currentAnchorId)}
+                                        role="button"
+                                        tabIndex={0}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            onQuoteClick?.(item.currentAnchorId);
+                                          }
+                                        }}
+                                      >
+                                        &quot;{item.quotedText}&quot;
+                                      </blockquote>
+                                    )}
                                   </li>
                                 ))}
                               </ul>
@@ -312,10 +371,27 @@ export function AiDebriefModal({
                                 {improvements.map((item) => (
                                   <li
                                     key={item.id}
-                                    className="flex items-start gap-sm text-bodySmall text-text-primary"
+                                    className="flex flex-col gap-xs text-bodySmall text-text-primary"
                                   >
-                                    <span className="mt-[3px] text-signal-critical">&#x2022;</span>
-                                    {item.questionText}
+                                    <div className="flex items-start gap-sm">
+                                      <span className="mt-[3px] text-signal-critical">&#x2022;</span>
+                                      <span>{item.questionText}</span>
+                                    </div>
+                                    {item.quotedText && (
+                                      <blockquote
+                                        className="ml-sm border-l-2 border-signal-critical/30 pl-md italic text-text-secondary cursor-pointer hover:bg-signal-critical/5 hover:border-signal-critical/60 rounded px-sm transition-colors"
+                                        onClick={() => onQuoteClick?.(item.currentAnchorId)}
+                                        role="button"
+                                        tabIndex={0}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            onQuoteClick?.(item.currentAnchorId);
+                                          }
+                                        }}
+                                      >
+                                        &quot;{item.quotedText}&quot;
+                                      </blockquote>
+                                    )}
                                   </li>
                                 ))}
                               </ul>

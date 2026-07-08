@@ -61,9 +61,9 @@ export function fetchAccessGrants(client: HttpClient): Promise<AccessGrant[]> {
   return client.request(ACCESS_GRANTS_PATH, { schema: accessGrantsSchema });
 }
 
-/** Content Types available for the given Writing Type (scoped dropdown options). */
-export function fetchContentTypes(client: HttpClient, writingTypeId: string): Promise<ContentType[]> {
-  return client.request(`${WRITING_TYPES_PATH}/${writingTypeId}/content-types`, {
+/** Content Types available for the given Organization (scoped dropdown options). */
+export function fetchContentTypes(client: HttpClient, organizationId: string): Promise<ContentType[]> {
+  return client.request(`${ORGANIZATIONS_PATH}/${organizationId}/content-types`, {
     schema: contentTypesSchema,
   });
 }

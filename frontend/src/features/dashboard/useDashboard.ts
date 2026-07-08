@@ -45,15 +45,15 @@ export function useWritingTypes(
   });
 }
 
-/** Content Types for a given Writing Type (Document Type dropdown options). */
+/** Content Types for a given Organization (Document Type dropdown options). */
 export function useContentTypes(
-  writingTypeId: string,
+  organizationId: string,
   client: HttpClient = apiClient,
 ): UseQueryResult<ContentType[]> {
   return useQuery({
-    queryKey: queryKeys.contentTypes(writingTypeId),
-    queryFn: () => fetchContentTypes(client, writingTypeId),
-    enabled: !!writingTypeId,
+    queryKey: queryKeys.contentTypes(organizationId),
+    queryFn: () => fetchContentTypes(client, organizationId),
+    enabled: !!organizationId,
   });
 }
 

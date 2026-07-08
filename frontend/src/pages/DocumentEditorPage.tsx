@@ -132,21 +132,22 @@ export function DocumentEditorPage() {
   const [debriefAutoRegenerate, setDebriefAutoRegenerate] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
+  const [showCoachHighlights, setShowCoachHighlights] = useState(false);
 
   const envId = documentId ?? 'doc-1';
 
   const state = location.state as {
     documentName?: string;
-    writingType?: string;
-    writingDomain?: string;
+    organizationName?: string;
     contentType?: string;
   } | null;
 
   const documentName = state?.documentName ?? 'Tort Claim Proposal';
 
-  const breadcrumb = [state?.writingType, state?.writingDomain, state?.contentType]
+  const breadcrumb = [state?.organizationName, state?.contentType]
     .filter(Boolean)
-    .join(' › ') || 'Law › Tort Law › Factum';
+    .join(' > ') || 'Law > Factum';
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/30">
@@ -178,6 +179,10 @@ export function DocumentEditorPage() {
               <h2 className="text-heading3 font-sans font-bold text-text-primary">
                 {documentName}
               </h2>
+              <p className="text-caption text-text-secondary leading-relaxed">
+                Refer to the AI debrief for a progress overview and high level feedback. Click a quote to highlight it in your document.
+                For more specialized, thorough reflection, ask {appConfig.appName} for guidance. {appConfig.appName} will provide guiding reflective questions along with further highlights for reference.
+              </p>
             </div>
 
             <hr className="my-lg border-border-subtle" />
@@ -251,6 +256,8 @@ export function DocumentEditorPage() {
                 ariaLabel="Draft editor"
                 initialContent={previewEditorContent}
                 categoryLabels={previewCategoryLabels}
+                highlightedAnchorId={highlightedAnchorId}
+                showCoachHighlights={showCoachHighlights}
               />
             </div>
           </div>
@@ -284,6 +291,10 @@ export function DocumentEditorPage() {
               draftVersion={1}
               askWrenService={askWrenService}
               className="h-full w-full"
+              onHighlight={(anchorId) => {
+                setHighlightedAnchorId(anchorId);
+                setShowCoachHighlights(true);
+              }}
             />
           </div>
         </div>
@@ -297,6 +308,10 @@ export function DocumentEditorPage() {
           if (!next) setDebriefAutoRegenerate(false);
         }}
         autoRegenerate={debriefAutoRegenerate}
+        onQuoteClick={(anchorId) => {
+          console.log('Quote clicked, anchor ID:', anchorId);
+          setHighlightedAnchorId(anchorId);
+        }}
       />
     </div>
   );
