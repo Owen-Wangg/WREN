@@ -78,17 +78,17 @@ describe('AI Debrief — No-Ghostwriting Compliance (Requirement 11.2)', () => {
       );
 
       // Feedback is rendered in structurally distinct sections grouped by category.
-      const contentSection = screen
-        .getByRole('heading', { name: 'Content' })
+      const claritySection = screen
+        .getByRole('heading', { name: 'Clarity' })
         .closest('section');
       const organizationSection = screen
         .getByRole('heading', { name: 'Organization' })
         .closest('section');
 
-      expect(contentSection).not.toBeNull();
+      expect(claritySection).not.toBeNull();
       expect(organizationSection).not.toBeNull();
       // These are distinct DOM subtrees — never merged.
-      expect(contentSection).not.toBe(organizationSection);
+      expect(claritySection).not.toBe(organizationSection);
     });
 
     it('the debrief modal always includes the AI disclaimer notice (role="note") to mark content as AI-generated', async () => {

@@ -36,23 +36,23 @@ describe('AiDebriefModal', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument(),
     );
 
-    const contentSection = screen
-      .getByRole('heading', { name: 'Content' })
+    const claritySection = screen
+      .getByRole('heading', { name: 'Clarity' })
       .closest('section');
     const organizationSection = screen
       .getByRole('heading', { name: 'Organization' })
       .closest('section');
 
-    expect(contentSection).not.toBeNull();
+    expect(claritySection).not.toBeNull();
     expect(organizationSection).not.toBeNull();
-    expect(contentSection).not.toBe(organizationSection);
+    expect(claritySection).not.toBe(organizationSection);
 
-    // Content items live only in the Content section.
+    // Clarity items live only in the Clarity section.
     expect(
-      within(contentSection as HTMLElement).getByText(/identifies the parties/),
+      within(claritySection as HTMLElement).getByText(/Hedging language/),
     ).toBeInTheDocument();
     expect(
-      within(organizationSection as HTMLElement).queryByText(/identifies the parties/),
+      within(organizationSection as HTMLElement).queryByText(/Hedging language/),
     ).not.toBeInTheDocument();
 
     // Organization items live only in the Organization section.
@@ -60,7 +60,7 @@ describe('AiDebriefModal', () => {
       within(organizationSection as HTMLElement).getByText(/separated into distinct sections/),
     ).toBeInTheDocument();
     expect(
-      within(contentSection as HTMLElement).queryByText(/separated into distinct sections/),
+      within(claritySection as HTMLElement).queryByText(/separated into distinct sections/),
     ).not.toBeInTheDocument();
   });
 

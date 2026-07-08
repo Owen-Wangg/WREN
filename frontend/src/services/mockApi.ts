@@ -69,18 +69,27 @@ interface ContentTypeFixture {
 }
 
 const sampleContentTypes: ContentTypeFixture[] = [
+  { id: 'ct-legal-memo', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Legal Memorandum' },
+  { id: 'ct-opinion-letter', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Opinion Letter' },
+  { id: 'ct-pleadings', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Pleadings' },
   { id: 'ct-factum', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Factum' },
-  { id: 'ct-memo', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Memo' },
-  { id: 'ct-case-brief', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Case Brief' },
+  { id: 'ct-contract', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Contract / Agreement' },
+  { id: 'ct-blog-post', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Blog Post' },
+  { id: 'ct-academic-paper', organizationId: 'org-law', writingTypeId: 'wt-criminal-law', name: 'Academic Essay / Paper / Article' },
+  { id: 'ct-tort-legal-memo', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Legal Memorandum' },
+  { id: 'ct-tort-opinion-letter', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Opinion Letter' },
+  { id: 'ct-tort-pleadings', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Pleadings' },
   { id: 'ct-tort-factum', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Factum' },
-  { id: 'ct-tort-memo', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Memo' },
-  { id: 'ct-prop-memo', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Memo' },
-  { id: 'ct-prop-brief', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Case Brief' },
-  { id: 'ct-free-verse', organizationId: 'org-arts', writingTypeId: 'wt-poetry', name: 'Free Verse' },
-  { id: 'ct-sonnet', organizationId: 'org-arts', writingTypeId: 'wt-poetry', name: 'Sonnet' },
-  { id: 'ct-haiku', organizationId: 'org-arts', writingTypeId: 'wt-poetry', name: 'Haiku' },
-  { id: 'ct-lab-standard', organizationId: 'org-science', writingTypeId: 'wt-lab-report', name: 'Standard Lab Report' },
-  { id: 'ct-lab-research', organizationId: 'org-science', writingTypeId: 'wt-lab-report', name: 'Research Report' },
+  { id: 'ct-tort-contract', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Contract / Agreement' },
+  { id: 'ct-tort-blog-post', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Blog Post' },
+  { id: 'ct-tort-academic-paper', organizationId: 'org-law', writingTypeId: 'wt-tort-law', name: 'Academic Essay / Paper / Article' },
+  { id: 'ct-prop-legal-memo', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Legal Memorandum' },
+  { id: 'ct-prop-opinion-letter', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Opinion Letter' },
+  { id: 'ct-prop-pleadings', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Pleadings' },
+  { id: 'ct-prop-factum', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Factum' },
+  { id: 'ct-prop-contract', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Contract / Agreement' },
+  { id: 'ct-prop-blog-post', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Blog Post' },
+  { id: 'ct-prop-academic-paper', organizationId: 'org-law', writingTypeId: 'wt-property-law', name: 'Academic Essay / Paper / Article' },
 ];
 
 const sampleDocuments: Document[] = [
@@ -128,117 +137,59 @@ const sampleDebrief = {
   draftId: 'draft-1',
   generatedAt: '2024-01-02T00:00:00.000Z',
   items: [
+    // Spelling / Grammar
     {
-      id: 'fb-content-1',
+      id: 'fb-grammar-1',
       documentId: 'doc-1',
-      errorCategoryId: 'Content',
+      errorCategoryId: 'Spelling / Grammar',
       kind: 'structural',
       questionText:
-        'The document identifies the parties involved and provides a general overview of the incident.',
+        'Most sentences are grammatically complete and use standard spelling throughout.',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
     {
-      id: 'fb-content-2',
+      id: 'fb-grammar-2',
       documentId: 'doc-1',
-      errorCategoryId: 'Content',
+      errorCategoryId: 'Spelling / Grammar',
+      kind: 'inline',
+      questionText:
+        'Several run-on sentences appear in this section. Could each independent clause be expressed as its own sentence?',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-grammar-3',
+      documentId: 'doc-1',
+      errorCategoryId: 'Spelling / Grammar',
+      kind: 'inline',
+      questionText:
+        'There are places where subject-verb agreement does not hold. Can you identify which subjects are singular vs. plural?',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    // Tone
+    {
+      id: 'fb-tone-1',
+      documentId: 'doc-1',
+      errorCategoryId: 'Tone',
       kind: 'structural',
       questionText:
-        'Important topics such as damages, evidence, legal considerations, and recommendations are present.',
+        'The overall tone is appropriate for a professional legal document addressed to a supervising lawyer.',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
     {
-      id: 'fb-content-3',
+      id: 'fb-tone-2',
       documentId: 'doc-1',
-      errorCategoryId: 'Content',
-      kind: 'structural',
-      questionText:
-        'The document attempts to address both factual circumstances and procedural next steps.',
-      sourceDraftId: 'draft-1',
-      createdAt: '2024-01-02T00:00:00.000Z',
-    },
-    {
-      id: 'fb-content-4',
-      documentId: 'doc-1',
-      errorCategoryId: 'Content',
+      errorCategoryId: 'Tone',
       kind: 'inline',
       questionText:
-        'Some details surrounding the incident and resulting injuries are broad in scope, making it difficult to fully assess the circumstances described.',
-      currentAnchorId: 'anchor-1',
+        'Some phrasing here reads as conversational rather than formal. Is this the register expected for this document type?',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
-    {
-      id: 'fb-content-5',
-      documentId: 'doc-1',
-      errorCategoryId: 'Content',
-      kind: 'inline',
-      questionText:
-        'Certain conclusions and estimates are presented without sufficient context or supporting information.',
-      sourceDraftId: 'draft-1',
-      createdAt: '2024-01-02T00:00:00.000Z',
-    },
-    {
-      id: 'fb-content-6',
-      documentId: 'doc-1',
-      errorCategoryId: 'Content',
-      kind: 'inline',
-      questionText:
-        'The level of detail varies throughout the document, with some sections appearing substantially more developed than others.',
-      sourceDraftId: 'draft-1',
-      createdAt: '2024-01-02T00:00:00.000Z',
-    },
-    {
-      id: 'fb-org-1',
-      documentId: 'doc-1',
-      errorCategoryId: 'Organization',
-      kind: 'structural',
-      questionText:
-        'Information is separated into distinct sections, which helps readers locate key topics.',
-      sourceDraftId: 'draft-1',
-      createdAt: '2024-01-02T00:00:00.000Z',
-    },
-    {
-      id: 'fb-org-2',
-      documentId: 'doc-1',
-      errorCategoryId: 'Organization',
-      kind: 'structural',
-      questionText:
-        'The document follows a generally recognizable structure for a case assessment.',
-      sourceDraftId: 'draft-1',
-      createdAt: '2024-01-02T00:00:00.000Z',
-    },
-    {
-      id: 'fb-org-3',
-      documentId: 'doc-1',
-      errorCategoryId: 'Organization',
-      kind: 'inline',
-      questionText:
-        'Related information is occasionally dispersed across multiple sections, affecting the continuity of the narrative.',
-      sourceDraftId: 'draft-1',
-      createdAt: '2024-01-02T00:00:00.000Z',
-    },
-    {
-      id: 'fb-org-4',
-      documentId: 'doc-1',
-      errorCategoryId: 'Organization',
-      kind: 'inline',
-      questionText:
-        'The progression from factual background to analysis and recommendations could be more cohesive.',
-      sourceDraftId: 'draft-1',
-      createdAt: '2024-01-02T00:00:00.000Z',
-    },
-    {
-      id: 'fb-org-5',
-      documentId: 'doc-1',
-      errorCategoryId: 'Organization',
-      kind: 'inline',
-      questionText:
-        'Some sections contain information that may be better suited elsewhere in the document.',
-      sourceDraftId: 'draft-1',
-      createdAt: '2024-01-02T00:00:00.000Z',
-    },
+    // Clarity
     {
       id: 'fb-clarity-1',
       documentId: 'doc-1',
@@ -253,9 +204,9 @@ const sampleDebrief = {
       id: 'fb-clarity-2',
       documentId: 'doc-1',
       errorCategoryId: 'Clarity',
-      kind: 'structural',
+      kind: 'inline',
       questionText:
-        'Most topics are introduced clearly and remain focused on the subject matter.',
+        'Several sentences combine multiple ideas without clear connective structure. Could the main point be stated first, then qualified?',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
@@ -265,27 +216,90 @@ const sampleDebrief = {
       errorCategoryId: 'Clarity',
       kind: 'inline',
       questionText:
-        'Several sentences combine multiple ideas without clear connective structure, which can obscure the intended meaning.',
+        'Hedging language (maybe, perhaps, probably) appears frequently. Where are you certain enough to state your position directly?',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    // Consistency / Coherence
+    {
+      id: 'fb-coherence-1',
+      documentId: 'doc-1',
+      errorCategoryId: 'Consistency / Coherence',
+      kind: 'structural',
+      questionText:
+        'The document maintains a consistent perspective and does not contradict itself across sections.',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
     {
-      id: 'fb-clarity-4',
+      id: 'fb-coherence-2',
       documentId: 'doc-1',
-      errorCategoryId: 'Clarity',
+      errorCategoryId: 'Consistency / Coherence',
       kind: 'inline',
       questionText:
-        'Hedging language (maybe, perhaps, probably) appears frequently and can weaken the precision of legal statements.',
+        'The damages figure mentioned here differs from what appears earlier. Which is the intended amount, and can you reconcile the two references?',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    // Persuasiveness (domain-specific for tort law)
+    {
+      id: 'fb-persuasive-1',
+      documentId: 'doc-1',
+      errorCategoryId: 'Persuasiveness',
+      kind: 'structural',
+      questionText:
+        'The document presents a position and attempts to support it with factual and legal reasoning.',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
     {
-      id: 'fb-clarity-5',
+      id: 'fb-persuasive-2',
       documentId: 'doc-1',
-      errorCategoryId: 'Clarity',
+      errorCategoryId: 'Persuasiveness',
       kind: 'inline',
       questionText:
-        'Some references to parties and events lack the specificity needed for a reader unfamiliar with the case to follow along.',
+        'The conclusion here is stated without supporting authority. What case law or statutory provision supports this claim?',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-persuasive-3',
+      documentId: 'doc-1',
+      errorCategoryId: 'Persuasiveness',
+      kind: 'inline',
+      questionText:
+        'The opposing position is not acknowledged here. Would addressing and distinguishing it strengthen your argument?',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    // Organization
+    {
+      id: 'fb-org-1',
+      documentId: 'doc-1',
+      errorCategoryId: 'Organization',
+      kind: 'structural',
+      questionText:
+        'Information is separated into distinct sections, which helps readers locate key topics.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-org-2',
+      documentId: 'doc-1',
+      errorCategoryId: 'Organization',
+      kind: 'inline',
+      questionText:
+        'Related information is dispersed across multiple sections here. Would consolidating it in one place improve the flow?',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'fb-org-3',
+      documentId: 'doc-1',
+      errorCategoryId: 'Organization',
+      kind: 'inline',
+      questionText:
+        'The progression from factual background to analysis to recommendation could be more sequential. Can you identify where the thread breaks?',
       sourceDraftId: 'draft-1',
       createdAt: '2024-01-02T00:00:00.000Z',
     },
@@ -299,19 +313,19 @@ const regeneratedSampleDebrief = {
   generatedAt: '2024-01-03T00:00:00.000Z',
   progressSummary: [
     {
-      category: 'Content',
+      category: 'Spelling / Grammar',
       tendency: 'improving',
-      description: 'Your factual details are becoming more specific — the damages section now includes concrete figures and the evidence section names particular sources.',
-    },
-    {
-      category: 'Organization',
-      tendency: 'improving',
-      description: 'The progression from background to analysis to recommendation is noticeably more cohesive than in your previous draft.',
+      description: 'Run-on sentences are less frequent than in your previous draft. Subject-verb agreement has improved across most sections.',
     },
     {
       category: 'Clarity',
       tendency: 'persistent',
       description: 'Hedging language (maybe, perhaps, probably) still appears frequently in legal conclusions where more direct statements would strengthen your position.',
+    },
+    {
+      category: 'Persuasiveness',
+      tendency: 'emerging',
+      description: 'Your argument now cites supporting authority in some places, but several claims still lack a legal basis. Consider where case law or statute could reinforce your position.',
     },
   ],
 };
@@ -895,8 +909,6 @@ const contentTypeMockRoutes: MockRoutes = {
   'GET /writing-types/wt-criminal-law/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-criminal-law'),
   'GET /writing-types/wt-tort-law/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-tort-law'),
   'GET /writing-types/wt-property-law/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-property-law'),
-  'GET /writing-types/wt-poetry/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-poetry'),
-  'GET /writing-types/wt-lab-report/content-types': sampleContentTypes.filter(ct => ct.writingTypeId === 'wt-lab-report'),
 };
 
 export const defaultMockRoutes: MockRoutes = {
