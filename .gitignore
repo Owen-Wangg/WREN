@@ -1,5 +1,5 @@
 node_modules
-.kirograph
+
 
 # Secrets / local environment (never commit real env files; commit *.env.example only)
 .env
