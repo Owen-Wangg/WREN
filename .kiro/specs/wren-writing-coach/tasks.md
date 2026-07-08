@@ -126,7 +126,7 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 6.4 Implement metadata capture, required-field gating, and submission gating  〔Track A · A7〕
     - Validate submitted metadata against configured required custom fields; keep create/activate disabled while required fields empty; call Auth_Service to gate submission by effective access (OPEN self-select / LOCKED grant / access-request)
     - _Requirements: 6.6, 6.7, 6.8, 30.4_
-  - [ ]* 6.5 Write property test for required-field gating  〔Track A · A8〕
+  - [x]* 6.5 Write property test for required-field gating  〔Track A · A8〕
     - **Property 3: Required-field gating**
     - **Validates: Requirements 6.7, 30.4**
   - [x] 6.6 Implement effective size-limit enforcement  〔Track A · A6〕
@@ -145,23 +145,23 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
 - [x] 7. Checkpoint - document lifecycle  〔Track A · after A7〕
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. Diff, Anchor, and Progress engine (Python 3.12)  〔Track A〕
+- [x] 8. Diff, Anchor, and Progress engine (Python 3.12)  〔Track A〕
   - [x] 8.1 Implement the Diff Engine  〔Track A · A7〕
     - Compute paragraph + intra-paragraph change sets between consecutive Drafts; select changed/added spans plus bounded context for the LLM and exclude unchanged spans; empty change set on identical Drafts
     - _Requirements: 10.1, 10.2, 10.4, 10.5_
-  - [ ]* 8.2 Write property test for diff selection completeness and identity  〔Track A · A8〕
+  - [x]* 8.2 Write property test for diff selection completeness and identity  〔Track A · A8〕
     - **Property 8: Diff selection completeness and identity**
     - **Validates: Requirements 10.1, 10.2, 10.4**
   - [x] 8.3 Implement the Anchor Service (draft anchoring + re-mapping)  〔Track A · A7〕
     - Store per-anchor start/end offset, paragraph index, and content fingerprint; re-map anchors across Drafts via the diff; preserve association on confident (possibly shifted) match; mark `removed` on deletion / rewrite-beyond-recognition / ambiguity rather than mis-attach
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
-  - [ ]* 8.4 Write property test for anchor re-mapping of surviving spans  〔Track A · A8〕
+  - [x]* 8.4 Write property test for anchor re-mapping of surviving spans  〔Track A · A8〕
     - **Property 6: Anchor re-mapping preserves surviving spans**
     - **Validates: Requirements 9.1, 9.3**
-  - [ ]* 8.5 Write property test for anchors never mis-attaching  〔Track A · A8〕
+  - [x]* 8.5 Write property test for anchors never mis-attaching  〔Track A · A8〕
     - **Property 7: Anchors never mis-attach**
     - **Validates: Requirements 9.2, 9.5**
-  - [ ] 8.6 Implement the Progress Tracker  〔Track A · A8〕
+  - [x] 8.6 Implement the Progress Tracker  〔Track A · A8〕
     - Re-evaluate each Feedback Item to exactly one Resolution Status; `removed` anchors → `removed`; unchanged spans → `unchanged` with no LLM call; changed spans use diff-selected region; append-only resolution history; pattern detection across ≥2 drafts (improving/persistent/emerging), no claims with <2 drafts
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.2, 18.5_
   - [ ]* 8.7 Write property test for resolution status correctness  〔Track A · A9〕
