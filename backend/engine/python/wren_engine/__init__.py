@@ -27,6 +27,19 @@ from .anchor_service import (
 )
 from .diff_engine import DiffEngine
 from .models import ChangeKind, Diff, ParagraphChange, Segment, Span
+from .progress_tracker import (
+    DEFAULT_CONTEXT_WINDOW,
+    FeedbackItem,
+    JudgeInput,
+    PatternAck,
+    PatternTendency,
+    ProgressTracker,
+    ResolutionEntry,
+    ResolutionHistory,
+    ResolutionStatus,
+    ResolutionUpdate,
+    SpanJudge,
+)
 
 __all__ = [
     "DiffEngine",
@@ -44,4 +57,16 @@ __all__ = [
     "Removed",
     "RemapResult",
     "compute_fingerprint",
+    # Progress Tracker (Requirement 17 / REQ-RESOLUTION-01, 18 / REQ-PROGRESS-ACK-01)
+    "ProgressTracker",
+    "ResolutionStatus",
+    "PatternTendency",
+    "FeedbackItem",
+    "JudgeInput",
+    "SpanJudge",
+    "ResolutionUpdate",
+    "ResolutionEntry",
+    "ResolutionHistory",
+    "PatternAck",
+    "DEFAULT_CONTEXT_WINDOW",
 ]
