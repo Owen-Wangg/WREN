@@ -23,43 +23,7 @@ import { ApiError, type HttpClient, type RequestOptions } from './apiClient';
 export type MockRoutes = Record<string, unknown>;
 
 /** Illustrative fixtures shaped by the shared domain contract (`@wren/types`). */
-const sampleWritingTypes: WritingType[] = [
-  {
-    id: 'wt-criminal-law',
-    organizationId: 'org-law',
-    name: 'Criminal Law',
-    accessState: 'OPEN',
-    sizeLimitWords: null,
-  },
-  {
-    id: 'wt-tort-law',
-    organizationId: 'org-law',
-    name: 'Tort Law',
-    accessState: 'OPEN',
-    sizeLimitWords: null,
-  },
-  {
-    id: 'wt-property-law',
-    organizationId: 'org-law',
-    name: 'Property and Commercial Law',
-    accessState: 'OPEN',
-    sizeLimitWords: null,
-  },
-  {
-    id: 'wt-poetry',
-    organizationId: 'org-arts',
-    name: 'Poetry',
-    accessState: 'OPEN',
-    sizeLimitWords: null,
-  },
-  {
-    id: 'wt-lab-report',
-    organizationId: 'org-science',
-    name: 'Lab Report',
-    accessState: 'LOCKED',
-    sizeLimitWords: null,
-  },
-];
+const sampleWritingTypes: WritingType[] = [];
 
 interface ContentTypeFixture {
   readonly id: string;
@@ -99,7 +63,7 @@ const sampleDocuments: Document[] = [
     writingTypeId: 'wt-property-law',
     contentTypeId: 'ct-memo',
     name: 'Drafting Lien On Property',
-    metadata: { 'Writing Topic': 'Property and Commercial Law', 'Writing Type': 'Law', 'Writing Domain': 'Property and Commercial Law', 'Document Type': 'Memo' },
+    metadata: { 'Document Type': 'Memo', 'Date Added': '2026-06-18' },
     status: 'Still Drafting',
     createdAt: '2026-06-18T00:00:00.000Z',
   },
@@ -109,7 +73,7 @@ const sampleDocuments: Document[] = [
     writingTypeId: 'wt-tort-law',
     contentTypeId: 'ct-factum',
     name: 'Tort Claim Proposal',
-    metadata: { 'Writing Topic': 'Tort Law', 'Writing Type': 'Law', 'Writing Domain': 'Tort Law', 'Document Type': 'Factum' },
+    metadata: { 'Document Type': 'Factum', 'Date Added': '2026-06-18' },
     status: 'Polishing',
     createdAt: '2026-06-18T00:00:00.000Z',
   },
@@ -119,7 +83,7 @@ const sampleDocuments: Document[] = [
     writingTypeId: 'wt-criminal-law',
     contentTypeId: 'ct-memo',
     name: 'Appealing judgment',
-    metadata: { 'Writing Topic': 'Criminal Law', 'Writing Type': 'Law', 'Writing Domain': 'Criminal Law', 'Document Type': 'Memo' },
+    metadata: { 'Document Type': 'Memo', 'Date Added': '2026-06-18' },
     status: 'Still Drafting',
     createdAt: '2026-06-18T00:00:00.000Z',
   },

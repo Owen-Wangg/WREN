@@ -40,10 +40,9 @@ export function WritingEnvironmentCard({
 
   const topic = getDocumentTopic(document);
   const writingType = document.metadata['Writing Type'];
-  const writingDomain = document.metadata['Writing Domain'];
   const documentType = document.metadata['Document Type'];
 
-  const breadcrumb = [writingType, writingDomain, documentType]
+  const breadcrumb = [writingType, documentType]
     .filter(Boolean)
     .join(' › ');
 
