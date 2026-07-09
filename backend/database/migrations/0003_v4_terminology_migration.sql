@@ -133,6 +133,11 @@ WHERE scope ? 'writingTypeId';
 -- Delete org-level grants (no V4 equivalent)
 DELETE FROM access_grant WHERE scope ? 'organizationId';
 
+-- Safety net: delete any remaining rows whose scope matched neither
+-- 'writingTypeId' nor 'organizationId' (malformed/unexpected legacy data).
+-- Without this, the NOT NULL constraint below would abort the migration.
+DELETE FROM access_grant WHERE document_type_id IS NULL;
+
 -- Drop the JSONB scope column and make document_type_id NOT NULL + FK
 ALTER TABLE access_grant DROP COLUMN scope;
 ALTER TABLE access_grant ALTER COLUMN document_type_id SET NOT NULL;
