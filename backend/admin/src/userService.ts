@@ -1,17 +1,17 @@
 /**
- * System-wide global User directory search (REQ-ORG-02 / Requirement 29.1,
- * 29.5; Requirements 2.1, 2.2, 2.3, 2.5).
+ * Global User directory search (REQ-ORG-02 / Requirement 29.1, 29.5;
+ * Requirements 2.1, 2.2, 2.3, 2.5).
  *
- * Users are GLOBAL — `app_user` carries no Organization foreign key, and this
- * service never partitions the directory by Organization (Requirement 28.2 /
+ * Users are GLOBAL — `app_user` carries no Department foreign key, and this
+ * service never partitions the directory by Department (Requirement 28.2 /
  * 29.4). Search/filter is by first name, last name, email, and/or role, and the
  * result is paginated (Requirement 29.5).
  *
- * This is gated by the `user.search` capability, which the `@wren/auth`
- * capability matrix restricts to `Admin` only (Requirements 2.1-2.3, 2.5): an
- * `Org Owner`'s user-facing authority is limited to Access Grants within owned
- * Organizations (see `accessGrantService.ts`), never a system-wide directory
- * search. The capability is re-checked here BEFORE any query runs.
+ * Two search variants:
+ *   - `searchUsers` — system-wide, gated by `user.search` (TechnicalAdmin only,
+ *     Requirements 2.1-2.3, 2.5).
+ *   - `searchUsersScoped` — scoped search returning identity fields only, gated
+ *     by `user.searchScoped` (DepartmentAdmin only).
  *
  * All persistence uses the injected parameterized {@link QueryExecutor}; no
  * value is ever interpolated into SQL (Requirement 39.2).
@@ -97,7 +97,7 @@ async function fetchRolesByUser(
 
 /**
  * Search the global User directory by first name, last name, email, and/or
- * role, paginated (Requirement 29.1, 29.5). `Admin` only (Requirements
+ * role, paginated (Requirement 29.1, 29.5). `TechnicalAdmin` only (Requirements
  * 2.1-2.3, 2.5) — enforced via the `user.search` capability BEFORE any query
  * runs.
  */
@@ -145,4 +145,71 @@ export async function searchUsers(
     page: parsed.page,
     pageSize: parsed.pageSize,
   });
+}
+
+/** Scoped user summary — identity fields only (no roles). */
+export interface ScopedUserSummary {
+  readonly id: string;
+  readonly email: string;
+  readonly firstName: string;
+  readonly lastName: string;
+}
+
+/** Result of a scoped user search (DepartmentAdmin variant). */
+export interface ScopedUserSearchResult {
+  readonly users: ScopedUserSummary[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
+/**
+ * Scoped user search for DepartmentAdmin — returns identity fields only
+ * (no roles). Gated by the `user.searchScoped` capability scoped to a
+ * Department. Useful for DepartmentAdmins who need to look up Users when
+ * managing access grants.
+ */
+export async function searchUsersScoped(
+  actor: AuthContext,
+  departmentId: string,
+  input: UserSearchInput,
+  db: QueryExecutor,
+): Promise<ScopedUserSearchResult> {
+  requireCapability(actor, {
+    capability: 'user.searchScoped',
+    scope: { kind: 'department', departmentId },
+  });
+
+  const parsed = userSearchInputSchema.parse(input);
+
+  const filterParams = [
+    likePattern(parsed.firstName),
+    likePattern(parsed.lastName),
+    likePattern(parsed.email),
+    parsed.role ?? null,
+  ];
+
+  const countRows = await db.query<{ count: number }>(COUNT_SQL, filterParams);
+  const total = countRows[0]?.count ?? 0;
+
+  const offset = (parsed.page - 1) * parsed.pageSize;
+  const rows = await db.query<AppUserRow>(SELECT_SQL, [
+    ...filterParams,
+    parsed.pageSize,
+    offset,
+  ]);
+
+  const users: ScopedUserSummary[] = rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    firstName: row.first_name,
+    lastName: row.last_name,
+  }));
+
+  return {
+    users,
+    total,
+    page: parsed.page,
+    pageSize: parsed.pageSize,
+  };
 }

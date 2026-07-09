@@ -1,32 +1,36 @@
 /**
- * Unit tests for system-wide global User directory search (REQ-ORG-02 /
- * Requirement 29.1, 29.5; Requirements 2.1, 2.2, 2.3, 2.5).
+ * Unit tests for global User directory search (REQ-ORG-02 / Requirement 29.1,
+ * 29.5; Requirements 2.1, 2.2, 2.3, 2.5).
  *
- * Covers filtering by first name, last name, email, and role; pagination;
- * that Users remain global (no Organization-scoped filtering exists); and
- * capability enforcement (Admin only — denies an Org Owner / Field Expert /
- * User with no data returned).
+ * Covers:
+ *   - `searchUsers` — system-wide, TechnicalAdmin only: filtering by first
+ *     name, last name, email, and role; pagination; that Users remain global
+ *     (no Department-scoped filtering exists); and capability enforcement.
+ *   - `searchUsersScoped` — DepartmentAdmin scoped search: returns identity
+ *     fields only (no roles), gated by `user.searchScoped`.
  */
 import { AuthorizationError } from './errors';
 import { FakeDb } from './fakeDb';
-import { adminContext, fieldExpertContext, orgOwnerContext, userContext } from './testContexts';
-import { searchUsers } from './userService';
+import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
+import { searchUsers, searchUsersScoped } from './userService';
+
+const DEPT = 'dept-1';
 
 function seedUsers(db: FakeDb): void {
   db.seedAppUser({ id: 'u-1', first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' });
   db.seedAppUser({ id: 'u-2', first_name: 'Alan', last_name: 'Turing', email: 'alan@example.com' });
   db.seedAppUser({ id: 'u-3', first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com' });
-  db.seedRoleAssignment({ id: 'ra-1', user_id: 'u-1', role: 'Admin', scope: null });
-  db.seedRoleAssignment({ id: 'ra-2', user_id: 'u-2', role: 'Field Expert', scope: { writingTypeIds: ['wt-1'] } });
-  db.seedRoleAssignment({ id: 'ra-3', user_id: 'u-3', role: 'Org Owner', scope: { organizationId: 'org-1' } });
+  db.seedRoleAssignment({ id: 'ra-1', user_id: 'u-1', role: 'TechnicalAdmin', scope: null });
+  db.seedRoleAssignment({ id: 'ra-2', user_id: 'u-2', role: 'DepartmentAdmin', scope: { departmentId: DEPT } });
+  db.seedRoleAssignment({ id: 'ra-3', user_id: 'u-3', role: 'Student', scope: null });
 }
 
-describe('searchUsers (Requirement 29.1) — Admin only', () => {
+describe('searchUsers (Requirement 29.1) — TechnicalAdmin only', () => {
   it('lists all global Users system-wide, unfiltered, paginated by default', async () => {
     const db = new FakeDb();
     seedUsers(db);
 
-    const result = await searchUsers(adminContext(), {}, db);
+    const result = await searchUsers(techAdminContext(), {}, db);
 
     expect(result.total).toBe(3);
     expect(result.page).toBe(1);
@@ -41,7 +45,7 @@ describe('searchUsers (Requirement 29.1) — Admin only', () => {
   it('filters by first name (case-insensitive substring)', async () => {
     const db = new FakeDb();
     seedUsers(db);
-    const result = await searchUsers(adminContext(), { firstName: 'ad' }, db);
+    const result = await searchUsers(techAdminContext(), { firstName: 'ad' }, db);
     expect(result.users).toHaveLength(1);
     expect(result.users[0]!.firstName).toBe('Ada');
   });
@@ -49,7 +53,7 @@ describe('searchUsers (Requirement 29.1) — Admin only', () => {
   it('filters by last name (case-insensitive substring)', async () => {
     const db = new FakeDb();
     seedUsers(db);
-    const result = await searchUsers(adminContext(), { lastName: 'HOPPER' }, db);
+    const result = await searchUsers(techAdminContext(), { lastName: 'HOPPER' }, db);
     expect(result.users).toHaveLength(1);
     expect(result.users[0]!.lastName).toBe('Hopper');
   });
@@ -57,7 +61,7 @@ describe('searchUsers (Requirement 29.1) — Admin only', () => {
   it('filters by email (case-insensitive substring)', async () => {
     const db = new FakeDb();
     seedUsers(db);
-    const result = await searchUsers(adminContext(), { email: 'alan@' }, db);
+    const result = await searchUsers(techAdminContext(), { email: 'alan@' }, db);
     expect(result.users).toHaveLength(1);
     expect(result.users[0]!.email).toBe('alan@example.com');
   });
@@ -65,25 +69,25 @@ describe('searchUsers (Requirement 29.1) — Admin only', () => {
   it('filters by role and reports each matched User\'s full role set', async () => {
     const db = new FakeDb();
     seedUsers(db);
-    const result = await searchUsers(adminContext(), { role: 'Field Expert' }, db);
+    const result = await searchUsers(techAdminContext(), { role: 'Student' }, db);
     expect(result.users).toHaveLength(1);
-    expect(result.users[0]!.roles).toEqual(['Field Expert']);
+    expect(result.users[0]!.roles).toEqual(['Student']);
   });
 
   it('combines filters (AND semantics)', async () => {
     const db = new FakeDb();
     seedUsers(db);
     const result = await searchUsers(
-      adminContext(),
-      { lastName: 'Turing', role: 'Field Expert' },
+      techAdminContext(),
+      { lastName: 'Turing', role: 'DepartmentAdmin' },
       db,
     );
     expect(result.users).toHaveLength(1);
     expect(result.users[0]!.email).toBe('alan@example.com');
 
     const noMatch = await searchUsers(
-      adminContext(),
-      { lastName: 'Turing', role: 'Admin' },
+      techAdminContext(),
+      { lastName: 'Turing', role: 'TechnicalAdmin' },
       db,
     );
     expect(noMatch.users).toHaveLength(0);
@@ -94,11 +98,11 @@ describe('searchUsers (Requirement 29.1) — Admin only', () => {
     const db = new FakeDb();
     seedUsers(db);
 
-    const pageOne = await searchUsers(adminContext(), { page: 1, pageSize: 2 }, db);
+    const pageOne = await searchUsers(techAdminContext(), { page: 1, pageSize: 2 }, db);
     expect(pageOne.users).toHaveLength(2);
     expect(pageOne.total).toBe(3);
 
-    const pageTwo = await searchUsers(adminContext(), { page: 2, pageSize: 2 }, db);
+    const pageTwo = await searchUsers(techAdminContext(), { page: 2, pageSize: 2 }, db);
     expect(pageTwo.users).toHaveLength(1);
     expect(pageTwo.total).toBe(3);
   });
@@ -106,39 +110,90 @@ describe('searchUsers (Requirement 29.1) — Admin only', () => {
   it('returns an empty page (not an error) when no Users match (empty state)', async () => {
     const db = new FakeDb();
     seedUsers(db);
-    const result = await searchUsers(adminContext(), { firstName: 'nobody' }, db);
+    const result = await searchUsers(techAdminContext(), { firstName: 'nobody' }, db);
     expect(result.users).toEqual([]);
     expect(result.total).toBe(0);
   });
 
-  it('never partitions by Organization — Users remain global (Requirement 29.4)', async () => {
+  it('never partitions by Department — Users remain global (Requirement 29.4)', async () => {
     const db = new FakeDb();
     seedUsers(db);
-    // No organizationId filter exists on the input schema at all; searching
-    // system-wide returns Users regardless of any Organization association.
-    const result = await searchUsers(adminContext(), {}, db);
+    const result = await searchUsers(techAdminContext(), {}, db);
     expect(result.total).toBe(3);
   });
 
-  it('denies an Org Owner (Requirements 2.1-2.3, 2.5) with no query performed', async () => {
+  it('denies a DepartmentAdmin (user.search is TechnicalAdmin only)', async () => {
     const db = new FakeDb();
     seedUsers(db);
-    await expect(searchUsers(orgOwnerContext('org-1'), {}, db)).rejects.toBeInstanceOf(
+    await expect(searchUsers(deptAdminContext([DEPT]), {}, db)).rejects.toBeInstanceOf(
       AuthorizationError,
     );
   });
 
-  it('denies a Field Expert', async () => {
+  it('denies a Student', async () => {
     const db = new FakeDb();
     seedUsers(db);
-    await expect(searchUsers(fieldExpertContext('wt-1'), {}, db)).rejects.toBeInstanceOf(
-      AuthorizationError,
-    );
+    await expect(searchUsers(studentContext(), {}, db)).rejects.toBeInstanceOf(AuthorizationError);
+  });
+});
+
+describe('searchUsersScoped — DepartmentAdmin only', () => {
+  it('lets a DeptAdmin search users (identity fields only, no roles)', async () => {
+    const db = new FakeDb();
+    seedUsers(db);
+
+    const result = await searchUsersScoped(deptAdminContext([DEPT]), DEPT, {}, db);
+
+    expect(result.total).toBe(3);
+    expect(result.page).toBe(1);
+    expect(result.pageSize).toBe(20);
+    // No roles field in scoped results
+    result.users.forEach((u) => {
+      expect(u).toHaveProperty('id');
+      expect(u).toHaveProperty('email');
+      expect(u).toHaveProperty('firstName');
+      expect(u).toHaveProperty('lastName');
+      expect(u).not.toHaveProperty('roles');
+    });
   });
 
-  it('denies a plain User', async () => {
+  it('filters by first name (case-insensitive substring)', async () => {
     const db = new FakeDb();
     seedUsers(db);
-    await expect(searchUsers(userContext(), {}, db)).rejects.toBeInstanceOf(AuthorizationError);
+    const result = await searchUsersScoped(deptAdminContext([DEPT]), DEPT, { firstName: 'grace' }, db);
+    expect(result.users).toHaveLength(1);
+    expect(result.users[0]!.firstName).toBe('Grace');
+  });
+
+  it('paginates results', async () => {
+    const db = new FakeDb();
+    seedUsers(db);
+    const page1 = await searchUsersScoped(deptAdminContext([DEPT]), DEPT, { page: 1, pageSize: 2 }, db);
+    expect(page1.users).toHaveLength(2);
+    expect(page1.total).toBe(3);
+  });
+
+  it('denies a DeptAdmin searching for a non-administered department', async () => {
+    const db = new FakeDb();
+    seedUsers(db);
+    await expect(
+      searchUsersScoped(deptAdminContext([DEPT]), 'other-dept', {}, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+  });
+
+  it('denies a TechnicalAdmin (user.searchScoped is DeptAdmin only)', async () => {
+    const db = new FakeDb();
+    seedUsers(db);
+    await expect(
+      searchUsersScoped(techAdminContext(), DEPT, {}, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+  });
+
+  it('denies a Student', async () => {
+    const db = new FakeDb();
+    seedUsers(db);
+    await expect(
+      searchUsersScoped(studentContext(), DEPT, {}, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
   });
 });

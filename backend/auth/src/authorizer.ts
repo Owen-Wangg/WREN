@@ -4,10 +4,10 @@
  *
  * Flow (per request):
  *   1. Verify the Cognito JWT (signature / issuer / expiry) — authentication only.
- *   2. Map the verified subject to an application identity + roles + Writing-Type
- *      assignments + Access Grants by querying Postgres (the authz source of truth).
- *   3. Emit an IAM policy plus an authorization context (roles, scopes,
- *      Writing-Type assignments, grants) that downstream services consume and
+ *   2. Map the verified subject to an application identity + roles + Department
+ *      scopes + Access Grants by querying Postgres (the authz source of truth).
+ *   3. Emit an IAM policy plus an authorization context (roles, administered
+ *      Departments, grants) that downstream services consume and
  *      RE-CHECK against the specific operation (dual enforcement).
  *
  * The authorizer produces a COARSE, cacheable allow across the API stage; the
@@ -98,8 +98,7 @@ export function serializeAuthContext(context: AuthContext): Record<string, strin
     idpSubject: context.idpSubject,
     email: context.email,
     roles: JSON.stringify(context.roles),
-    ownedOrganizationIds: JSON.stringify(context.ownedOrganizationIds),
-    assignedWritingTypeIds: JSON.stringify(context.assignedWritingTypeIds),
+    administeredDepartmentIds: JSON.stringify(context.administeredDepartmentIds),
     grants: JSON.stringify(context.grants),
   };
 }

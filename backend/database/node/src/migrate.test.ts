@@ -8,7 +8,7 @@ import {
 describe('listMigrationFiles — lexical ordering', () => {
   it('returns the real migrations in forward-only lexical order', () => {
     const files = listMigrationFiles(DEFAULT_MIGRATIONS_DIR);
-    expect(files).toEqual(['0001_enable_extensions.sql', '0002_initial_schema.sql']);
+    expect(files).toEqual(['0001_enable_extensions.sql', '0002_initial_schema.sql', '0003_v4_terminology_migration.sql']);
   });
 
   it('orders by zero-padded numeric prefix, not insertion order', () => {
@@ -50,8 +50,9 @@ describe('runMigrations — idempotent forward-only application', () => {
     expect(applied).toEqual([
       '0001_enable_extensions.sql',
       '0002_initial_schema.sql',
+      '0003_v4_terminology_migration.sql',
     ]);
-    expect(begin).toHaveBeenCalledTimes(2);
+    expect(begin).toHaveBeenCalledTimes(3);
   });
 
   it('skips migrations already recorded in schema_migrations', async () => {
@@ -59,14 +60,15 @@ describe('runMigrations — idempotent forward-only application', () => {
 
     const applied = await runMigrations(sql);
 
-    expect(applied).toEqual(['0002_initial_schema.sql']);
-    expect(begin).toHaveBeenCalledTimes(1);
+    expect(applied).toEqual(['0002_initial_schema.sql', '0003_v4_terminology_migration.sql']);
+    expect(begin).toHaveBeenCalledTimes(2);
   });
 
   it('is a no-op when the database is already current', async () => {
     const { sql, begin } = mockSql([
       '0001_enable_extensions.sql',
       '0002_initial_schema.sql',
+      '0003_v4_terminology_migration.sql',
     ]);
 
     const applied = await runMigrations(sql);
@@ -83,7 +85,7 @@ describe('runMigrations — idempotent forward-only application', () => {
     const insertCalls = unsafe.mock.calls.filter(([text]) =>
       /INSERT INTO schema_migrations/i.test(text as string),
     );
-    expect(insertCalls).toHaveLength(2);
+    expect(insertCalls).toHaveLength(3);
     for (const [text, params] of insertCalls) {
       expect(text).toContain('VALUES ($1)');
       expect(Array.isArray(params)).toBe(true);

@@ -94,8 +94,8 @@ describe('Lambda authorizer', () => {
     const deps: AuthorizerDeps = {
       verifier: fakeVerifier,
       db: makeDb([
-        { role: 'User', scope: null },
-        { role: 'Field Expert', scope: { writingTypeIds: ['wt-1'] } },
+        { role: 'Student', scope: null },
+        { role: 'DepartmentAdmin', scope: { departmentIds: ['dept-1'] } },
       ]),
     };
     const handler = createAuthorizerHandler(async () => deps);
@@ -110,39 +110,39 @@ describe('Lambda authorizer', () => {
     });
     expect(result.context?.userId).toBe(USER.id);
     expect(result.context?.email).toBe(USER.email);
-    expect(JSON.parse(String(result.context?.roles))).toEqual(['User', 'Field Expert']);
-    expect(JSON.parse(String(result.context?.assignedWritingTypeIds))).toEqual(['wt-1']);
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student', 'DepartmentAdmin']);
+    expect(JSON.parse(String(result.context?.administeredDepartmentIds))).toEqual(['dept-1']);
   });
 
   it('does NOT honor IdP claims: a bogus groups/role claim grants no role (Req 37.3)', async () => {
-    // The DB says this subject is only a plain "User".
+    // The DB says this subject is only a plain "Student".
     const deps: AuthorizerDeps = {
       verifier: fakeVerifier,
-      db: makeDb([{ role: 'User', scope: null }]),
+      db: makeDb([{ role: 'Student', scope: null }]),
     };
     const handler = createAuthorizerHandler(async () => deps);
 
-    // The token loudly claims Admin/Org Owner via groups + a role claim.
+    // The token loudly claims TechnicalAdmin/DepartmentAdmin via groups + a role claim.
     const result = await handler(
       event(
         tokenFor({
           sub: USER.idp_subject,
-          groups: ['Admin', 'Org Owner'],
-          role: 'Admin',
-          'cognito:groups': ['Admin'],
+          groups: ['TechnicalAdmin', 'DepartmentAdmin'],
+          role: 'TechnicalAdmin',
+          'cognito:groups': ['TechnicalAdmin'],
         }),
       ),
     );
 
     // Authorization reflects ONLY the app DB — the claims are ignored entirely.
-    expect(JSON.parse(String(result.context?.roles))).toEqual(['User']);
-    expect(JSON.parse(String(result.context?.ownedOrganizationIds))).toEqual([]);
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student']);
+    expect(JSON.parse(String(result.context?.administeredDepartmentIds))).toEqual([]);
   });
 
   it('rejects an invalid / expired / wrong-issuer token with Unauthorized (Req 37.1)', async () => {
     const deps: AuthorizerDeps = {
       verifier: fakeVerifier,
-      db: makeDb([{ role: 'User', scope: null }]),
+      db: makeDb([{ role: 'Student', scope: null }]),
     };
     const handler = createAuthorizerHandler(async () => deps);
 

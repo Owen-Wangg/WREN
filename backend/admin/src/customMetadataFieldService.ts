@@ -1,5 +1,5 @@
 /**
- * Org-Owner-defined custom metadata fields, scoped to a Writing Type
+ * DepartmentAdmin-defined custom metadata fields, scoped to a Document Type
  * (REQ-ORG-CONFIG-01 / Requirement 30.3). Each field carries a required/optional
  * flag enforced by the Document_Service at submission (Requirement 30.4).
  *
@@ -7,15 +7,17 @@
  * ever seeded as the illustrative field. "Location Reference" is intentionally
  * never seeded anywhere in this service. {@link WRITING_TOPIC_LABEL} and
  * {@link seedWritingTopicField} are the single place that constant is written —
- * the mechanism itself remains fully configurable/arbitrary Org-Owner-defined
+ * the mechanism itself remains fully configurable/arbitrary DepartmentAdmin-defined
  * DATA; nothing here constrains field labels to a fixed set beyond this one
  * illustrative default.
  *
  * Business management of the catalog — including custom metadata fields —
- * reuses the existing `writingType.manageCatalog` capability (Org Owner within
- * an owned Organization, or Admin); there is deliberately NO separate
+ * reuses the existing `documentType.manageCatalog` capability (DepartmentAdmin
+ * within an administered Department); there is deliberately NO separate
  * capability for custom metadata fields, matching the capability matrix's
- * documented scope (`@wren/auth` `capabilityMatrix.ts`).
+ * documented scope.
+ *
+ * No superuser fallback — TechnicalAdmin CANNOT perform educational operations.
  *
  * Every mutation re-checks the capability BEFORE touching the database and
  * denies with no mutation when disallowed (Requirements 36.2, 36.3). All
@@ -45,62 +47,63 @@ export const WRITING_TOPIC_LABEL = 'Writing Topic';
 /** Raw `custom_metadata_field` row (snake_case columns from PostgreSQL). */
 interface CustomMetadataFieldRow {
   readonly id: string;
-  readonly writing_type_id: string;
+  readonly document_type_id: string;
   readonly label: string;
   readonly required: boolean;
 }
 
-const RETURNING = 'id, writing_type_id, label, required';
+const RETURNING = 'id, document_type_id, label, required';
 
 /** Map a raw row to the validated shared {@link CustomMetadataField} DTO. */
 function toCustomMetadataField(row: CustomMetadataFieldRow): CustomMetadataField {
   return customMetadataFieldSchema.parse({
     id: row.id,
-    writingTypeId: row.writing_type_id,
+    documentTypeId: row.document_type_id,
     label: row.label,
     required: row.required,
   });
 }
 
-/** Load a Writing Type's owning Organization id, or `null` when it is unknown. */
-async function findOrganizationId(
-  writingTypeId: string,
+/** Load a Document Type's owning Department id, or `null` when it is unknown. */
+async function findDepartmentId(
+  documentTypeId: string,
   db: QueryExecutor,
 ): Promise<string | null> {
-  const rows = await db.query<{ organization_id: string }>(
-    'SELECT organization_id FROM writing_type WHERE id = $1',
-    [writingTypeId],
+  const rows = await db.query<{ department_id: string }>(
+    'SELECT department_id FROM document_type WHERE id = $1',
+    [documentTypeId],
   );
-  return rows[0]?.organization_id ?? null;
+  return rows[0]?.department_id ?? null;
 }
 
 /**
- * Create a custom metadata field within a Writing Type (`Org Owner` for owned
- * orgs, or `Admin`). `required` defaults to `false` (the DB default) when not
- * supplied. Throws {@link NotFoundError} when the Writing Type does not exist.
+ * Create a custom metadata field within a Document Type (`DepartmentAdmin` for
+ * administered Departments). `required` defaults to `false` (the DB default)
+ * when not supplied. Throws {@link NotFoundError} when the Document Type does
+ * not exist.
  */
 export async function createCustomMetadataField(
   actor: AuthContext,
   input: CreateCustomMetadataFieldInput,
   db: QueryExecutor,
 ): Promise<CustomMetadataField> {
-  const { writingTypeId, label, required } =
+  const { documentTypeId, label, required } =
     createCustomMetadataFieldInputSchema.parse(input);
 
-  const organizationId = await findOrganizationId(writingTypeId, db);
-  if (organizationId === null) {
-    throw new NotFoundError(`Writing Type '${writingTypeId}' not found`);
+  const departmentId = await findDepartmentId(documentTypeId, db);
+  if (departmentId === null) {
+    throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
   }
 
   requireCapability(actor, {
-    capability: 'writingType.manageCatalog',
-    scope: { kind: 'writingType', writingTypeId, organizationId },
+    capability: 'documentType.manageCatalog',
+    scope: { kind: 'documentType', documentTypeId, departmentId },
   });
 
   const rows = await db.query<CustomMetadataFieldRow>(
-    `INSERT INTO custom_metadata_field (writing_type_id, label, required)
+    `INSERT INTO custom_metadata_field (document_type_id, label, required)
      VALUES ($1, $2, $3) RETURNING ${RETURNING}`,
-    [writingTypeId, label, required ?? false],
+    [documentTypeId, label, required ?? false],
   );
 
   return toCustomMetadataField(rows[0]!);
@@ -108,21 +111,21 @@ export async function createCustomMetadataField(
 
 /**
  * Seed the single illustrative "Writing Topic" custom metadata field for a
- * newly created (or existing) Writing Type. This is the ONLY field this
+ * newly created (or existing) Document Type. This is the ONLY field this
  * service ever seeds — "Location Reference" is never created here or anywhere
- * else (tasks.md decision 1). Callers (e.g. the Writing Type creation flow)
+ * else (tasks.md decision 1). Callers (e.g. the Document Type creation flow)
  * invoke this explicitly; it is not an automatic side effect of any other
- * operation, so a Writing Type may exist with zero, one, or many custom
- * metadata fields entirely under Org-Owner control.
+ * operation, so a Document Type may exist with zero, one, or many custom
+ * metadata fields entirely under DepartmentAdmin control.
  */
 export async function seedWritingTopicField(
   actor: AuthContext,
-  writingTypeId: string,
+  documentTypeId: string,
   db: QueryExecutor,
 ): Promise<CustomMetadataField> {
   return createCustomMetadataField(
     actor,
-    { writingTypeId, label: WRITING_TOPIC_LABEL, required: false },
+    { documentTypeId, label: WRITING_TOPIC_LABEL, required: false },
     db,
   );
 }
@@ -140,14 +143,14 @@ export async function getCustomMetadataField(
   return row ? toCustomMetadataField(row) : null;
 }
 
-/** List the custom metadata fields for one Writing Type, ordered by label. */
+/** List the custom metadata fields for one Document Type, ordered by label. */
 export async function listCustomMetadataFields(
-  writingTypeId: string,
+  documentTypeId: string,
   db: QueryExecutor,
 ): Promise<CustomMetadataField[]> {
   const rows = await db.query<CustomMetadataFieldRow>(
-    `SELECT ${RETURNING} FROM custom_metadata_field WHERE writing_type_id = $1 ORDER BY label ASC`,
-    [writingTypeId],
+    `SELECT ${RETURNING} FROM custom_metadata_field WHERE document_type_id = $1 ORDER BY label ASC`,
+    [documentTypeId],
   );
   return rows.map(toCustomMetadataField);
 }
@@ -173,14 +176,14 @@ export async function updateCustomMetadataField(
     throw new NotFoundError(`Custom metadata field '${id}' not found`);
   }
 
-  const organizationId = await findOrganizationId(existing.writing_type_id, db);
-  if (organizationId === null) {
-    throw new NotFoundError(`Writing Type '${existing.writing_type_id}' not found`);
+  const departmentId = await findDepartmentId(existing.document_type_id, db);
+  if (departmentId === null) {
+    throw new NotFoundError(`Document Type '${existing.document_type_id}' not found`);
   }
 
   requireCapability(actor, {
-    capability: 'writingType.manageCatalog',
-    scope: { kind: 'writingType', writingTypeId: existing.writing_type_id, organizationId },
+    capability: 'documentType.manageCatalog',
+    scope: { kind: 'documentType', documentTypeId: existing.document_type_id, departmentId },
   });
 
   // Build a parameterized partial update from only the supplied fields.
@@ -207,8 +210,9 @@ export async function updateCustomMetadataField(
 }
 
 /**
- * Delete a custom metadata field (`Org Owner` for owned orgs, or `Admin`).
- * Returns `true` when a row was removed, `false` when no field had that id.
+ * Delete a custom metadata field (`DepartmentAdmin` for administered
+ * Departments). Returns `true` when a row was removed, `false` when no field
+ * had that id.
  */
 export async function deleteCustomMetadataField(
   actor: AuthContext,
@@ -224,14 +228,14 @@ export async function deleteCustomMetadataField(
     return false;
   }
 
-  const organizationId = await findOrganizationId(existing.writing_type_id, db);
-  if (organizationId === null) {
+  const departmentId = await findDepartmentId(existing.document_type_id, db);
+  if (departmentId === null) {
     return false;
   }
 
   requireCapability(actor, {
-    capability: 'writingType.manageCatalog',
-    scope: { kind: 'writingType', writingTypeId: existing.writing_type_id, organizationId },
+    capability: 'documentType.manageCatalog',
+    scope: { kind: 'documentType', documentTypeId: existing.document_type_id, departmentId },
   });
 
   const rows = await db.query<{ id: string }>(

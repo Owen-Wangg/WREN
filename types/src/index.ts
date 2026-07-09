@@ -26,11 +26,12 @@ import type {
   ContentType,
   CreateAccessGrantInput,
   CustomMetadataField,
+  Department,
   Document,
+  DocumentType,
+  DocumentTypeDeletionImpact,
   Draft,
   FeedbackItem,
-  GrantScope,
-  Organization,
   Override,
   OverrideBounds,
   RevokeRoleInput,
@@ -42,8 +43,6 @@ import type {
   UserSearchInput,
   UserSearchResult,
   UserSummary,
-  WritingType,
-  WritingTypeDeletionImpact,
 } from './schemas';
 
 /* -------------------------------------------------------------------------- */
@@ -55,12 +54,12 @@ import type {
 /* break the build if the invariant is ever violated.                         */
 /* -------------------------------------------------------------------------- */
 
-type _GuardWritingType = Expect<LacksReplacementProse<WritingType>>;
-type _GuardOrganization = Expect<LacksReplacementProse<Organization>>;
+type _GuardDocumentType = Expect<LacksReplacementProse<DocumentType>>;
+type _GuardDepartment = Expect<LacksReplacementProse<Department>>;
 type _GuardContentType = Expect<LacksReplacementProse<ContentType>>;
 type _GuardCustomMetadataField = Expect<LacksReplacementProse<CustomMetadataField>>;
-type _GuardWritingTypeDeletionImpact = Expect<
-  LacksReplacementProse<WritingTypeDeletionImpact>
+type _GuardDocumentTypeDeletionImpact = Expect<
+  LacksReplacementProse<DocumentTypeDeletionImpact>
 >;
 type _GuardTopic = Expect<LacksReplacementProse<Topic>>;
 type _GuardCreateTopicInput = Expect<LacksReplacementProse<CreateTopicInput>>;
@@ -71,7 +70,6 @@ type _GuardSegment = Expect<LacksReplacementProse<Segment>>;
 type _GuardDraft = Expect<LacksReplacementProse<Draft>>;
 type _GuardAnchor = Expect<LacksReplacementProse<Anchor>>;
 type _GuardFeedbackItem = Expect<LacksReplacementProse<FeedbackItem>>;
-type _GuardGrantScope = Expect<LacksReplacementProse<GrantScope>>;
 type _GuardAccessGrant = Expect<LacksReplacementProse<AccessGrant>>;
 type _GuardOverrideBounds = Expect<LacksReplacementProse<OverrideBounds>>;
 type _GuardOverride = Expect<LacksReplacementProse<Override>>;
@@ -94,11 +92,11 @@ type _GuardAccessRequestApprovalInput = Expect<
  * under `noUnusedLocals`. Exported as a type only; it has no runtime footprint.
  */
 export type NoGhostwritingGuards = [
-  _GuardWritingType,
-  _GuardOrganization,
+  _GuardDocumentType,
+  _GuardDepartment,
   _GuardContentType,
   _GuardCustomMetadataField,
-  _GuardWritingTypeDeletionImpact,
+  _GuardDocumentTypeDeletionImpact,
   _GuardTopic,
   _GuardCreateTopicInput,
   _GuardUpdateTopicInput,
@@ -108,7 +106,6 @@ export type NoGhostwritingGuards = [
   _GuardDraft,
   _GuardAnchor,
   _GuardFeedbackItem,
-  _GuardGrantScope,
   _GuardAccessGrant,
   _GuardOverrideBounds,
   _GuardOverride,

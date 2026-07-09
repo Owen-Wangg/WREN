@@ -1,8 +1,10 @@
 /**
- * Unit tests for Org-Owner-defined custom metadata fields scoped to a Writing
- * Type (REQ-ORG-CONFIG-01 / Requirement 30.3), the required/optional flag, and
- * the "Writing Topic" seeding helper (tasks.md product decision 1: ONLY
- * "Writing Topic" is ever seeded — "Location Reference" never is).
+ * Unit tests for DepartmentAdmin-defined custom metadata fields scoped to a
+ * Document Type (REQ-ORG-CONFIG-01 / Requirement 30.3), the required/optional
+ * flag, and the "Writing Topic" seeding helper (tasks.md product decision 1:
+ * ONLY "Writing Topic" is ever seeded — "Location Reference" never is).
+ *
+ * No superuser fallback — TechnicalAdmin CANNOT perform educational operations.
  */
 import {
   WRITING_TOPIC_LABEL,
@@ -15,60 +17,60 @@ import {
 } from './customMetadataFieldService';
 import { AuthorizationError, NotFoundError } from './errors';
 import { FakeDb } from './fakeDb';
-import { adminContext, fieldExpertContext, orgOwnerContext, userContext } from './testContexts';
+import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
 
-const ORG = 'org-1';
-const WT = 'wt-1';
+const DEPT = 'dept-1';
+const DT = 'dt-1';
 
-function seedOrgAndWritingType(db: FakeDb): void {
-  db.seedOrganization({ id: ORG, name: 'Allard' });
-  db.seedWritingType({ id: WT, organization_id: ORG, name: 'Legal Writing' });
+function seedDeptAndDocumentType(db: FakeDb): void {
+  db.seedDepartment({ id: DEPT, name: 'Allard' });
+  db.seedDocumentType({ id: DT, department_id: DEPT, name: 'Legal Writing' });
 }
 
 describe('createCustomMetadataField (Requirement 30.3)', () => {
-  it('lets an Org Owner define an optional field by default', async () => {
+  it('lets a DeptAdmin define an optional field by default', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
 
     const field = await createCustomMetadataField(
-      orgOwnerContext(ORG),
-      { writingTypeId: WT, label: 'Case Number' },
+      deptAdminContext([DEPT]),
+      { documentTypeId: DT, label: 'Case Number' },
       db,
     );
 
     expect(field).toEqual({
       id: expect.any(String),
-      writingTypeId: WT,
+      documentTypeId: DT,
       label: 'Case Number',
       required: false,
     });
   });
 
-  it('lets an Admin mark a field required', async () => {
+  it('lets a DeptAdmin mark a field required', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
     const field = await createCustomMetadataField(
-      adminContext(),
-      { writingTypeId: WT, label: 'Jurisdiction', required: true },
+      deptAdminContext([DEPT]),
+      { documentTypeId: DT, label: 'Jurisdiction', required: true },
       db,
     );
     expect(field.required).toBe(true);
   });
 
-  it('throws NotFoundError for an unknown Writing Type', async () => {
+  it('throws NotFoundError for an unknown Document Type', async () => {
     const db = new FakeDb();
     await expect(
-      createCustomMetadataField(adminContext(), { writingTypeId: 'missing', label: 'X' }, db),
+      createCustomMetadataField(deptAdminContext([DEPT]), { documentTypeId: 'missing', label: 'X' }, db),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it('denies an Org Owner of a DIFFERENT organization with no mutation', async () => {
+  it('denies a DeptAdmin of a DIFFERENT department with no mutation', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
     await expect(
       createCustomMetadataField(
-        orgOwnerContext('other-org'),
-        { writingTypeId: WT, label: 'X' },
+        deptAdminContext(['other-dept']),
+        { documentTypeId: DT, label: 'X' },
         db,
       ),
     ).rejects.toBeInstanceOf(AuthorizationError);
@@ -76,20 +78,20 @@ describe('createCustomMetadataField (Requirement 30.3)', () => {
     expect(db.customMetadataFields.size).toBe(0);
   });
 
-  it('denies a plain User with no mutation', async () => {
+  it('denies a Student with no mutation', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
     await expect(
-      createCustomMetadataField(userContext(), { writingTypeId: WT, label: 'X' }, db),
+      createCustomMetadataField(studentContext(), { documentTypeId: DT, label: 'X' }, db),
     ).rejects.toBeInstanceOf(AuthorizationError);
     expect(db.mutationCount).toBe(0);
   });
 
-  it('denies a Field Expert (not a catalog-management authority) with no mutation', async () => {
+  it('denies a TechnicalAdmin (not a catalog-management authority) with no mutation', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
     await expect(
-      createCustomMetadataField(fieldExpertContext(WT), { writingTypeId: WT, label: 'X' }, db),
+      createCustomMetadataField(techAdminContext(), { documentTypeId: DT, label: 'X' }, db),
     ).rejects.toBeInstanceOf(AuthorizationError);
     expect(db.mutationCount).toBe(0);
   });
@@ -98,31 +100,31 @@ describe('createCustomMetadataField (Requirement 30.3)', () => {
 describe('seedWritingTopicField (tasks.md product decision 1)', () => {
   it('creates exactly a "Writing Topic" field, optional by default', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
 
-    const field = await seedWritingTopicField(orgOwnerContext(ORG), WT, db);
+    const field = await seedWritingTopicField(deptAdminContext([DEPT]), DT, db);
 
     expect(field.label).toBe(WRITING_TOPIC_LABEL);
     expect(field.label).toBe('Writing Topic');
     expect(field.required).toBe(false);
-    expect(field.writingTypeId).toBe(WT);
+    expect(field.documentTypeId).toBe(DT);
   });
 
   it('never seeds "Location Reference" under any circumstance', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
 
-    await seedWritingTopicField(adminContext(), WT, db);
+    await seedWritingTopicField(deptAdminContext([DEPT]), DT, db);
 
-    const labels = (await listCustomMetadataFields(WT, db)).map((f) => f.label);
+    const labels = (await listCustomMetadataFields(DT, db)).map((f) => f.label);
     expect(labels).toEqual(['Writing Topic']);
     expect(labels).not.toContain('Location Reference');
   });
 
   it('still enforces the catalog-management capability (denies with no mutation)', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
-    await expect(seedWritingTopicField(userContext(), WT, db)).rejects.toBeInstanceOf(
+    seedDeptAndDocumentType(db);
+    await expect(seedWritingTopicField(studentContext(), DT, db)).rejects.toBeInstanceOf(
       AuthorizationError,
     );
     expect(db.mutationCount).toBe(0);
@@ -131,11 +133,11 @@ describe('seedWritingTopicField (tasks.md product decision 1)', () => {
 });
 
 describe('read custom metadata fields', () => {
-  it('gets by id (null when absent) and lists per Writing Type ordered by label', async () => {
+  it('gets by id (null when absent) and lists per Document Type ordered by label', async () => {
     const db = new FakeDb();
-    db.seedCustomMetadataField({ id: 'cmf-b', writing_type_id: WT, label: 'Beta' });
-    db.seedCustomMetadataField({ id: 'cmf-a', writing_type_id: WT, label: 'Alpha' });
-    db.seedCustomMetadataField({ id: 'cmf-x', writing_type_id: 'other-wt', label: 'Elsewhere' });
+    db.seedCustomMetadataField({ id: 'cmf-b', document_type_id: DT, label: 'Beta' });
+    db.seedCustomMetadataField({ id: 'cmf-a', document_type_id: DT, label: 'Alpha' });
+    db.seedCustomMetadataField({ id: 'cmf-x', document_type_id: 'other-dt', label: 'Elsewhere' });
 
     expect(await getCustomMetadataField('cmf-a', db)).toMatchObject({
       id: 'cmf-a',
@@ -143,24 +145,24 @@ describe('read custom metadata fields', () => {
     });
     expect(await getCustomMetadataField('missing', db)).toBeNull();
 
-    const labels = (await listCustomMetadataFields(WT, db)).map((f) => f.label);
+    const labels = (await listCustomMetadataFields(DT, db)).map((f) => f.label);
     expect(labels).toEqual(['Alpha', 'Beta']);
   });
 });
 
 describe('updateCustomMetadataField — required/optional flag behavior', () => {
-  it('lets an Org Owner toggle required true -> false', async () => {
+  it('lets a DeptAdmin toggle required true -> false', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
     db.seedCustomMetadataField({
       id: 'cmf-1',
-      writing_type_id: WT,
+      document_type_id: DT,
       label: 'Writing Topic',
       required: true,
     });
 
     const updated = await updateCustomMetadataField(
-      orgOwnerContext(ORG),
+      deptAdminContext([DEPT]),
       'cmf-1',
       { required: false },
       db,
@@ -168,18 +170,18 @@ describe('updateCustomMetadataField — required/optional flag behavior', () => 
     expect(updated).toMatchObject({ label: 'Writing Topic', required: false });
   });
 
-  it('lets an Org Owner toggle required false -> true independently of label', async () => {
+  it('lets a DeptAdmin toggle required false -> true independently of label', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
     db.seedCustomMetadataField({
       id: 'cmf-1',
-      writing_type_id: WT,
+      document_type_id: DT,
       label: 'Writing Topic',
       required: false,
     });
 
     const updated = await updateCustomMetadataField(
-      adminContext(),
+      deptAdminContext([DEPT]),
       'cmf-1',
       { required: true },
       db,
@@ -190,48 +192,74 @@ describe('updateCustomMetadataField — required/optional flag behavior', () => 
   it('throws NotFoundError for an unknown field', async () => {
     const db = new FakeDb();
     await expect(
-      updateCustomMetadataField(adminContext(), 'missing', { required: true }, db),
+      updateCustomMetadataField(deptAdminContext([DEPT]), 'missing', { required: true }, db),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it('denies an unauthorized actor (User) with no mutation', async () => {
+  it('denies an unauthorized actor (Student) with no mutation', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
+    seedDeptAndDocumentType(db);
     db.seedCustomMetadataField({
       id: 'cmf-1',
-      writing_type_id: WT,
+      document_type_id: DT,
       label: 'Writing Topic',
       required: false,
     });
     await expect(
-      updateCustomMetadataField(userContext(), 'cmf-1', { required: true }, db),
+      updateCustomMetadataField(studentContext(), 'cmf-1', { required: true }, db),
     ).rejects.toBeInstanceOf(AuthorizationError);
     expect(db.mutationCount).toBe(0);
     expect(db.customMetadataFields.get('cmf-1')!.required).toBe(false);
   });
+
+  it('denies a TechnicalAdmin with no mutation', async () => {
+    const db = new FakeDb();
+    seedDeptAndDocumentType(db);
+    db.seedCustomMetadataField({
+      id: 'cmf-1',
+      document_type_id: DT,
+      label: 'Writing Topic',
+      required: false,
+    });
+    await expect(
+      updateCustomMetadataField(techAdminContext(), 'cmf-1', { required: true }, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+  });
 });
 
 describe('deleteCustomMetadataField', () => {
-  it('lets an Org Owner delete a field in an owned org', async () => {
+  it('lets a DeptAdmin delete a field in an administered dept', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
-    db.seedCustomMetadataField({ id: 'cmf-1', writing_type_id: WT, label: 'Bye' });
+    seedDeptAndDocumentType(db);
+    db.seedCustomMetadataField({ id: 'cmf-1', document_type_id: DT, label: 'Bye' });
 
-    expect(await deleteCustomMetadataField(orgOwnerContext(ORG), 'cmf-1', db)).toBe(true);
+    expect(await deleteCustomMetadataField(deptAdminContext([DEPT]), 'cmf-1', db)).toBe(true);
     expect(await getCustomMetadataField('cmf-1', db)).toBeNull();
   });
 
   it('returns false for an unknown field', async () => {
     const db = new FakeDb();
-    expect(await deleteCustomMetadataField(adminContext(), 'missing', db)).toBe(false);
+    expect(await deleteCustomMetadataField(deptAdminContext([DEPT]), 'missing', db)).toBe(false);
   });
 
-  it('denies an Org Owner of a different org with no mutation', async () => {
+  it('denies a DeptAdmin of a different dept with no mutation', async () => {
     const db = new FakeDb();
-    seedOrgAndWritingType(db);
-    db.seedCustomMetadataField({ id: 'cmf-1', writing_type_id: WT, label: 'Keep' });
+    seedDeptAndDocumentType(db);
+    db.seedCustomMetadataField({ id: 'cmf-1', document_type_id: DT, label: 'Keep' });
     await expect(
-      deleteCustomMetadataField(orgOwnerContext('other-org'), 'cmf-1', db),
+      deleteCustomMetadataField(deptAdminContext(['other-dept']), 'cmf-1', db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+    expect(db.customMetadataFields.has('cmf-1')).toBe(true);
+  });
+
+  it('denies a TechnicalAdmin with no mutation', async () => {
+    const db = new FakeDb();
+    seedDeptAndDocumentType(db);
+    db.seedCustomMetadataField({ id: 'cmf-1', document_type_id: DT, label: 'Keep' });
+    await expect(
+      deleteCustomMetadataField(techAdminContext(), 'cmf-1', db),
     ).rejects.toBeInstanceOf(AuthorizationError);
     expect(db.mutationCount).toBe(0);
     expect(db.customMetadataFields.has('cmf-1')).toBe(true);

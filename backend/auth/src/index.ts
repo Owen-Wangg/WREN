@@ -2,10 +2,10 @@
  * `@wren/auth` — Auth_Service for WREN Writing Coach (Node 22).
  *
  * Cognito JWT verification (`aws-jwt-verify`) for authentication only, plus
- * app-database identity mapping that resolves roles, Organization/Writing-Type
- * scopes, and Access Grants into an {@link AuthContext} for the API Gateway
- * Lambda authorizer. Authorization is decoupled from the identity provider: the
- * app DB is the single source of truth (REQ-SEC-AUTHDECOUPLE-01).
+ * app-database identity mapping that resolves roles, Department scopes, and
+ * Access Grants into an {@link AuthContext} for the API Gateway Lambda
+ * authorizer. Authorization is decoupled from the identity provider: the app DB
+ * is the single source of truth (REQ-SEC-AUTHDECOUPLE-01).
  */
 export {
   createAuthorizerHandler,
@@ -37,12 +37,11 @@ export {
 } from './config';
 export {
   resolveAccess,
-  resolveEffectiveAccessState,
   hasApplicableGrant,
   isSubmissionPermitted,
   shouldOfferAccessRequest,
   type AccessResolutionInput,
-  type WritingTypeAccessInput,
+  type DocumentTypeAccessInput,
 } from './accessResolution';
 export {
   authorizeCapability,

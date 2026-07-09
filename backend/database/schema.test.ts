@@ -7,6 +7,10 @@
  * These are regression guards: they fail loudly if a future edit reintroduces a
  * forbidden construct (e.g. a `replacement_prose` column) or drops a required
  * one (e.g. the Draft-immutability trigger).
+ *
+ * Note: This suite validates the ORIGINAL schema (0002) plus the V4 terminology
+ * migration (0003). It checks the POST-migration state where Organization →
+ * Department, WritingType → DocumentType, etc.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,9 +25,17 @@ const schemaSql = readFileSync(
   join(MIGRATIONS_DIR, '0002_initial_schema.sql'),
   'utf8',
 );
+const v4MigrationSql = readFileSync(
+  join(MIGRATIONS_DIR, '0003_v4_terminology_migration.sql'),
+  'utf8',
+);
 
-/** All 22 entities task 2.3 requires, in design naming → snake_case table name. */
-const REQUIRED_TABLES = [
+/**
+ * All required entities post-V4 migration, in design naming → snake_case table
+ * name. Some tables are renamed (organization→department,
+ * writing_type→document_type, writing_type_config→document_type_config).
+ */
+const REQUIRED_TABLES_IN_ORIGINAL = [
   'app_user',
   'role_assignment',
   'organization',
@@ -45,6 +57,13 @@ const REQUIRED_TABLES = [
   'override',
   'activity_event',
   'aggregate_counter',
+] as const;
+
+/** Post-V4 renamed tables (verified via the migration SQL). */
+const V4_RENAMES = [
+  { from: 'organization', to: 'department' },
+  { from: 'writing_type', to: 'document_type' },
+  { from: 'writing_type_config', to: 'document_type_config' },
 ] as const;
 
 /** Strip `--` line comments so invariant checks inspect DDL, not documentation. */
@@ -93,7 +112,7 @@ describe('migration 0001 — extensions', () => {
 });
 
 describe('migration 0002 — required tables', () => {
-  it.each(REQUIRED_TABLES)('creates the %s table', (table) => {
+  it.each(REQUIRED_TABLES_IN_ORIGINAL)('creates the %s table', (table) => {
     const re = new RegExp(`CREATE TABLE\\s+${table}\\s*\\(`, 'i');
     expect(schemaSql).toMatch(re);
   });
@@ -104,9 +123,89 @@ describe('migration 0002 — required tables', () => {
   });
 });
 
+describe('migration 0003 — V4 terminology migration', () => {
+  it('wraps the migration in a single transaction', () => {
+    expect(v4MigrationSql).toMatch(/^BEGIN;/m);
+    expect(v4MigrationSql).toMatch(/COMMIT;\s*$/);
+  });
+
+  it.each(V4_RENAMES)(
+    'renames $from → $to',
+    ({ from, to }) => {
+      const re = new RegExp(`ALTER TABLE\\s+${from}\\s+RENAME TO\\s+${to}`, 'i');
+      expect(v4MigrationSql).toMatch(re);
+    },
+  );
+
+  it('renames organization_id → department_id on document_type', () => {
+    expect(v4MigrationSql).toMatch(
+      /ALTER TABLE document_type RENAME COLUMN organization_id TO department_id/i,
+    );
+  });
+
+  it('renames writing_type_id → document_type_id on document table', () => {
+    expect(v4MigrationSql).toMatch(
+      /ALTER TABLE document RENAME COLUMN writing_type_id TO document_type_id/i,
+    );
+  });
+
+  it('removes INHERIT access state from document_type', () => {
+    expect(v4MigrationSql).toMatch(/access_state IN \('OPEN', 'LOCKED'\)/i);
+  });
+
+  it('collapses V1 roles to V4 three-role model', () => {
+    expect(v4MigrationSql).toMatch(/role IN \('Student', 'DepartmentAdmin', 'TechnicalAdmin'\)/i);
+  });
+
+  it('flattens access_grant scope to document_type_id column', () => {
+    expect(v4MigrationSql).toMatch(
+      /ALTER TABLE access_grant ADD COLUMN document_type_id uuid/i,
+    );
+    expect(v4MigrationSql).toMatch(
+      /ALTER TABLE access_grant DROP COLUMN scope/i,
+    );
+  });
+
+  it('deletes org-level grants (no V4 equivalent)', () => {
+    expect(v4MigrationSql).toMatch(
+      /DELETE FROM access_grant WHERE scope \? 'organizationId'/i,
+    );
+  });
+
+  it('renames writing_type_id → document_type_id on override table', () => {
+    expect(v4MigrationSql).toMatch(
+      /ALTER TABLE override RENAME COLUMN writing_type_id TO document_type_id/i,
+    );
+  });
+
+  it('renames writing_type_id → document_type_id on activity_event', () => {
+    expect(v4MigrationSql).toMatch(
+      /ALTER TABLE activity_event RENAME COLUMN writing_type_id TO document_type_id/i,
+    );
+  });
+
+  it('renames organization_id → department_id on activity_event', () => {
+    expect(v4MigrationSql).toMatch(
+      /ALTER TABLE activity_event RENAME COLUMN organization_id TO department_id/i,
+    );
+  });
+
+  it('renames organization_id → department_id on topic', () => {
+    expect(v4MigrationSql).toMatch(
+      /ALTER TABLE topic RENAME COLUMN organization_id TO department_id/i,
+    );
+  });
+});
+
 describe('no-ghostwriting invariant (Requirement 11.4)', () => {
-  it('declares no replacement-prose column anywhere', () => {
+  it('declares no replacement-prose column anywhere in 0002', () => {
     const ddl = stripComments(schemaSql).toLowerCase();
+    expect(ddl).not.toContain('replacement_prose');
+    expect(ddl).not.toContain('replacementprose');
+  });
+
+  it('declares no replacement-prose column in 0003', () => {
+    const ddl = stripComments(v4MigrationSql).toLowerCase();
     expect(ddl).not.toContain('replacement_prose');
     expect(ddl).not.toContain('replacementprose');
   });
@@ -144,10 +243,12 @@ describe('ActivityEvent independent of Documents (Requirement 44.2)', () => {
   });
 });
 
-describe('Organizations are groupings, not tenants (Requirements 28.1 / 28.2)', () => {
-  it('app_user carries no organization foreign key (Users are global)', () => {
+describe('Departments are groupings, not tenants (Requirements 28.1 / 28.2)', () => {
+  it('app_user carries no department foreign key (Users are global)', () => {
     const appUser = tableBody(schemaSql, 'app_user');
+    // Post-V4: no organization or department FK on app_user
     expect(appUser).not.toMatch(/organization/i);
+    expect(appUser).not.toMatch(/department/i);
   });
 });
 
@@ -166,7 +267,7 @@ describe('deletion retention partitioning (Requirement 45.x)', () => {
     );
   });
 
-  it('restricts deleting a Writing Type that still scopes Documents', () => {
+  it('restricts deleting a Writing Type / Document Type that still scopes Documents', () => {
     const document = tableBody(schemaSql, 'document');
     expect(document).toMatch(
       /writing_type_id\s+uuid\s+NOT NULL\s+REFERENCES\s+writing_type\(id\)\s+ON DELETE RESTRICT/i,

@@ -8,8 +8,8 @@
  * matching TypeScript types are derived with `z.infer`, and `index.ts` runs each
  * DTO type through a compile-time no-ghostwriting guard.
  *
- * Naming note: the design's "Writing Domain" entity is implemented here as the
- * configurable, user-selectable {@link WritingType} (see tasks.md product
+ * Naming note: the design's "Document Type" entity is implemented here as the
+ * configurable, user-selectable {@link DocumentType} (see tasks.md product
  * decision 2). It is data, never a hardcoded domain enumeration.
  */
 import { z } from 'zod';
@@ -22,38 +22,34 @@ import { assignmentScopeSchema } from './authorization';
 /* -------------------------------------------------------------------------- */
 
 /** Canonical role identifiers stored in the application database. */
-export const roleSchema = z.enum(['User', 'Field Expert', 'Org Owner', 'Admin']);
+export const roleSchema = z.enum(['Student', 'DepartmentAdmin', 'TechnicalAdmin']);
 export type Role = z.infer<typeof roleSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Access state (Requirement 4 / 28 — OPEN / LOCKED, + INHERIT for WritingType)*/
+/* Access state (Requirement 4 / 28 — OPEN / LOCKED for Document Types)        */
 /* -------------------------------------------------------------------------- */
 
-/** Access state for an Organization grouping (the effective submission control). */
-export const accessStateSchema = z.enum(['OPEN', 'LOCKED']);
-export type AccessState = z.infer<typeof accessStateSchema>;
-
 /**
- * Access state for a Writing Type. A Writing Type may set its own OPEN/LOCKED
- * state, or `INHERIT` the access state of its Organization grouping
- * (Requirement 4.1).
+ * Access state for a Document Type. A Document Type is either OPEN (any
+ * authenticated Student may self-select and submit) or LOCKED (submission
+ * requires an Access Grant scoped to that Document Type).
  */
-export const writingTypeAccessStateSchema = z.enum(['OPEN', 'LOCKED', 'INHERIT']);
-export type WritingTypeAccessState = z.infer<typeof writingTypeAccessStateSchema>;
+export const documentTypeAccessStateSchema = z.enum(['OPEN', 'LOCKED']);
+export type DocumentTypeAccessState = z.infer<typeof documentTypeAccessStateSchema>;
 
 /**
- * Outcome of the Auth_Service access-resolution check for a (User, Writing Type)
- * pair, consumed by the Document submission gate (design "Admin / Auth / Usage
- * Service"; Requirements 4.2, 4.3, 6.8, 28.3).
+ * Outcome of the Auth_Service access-resolution check for a (User, Document
+ * Type) pair, consumed by the Document submission gate (design "Admin / Auth /
+ * Usage Service"; Requirements 4.2, 4.3, 6.8, 28.3).
  *
- * - `OPEN`    — the effective access state is OPEN; any authenticated global
- *               User may self-select and submit without an Access Grant.
- * - `GRANTED` — the effective access state is LOCKED, but the User holds an
- *               applicable Access Grant (scoped to the Writing Type or its
- *               Organization grouping), so submission is permitted.
- * - `DENIED`  — the effective access state is LOCKED and the User holds no
- *               applicable grant; submission is refused and the access-request
- *               flow should be offered (Requirement 4.6).
+ * - `OPEN`    — the Document Type's access state is OPEN; any authenticated
+ *               global Student may self-select and submit without an Access Grant.
+ * - `GRANTED` — the Document Type's access state is LOCKED, but the User holds
+ *               an applicable Access Grant scoped to that Document Type, so
+ *               submission is permitted.
+ * - `DENIED`  — the Document Type's access state is LOCKED and the User holds
+ *               no applicable grant; submission is refused and the
+ *               access-request flow should be offered (Requirement 4.6).
  *
  * `OPEN` and `GRANTED` both permit submission; `DENIED` does not.
  */
@@ -61,110 +57,107 @@ export const accessDecisionSchema = z.enum(['OPEN', 'GRANTED', 'DENIED']);
 export type AccessDecision = z.infer<typeof accessDecisionSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Organization (Requirement 28 — a grouping that owns NO Users)               */
+/* Department (Requirement 28 — a grouping that owns NO Users)                 */
 /* -------------------------------------------------------------------------- */
 
 /**
- * An Organization is a GROUPING of Writing Types, the Field Experts who maintain
- * them, org-wide Reference Material, and business Topics — never a data-isolation
- * boundary and never an owner of Users (Requirement 28.1 / 28.2). Its
- * `accessState` is the OPEN/LOCKED default that a Writing Type inherits when its
- * own access state is `INHERIT` (Requirement 4.1 / 28.4).
+ * A Department is a GROUPING of Document Types, the DepartmentAdmins who
+ * maintain them, department-wide Reference Material, and business Topics —
+ * never a data-isolation boundary and never an owner of Users (Requirement 28.1
+ * / 28.2). Departments are created implicitly via DepartmentAdmin appointment.
  */
-export const organizationSchema = z
+export const departmentSchema = z
   .object({
     id: idSchema,
     name: z.string().min(1),
-    accessState: accessStateSchema,
   })
   .strict();
-export type Organization = z.infer<typeof organizationSchema>;
+export type Department = z.infer<typeof departmentSchema>;
 
 /**
- * Input to create an Organization. The access state is optional and defaults to
- * `LOCKED` (the safe default the schema uses); the Admin may open it later via
- * the access-state control (Requirement 28.4 / 33.2).
+ * Input to create a Department.
  */
-export const createOrganizationInputSchema = z
-  .object({
-    name: z.string().min(1),
-    accessState: accessStateSchema.optional(),
-  })
-  .strict();
-export type CreateOrganizationInput = z.infer<typeof createOrganizationInputSchema>;
-
-/** Input to update an Organization's mutable catalog fields (its name). */
-export const updateOrganizationInputSchema = z
+export const createDepartmentInputSchema = z
   .object({
     name: z.string().min(1),
   })
   .strict();
-export type UpdateOrganizationInput = z.infer<typeof updateOrganizationInputSchema>;
+export type CreateDepartmentInput = z.infer<typeof createDepartmentInputSchema>;
+
+/** Input to update a Department's mutable catalog fields (its name). */
+export const updateDepartmentInputSchema = z
+  .object({
+    name: z.string().min(1),
+  })
+  .strict();
+export type UpdateDepartmentInput = z.infer<typeof updateDepartmentInputSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* WritingType (configurable, self-selectable — design "Writing Domain")       */
+/* DocumentType (configurable, self-selectable — design "Document Type")        */
 /* -------------------------------------------------------------------------- */
 
-export const writingTypeSchema = z
+export const documentTypeSchema = z
   .object({
     id: idSchema,
-    organizationId: idSchema,
+    departmentId: idSchema,
     name: z.string().min(1),
-    accessState: writingTypeAccessStateSchema,
-    /** Null → inherit the Organization / platform default size limit. */
+    accessState: documentTypeAccessStateSchema,
+    /** Null → inherit the platform default size limit. */
     sizeLimitWords: z.number().int().positive().nullable(),
   })
   .strict();
-export type WritingType = z.infer<typeof writingTypeSchema>;
+export type DocumentType = z.infer<typeof documentTypeSchema>;
 
 /**
- * Input to create a Writing Type catalog record. A Writing Type is configurable,
- * self-selectable DATA — never a hardcoded domain enumeration (tasks.md product
- * decision 2). New records always start with an `INHERIT` access state: changing
- * a Writing Type to OPEN/LOCKED is a separate, Admin-controlled access-state
- * operation (Requirement 28.4 / 33.2), kept distinct from catalog management
- * (Requirement 30.1). `sizeLimitWords` is optional catalog configuration.
+ * Input to create a Document Type catalog record. A Document Type is
+ * configurable, self-selectable DATA — never a hardcoded domain enumeration
+ * (tasks.md product decision 2). New records always start with a `LOCKED`
+ * access state: changing a Document Type to OPEN is a separate,
+ * Admin-controlled access-state operation (Requirement 28.4 / 33.2), kept
+ * distinct from catalog management (Requirement 30.1). `sizeLimitWords` is
+ * optional catalog configuration.
  */
-export const createWritingTypeInputSchema = z
+export const createDocumentTypeInputSchema = z
   .object({
-    organizationId: idSchema,
+    departmentId: idSchema,
     name: z.string().min(1),
     sizeLimitWords: z.number().int().positive().nullable().optional(),
   })
   .strict();
-export type CreateWritingTypeInput = z.infer<typeof createWritingTypeInputSchema>;
+export type CreateDocumentTypeInput = z.infer<typeof createDocumentTypeInputSchema>;
 
-/** Input to update a Writing Type's mutable catalog fields (name / size limit). */
-export const updateWritingTypeInputSchema = z
+/** Input to update a Document Type's mutable catalog fields (name / size limit). */
+export const updateDocumentTypeInputSchema = z
   .object({
     name: z.string().min(1).optional(),
     sizeLimitWords: z.number().int().positive().nullable().optional(),
   })
   .strict();
-export type UpdateWritingTypeInput = z.infer<typeof updateWritingTypeInputSchema>;
+export type UpdateDocumentTypeInput = z.infer<typeof updateDocumentTypeInputSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* ContentType (Requirement 30.2 — Org-Owner-defined, scoped to a WritingType) */
+/* ContentType (Requirement 30.2 — DepartmentAdmin-defined, scoped to a         */
+/* DocumentType)                                                               */
 /* -------------------------------------------------------------------------- */
 
 /**
- * An Org-Owner-defined category of document within a Writing Type (for example,
- * "case brief", "memo", "tort claim proposal"), used to organize submissions and
- * scope configuration (REQ-ORG-CONFIG-01 / Requirement 30.2).
+ * A DepartmentAdmin-defined category of document within a Document Type (for
+ * example, "case brief", "memo", "tort claim proposal"), used to organize
+ * submissions and scope configuration (REQ-ORG-CONFIG-01 / Requirement 30.2).
  */
 export const contentTypeSchema = z
   .object({
     id: idSchema,
-    writingTypeId: idSchema,
+    documentTypeId: idSchema,
     label: z.string().min(1),
   })
   .strict();
 export type ContentType = z.infer<typeof contentTypeSchema>;
 
-/** Input to create a Content Type within a Writing Type. */
+/** Input to create a Content Type within a Document Type. */
 export const createContentTypeInputSchema = z
   .object({
-    writingTypeId: idSchema,
+    documentTypeId: idSchema,
     label: z.string().min(1),
   })
   .strict();
@@ -179,33 +172,33 @@ export const updateContentTypeInputSchema = z
 export type UpdateContentTypeInput = z.infer<typeof updateContentTypeInputSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Topic (REQ-TOPIC-01 / Requirement 35 — business label, scoped to ONE org)   */
+/* Topic (REQ-TOPIC-01 / Requirement 35 — business label, scoped to ONE dept)  */
 /* -------------------------------------------------------------------------- */
 
 /**
- * A business Topic used to organize Users' work, scoped to exactly ONE owned
- * Organization (REQ-TOPIC-01 / Requirement 35.1, 35.2). A Topic is purely a
- * business-layer label — it is NOT a data-isolation boundary
+ * A business Topic used to organize Users' work, scoped to exactly ONE
+ * administered Department (REQ-TOPIC-01 / Requirement 35.1, 35.2). A Topic is
+ * purely a business-layer label — it is NOT a data-isolation boundary
  * (REQ-ORG-GROUPING-01) and it NEVER drives error taxonomy, Reference Material
- * selection, or feedback generation (Requirement 35.3); those remain Writing
- * Type / Writing Domain concerns. A Topic is distinct from a Document's
- * per-document "Writing Topic" Custom Metadata Field value — the catalog entry
- * here and the free-form value stored on a Document are independent
- * (Requirement 35.4); deleting a Topic never alters a Document's stored value.
+ * selection, or feedback generation (Requirement 35.3); those remain Document
+ * Type concerns. A Topic is distinct from a Document's per-document "Writing
+ * Topic" Custom Metadata Field value — the catalog entry here and the free-form
+ * value stored on a Document are independent (Requirement 35.4); deleting a
+ * Topic never alters a Document's stored value.
  */
 export const topicSchema = z
   .object({
     id: idSchema,
-    organizationId: idSchema,
+    departmentId: idSchema,
     name: z.string().min(1),
   })
   .strict();
 export type Topic = z.infer<typeof topicSchema>;
 
-/** Input to create a Topic within an owned Organization. */
+/** Input to create a Topic within an administered Department. */
 export const createTopicInputSchema = z
   .object({
-    organizationId: idSchema,
+    departmentId: idSchema,
     name: z.string().min(1),
   })
   .strict();
@@ -220,13 +213,13 @@ export const updateTopicInputSchema = z
 export type UpdateTopicInput = z.infer<typeof updateTopicInputSchema>;
 
 /**
- * Reports the impact of removing a Topic BEFORE deletion, so an Org Owner (or
- * Admin) can be shown an explicit confirmation when Documents currently carry
- * this Topic's name as their "Writing Topic" custom-metadata value
- * (REQ-TOPIC-01 / Requirement 35.5). This is a read-only, best-effort report —
- * Document metadata values are independent per-document strings, not a foreign
- * key to `topic.id`, so deleting a Topic never cascades into or blanks any
- * Document's stored metadata; this count exists solely so the caller can
+ * Reports the impact of removing a Topic BEFORE deletion, so a DepartmentAdmin
+ * (or TechnicalAdmin) can be shown an explicit confirmation when Documents
+ * currently carry this Topic's name as their "Writing Topic" custom-metadata
+ * value (REQ-TOPIC-01 / Requirement 35.5). This is a read-only, best-effort
+ * report — Document metadata values are independent per-document strings, not a
+ * foreign key to `topic.id`, so deleting a Topic never cascades into or blanks
+ * any Document's stored metadata; this count exists solely so the caller can
  * present an informed confirmation before deleting.
  */
 export const topicDeletionImpactSchema = z
@@ -239,32 +232,33 @@ export type TopicDeletionImpact = z.infer<typeof topicDeletionImpactSchema>;
 
 /* -------------------------------------------------------------------------- */
 /* CustomMetadataField (Requirement 30.3 — required/optional, scoped to a       */
-/* WritingType)                                                                */
+/* DocumentType)                                                               */
 /* -------------------------------------------------------------------------- */
 
 /**
- * An Org-Owner-defined field attached to Documents within a Writing Type (for
- * example, "Writing Topic"), captured as structured data and enforced at
+ * A DepartmentAdmin-defined field attached to Documents within a Document Type
+ * (for example, "Writing Topic"), captured as structured data and enforced at
  * submission when `required` (REQ-ORG-CONFIG-01 / Requirements 30.3, 30.4).
  *
  * Product decision (tasks.md): only "Writing Topic" is ever seeded as the
  * illustrative field — "Location Reference" is intentionally never seeded. The
- * mechanism itself remains fully configurable/arbitrary Org-Owner-defined DATA.
+ * mechanism itself remains fully configurable/arbitrary DepartmentAdmin-defined
+ * DATA.
  */
 export const customMetadataFieldSchema = z
   .object({
     id: idSchema,
-    writingTypeId: idSchema,
+    documentTypeId: idSchema,
     label: z.string().min(1),
     required: z.boolean(),
   })
   .strict();
 export type CustomMetadataField = z.infer<typeof customMetadataFieldSchema>;
 
-/** Input to create a custom metadata field within a Writing Type. */
+/** Input to create a custom metadata field within a Document Type. */
 export const createCustomMetadataFieldInputSchema = z
   .object({
-    writingTypeId: idSchema,
+    documentTypeId: idSchema,
     label: z.string().min(1),
     required: z.boolean().optional(),
   })
@@ -285,27 +279,27 @@ export type UpdateCustomMetadataFieldInput = z.infer<
 >;
 
 /* -------------------------------------------------------------------------- */
-/* WritingTypeDeletionImpact (Requirement 30.5 — confirmation before removal)  */
+/* DocumentTypeDeletionImpact (Requirement 30.5 — confirmation before removal) */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Reports the impact of removing a Writing Type BEFORE deletion, so an Org
- * Owner (or Admin) can be shown an explicit confirmation describing what is
- * still attached (REQ-ORG-CONFIG-01 / Requirement 30.5). This is a read-only
- * report — it does not itself delete anything, and does not force deletion
- * through; a Writing Type with Documents is still RESTRICTed at the DB level.
+ * Reports the impact of removing a Document Type BEFORE deletion, so a
+ * DepartmentAdmin (or TechnicalAdmin) can be shown an explicit confirmation
+ * describing what is still attached (REQ-ORG-CONFIG-01 / Requirement 30.5).
+ * This is a read-only report — it does not itself delete anything, and does not
+ * force deletion through; a Document Type with Documents is still RESTRICTed at
+ * the DB level.
  */
-export const writingTypeDeletionImpactSchema = z
+export const documentTypeDeletionImpactSchema = z
   .object({
-    writingTypeId: idSchema,
-    assignedFieldExpertCount: z.number().int().nonnegative(),
+    documentTypeId: idSchema,
     documentCount: z.number().int().nonnegative(),
   })
   .strict();
-export type WritingTypeDeletionImpact = z.infer<typeof writingTypeDeletionImpactSchema>;
+export type DocumentTypeDeletionImpact = z.infer<typeof documentTypeDeletionImpactSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Document (Requirement 6 — owned by a global User, scoped to a WritingType)  */
+/* Document (Requirement 6 — owned by a global User, scoped to a DocumentType) */
 /* -------------------------------------------------------------------------- */
 
 /** Document status is an extensible enum mapped to color tokens in the UI. */
@@ -316,10 +310,10 @@ export const documentSchema = z
   .object({
     id: idSchema,
     ownerUserId: idSchema,
-    writingTypeId: idSchema,
+    documentTypeId: idSchema,
     contentTypeId: idSchema,
     name: z.string().min(1),
-    /** Org-Owner-defined custom metadata field values (e.g. "Writing Topic"). */
+    /** DepartmentAdmin-defined custom metadata field values (e.g. "Writing Topic"). */
     metadata: z.record(z.string(), z.string()),
     status: documentStatusSchema,
     createdAt: isoDateTimeSchema,
@@ -417,21 +411,19 @@ export const feedbackItemSchema = z
 export type FeedbackItem = z.infer<typeof feedbackItemSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* AccessGrant (Requirement 4.4 — associates a global User with a LOCKED scope) */
+/* AccessGrant (Requirement 4.4 — associates a global User with a LOCKED        */
+/* Document Type)                                                              */
 /* -------------------------------------------------------------------------- */
 
-/** A grant is scoped to either a single Writing Type or an Organization grouping. */
-export const grantScopeSchema = z.union([
-  z.object({ writingTypeId: idSchema }).strict(),
-  z.object({ organizationId: idSchema }).strict(),
-]);
-export type GrantScope = z.infer<typeof grantScopeSchema>;
-
+/**
+ * An Access Grant associates a global User with a LOCKED Document Type,
+ * permitting submission to that Document Type (Requirement 4.4).
+ */
 export const accessGrantSchema = z
   .object({
     id: idSchema,
     userId: idSchema,
-    scope: grantScopeSchema,
+    documentTypeId: idSchema,
     grantedBy: idSchema,
     grantedAt: isoDateTimeSchema,
     revokedAt: isoDateTimeSchema.optional(),
@@ -439,36 +431,36 @@ export const accessGrantSchema = z
   .strict();
 export type AccessGrant = z.infer<typeof accessGrantSchema>;
 
-/** Input to create an Access Grant, associating a global User with a LOCKED scope. */
+/** Input to create an Access Grant, associating a global User with a LOCKED Document Type. */
 export const createAccessGrantInputSchema = z
   .object({
     userId: idSchema,
-    scope: grantScopeSchema,
+    documentTypeId: idSchema,
   })
   .strict();
 export type CreateAccessGrantInput = z.infer<typeof createAccessGrantInputSchema>;
 
 /**
- * A pending access request for a LOCKED scope (Requirement 4.6): a User
- * requesting a Writing Type or Organization they cannot currently reach.
- * Approving a request creates an Access Grant through the same code path as
- * direct grant creation — there is exactly one "grant creation" path.
+ * A pending access request for a LOCKED Document Type (Requirement 4.6): a
+ * User requesting a Document Type they cannot currently reach. Approving a
+ * request creates an Access Grant through the same code path as direct grant
+ * creation — there is exactly one "grant creation" path.
  */
 export const accessRequestApprovalInputSchema = z
   .object({
     userId: idSchema,
-    scope: grantScopeSchema,
+    documentTypeId: idSchema,
   })
   .strict();
 export type AccessRequestApprovalInput = z.infer<typeof accessRequestApprovalInputSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* AppUser (Requirement 29.1 — global, never owned by an Organization)         */
+/* AppUser (Requirement 29.1 — global, never owned by a Department)            */
 /* -------------------------------------------------------------------------- */
 
 /**
  * A global User summary for system-wide directory search (REQ-ORG-02 /
- * Requirement 29.1). Carries no Organization ownership field — Users remain
+ * Requirement 29.1). Carries no Department ownership field — Users remain
  * global regardless of any Access Grant or role assignment they hold
  * (Requirement 29.4 / REQ-ORG-GROUPING-01).
  */
@@ -525,50 +517,53 @@ export type UserSearchResult = z.infer<typeof userSearchResultSchema>;
 
 /**
  * Input to assign a role to a User. `scope` follows {@link AssignmentScope}:
- * `{kind:'platform'}` for global roles (`User`, `Admin`), or
- * `{kind:'organization', organizationId}` for `Org Owner` (the Organization
- * being granted). `writingTypeId` is REQUIRED when `role` is `Field Expert` —
- * it is merged into that Field Expert's existing `writingTypeIds` array rather
- * than clobbering other assignments (Requirement 29.3); the owning
- * Organization for the authority check is resolved server-side from the
- * Writing Type, so `scope` is ignored for this role.
+ * `{kind:'platform'}` for global roles (`Student`, `TechnicalAdmin`), or
+ * `{kind:'department', departmentId}` for `DepartmentAdmin` (the Department
+ * being administered). `departmentId` is REQUIRED when `role` is
+ * `DepartmentAdmin` — it identifies the Department being administered; the
+ * assignment scope is resolved server-side from this field.
  */
 export const assignRoleInputSchema = z
   .object({
     userId: idSchema,
     role: roleSchema,
     scope: assignmentScopeSchema,
-    writingTypeId: idSchema.optional(),
+    departmentId: idSchema.optional(),
   })
   .strict()
-  .refine((value) => (value.role === 'Field Expert' ? value.writingTypeId !== undefined : true), {
-    message: "'writingTypeId' is required when assigning the 'Field Expert' role",
-    path: ['writingTypeId'],
-  });
+  .refine(
+    (value) => (value.role === 'DepartmentAdmin' ? value.departmentId !== undefined : true),
+    {
+      message: "'departmentId' is required when assigning the 'DepartmentAdmin' role",
+      path: ['departmentId'],
+    },
+  );
 export type AssignRoleInput = z.infer<typeof assignRoleInputSchema>;
 
 /**
- * Input to revoke a role from a User. `writingTypeId` is REQUIRED when `role`
- * is `Field Expert` — it removes only that Writing Type from the assignment's
- * `writingTypeIds` array, and the row is deleted entirely once none remain
- * (Requirement 29.3).
+ * Input to revoke a role from a User. `departmentId` is REQUIRED when `role`
+ * is `DepartmentAdmin` — it identifies which Department administration to
+ * revoke.
  */
 export const revokeRoleInputSchema = z
   .object({
     userId: idSchema,
     role: roleSchema,
     scope: assignmentScopeSchema,
-    writingTypeId: idSchema.optional(),
+    departmentId: idSchema.optional(),
   })
   .strict()
-  .refine((value) => (value.role === 'Field Expert' ? value.writingTypeId !== undefined : true), {
-    message: "'writingTypeId' is required when revoking the 'Field Expert' role",
-    path: ['writingTypeId'],
-  });
+  .refine(
+    (value) => (value.role === 'DepartmentAdmin' ? value.departmentId !== undefined : true),
+    {
+      message: "'departmentId' is required when revoking the 'DepartmentAdmin' role",
+      path: ['departmentId'],
+    },
+  );
 export type RevokeRoleInput = z.infer<typeof revokeRoleInputSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Override (Requirement 54 — temporary, Writing-Type-scoped usage override)   */
+/* Override (Requirement 54 — temporary, Document-Type-scoped usage override)   */
 /* -------------------------------------------------------------------------- */
 
 /** Bounds an override permits while active. */
@@ -583,7 +578,7 @@ export const overrideSchema = z
   .object({
     id: idSchema,
     userId: idSchema,
-    writingTypeId: idSchema,
+    documentTypeId: idSchema,
     bounds: overrideBoundsSchema,
     reason: z.string().min(1),
     grantedBy: idSchema,
@@ -604,8 +599,8 @@ export const activityEventSchema = z
     verb: z.string().min(1),
     objectType: z.string().min(1),
     objectRef: z.string().min(1),
-    writingTypeId: idSchema.optional(),
-    organizationId: idSchema.optional(),
+    documentTypeId: idSchema.optional(),
+    departmentId: idSchema.optional(),
     timestamp: isoDateTimeSchema,
     /** Structured context; never raw document content. */
     context: z.record(z.string(), z.unknown()),

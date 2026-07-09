@@ -9,15 +9,12 @@
  * The matrix is explicit — there is NO implicit numeric "role hierarchy"
  * (Requirement 5.4). Authority is governed solely by the rules below:
  *
- *   - `Admin`        — MAY assign or revoke ANY role (`User`, `Field Expert`,
- *                      `Org Owner`, `Admin`), in any scope (Requirement 5.1).
- *   - `Org Owner`    — MAY assign or revoke the `Field Expert` role (carrying
- *                      one or more Writing Types), LIMITED to Organizations they
- *                      own (Requirement 5.1). MAY NOT assign or revoke the
- *                      `Org Owner` or `Admin` role (Requirement 5.2). (Adding a
- *                      User to an Organization is modelled as an Access Grant —
- *                      see the capability matrix — not as a role assignment.)
- *   - `Field Expert` / `User` — MAY assign no roles (Requirement 5.1).
+ *   - `TechnicalAdmin` — MAY assign or revoke ANY role (`Student`,
+ *                         `DepartmentAdmin`, `TechnicalAdmin`), in any scope
+ *                         (Requirement 5.1).
+ *   - `DepartmentAdmin` — CANNOT assign any roles. V4 removes nested
+ *                          assignment authority (Requirement 5.2).
+ *   - `Student`         — CANNOT assign any roles (Requirement 5.1).
  *
  * A disallowed assignment yields `allowed: false`; the caller denies it with an
  * authorization error and performs NO assignment, independent of UI state
@@ -37,7 +34,7 @@ export interface RoleAssignmentRequest {
   readonly action: AssignmentAction;
   /** The role being assigned or revoked. */
   readonly role: Role;
-  /** The scope the assignment applies within (owned org for an Org Owner). */
+  /** The scope the assignment applies within. */
   readonly scope: AssignmentScope;
 }
 
@@ -61,29 +58,14 @@ export function authorizeRoleAssignment(
   actor: AuthContext,
   request: RoleAssignmentRequest,
 ): AuthorizationDecision {
-  const { action, role, scope } = request;
+  const { action, role } = request;
 
-  // Admin may assign or revoke ANY role, in any scope (Requirement 5.1).
-  if (actor.roles.includes('Admin')) {
-    return allow(`Admin may ${action} the '${role}' role`);
+  // TechnicalAdmin may assign or revoke ANY role, in any scope (Requirement 5.1).
+  if (actor.roles.includes('TechnicalAdmin')) {
+    return allow(`TechnicalAdmin may ${action} the '${role}' role`);
   }
 
-  // Org Owner may assign/revoke ONLY the Field Expert role, and ONLY within an
-  // Organization they own (Requirements 5.1, 5.2). Any other role — including
-  // Org Owner and Admin — is denied.
-  if (actor.roles.includes('Org Owner')) {
-    if (
-      role === 'Field Expert' &&
-      scope.kind === 'organization' &&
-      actor.ownedOrganizationIds.includes(scope.organizationId)
-    ) {
-      return allow(
-        `Org Owner may ${action} the 'Field Expert' role within owned Organization '${scope.organizationId}'`,
-      );
-    }
-  }
-
-  // Field Expert and User hold no role-assignment authority (Requirement 5.1).
+  // DepartmentAdmin and Student hold no role-assignment authority in V4.
   return deny(
     `No held role authorizes ${action} of the '${role}' role in the requested scope (REQ-ROLE-MATRIX-01)`,
   );

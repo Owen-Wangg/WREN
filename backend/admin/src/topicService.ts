@@ -1,13 +1,11 @@
 /**
- * Org-Owner business Topics, scoped to ONE owned Organization (REQ-TOPIC-01 /
- * Requirement 35).
+ * DepartmentAdmin business Topics, scoped to ONE administered Department
+ * (REQ-TOPIC-01 / Requirement 35).
  *
  * A Topic is purely a business-layer label used to organize Users' work — it
  * is NOT a data-isolation boundary (REQ-ORG-GROUPING-01, Requirement 35.2) and
  * it NEVER drives error taxonomy, Reference Material selection, or feedback
- * generation (Requirement 35.3); those remain Writing Type / Writing Domain
- * concerns. This service has no dependency on, and is never referenced by, the
- * error-taxonomy or feedback-generation code paths.
+ * generation (Requirement 35.3); those remain Document Type concerns.
  *
  * A Topic is distinct from a Document's per-document "Writing Topic" Custom
  * Metadata Field value (Requirement 35.4): the catalog entry here and the
@@ -19,13 +17,16 @@
  * Topic's name, so the caller can present an informed confirmation before
  * deleting (Requirement 35.5).
  *
- * Topics are a distinct business entity from the Writing Type catalog, so
- * mutations are gated by their own `topic.manage` capability (Org Owner within
- * an owned Organization, or Admin) rather than reusing
- * `writingType.manageCatalog`. Every mutation re-checks the capability BEFORE
- * touching the database and denies with no mutation when disallowed
- * (Requirements 36.2, 36.3). All persistence uses the injected parameterized
- * {@link QueryExecutor} (Requirement 39.2).
+ * Topics are a distinct business entity from the Document Type catalog, so
+ * mutations are gated by their own `topic.manage` capability (DepartmentAdmin
+ * within an administered Department) rather than reusing
+ * `documentType.manageCatalog`. No superuser fallback — TechnicalAdmin CANNOT
+ * perform educational operations.
+ *
+ * Every mutation re-checks the capability BEFORE touching the database and
+ * denies with no mutation when disallowed (Requirements 36.2, 36.3). All
+ * persistence uses the injected parameterized {@link QueryExecutor}
+ * (Requirement 39.2).
  */
 import {
   createTopicInputSchema,
@@ -47,36 +48,36 @@ import { NotFoundError } from './errors';
 /** Raw `topic` row (snake_case columns from PostgreSQL). */
 interface TopicRow {
   readonly id: string;
-  readonly organization_id: string;
+  readonly department_id: string;
   readonly name: string;
 }
 
-const RETURNING = 'id, organization_id, name';
+const RETURNING = 'id, department_id, name';
 
 /** Map a raw row to the validated shared {@link Topic} DTO. */
 function toTopic(row: TopicRow): Topic {
   return topicSchema.parse({
     id: row.id,
-    organizationId: row.organization_id,
+    departmentId: row.department_id,
     name: row.name,
   });
 }
 
-/** Load a Topic's owning Organization id, or `null` when it is unknown. */
-async function findOrganizationId(
+/** Load a Topic's owning Department id, or `null` when it is unknown. */
+async function findDepartmentId(
   topicId: string,
   db: QueryExecutor,
 ): Promise<string | null> {
-  const rows = await db.query<{ organization_id: string }>(
-    'SELECT organization_id FROM topic WHERE id = $1',
+  const rows = await db.query<{ department_id: string }>(
+    'SELECT department_id FROM topic WHERE id = $1',
     [topicId],
   );
-  return rows[0]?.organization_id ?? null;
+  return rows[0]?.department_id ?? null;
 }
 
 /**
- * Create a Topic within an Organization (`Org Owner` for owned orgs, or
- * `Admin`). A Topic is scoped to exactly one Organization grouping
+ * Create a Topic within a Department (`DepartmentAdmin` for administered
+ * Departments). A Topic is scoped to exactly one Department grouping
  * (Requirement 35.2) and is never treated as a data-isolation boundary.
  */
 export async function createTopic(
@@ -84,16 +85,16 @@ export async function createTopic(
   input: CreateTopicInput,
   db: QueryExecutor,
 ): Promise<Topic> {
-  const { organizationId, name } = createTopicInputSchema.parse(input);
+  const { departmentId, name } = createTopicInputSchema.parse(input);
 
   requireCapability(actor, {
     capability: 'topic.manage',
-    scope: { kind: 'organization', organizationId },
+    scope: { kind: 'department', departmentId },
   });
 
   const rows = await db.query<TopicRow>(
-    `INSERT INTO topic (organization_id, name) VALUES ($1, $2) RETURNING ${RETURNING}`,
-    [organizationId, name],
+    `INSERT INTO topic (department_id, name) VALUES ($1, $2) RETURNING ${RETURNING}`,
+    [departmentId, name],
   );
 
   return toTopic(rows[0]!);
@@ -106,14 +107,14 @@ export async function getTopic(id: string, db: QueryExecutor): Promise<Topic | n
   return row ? toTopic(row) : null;
 }
 
-/** List the Topics for one Organization, ordered by name. */
+/** List the Topics for one Department, ordered by name. */
 export async function listTopics(
-  organizationId: string,
+  departmentId: string,
   db: QueryExecutor,
 ): Promise<Topic[]> {
   const rows = await db.query<TopicRow>(
-    `SELECT ${RETURNING} FROM topic WHERE organization_id = $1 ORDER BY name ASC`,
-    [organizationId],
+    `SELECT ${RETURNING} FROM topic WHERE department_id = $1 ORDER BY name ASC`,
+    [departmentId],
   );
   return rows.map(toTopic);
 }
@@ -132,14 +133,14 @@ export async function updateTopic(
 ): Promise<Topic> {
   const { name } = updateTopicInputSchema.parse(input);
 
-  const organizationId = await findOrganizationId(id, db);
-  if (organizationId === null) {
+  const departmentId = await findDepartmentId(id, db);
+  if (departmentId === null) {
     throw new NotFoundError(`Topic '${id}' not found`);
   }
 
   requireCapability(actor, {
     capability: 'topic.manage',
-    scope: { kind: 'organization', organizationId },
+    scope: { kind: 'department', departmentId },
   });
 
   const rows = await db.query<TopicRow>(
@@ -157,8 +158,7 @@ export async function updateTopic(
  * Count `document` rows whose "Writing Topic" custom-metadata value matches
  * `topicName` (best-effort match on the JSONB `document.metadata` field: the
  * value is an independent per-document string, never a foreign key to
- * `topic.id`). Used only for the read-only deletion-impact report; never for
- * authorization and never to drive taxonomy/feedback.
+ * `topic.id`). Used only for the read-only deletion-impact report.
  */
 async function countDocumentsReferencingTopicName(
   topicName: string,
@@ -176,25 +176,22 @@ async function countDocumentsReferencingTopicName(
  * whose "Writing Topic" custom-metadata value currently matches this Topic's
  * name — BEFORE any deletion, so the caller can present an explicit
  * confirmation (REQ-TOPIC-01 / Requirement 35.5). This is read-only: it never
- * deletes or alters anything, and deleting the Topic afterward will NOT cascade
- * into or blank the counted Documents' metadata — those values are independent
- * per-document strings, not a foreign key to `topic.id`, so Document data is
- * inherently preserved regardless of this report. Throws {@link NotFoundError}
- * when the Topic does not exist.
+ * deletes or alters anything. Throws {@link NotFoundError} when the Topic does
+ * not exist.
  */
 export async function getTopicDeletionImpact(
   actor: AuthContext,
   id: string,
   db: QueryExecutor,
 ): Promise<TopicDeletionImpact> {
-  const organizationId = await findOrganizationId(id, db);
-  if (organizationId === null) {
+  const departmentId = await findDepartmentId(id, db);
+  if (departmentId === null) {
     throw new NotFoundError(`Topic '${id}' not found`);
   }
 
   requireCapability(actor, {
     capability: 'topic.manage',
-    scope: { kind: 'organization', organizationId },
+    scope: { kind: 'department', departmentId },
   });
 
   const rows = await db.query<TopicRow>(`SELECT ${RETURNING} FROM topic WHERE id = $1`, [id]);
@@ -215,28 +212,22 @@ export async function getTopicDeletionImpact(
 }
 
 /**
- * Delete a Topic (`Org Owner` for owned orgs, or `Admin`). Returns `true` when
- * a row was removed, `false` when no Topic had that id. Callers SHOULD first
- * call {@link getTopicDeletionImpact} and obtain explicit confirmation when it
- * reports any referencing Documents (Requirement 35.5). Deletion never
- * cascades into or blanks any Document's stored "Writing Topic" metadata value
- * — that value is an independent per-document string, not a foreign key to
- * `topic.id`, so existing Document data is preserved by construction, not by
- * any special-cased logic here.
+ * Delete a Topic (`DepartmentAdmin` for administered Departments). Returns
+ * `true` when a row was removed, `false` when no Topic had that id.
  */
 export async function deleteTopic(
   actor: AuthContext,
   id: string,
   db: QueryExecutor,
 ): Promise<boolean> {
-  const organizationId = await findOrganizationId(id, db);
-  if (organizationId === null) {
+  const departmentId = await findDepartmentId(id, db);
+  if (departmentId === null) {
     return false;
   }
 
   requireCapability(actor, {
     capability: 'topic.manage',
-    scope: { kind: 'organization', organizationId },
+    scope: { kind: 'department', departmentId },
   });
 
   const rows = await db.query<{ id: string }>('DELETE FROM topic WHERE id = $1 RETURNING id', [

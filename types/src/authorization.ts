@@ -29,43 +29,47 @@ import { idSchema } from './common';
  * every capability to the roles that may perform it and the scope in which they
  * may do so.
  *
- * - `writingType.readConfig` / `writingType.modifyConfig` — read/modify a
- *   Writing Type's taxonomy, conventions, and prompt content. A `Field Expert`
- *   may perform these ONLY for Writing Types they are assigned to, across any
- *   Organization (REQ-SCOPE-01 / Requirement 23.1, 23.6).
- * - `writingType.manageCatalog` — business management of an Organization's
- *   Writing Type catalog, Content Types, and custom metadata (Org Owner for
- *   owned Organizations; Admin).
- * - `topic.manage` — CRUD for an Organization's business Topics (REQ-TOPIC-01 /
- *   Requirement 35.1). Topics are a distinct business entity from the Writing
+ * - `documentType.readConfig` / `documentType.modifyConfig` — read/modify a
+ *   Document Type's taxonomy, conventions, and prompt content. A
+ *   `DepartmentAdmin` may perform these for Document Types within their
+ *   administered Departments (REQ-SCOPE-01 / Requirement 23.1, 23.6).
+ * - `documentType.manageCatalog` — business management of a Department's
+ *   Document Type catalog, Content Types, and custom metadata (DepartmentAdmin
+ *   for administered Departments; TechnicalAdmin).
+ * - `documentType.setAccessState` — set OPEN/LOCKED access state on a Document
+ *   Type (DepartmentAdmin for administered Departments; TechnicalAdmin).
+ * - `topic.manage` — CRUD for a Department's business Topics (REQ-TOPIC-01 /
+ *   Requirement 35.1). Topics are a distinct business entity from the Document
  *   Type catalog — they never drive taxonomy or feedback generation — so this
- *   is a separate capability from `writingType.manageCatalog`, though it is
- *   granted to the same roles (Org Owner for owned Organizations; Admin).
- * - `organization.manage` / `organization.setAccessState` — technical
- *   Organization lifecycle and OPEN/LOCKED control (Admin only).
+ *   is a separate capability from `documentType.manageCatalog`, though it is
+ *   granted to the same roles (DepartmentAdmin for administered Departments;
+ *   TechnicalAdmin).
+ * - `department.manage` — rename or remove an administered Department
+ *   (DepartmentAdmin for their own Department; TechnicalAdmin).
  * - `accessGrant.create` / `accessGrant.revoke` — create/revoke Access Grants
- *   (Org Owner within owned Organizations; Admin).
- * - `usageLimit.configure` — configure usage limits (Admin only).
- * - `usageOverride.grant` — grant a temporary, Writing-Type-scoped usage
- *   override (Field Expert for assigned types; Org Owner for owned orgs; Admin).
+ *   (DepartmentAdmin within administered Departments; TechnicalAdmin).
+ * - `usageLimit.configure` — configure usage limits (TechnicalAdmin only).
+ * - `usageOverride.grant` — grant a temporary, Document-Type-scoped usage
+ *   override (DepartmentAdmin for administered Departments; TechnicalAdmin).
  * - `user.search` — system-wide search/filter of global Users by first name,
- *   last name, email, or role (Admin only, Requirement 29.1 / 2.1-2.3 / 2.5).
- *   Deliberately NOT granted to `Org Owner` — an Org Owner's user-facing
- *   authority is limited to creating/revoking Access Grants within owned
- *   Organizations, never a system-wide directory search.
+ *   last name, email, or role (TechnicalAdmin only, Requirement 29.1 / 2.1-2.3
+ *   / 2.5).
+ * - `user.searchScoped` — scoped search of Users within an administered
+ *   Department (DepartmentAdmin only).
  */
 export const capabilitySchema = z.enum([
-  'writingType.readConfig',
-  'writingType.modifyConfig',
-  'writingType.manageCatalog',
+  'documentType.readConfig',
+  'documentType.modifyConfig',
+  'documentType.manageCatalog',
+  'documentType.setAccessState',
   'topic.manage',
-  'organization.manage',
-  'organization.setAccessState',
+  'department.manage',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageLimit.configure',
   'usageOverride.grant',
   'user.search',
+  'user.searchScoped',
 ]);
 export type Capability = z.infer<typeof capabilitySchema>;
 
@@ -74,21 +78,20 @@ export type Capability = z.infer<typeof capabilitySchema>;
 /* -------------------------------------------------------------------------- */
 
 /**
- * The target scope of a capability check. A `writingType` scope always carries
- * its owning `organizationId` so an Org Owner can be scoped by ownership while a
- * Field Expert is scoped purely by Writing-Type assignment (cross-organization —
- * Requirement 23.6). A `platform` scope targets no specific Organization.
+ * The target scope of a capability check. A `documentType` scope always carries
+ * its owning `departmentId` so a DepartmentAdmin can be scoped by administered
+ * Department. A `platform` scope targets no specific Department.
  */
 export const operationScopeSchema = z.union([
   z.object({ kind: z.literal('platform') }).strict(),
   z
-    .object({ kind: z.literal('organization'), organizationId: idSchema })
+    .object({ kind: z.literal('department'), departmentId: idSchema })
     .strict(),
   z
     .object({
-      kind: z.literal('writingType'),
-      writingTypeId: idSchema,
-      organizationId: idSchema,
+      kind: z.literal('documentType'),
+      documentTypeId: idSchema,
+      departmentId: idSchema,
     })
     .strict(),
 ]);
@@ -117,14 +120,14 @@ export const assignmentActionSchema = z.enum(['assign', 'revoke']);
 export type AssignmentAction = z.infer<typeof assignmentActionSchema>;
 
 /**
- * The scope a role assignment applies within. `Org Owner` authority is limited
- * to `organization` scopes for Organizations they own (Requirement 5.1);
- * `platform` scope is reserved for Admin-only assignments (e.g. `Admin`).
+ * The scope a role assignment applies within. `DepartmentAdmin` authority is
+ * limited to `department` scopes for Departments they administer (Requirement
+ * 5.1); `platform` scope is reserved for TechnicalAdmin-only assignments.
  */
 export const assignmentScopeSchema = z.union([
   z.object({ kind: z.literal('platform') }).strict(),
   z
-    .object({ kind: z.literal('organization'), organizationId: idSchema })
+    .object({ kind: z.literal('department'), departmentId: idSchema })
     .strict(),
 ]);
 export type AssignmentScope = z.infer<typeof assignmentScopeSchema>;

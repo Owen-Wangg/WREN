@@ -13,9 +13,8 @@
  * generative invariants:
  *
  *   1. Effective-limit precedence (Req 7.4): `resolveEffectiveSizeLimitWords`
- *      equals the Writing-Domain override when set, else the Organization
- *      override when set, else the platform default — re-derived independently
- *      from the implementation expression.
+ *      equals the Document Type override when set, else the platform default —
+ *      re-derived independently from the implementation expression.
  *   2. Enforcement decision (Req 7.2 / 7.3): a count strictly exceeding the
  *      effective limit is `over-limit` carrying both numbers (and a message
  *      naming both); a count at or under the limit is `within-limit`. The pure
@@ -45,13 +44,12 @@ import {
 
 import { wrenProperty } from '../../../testing/typescript/property';
 
-/** A configured override at one level: a positive int, or `null` to inherit. */
+/** A configured override: a positive int, or `null` to use platform default. */
 const overrideArb = fc.option(fc.integer({ min: 1, max: 20_000 }), { nil: null });
 
-/** Arbitrary Writing-Domain + Organization override pair (each may be `null`). */
+/** Arbitrary Document Type override (may be `null`). */
 const overridesArb: fc.Arbitrary<SizeLimitOverrides> = fc.record({
-  writingDomainSizeLimitWords: overrideArb,
-  organizationSizeLimitWords: overrideArb,
+  documentTypeSizeLimitWords: overrideArb,
 });
 
 /** An arbitrary already-measured word count, including 0. */
@@ -96,16 +94,12 @@ const documentArb = fc.array(paragraphArb, { maxLength: 6 }).map((paragraphs) =>
 
 /**
  * Independent re-derivation of the effective limit (Req 7.4 precedence): the
- * first non-null override in Writing-Domain → Organization order, else the
- * platform default. Uses a different expression than the implementation and a
- * literal default so it does not merely echo `resolveEffectiveSizeLimitWords`.
+ * Document Type override when set, else the platform default. Uses a different
+ * expression than the implementation and a literal default so it does not merely
+ * echo `resolveEffectiveSizeLimitWords`.
  */
 function expectedEffectiveLimit(overrides: SizeLimitOverrides): number {
-  const configured = [
-    overrides.writingDomainSizeLimitWords,
-    overrides.organizationSizeLimitWords,
-  ].find((value) => value !== null);
-  return configured ?? 10_000;
+  return overrides.documentTypeSizeLimitWords ?? 10_000;
 }
 
 /**

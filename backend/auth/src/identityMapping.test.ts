@@ -4,6 +4,9 @@
  * These assert the authorization context is assembled ENTIRELY from database
  * rows keyed by the verified subject, using parameterized queries — never from
  * any identity-provider claim (the function cannot even receive a claim).
+ *
+ * V4 model: AuthContext has `administeredDepartmentIds` (from DepartmentAdmin
+ * role scopes) and flat AccessGrant with `documentTypeId`.
  */
 import {
   mapSubjectToAuthContext,
@@ -54,19 +57,19 @@ const USER: AppUserRow = {
 };
 
 describe('mapSubjectToAuthContext — DB is the authorization source of truth', () => {
-  it('resolves identity, roles, scopes, and grants for a known subject', async () => {
+  it('resolves identity, roles, administered departments, and grants for a known subject', async () => {
     const { db } = makeDb({
       users: [USER],
       roles: [
-        { role: 'User', scope: null },
-        { role: 'Field Expert', scope: { writingTypeIds: ['wt-1', 'wt-2'] } },
-        { role: 'Org Owner', scope: { organizationId: 'org-9' } },
+        { role: 'Student', scope: null },
+        { role: 'DepartmentAdmin', scope: { departmentId: 'dept-1' } },
+        { role: 'DepartmentAdmin', scope: { departmentId: 'dept-2' } },
       ],
       grants: [
         {
           id: 'grant-1',
           user_id: USER.id,
-          scope: { writingTypeId: 'wt-locked' },
+          document_type_id: 'dt-locked',
           granted_by: 'admin-1',
           granted_at: new Date('2024-01-02T03:04:05.000Z'),
           revoked_at: null,
@@ -80,14 +83,13 @@ describe('mapSubjectToAuthContext — DB is the authorization source of truth', 
     expect(context?.userId).toBe(USER.id);
     expect(context?.idpSubject).toBe(USER.idp_subject);
     expect(context?.email).toBe(USER.email);
-    expect(context?.roles.sort()).toEqual(['Field Expert', 'Org Owner', 'User']);
-    expect(context?.assignedWritingTypeIds.sort()).toEqual(['wt-1', 'wt-2']);
-    expect(context?.ownedOrganizationIds).toEqual(['org-9']);
+    expect(context?.roles.sort()).toEqual(['DepartmentAdmin', 'Student']);
+    expect(context?.administeredDepartmentIds.sort()).toEqual(['dept-1', 'dept-2']);
     expect(context?.grants).toEqual([
       {
         id: 'grant-1',
         userId: USER.id,
-        scope: { writingTypeId: 'wt-locked' },
+        documentTypeId: 'dt-locked',
         grantedBy: 'admin-1',
         grantedAt: '2024-01-02T03:04:05.000Z',
       },
@@ -101,23 +103,22 @@ describe('mapSubjectToAuthContext — DB is the authorization source of truth', 
   });
 
   it('derives roles strictly from role_assignment rows, not from any claim', async () => {
-    // Only a plain "User" role exists in the DB. There is no channel by which a
+    // Only a plain "Student" role exists in the DB. There is no channel by which a
     // token claim could inject a higher role — the function takes only a subject.
     const { db } = makeDb({
       users: [USER],
-      roles: [{ role: 'User', scope: null }],
+      roles: [{ role: 'Student', scope: null }],
       grants: [],
     });
     const context = await mapSubjectToAuthContext(USER.idp_subject, db);
-    expect(context?.roles).toEqual(['User']);
-    expect(context?.ownedOrganizationIds).toEqual([]);
-    expect(context?.assignedWritingTypeIds).toEqual([]);
+    expect(context?.roles).toEqual(['Student']);
+    expect(context?.administeredDepartmentIds).toEqual([]);
   });
 
   it('uses parameterized queries binding the subject and user id as $1', async () => {
     const { db, calls } = makeDb({
       users: [USER],
-      roles: [{ role: 'User', scope: null }],
+      roles: [{ role: 'Student', scope: null }],
       grants: [],
     });
     await mapSubjectToAuthContext(USER.idp_subject, db);
@@ -135,19 +136,16 @@ describe('mapSubjectToAuthContext — DB is the authorization source of truth', 
     expect(grantQuery?.params).toEqual([USER.id]);
   });
 
-  it('ignores malformed grant/role scopes rather than emitting a bad context', async () => {
+  it('ignores malformed grant rows (missing granted_by or document_type_id)', async () => {
     const { db } = makeDb({
       users: [USER],
-      roles: [
-        { role: 'Org Owner', scope: {} }, // missing organizationId
-        { role: 'Field Expert', scope: { writingTypeIds: [42, 'wt-ok'] } }, // mixed types
-      ],
+      roles: [{ role: 'Student', scope: null }],
       grants: [
         {
           id: 'bad-grant',
           user_id: USER.id,
-          scope: {}, // neither writingTypeId nor organizationId
-          granted_by: 'admin-1',
+          document_type_id: '',
+          granted_by: null,
           granted_at: '2024-01-02T03:04:05.000Z',
           revoked_at: null,
         },
@@ -155,8 +153,47 @@ describe('mapSubjectToAuthContext — DB is the authorization source of truth', 
     });
 
     const context = await mapSubjectToAuthContext(USER.idp_subject, db);
-    expect(context?.ownedOrganizationIds).toEqual([]);
-    expect(context?.assignedWritingTypeIds).toEqual(['wt-ok']);
+    expect(context?.grants).toEqual([]);
+  });
+
+  it('ignores malformed DepartmentAdmin scopes (missing departmentId)', async () => {
+    const { db } = makeDb({
+      users: [USER],
+      roles: [
+        { role: 'DepartmentAdmin', scope: {} }, // missing departmentId
+        { role: 'DepartmentAdmin', scope: { departmentId: 'dept-ok' } },
+      ],
+      grants: [],
+    });
+
+    const context = await mapSubjectToAuthContext(USER.idp_subject, db);
+    expect(context?.administeredDepartmentIds).toEqual(['dept-ok']);
+  });
+
+  it('de-duplicates roles from multiple role_assignment rows', async () => {
+    const { db } = makeDb({
+      users: [USER],
+      roles: [
+        { role: 'DepartmentAdmin', scope: { departmentId: 'dept-1' } },
+        { role: 'DepartmentAdmin', scope: { departmentId: 'dept-2' } },
+      ],
+      grants: [],
+    });
+
+    const context = await mapSubjectToAuthContext(USER.idp_subject, db);
+    expect(context?.roles).toEqual(['DepartmentAdmin']);
+  });
+
+  it('resolves a TechnicalAdmin with no administered departments', async () => {
+    const { db } = makeDb({
+      users: [USER],
+      roles: [{ role: 'TechnicalAdmin', scope: null }],
+      grants: [],
+    });
+
+    const context = await mapSubjectToAuthContext(USER.idp_subject, db);
+    expect(context?.roles).toEqual(['TechnicalAdmin']);
+    expect(context?.administeredDepartmentIds).toEqual([]);
     expect(context?.grants).toEqual([]);
   });
 });

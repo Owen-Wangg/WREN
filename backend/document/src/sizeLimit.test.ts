@@ -3,11 +3,11 @@
  * (REQ-DOC-SIZE-01 / Requirements 7.1, 7.2, 7.3, 7.4; design Property 4 targets
  * this module).
  *
- * Covers: word-count measurement; default limit when no override; Organization
- * override; Writing-Domain override winning over Organization override; the
- * exactly-at-limit boundary (accepted — Requirement 7.2 rejects only when the
- * document *exceeds* the limit); and over-limit rejection returning both the
- * effective limit and the measured size (Requirement 7.2).
+ * Covers: word-count measurement; default limit when no override; Document Type
+ * override winning over the platform default; the exactly-at-limit boundary
+ * (accepted — Requirement 7.2 rejects only when the document *exceeds* the
+ * limit); and over-limit rejection returning both the effective limit and the
+ * measured size (Requirement 7.2).
  */
 import type { Segment } from '@wren/types';
 
@@ -22,8 +22,7 @@ import {
 } from './sizeLimit';
 
 const NO_OVERRIDES: SizeLimitOverrides = {
-  writingDomainSizeLimitWords: null,
-  organizationSizeLimitWords: null,
+  documentTypeSizeLimitWords: null,
 };
 
 /** Build ordered segments from paragraph strings. */
@@ -72,29 +71,18 @@ describe('resolveEffectiveSizeLimitWords', () => {
     expect(DEFAULT_SIZE_LIMIT_WORDS).toBe(10_000);
   });
 
-  it('uses the Organization override when the Writing Domain sets none (Requirement 7.4)', () => {
+  it('uses the Document Type override when set (Requirement 7.4)', () => {
     expect(
       resolveEffectiveSizeLimitWords({
-        writingDomainSizeLimitWords: null,
-        organizationSizeLimitWords: 5_000,
+        documentTypeSizeLimitWords: 5_000,
       }),
     ).toBe(5_000);
   });
 
-  it('lets the Writing-Domain override win over the Organization override (Requirement 7.4)', () => {
+  it('uses the Document Type override over the default', () => {
     expect(
       resolveEffectiveSizeLimitWords({
-        writingDomainSizeLimitWords: 2_000,
-        organizationSizeLimitWords: 5_000,
-      }),
-    ).toBe(2_000);
-  });
-
-  it('uses the Writing-Domain override over the default when the Organization sets none', () => {
-    expect(
-      resolveEffectiveSizeLimitWords({
-        writingDomainSizeLimitWords: 3_000,
-        organizationSizeLimitWords: null,
+        documentTypeSizeLimitWords: 3_000,
       }),
     ).toBe(3_000);
   });
@@ -126,25 +114,12 @@ describe('enforceSizeLimitForWordCount', () => {
     }
   });
 
-  it('enforces the Organization override boundary', () => {
+  it('enforces the Document Type override boundary', () => {
     const overrides: SizeLimitOverrides = {
-      writingDomainSizeLimitWords: null,
-      organizationSizeLimitWords: 100,
+      documentTypeSizeLimitWords: 100,
     };
     expect(enforceSizeLimitForWordCount(100, overrides).status).toBe('within-limit');
     expect(enforceSizeLimitForWordCount(101, overrides).status).toBe('over-limit');
-  });
-
-  it('enforces the Writing-Domain override over the Organization override', () => {
-    const overrides: SizeLimitOverrides = {
-      writingDomainSizeLimitWords: 50,
-      organizationSizeLimitWords: 100,
-    };
-    // 75 words is under the Org override (100) but over the Writing-Domain one (50).
-    const result = enforceSizeLimitForWordCount(75, overrides);
-    expect(result.status).toBe('over-limit');
-    expect(result.effectiveLimitWords).toBe(50);
-    expect(result.measuredWords).toBe(75);
   });
 });
 
@@ -160,8 +135,7 @@ describe('enforceSizeLimit (segment-based gate)', () => {
 
   it('rejects when measured segment words exceed a small effective override', () => {
     const overrides: SizeLimitOverrides = {
-      writingDomainSizeLimitWords: 3,
-      organizationSizeLimitWords: null,
+      documentTypeSizeLimitWords: 3,
     };
     const result = enforceSizeLimit(segmentsOf('one two', 'three four'), overrides);
     expect(result.status).toBe('over-limit');
@@ -169,10 +143,9 @@ describe('enforceSizeLimit (segment-based gate)', () => {
     expect(result.measuredWords).toBe(4);
   });
 
-  it('accepts a document exactly at a Writing-Domain override limit (boundary)', () => {
+  it('accepts a document exactly at a Document Type override limit (boundary)', () => {
     const overrides: SizeLimitOverrides = {
-      writingDomainSizeLimitWords: 4,
-      organizationSizeLimitWords: null,
+      documentTypeSizeLimitWords: 4,
     };
     const result = enforceSizeLimit(segmentWithWords(4), overrides);
     expect(result.status).toBe('within-limit');

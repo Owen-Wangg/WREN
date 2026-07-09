@@ -21,7 +21,9 @@ import {
   anchorSchema,
   assertNoReplacementProse,
   containsReplacementProse,
+  departmentSchema,
   documentSchema,
+  documentTypeSchema,
   draftSchema,
   type Expect,
   feedbackItemSchema,
@@ -30,7 +32,6 @@ import {
   overrideSchema,
   resolutionStatusSchema,
   roleSchema,
-  writingTypeSchema,
 } from './index';
 
 /* -------------------------------------------------------------------------- */
@@ -48,11 +49,18 @@ const ISO = '2024-01-01T00:00:00.000Z';
 
 /** Valid example fixtures, one per strict object schema. */
 const validExamples = {
-  writingType: {
-    schema: writingTypeSchema,
+  department: {
+    schema: departmentSchema,
     value: {
-      id: 'wt_1',
-      organizationId: 'org_1',
+      id: 'dept_1',
+      name: 'Legal Studies',
+    },
+  },
+  documentType: {
+    schema: documentTypeSchema,
+    value: {
+      id: 'dt_1',
+      departmentId: 'dept_1',
       name: 'Legal Writing',
       accessState: 'OPEN',
       sizeLimitWords: 10000,
@@ -63,7 +71,7 @@ const validExamples = {
     value: {
       id: 'doc_1',
       ownerUserId: 'user_1',
-      writingTypeId: 'wt_1',
+      documentTypeId: 'dt_1',
       contentTypeId: 'ct_1',
       name: 'Case Brief',
       metadata: { 'Writing Topic': 'Tort' },
@@ -113,7 +121,7 @@ const validExamples = {
     value: {
       id: 'grant_1',
       userId: 'user_1',
-      scope: { writingTypeId: 'wt_1' },
+      documentTypeId: 'dt_1',
       grantedBy: 'user_admin',
       grantedAt: ISO,
     },
@@ -123,10 +131,10 @@ const validExamples = {
     value: {
       id: 'ovr_1',
       userId: 'user_1',
-      writingTypeId: 'wt_1',
+      documentTypeId: 'dt_1',
       bounds: { additionalActions: 5 },
       reason: 'Approved extra feedback runs for revision week.',
-      grantedBy: 'user_expert',
+      grantedBy: 'user_admin',
       expiresAt: ISO,
     },
   },
@@ -152,13 +160,20 @@ describe('strict schemas parse valid examples', () => {
 
 describe('enum schemas', () => {
   it('accepts every canonical role identifier (Requirement 1.1)', () => {
-    for (const role of ['User', 'Field Expert', 'Org Owner', 'Admin']) {
+    for (const role of ['Student', 'DepartmentAdmin', 'TechnicalAdmin']) {
       expect(roleSchema.parse(role)).toBe(role);
     }
   });
 
   it('rejects an unknown role', () => {
     expect(() => roleSchema.parse('Instructor')).toThrow();
+  });
+
+  it('rejects V1 role names', () => {
+    expect(() => roleSchema.parse('User')).toThrow();
+    expect(() => roleSchema.parse('Field Expert')).toThrow();
+    expect(() => roleSchema.parse('Org Owner')).toThrow();
+    expect(() => roleSchema.parse('Admin')).toThrow();
   });
 
   it('accepts every resolution status (Requirement 17)', () => {
@@ -193,11 +208,20 @@ describe('schemas reject malformed input', () => {
     ).toThrow();
   });
 
-  it('rejects an access grant scope carrying both ids', () => {
+  it('rejects an access grant with an extra scope field (strict mode)', () => {
     expect(() =>
       accessGrantSchema.parse({
         ...validExamples.accessGrant.value,
-        scope: { writingTypeId: 'wt_1', organizationId: 'org_1' },
+        scope: { writingTypeId: 'wt_1' },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects a document type with INHERIT access state (V4 only allows OPEN/LOCKED)', () => {
+    expect(() =>
+      documentTypeSchema.parse({
+        ...validExamples.documentType.value,
+        accessState: 'INHERIT',
       }),
     ).toThrow();
   });

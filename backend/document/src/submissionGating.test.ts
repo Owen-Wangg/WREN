@@ -6,7 +6,11 @@
  * resolver-backed entry point ({@link gateSubmission}) using an injected fake
  * {@link AccessResolver}: OPEN -> permitted (self-select); GRANTED -> permitted;
  * DENIED (LOCKED without a grant) -> requires-access-request, surfacing the
- * `writingTypeId` for the access-request flow.
+ * `documentTypeId` for the access-request flow.
+ *
+ * V4 simplification: no INHERIT state, no Organization-level resolution. Each
+ * Document Type is directly OPEN or LOCKED. AccessGrant has a flat
+ * `documentTypeId` field.
  */
 import type { AccessDecision } from '@wren/types';
 
@@ -18,72 +22,72 @@ import {
 
 /**
  * A fake {@link AccessResolver} that returns a fixed decision and records the
- * `(userId, writingTypeId)` it was asked about — enough to assert the gate
+ * `(userId, documentTypeId)` it was asked about — enough to assert the gate
  * consults the seam without any `@wren/auth` or database wiring.
  */
 class FakeAccessResolver implements AccessResolver {
-  public lastArgs: { userId: string; writingTypeId: string } | undefined;
+  public lastArgs: { userId: string; documentTypeId: string } | undefined;
 
   constructor(private readonly decision: AccessDecision) {}
 
-  async resolveAccess(userId: string, writingTypeId: string): Promise<AccessDecision> {
-    this.lastArgs = { userId, writingTypeId };
+  async resolveAccess(userId: string, documentTypeId: string): Promise<AccessDecision> {
+    this.lastArgs = { userId, documentTypeId };
     return this.decision;
   }
 }
 
 describe('decideSubmissionGate (pure mapping)', () => {
-  it('permits an OPEN Writing Domain (self-select, no grant needed)', () => {
-    expect(decideSubmissionGate('OPEN', 'wt-1')).toEqual({
+  it('permits an OPEN Document Type (self-select, no grant needed)', () => {
+    expect(decideSubmissionGate('OPEN', 'dt-1')).toEqual({
       status: 'permitted',
       decision: 'OPEN',
     });
   });
 
   it('permits a GRANTED (LOCKED with an applicable Access Grant) submission', () => {
-    expect(decideSubmissionGate('GRANTED', 'wt-1')).toEqual({
+    expect(decideSubmissionGate('GRANTED', 'dt-1')).toEqual({
       status: 'permitted',
       decision: 'GRANTED',
     });
   });
 
   it('requires the access-request flow for a DENIED (LOCKED, no grant) decision', () => {
-    expect(decideSubmissionGate('DENIED', 'wt-42')).toEqual({
+    expect(decideSubmissionGate('DENIED', 'dt-42')).toEqual({
       status: 'requires-access-request',
-      writingTypeId: 'wt-42',
+      documentTypeId: 'dt-42',
     });
   });
 
-  it('surfaces the target writingTypeId on a denied result', () => {
-    const result = decideSubmissionGate('DENIED', 'wt-legal-memo');
+  it('surfaces the target documentTypeId on a denied result', () => {
+    const result = decideSubmissionGate('DENIED', 'dt-legal-memo');
     expect(result.status).toBe('requires-access-request');
     if (result.status === 'requires-access-request') {
-      expect(result.writingTypeId).toBe('wt-legal-memo');
+      expect(result.documentTypeId).toBe('dt-legal-memo');
     }
   });
 });
 
 describe('gateSubmission (resolver-backed)', () => {
-  it('resolves via the injected resolver and permits an OPEN Writing Domain', async () => {
+  it('resolves via the injected resolver and permits an OPEN Document Type', async () => {
     const resolver = new FakeAccessResolver('OPEN');
-    const result = await gateSubmission(resolver, 'user-1', 'wt-1');
+    const result = await gateSubmission(resolver, 'user-1', 'dt-1');
     expect(result).toEqual({ status: 'permitted', decision: 'OPEN' });
-    expect(resolver.lastArgs).toEqual({ userId: 'user-1', writingTypeId: 'wt-1' });
+    expect(resolver.lastArgs).toEqual({ userId: 'user-1', documentTypeId: 'dt-1' });
   });
 
   it('permits when the resolver reports GRANTED', async () => {
     const resolver = new FakeAccessResolver('GRANTED');
-    const result = await gateSubmission(resolver, 'user-2', 'wt-9');
+    const result = await gateSubmission(resolver, 'user-2', 'dt-9');
     expect(result).toEqual({ status: 'permitted', decision: 'GRANTED' });
   });
 
   it('requires an access request when the resolver reports DENIED', async () => {
     const resolver = new FakeAccessResolver('DENIED');
-    const result = await gateSubmission(resolver, 'user-3', 'wt-locked');
+    const result = await gateSubmission(resolver, 'user-3', 'dt-locked');
     expect(result).toEqual({
       status: 'requires-access-request',
-      writingTypeId: 'wt-locked',
+      documentTypeId: 'dt-locked',
     });
-    expect(resolver.lastArgs).toEqual({ userId: 'user-3', writingTypeId: 'wt-locked' });
+    expect(resolver.lastArgs).toEqual({ userId: 'user-3', documentTypeId: 'dt-locked' });
   });
 });

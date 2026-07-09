@@ -5,11 +5,11 @@
  * Given a *verified* identity-provider subject (e.g. a Cognito `sub`), this
  * module looks up the application-side identity and builds the {@link AuthContext}
  * that downstream services consume. Every authorization fact — roles,
- * Organization/Writing-Type scopes, Access Grants — is read from Postgres. The
- * IdP token's groups/claims/attributes are deliberately NOT an input here: the
- * only thing that crosses the boundary from authentication into authorization is
- * the opaque subject string. Swapping the IdP therefore changes no logic in this
- * file (Requirement 37.4).
+ * Department scopes, Access Grants — is read from Postgres. The IdP token's
+ * groups/claims/attributes are deliberately NOT an input here: the only thing
+ * that crosses the boundary from authentication into authorization is the opaque
+ * subject string. Swapping the IdP therefore changes no logic in this file
+ * (Requirement 37.4).
  *
  * All queries are parameterized ($1..$N); no value is interpolated into SQL
  * (UBC CIC security steering / Requirement 39.2). The executor is accepted as a
@@ -20,7 +20,6 @@ import {
   authContextSchema,
   type AccessGrant,
   type AuthContext,
-  type GrantScope,
   type Role,
 } from '@wren/types';
 
@@ -48,11 +47,11 @@ export interface RoleAssignmentRow {
   readonly scope: unknown;
 }
 
-/** Raw `access_grant` row. `scope` is JSONB; timestamps may arrive as Date. */
+/** Raw `access_grant` row. Flat `document_type_id` column (V4). */
 export interface AccessGrantRow {
   readonly id: string;
   readonly user_id: string;
-  readonly scope: unknown;
+  readonly document_type_id: string;
   readonly granted_by: string | null;
   readonly granted_at: Date | string;
   readonly revoked_at: Date | string | null;
@@ -65,8 +64,9 @@ const ROLE_ASSIGNMENT_SQL =
   'SELECT role, scope FROM role_assignment WHERE user_id = $1';
 
 // Only active (non-revoked) grants participate in authorization.
+// V4: access_grant has a flat document_type_id column (no JSONB scope).
 const ACCESS_GRANT_SQL =
-  'SELECT id, user_id, scope, granted_by, granted_at, revoked_at ' +
+  'SELECT id, user_id, document_type_id, granted_by, granted_at, revoked_at ' +
   'FROM access_grant WHERE user_id = $1 AND revoked_at IS NULL';
 
 function toIso(value: Date | string): string {
@@ -80,39 +80,26 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * Extract the Organization ids this user owns, from `Org Owner` role-assignment
- * scopes shaped `{ organizationId: "..." }`.
+ * Extract the Department ids this user administers, from `DepartmentAdmin`
+ * role-assignment scopes shaped `{ departmentIds: ["..."] }`.
  */
-function collectOwnedOrganizationIds(rows: readonly RoleAssignmentRow[]): string[] {
+function collectAdministeredDepartmentIds(rows: readonly RoleAssignmentRow[]): string[] {
   const ids = new Set<string>();
   for (const row of rows) {
-    if (row.role !== 'Org Owner') continue;
+    if (row.role !== 'DepartmentAdmin') continue;
     const scope = asRecord(row.scope);
-    const orgId = scope?.['organizationId'];
-    if (typeof orgId === 'string' && orgId.length > 0) {
-      ids.add(orgId);
-    }
-  }
-  return [...ids];
-}
-
-/**
- * Extract the Writing Types this user is assigned to as a `Field Expert`, from
- * scopes shaped `{ writingTypeIds: ["...", ...] }`. A Field Expert may hold
- * assignments across multiple Organizations, so this is a flat, de-duplicated set.
- */
-function collectAssignedWritingTypeIds(rows: readonly RoleAssignmentRow[]): string[] {
-  const ids = new Set<string>();
-  for (const row of rows) {
-    if (row.role !== 'Field Expert') continue;
-    const scope = asRecord(row.scope);
-    const list = scope?.['writingTypeIds'];
-    if (Array.isArray(list)) {
-      for (const id of list) {
+    const deptIds = scope?.['departmentIds'];
+    if (Array.isArray(deptIds)) {
+      for (const id of deptIds) {
         if (typeof id === 'string' && id.length > 0) {
           ids.add(id);
         }
       }
+    }
+    // Also support a single departmentId for backward compat
+    const singleId = scope?.['departmentId'];
+    if (typeof singleId === 'string' && singleId.length > 0) {
+      ids.add(singleId);
     }
   }
   return [...ids];
@@ -123,28 +110,13 @@ function collectRoles(rows: readonly RoleAssignmentRow[]): Role[] {
   return [...new Set(rows.map((r) => r.role))];
 }
 
-/** Map an `access_grant` scope JSONB to the shared {@link GrantScope} union. */
-function toGrantScope(scope: unknown): GrantScope | undefined {
-  const record = asRecord(scope);
-  if (!record) return undefined;
-  const writingTypeId = record['writingTypeId'];
-  if (typeof writingTypeId === 'string' && writingTypeId.length > 0) {
-    return { writingTypeId };
-  }
-  const organizationId = record['organizationId'];
-  if (typeof organizationId === 'string' && organizationId.length > 0) {
-    return { organizationId };
-  }
-  return undefined;
-}
-
+/** Map a flat `access_grant` row to the shared {@link AccessGrant} type (V4). */
 function toAccessGrant(row: AccessGrantRow): AccessGrant | undefined {
-  const scope = toGrantScope(row.scope);
-  if (!scope || !row.granted_by) return undefined;
+  if (!row.granted_by) return undefined;
   return {
     id: row.id,
     userId: row.user_id,
-    scope,
+    documentTypeId: row.document_type_id,
     grantedBy: row.granted_by,
     grantedAt: toIso(row.granted_at),
     ...(row.revoked_at ? { revokedAt: toIso(row.revoked_at) } : {}),
@@ -178,8 +150,7 @@ export async function mapSubjectToAuthContext(
     idpSubject: user.idp_subject,
     email: user.email,
     roles: collectRoles(roleRows),
-    ownedOrganizationIds: collectOwnedOrganizationIds(roleRows),
-    assignedWritingTypeIds: collectAssignedWritingTypeIds(roleRows),
+    administeredDepartmentIds: collectAdministeredDepartmentIds(roleRows),
     grants: grantRows
       .map(toAccessGrant)
       .filter((g): g is AccessGrant => g !== undefined),

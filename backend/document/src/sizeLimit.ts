@@ -12,15 +12,12 @@
  * Design decisions, made explicit:
  *
  *   - **Default limit** is 10,000 words (~45 pages), the platform default the
- *     Admin_Service configures (Requirement 7.1). See {@link DEFAULT_SIZE_LIMIT_WORDS}.
+ *     Technical Admin configures (Requirement 7.1). See {@link DEFAULT_SIZE_LIMIT_WORDS}.
  *
- *   - **Effective-limit precedence** mirrors the OPEN/LOCKED access-state
- *     precedence already implemented in `@wren/auth`'s `accessResolution`: the
- *     more specific configuration wins. An explicit Writing-Domain (Writing
- *     Type) `sizeLimitWords` beats an Organization-grouping override, which in
- *     turn beats the platform default (Requirement 7.4; design "Writing-Domain/
- *     Org overrides win over the default"). A `null` override means "not
- *     configured at this level — defer to the next-broader level".
+ *   - **Effective-limit precedence** (V4): a Document Type's explicit
+ *     `sizeLimitWords` wins over the platform default (Requirement 7.4). A
+ *     `null` value means "not configured — use the platform default". There is
+ *     no intermediate (Department/Organization) level in V4.
  *
  *   - **Boundary**: a document is rejected IFF its measured word count
  *     *exceeds* (strictly `>`) the effective limit. A document whose word count
@@ -29,17 +26,14 @@
  *     Property 4 ("rejected iff the word count exceeds the effective limit").
  *
  * Everything here is a PURE function — no I/O, deterministic — so the caller
- * supplies the two configured overrides (the Writing Type's `sizeLimitWords`
- * and its Organization grouping's configured override, if any) exactly as
- * `accessResolution` is supplied the Organization's access state. That keeps it
- * directly unit- and property-testable (task 6.7 / design Property 4).
+ * supplies the Document Type's configured override. That keeps it directly
+ * unit- and property-testable (task 6.7 / design Property 4).
  */
 import type { Segment } from '@wren/types';
 
 /**
  * The platform default maximum document size in words (~45 pages), used when
- * neither the Writing Domain nor its Organization grouping configures an
- * override (Requirement 7.1).
+ * the Document Type does not configure an override (Requirement 7.1).
  */
 export const DEFAULT_SIZE_LIMIT_WORDS = 10_000;
 
@@ -47,24 +41,16 @@ export const DEFAULT_SIZE_LIMIT_WORDS = 10_000;
 const WHITESPACE_RUN = /\s+/;
 
 /**
- * The configured size-limit overrides, one per configuration level. `null` at a
- * level means "not configured here — fall through to the next-broader level".
- * These are supplied by the caller after loading the Writing Type and its
- * Organization grouping (kept out of this pure core, exactly as
- * `accessResolution` keeps the DB lookups out of its decision function).
+ * The configured size-limit override for a Document Type. `null` means "not
+ * configured — use the platform default". Supplied by the caller after loading
+ * the Document Type (kept out of this pure core).
  */
 export interface SizeLimitOverrides {
   /**
-   * The Writing Domain's (Writing Type's) own `sizeLimitWords`, or `null` to
-   * inherit. This is the MOST specific level and wins when set.
+   * The Document Type's own `sizeLimitWords`, or `null` to use the platform
+   * default. This is the MOST specific level and wins when set.
    */
-  readonly writingDomainSizeLimitWords: number | null;
-  /**
-   * The Writing Type's Organization grouping's configured size-limit override,
-   * or `null` when the Organization sets none. Wins over the default but loses
-   * to an explicit Writing-Domain value.
-   */
-  readonly organizationSizeLimitWords: number | null;
+  readonly documentTypeSizeLimitWords: number | null;
 }
 
 /** The document was within the effective limit; the caller may proceed. */
@@ -112,15 +98,12 @@ export function countWords(segments: readonly Segment[]): number {
 
 /**
  * Resolve the effective size limit (in words) for a document, applying the
- * precedence Writing-Domain override > Organization override > platform default
- * (Requirement 7.4). A `null` at a level defers to the next-broader level.
+ * precedence: Document Type override > platform default (Requirement 7.4). A
+ * `null` at the Document Type level defers to the platform default.
  */
 export function resolveEffectiveSizeLimitWords(overrides: SizeLimitOverrides): number {
-  if (overrides.writingDomainSizeLimitWords !== null) {
-    return overrides.writingDomainSizeLimitWords;
-  }
-  if (overrides.organizationSizeLimitWords !== null) {
-    return overrides.organizationSizeLimitWords;
+  if (overrides.documentTypeSizeLimitWords !== null) {
+    return overrides.documentTypeSizeLimitWords;
   }
   return DEFAULT_SIZE_LIMIT_WORDS;
 }
@@ -128,7 +111,7 @@ export function resolveEffectiveSizeLimitWords(overrides: SizeLimitOverrides): n
 function overLimitMessage(measuredWords: number, effectiveLimitWords: number): string {
   return (
     `This document has ${measuredWords} words, which exceeds the ${effectiveLimitWords}-word ` +
-    'limit for this writing type. Please shorten it and resubmit.'
+    'limit for this document type. Please shorten it and resubmit.'
   );
 }
 

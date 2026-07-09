@@ -18,22 +18,18 @@
  * Scoping rules (no implicit role hierarchy — authority is the explicit matrix
  * only, Requirement 5.4):
  *
- *   - `Admin`        — every capability, in every scope (technical superuser).
- *   - `Org Owner`    — business management of an Organization they OWN: the
- *                      Writing Type catalog, Access Grants, and usage overrides,
- *                      limited to `ownedOrganizationIds` (Requirement 5.1).
- *   - `Field Expert` — read/modify a Writing Type's configuration, and grant
- *                      usage overrides, ONLY for Writing Types they are assigned
- *                      to — ACROSS Organizations, scoped purely by
- *                      `assignedWritingTypeIds`, never by a home Organization
- *                      (REQ-SCOPE-01 / Requirements 23.1, 23.6).
- *   - `User`         — no privileged capability.
- *
- * `user.search` (system-wide User directory search, Requirement 29.1) is
- * deliberately `Admin`-only: it is handled entirely by the Admin short-circuit
- * below and is NOT added to `ORG_OWNER_CAPABILITIES` — an Org Owner's
- * user-facing authority is limited to Access Grants within owned Organizations,
- * never a system-wide directory search (Requirements 2.1, 2.5).
+ *   - `TechnicalAdmin` — platform-level operations ONLY: usage-limit
+ *                         configuration, system-wide User search, and Document
+ *                         Type access-state control. This role is NOT a
+ *                         superuser for educational content — it cannot read or
+ *                         modify Document Type configurations, manage Topics, or
+ *                         manage the Document Type catalog.
+ *   - `DepartmentAdmin` — educational operations within administered
+ *                          Departments: Document Type configuration, catalog
+ *                          management, Topic management, Access Grants, usage
+ *                          overrides, and scoped User search — ALL limited to
+ *                          Departments in `actor.administeredDepartmentIds`.
+ *   - `Student`         — no privileged capability.
  */
 import type {
   AuthContext,
@@ -43,26 +39,37 @@ import type {
   OperationScope,
 } from '@wren/types';
 
-/** Capabilities an `Org Owner` may exercise within Organizations they own. */
-const ORG_OWNER_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
-  'writingType.manageCatalog',
-  'topic.manage',
-  'accessGrant.create',
-  'accessGrant.revoke',
-  'usageOverride.grant',
+/* -------------------------------------------------------------------------- */
+/* Capability sets per role                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** Capabilities a `TechnicalAdmin` may exercise (platform-level operations). */
+const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
+  'usageLimit.configure',
+  'user.search',
+  'documentType.setAccessState',
 ]);
 
 /**
- * Capabilities a `Field Expert` may exercise on Writing Types they are assigned
- * to. Configuration read/modify is the Field-Expert edit boundary; Admin owns
- * system scaffolding (REQ-PROMPT-EDIT-01) and is handled by the Admin
- * short-circuit below.
+ * Capabilities a `DepartmentAdmin` may exercise within Departments they
+ * administer. All checks require a scope that resolves to an administered
+ * Department.
  */
-const FIELD_EXPERT_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
-  'writingType.readConfig',
-  'writingType.modifyConfig',
+const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
+  'documentType.readConfig',
+  'documentType.modifyConfig',
+  'documentType.manageCatalog',
+  'topic.manage',
+  'department.manage',
+  'accessGrant.create',
+  'accessGrant.revoke',
   'usageOverride.grant',
+  'user.searchScoped',
 ]);
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                      */
+/* -------------------------------------------------------------------------- */
 
 function allow(reason: string): AuthorizationDecision {
   return { allowed: true, reason };
@@ -72,10 +79,31 @@ function deny(reason: string): AuthorizationDecision {
   return { allowed: false, reason };
 }
 
-/** The Organization a scope targets, or `undefined` for a platform scope. */
-function scopeOrganizationId(scope: OperationScope): string | undefined {
-  return scope.kind === 'platform' ? undefined : scope.organizationId;
+/**
+ * Extract the Department ID from a scope, if the scope is department-bound.
+ * A `platform` scope has no associated Department.
+ */
+function scopeDepartmentId(scope: OperationScope): string | undefined {
+  if (scope.kind === 'platform') return undefined;
+  return scope.departmentId;
 }
+
+/**
+ * Whether the given Department ID is in the actor's administered Departments.
+ */
+function isDepartmentAdministered(
+  actor: AuthContext,
+  departmentId: string | undefined,
+): boolean {
+  return (
+    departmentId !== undefined &&
+    actor.administeredDepartmentIds.includes(departmentId)
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Public API                                                                   */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Decide whether `actor` may perform `request.capability` in `request.scope`.
@@ -91,34 +119,29 @@ export function authorizeCapability(
 ): AuthorizationDecision {
   const { capability, scope } = request;
 
-  // Admin: technical superuser — every capability, every scope (Requirement 5.1).
-  if (actor.roles.includes('Admin')) {
-    return allow(`Admin may perform '${capability}' in any scope`);
+  // TechnicalAdmin: platform-level operations only (NOT a superuser for
+  // educational content).
+  if (
+    actor.roles.includes('TechnicalAdmin') &&
+    TECHNICAL_ADMIN_CAPABILITIES.has(capability)
+  ) {
+    return allow(`TechnicalAdmin may perform '${capability}'`);
   }
 
-  // Org Owner: business capabilities, limited to owned Organizations.
-  if (actor.roles.includes('Org Owner') && ORG_OWNER_CAPABILITIES.has(capability)) {
-    const organizationId = scopeOrganizationId(scope);
-    if (organizationId !== undefined && actor.ownedOrganizationIds.includes(organizationId)) {
+  // DepartmentAdmin: educational operations, scoped to administered Departments.
+  if (
+    actor.roles.includes('DepartmentAdmin') &&
+    DEPARTMENT_ADMIN_CAPABILITIES.has(capability)
+  ) {
+    const departmentId = scopeDepartmentId(scope);
+    if (isDepartmentAdministered(actor, departmentId)) {
       return allow(
-        `Org Owner may perform '${capability}' within owned Organization '${organizationId}'`,
+        `DepartmentAdmin may perform '${capability}' within administered Department '${departmentId}'`,
       );
     }
   }
 
-  // Field Expert: configuration + override, scoped to ASSIGNED Writing Types,
-  // across Organizations (Requirement 23.6). Only a Writing-Type scope applies.
-  if (
-    actor.roles.includes('Field Expert') &&
-    FIELD_EXPERT_CAPABILITIES.has(capability) &&
-    scope.kind === 'writingType' &&
-    actor.assignedWritingTypeIds.includes(scope.writingTypeId)
-  ) {
-    return allow(
-      `Field Expert may perform '${capability}' on assigned Writing Type '${scope.writingTypeId}'`,
-    );
-  }
-
+  // Student: no privileged capability.
   return deny(
     `No held role authorizes '${capability}' in the requested scope (REQ-SEC-ROLE-01)`,
   );

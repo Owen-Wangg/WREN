@@ -103,7 +103,7 @@ const unknownKeysArb = fc.uniqueArray(tokenArb, { maxLength: 4 });
 function fieldsOf(specs: readonly FieldSpec[]): CustomMetadataField[] {
   return specs.map((spec) => ({
     id: spec.id,
-    writingTypeId: 'wt-1',
+    documentTypeId: 'dt-1',
     label: spec.label,
     required: spec.required,
   }));

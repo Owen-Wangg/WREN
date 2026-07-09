@@ -7,13 +7,13 @@
  * Validates: Requirements 37.2, 37.3, 37.4.
  *
  * The invariant under test: the resolved {@link AuthContext} (roles,
- * ownedOrganizationIds, assignedWritingTypeIds, grants) is a pure function of
- * the application-database rows keyed by the *verified subject* — it never
- * depends on any identity-provider token claim, group, or attribute. The token
- * verifier boundary ({@link tokenVerifier}) deliberately yields ONLY the subject
+ * administeredDepartmentIds, grants) is a pure function of the
+ * application-database rows keyed by the *verified subject* — it never depends
+ * on any identity-provider token claim, group, or attribute. The token verifier
+ * boundary ({@link tokenVerifier}) deliberately yields ONLY the subject
  * (`VerifiedIdentity` has a single `subject` field), so adversarial claims
  * cannot cross into authorization. Swapping the IdP, or injecting arbitrary
- * `groups` / `cognito:groups` / `role: 'Admin'` claims, must produce an
+ * `groups` / `cognito:groups` / `role: 'TechnicalAdmin'` claims, must produce an
  * identical authorization context.
  *
  * This test drives the real `mapSubjectToAuthContext` over a fake `QueryExecutor`
@@ -100,30 +100,22 @@ const isoArb = fc
   .integer({ min: 0, max: 4_102_444_800_000 }) // 1970 .. ~2100
   .map((ms) => new Date(ms).toISOString());
 
-/** A role_assignment row. Org Owner / Field Expert carry authz-relevant scope. */
+/** A role_assignment row. DepartmentAdmin carries a department scope. */
 const roleRowArb: fc.Arbitrary<RoleAssignmentRow> = fc.oneof(
-  fc.record({ role: fc.constant('User' as const), scope: fc.constant(null) }),
-  fc.record({ role: fc.constant('Admin' as const), scope: fc.constant(null) }),
+  fc.record({ role: fc.constant('Student' as const), scope: fc.constant(null) }),
+  fc.record({ role: fc.constant('TechnicalAdmin' as const), scope: fc.constant(null) }),
   fc.record({
-    role: fc.constant('Org Owner' as const),
-    scope: fc.record({ organizationId: idArb }),
-  }),
-  fc.record({
-    role: fc.constant('Field Expert' as const),
-    scope: fc.record({ writingTypeIds: fc.array(idArb, { maxLength: 4 }) }),
+    role: fc.constant('DepartmentAdmin' as const),
+    scope: fc.record({ departmentId: idArb }),
   }),
 );
 
-/** An active (non-revoked) access_grant row with a valid single-key scope. */
+/** An active (non-revoked) access_grant row with a documentTypeId. */
 function grantRowArb(userId: string): fc.Arbitrary<AccessGrantRow> {
-  const scopeArb = fc.oneof(
-    fc.record({ writingTypeId: idArb }),
-    fc.record({ organizationId: idArb }),
-  );
   return fc.record({
     id: idArb,
     user_id: fc.constant(userId),
-    scope: scopeArb,
+    document_type_id: idArb,
     granted_by: idArb, // non-null so the grant participates in authorization
     granted_at: isoArb,
     revoked_at: fc.constant(null),
@@ -135,7 +127,7 @@ const adversarialClaimsArb: fc.Arbitrary<Record<string, unknown>> = fc.record(
   {
     groups: fc.array(fc.string(), { maxLength: 5 }),
     'cognito:groups': fc.array(fc.string(), { maxLength: 5 }),
-    role: fc.constantFrom('Admin', 'Org Owner', 'Field Expert', 'superuser'),
+    role: fc.constantFrom('TechnicalAdmin', 'DepartmentAdmin', 'Student', 'superuser'),
     'custom:role': fc.string(),
     scope: fc.string(),
     admin: fc.boolean(),

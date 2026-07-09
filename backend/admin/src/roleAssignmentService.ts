@@ -11,15 +11,16 @@
  * with {@link AuthorizationError} and NO mutation when disallowed (Requirement
  * 5.3, Requirements 36.2/36.3).
  *
- * `scope.kind` for the JSONB `role_assignment.scope` column follows the exact
- * shapes documented in `@wren/auth` `identityMapping.ts`:
- *   - `Org Owner`    → `{organizationId: "..."}`
- *   - `Field Expert` → `{writingTypeIds: ["...", ...]}` — a Field Expert may
- *     hold several Writing Types, so assigning merges the given `writingTypeId`
- *     into the EXISTING array (never clobbering other assignments) and
- *     revoking removes only that id, deleting the row entirely once the array
- *     is empty.
- *   - `User` / `Admin` → global roles, `scope` is `NULL`.
+ * Roles: Student / DepartmentAdmin / TechnicalAdmin.
+ *
+ * `DepartmentAdmin` assignment requires a `departmentId`. The joint
+ * department-creation-plus-appointment: when a TechnicalAdmin assigns the
+ * DepartmentAdmin role to a department that doesn't exist yet, the department
+ * is created as part of the same action.
+ *
+ * `scope.kind` for the JSONB `role_assignment.scope` column:
+ *   - `DepartmentAdmin` → `{departmentId: "..."}`
+ *   - `Student` / `TechnicalAdmin` → global roles, `scope` is `NULL`.
  *
  * All persistence uses the injected parameterized {@link QueryExecutor}; no
  * value is ever interpolated into SQL (Requirement 39.2).
@@ -34,7 +35,7 @@ import {
   type Role,
 } from '@wren/types';
 
-import { AuthorizationError, NotFoundError } from './errors';
+import { AuthorizationError } from './errors';
 import type { QueryExecutor } from './db';
 
 /** Raw `role_assignment` row (snake_case columns from PostgreSQL). */
@@ -45,73 +46,30 @@ interface RoleAssignmentRow {
   readonly scope: unknown;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-/** Find the existing `role_assignment` row for (userId, role, organizationId-scope). */
-async function findOrgScopedAssignment(
+/** Find the existing `role_assignment` row for (userId, role, departmentId-scope). */
+async function findDeptScopedAssignment(
   userId: string,
   role: Role,
-  organizationId: string,
+  departmentId: string,
   db: QueryExecutor,
 ): Promise<RoleAssignmentRow | null> {
   const rows = await db.query<RoleAssignmentRow>(
     `SELECT id, user_id, role, scope FROM role_assignment
-     WHERE user_id = $1 AND role = $2 AND scope ->> 'organizationId' = $3`,
-    [userId, role, organizationId],
+     WHERE user_id = $1 AND role = $2 AND scope ->> 'departmentId' = $3`,
+    [userId, role, departmentId],
   );
   return rows[0] ?? null;
-}
-
-/**
- * Find the Field Expert `role_assignment` row for `userId` whose
- * `writingTypeIds` array already contains (or, for assignment, will receive)
- * an entry — Field Expert assignments are NOT scoped by Organization in the
- * schema, so there is at most one such row per user (matching the flat,
- * cross-organization `assignedWritingTypeIds` set `@wren/auth` resolves).
- */
-async function findFieldExpertAssignment(
-  userId: string,
-  db: QueryExecutor,
-): Promise<RoleAssignmentRow | null> {
-  const rows = await db.query<RoleAssignmentRow>(
-    `SELECT id, user_id, role, scope FROM role_assignment
-     WHERE user_id = $1 AND role = 'Field Expert'`,
-    [userId],
-  );
-  return rows[0] ?? null;
-}
-
-function writingTypeIdsOf(row: RoleAssignmentRow | null): string[] {
-  const list = asRecord(row?.scope)?.['writingTypeIds'];
-  return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string') : [];
-}
-
-/**
- * Resolve the Organization that owns `writingTypeId`, for the Org Owner
- * authority check (`Field Expert` assignment authority is scoped by the owning
- * Organization, not by the assignment's own — Organization-less — schema shape).
- */
-async function findWritingTypeOrganizationId(
-  writingTypeId: string,
-  db: QueryExecutor,
-): Promise<string | null> {
-  const rows = await db.query<{ organization_id: string }>(
-    'SELECT organization_id FROM writing_type WHERE id = $1',
-    [writingTypeId],
-  );
-  return rows[0]?.organization_id ?? null;
 }
 
 /**
  * Assign a role to a global User, per the role-assignment matrix (Requirement
- * 5.1): `Admin` may assign any role in any scope; `Org Owner` may assign only
- * `Field Expert` (carrying one or more Writing Types) within Organizations they
- * own; `Field Expert` / `User` may assign nothing. Denies with
+ * 5.1): `TechnicalAdmin` may assign any role in any scope. Denies with
  * {@link AuthorizationError} and NO mutation when disallowed.
+ *
+ * For `DepartmentAdmin` assignments:
+ * - `departmentId` is required.
+ * - If the department doesn't exist yet, it is created implicitly (joint
+ *   department-creation-plus-appointment).
  */
 export async function assignRole(
   actor: AuthContext,
@@ -119,56 +77,51 @@ export async function assignRole(
   db: QueryExecutor,
 ): Promise<void> {
   const parsed = assignRoleInputSchema.parse(input);
-  const { userId, role, scope, writingTypeId } = parsed;
+  const { userId, role, scope, departmentId } = parsed;
 
-  if (role === 'Field Expert') {
-    if (!writingTypeId) {
-      throw new AuthorizationError("'writingTypeId' is required to assign 'Field Expert'");
-    }
-    const organizationId = await findWritingTypeOrganizationId(writingTypeId, db);
-    if (organizationId === null) {
-      throw new NotFoundError(`Writing Type '${writingTypeId}' not found`);
-    }
-
-    const decision = authorizeRoleAssignment(actor, {
-      action: 'assign',
-      role,
-      scope: { kind: 'organization', organizationId },
-    });
-    if (!decision.allowed) {
-      throw new AuthorizationError(decision.reason);
-    }
-
-    const existing = await findFieldExpertAssignment(userId, db);
-    const currentIds = writingTypeIdsOf(existing);
-    const mergedIds = currentIds.includes(writingTypeId)
-      ? currentIds
-      : [...currentIds, writingTypeId];
-
-    if (existing) {
-      await db.query(
-        `UPDATE role_assignment SET scope = $2 WHERE id = $1`,
-        [existing.id, { writingTypeIds: mergedIds }],
-      );
-    } else {
-      await db.query(
-        `INSERT INTO role_assignment (user_id, role, scope, granted_by)
-         VALUES ($1, 'Field Expert', $2, $3)`,
-        [userId, { writingTypeIds: mergedIds }, actor.userId],
-      );
-    }
-    return;
-  }
-
-  // Admin / Org Owner / User role assignments (Admin-only authority, Req 5.2).
+  // Authorization check via the role-assignment matrix.
   const decision = authorizeRoleAssignment(actor, { action: 'assign', role, scope });
   if (!decision.allowed) {
     throw new AuthorizationError(decision.reason);
   }
 
-  const scopeValue =
-    scope.kind === 'organization' ? { organizationId: scope.organizationId } : null;
+  if (role === 'DepartmentAdmin') {
+    if (!departmentId) {
+      throw new AuthorizationError("'departmentId' is required to assign 'DepartmentAdmin'");
+    }
 
+    // Joint department-creation-plus-appointment: if the department doesn't
+    // exist yet, create it implicitly.
+    const existingDept = await db.query<{ id: string }>(
+      'SELECT id FROM department WHERE id = $1',
+      [departmentId],
+    );
+    if (existingDept.length === 0) {
+      // Create the department with the departmentId as its name initially.
+      // The DepartmentAdmin can rename it later via departmentService.
+      await db.query(
+        `INSERT INTO department (id, name) VALUES ($1, $2)`,
+        [departmentId, departmentId],
+      );
+    }
+
+    // Check for existing assignment
+    const existing = await findDeptScopedAssignment(userId, role, departmentId, db);
+    if (existing) {
+      // Already assigned — no-op.
+      return;
+    }
+
+    await db.query(
+      `INSERT INTO role_assignment (user_id, role, scope, granted_by)
+       VALUES ($1, $2, $3, $4)`,
+      [userId, role, { departmentId }, actor.userId],
+    );
+    return;
+  }
+
+  // Student / TechnicalAdmin — global roles, scope is NULL.
+  const scopeValue = null;
   await db.query(
     `INSERT INTO role_assignment (user_id, role, scope, granted_by) VALUES ($1, $2, $3, $4)`,
     [userId, role, scopeValue, actor.userId],
@@ -177,10 +130,7 @@ export async function assignRole(
 
 /**
  * Revoke a role from a global User, per the role-assignment matrix
- * (Requirement 5.1, symmetric assign/revoke authority). For `Field Expert`,
- * removes only `writingTypeId` from the held set — deleting the
- * `role_assignment` row entirely once no Writing Types remain, since a Field
- * Expert may hold several assignments simultaneously.
+ * (Requirement 5.1, symmetric assign/revoke authority).
  */
 export async function revokeRole(
   actor: AuthContext,
@@ -188,52 +138,18 @@ export async function revokeRole(
   db: QueryExecutor,
 ): Promise<void> {
   const parsed = revokeRoleInputSchema.parse(input);
-  const { userId, role, scope, writingTypeId } = parsed;
-
-  if (role === 'Field Expert') {
-    if (!writingTypeId) {
-      throw new AuthorizationError("'writingTypeId' is required to revoke 'Field Expert'");
-    }
-    const organizationId = await findWritingTypeOrganizationId(writingTypeId, db);
-    if (organizationId === null) {
-      // Nothing to revoke against an unknown Writing Type; treat as a no-op
-      // rather than leaking existence information via a differently-shaped error.
-      return;
-    }
-
-    const decision = authorizeRoleAssignment(actor, {
-      action: 'revoke',
-      role,
-      scope: { kind: 'organization', organizationId },
-    });
-    if (!decision.allowed) {
-      throw new AuthorizationError(decision.reason);
-    }
-
-    const existing = await findFieldExpertAssignment(userId, db);
-    if (!existing) {
-      return;
-    }
-    const remainingIds = writingTypeIdsOf(existing).filter((id) => id !== writingTypeId);
-
-    if (remainingIds.length === 0) {
-      await db.query('DELETE FROM role_assignment WHERE id = $1', [existing.id]);
-    } else {
-      await db.query(
-        `UPDATE role_assignment SET scope = $2 WHERE id = $1`,
-        [existing.id, { writingTypeIds: remainingIds }],
-      );
-    }
-    return;
-  }
+  const { userId, role, scope, departmentId } = parsed;
 
   const decision = authorizeRoleAssignment(actor, { action: 'revoke', role, scope });
   if (!decision.allowed) {
     throw new AuthorizationError(decision.reason);
   }
 
-  if (scope.kind === 'organization') {
-    const existing = await findOrgScopedAssignment(userId, role, scope.organizationId, db);
+  if (role === 'DepartmentAdmin') {
+    if (!departmentId) {
+      throw new AuthorizationError("'departmentId' is required to revoke 'DepartmentAdmin'");
+    }
+    const existing = await findDeptScopedAssignment(userId, role, departmentId, db);
     if (!existing) {
       return;
     }
@@ -241,6 +157,7 @@ export async function revokeRole(
     return;
   }
 
+  // Student / TechnicalAdmin — global role, scope is NULL.
   await db.query(
     `DELETE FROM role_assignment WHERE user_id = $1 AND role = $2 AND scope IS NULL`,
     [userId, role],

@@ -2,11 +2,10 @@
  * Unit tests for the role-assignment authority matrix (REQ-ROLE-MATRIX-01 /
  * Requirement 5).
  *
- * Coverage of the explicit matrix (no implicit hierarchy — Requirement 5.4):
- *   - Admin may assign/revoke ANY role, in any scope (5.1).
- *   - Org Owner may assign/revoke ONLY Field Expert, ONLY within owned orgs (5.1);
- *     denied for non-owned orgs, platform scope, and the Org Owner / Admin roles (5.2).
- *   - Field Expert and User may assign NO roles (5.1).
+ * V4 coverage — explicit matrix (no implicit hierarchy — Requirement 5.4):
+ *   - TechnicalAdmin may assign/revoke ANY role, in any scope (5.1).
+ *   - DepartmentAdmin CANNOT assign any roles (5.2).
+ *   - Student CANNOT assign any roles (5.1).
  *   - Every denial returns `allowed: false` (deny-with-no-mutation — 5.3).
  */
 import type {
@@ -22,10 +21,10 @@ import {
   type RoleAssignmentRequest,
 } from './roleAssignment';
 
-const OWNED_ORG = 'org-owned';
-const OTHER_ORG = 'org-other';
+const DEPT_A = 'dept-a';
+const DEPT_B = 'dept-b';
 
-const ALL_ROLES: Role[] = ['User', 'Field Expert', 'Org Owner', 'Admin'];
+const ALL_ROLES: Role[] = ['Student', 'DepartmentAdmin', 'TechnicalAdmin'];
 const ACTIONS: AssignmentAction[] = ['assign', 'revoke'];
 
 function actor(overrides: Partial<AuthContext> = {}): AuthContext {
@@ -34,8 +33,7 @@ function actor(overrides: Partial<AuthContext> = {}): AuthContext {
     idpSubject: 'sub-1',
     email: 'user@example.com',
     roles: [],
-    ownedOrganizationIds: [],
-    assignedWritingTypeIds: [],
+    administeredDepartmentIds: [],
     grants: [],
     ...overrides,
   };
@@ -45,9 +43,9 @@ function withRoles(roles: Role[], overrides: Partial<AuthContext> = {}): AuthCon
   return actor({ roles, ...overrides });
 }
 
-const orgScope = (organizationId: string): AssignmentScope => ({
-  kind: 'organization',
-  organizationId,
+const departmentScope = (departmentId: string): AssignmentScope => ({
+  kind: 'department',
+  departmentId,
 });
 
 const platformScope: AssignmentScope = { kind: 'platform' };
@@ -58,107 +56,129 @@ const request = (
   action: AssignmentAction = 'assign',
 ): RoleAssignmentRequest => ({ action, role, scope });
 
-describe('authorizeRoleAssignment — Admin (Requirement 5.1)', () => {
-  const admin = withRoles(['Admin']);
+describe('authorizeRoleAssignment — TechnicalAdmin (Requirement 5.1)', () => {
+  const admin = withRoles(['TechnicalAdmin']);
 
   for (const action of ACTIONS) {
-    it.each(ALL_ROLES)(`allows Admin to ${action} the %s role (org scope)`, (role) => {
-      expect(
-        isRoleAssignmentAllowed(admin, request(role, orgScope(OTHER_ORG), action)),
-      ).toBe(true);
-    });
+    it.each(ALL_ROLES)(
+      `allows TechnicalAdmin to ${action} the %s role (department scope)`,
+      (role) => {
+        expect(
+          isRoleAssignmentAllowed(admin, request(role, departmentScope(DEPT_A), action)),
+        ).toBe(true);
+      },
+    );
 
-    it.each(ALL_ROLES)(`allows Admin to ${action} the %s role (platform scope)`, (role) => {
-      expect(
-        isRoleAssignmentAllowed(admin, request(role, platformScope, action)),
-      ).toBe(true);
-    });
+    it.each(ALL_ROLES)(
+      `allows TechnicalAdmin to ${action} the %s role (platform scope)`,
+      (role) => {
+        expect(
+          isRoleAssignmentAllowed(admin, request(role, platformScope, action)),
+        ).toBe(true);
+      },
+    );
   }
-});
 
-describe('authorizeRoleAssignment — Org Owner (Requirements 5.1, 5.2)', () => {
-  const owner = withRoles(['Org Owner'], { ownedOrganizationIds: [OWNED_ORG] });
-
-  it.each(ACTIONS)('allows %s of Field Expert within an OWNED Organization', (action) => {
+  it('includes a reason when allowing', () => {
     const decision = authorizeRoleAssignment(
-      owner,
-      request('Field Expert', orgScope(OWNED_ORG), action),
+      admin,
+      request('DepartmentAdmin', departmentScope(DEPT_A)),
     );
     expect(decision.allowed).toBe(true);
-    expect(decision.reason).toContain(OWNED_ORG);
-  });
-
-  it('DENIES assigning Field Expert in a NON-owned Organization (no mutation)', () => {
-    const decision = authorizeRoleAssignment(
-      owner,
-      request('Field Expert', orgScope(OTHER_ORG)),
-    );
-    expect(decision.allowed).toBe(false);
-  });
-
-  it('DENIES assigning Field Expert with a platform (non-organization) scope', () => {
-    expect(
-      isRoleAssignmentAllowed(owner, request('Field Expert', platformScope)),
-    ).toBe(false);
-  });
-
-  it('DENIES assigning or revoking the Org Owner role (Requirement 5.2)', () => {
-    for (const action of ACTIONS) {
-      expect(
-        isRoleAssignmentAllowed(owner, request('Org Owner', orgScope(OWNED_ORG), action)),
-      ).toBe(false);
-    }
-  });
-
-  it('DENIES assigning or revoking the Admin role (Requirement 5.2)', () => {
-    for (const action of ACTIONS) {
-      expect(
-        isRoleAssignmentAllowed(owner, request('Admin', orgScope(OWNED_ORG), action)),
-      ).toBe(false);
-    }
-  });
-
-  it('DENIES assigning the User role (adding a User is an Access Grant, not a role)', () => {
-    expect(
-      isRoleAssignmentAllowed(owner, request('User', orgScope(OWNED_ORG))),
-    ).toBe(false);
+    expect(decision.reason.length).toBeGreaterThan(0);
+    expect(decision.reason).toContain('TechnicalAdmin');
   });
 });
 
-describe('authorizeRoleAssignment — Field Expert and User assign nothing (Requirement 5.1)', () => {
-  const expert = withRoles(['Field Expert'], {
-    assignedWritingTypeIds: ['wt-assigned'],
-    ownedOrganizationIds: [OWNED_ORG],
+describe('authorizeRoleAssignment — DepartmentAdmin CANNOT assign roles (Requirement 5.2)', () => {
+  const deptAdmin = withRoles(['DepartmentAdmin'], {
+    administeredDepartmentIds: [DEPT_A],
   });
-  const user = withRoles(['User'], { ownedOrganizationIds: [OWNED_ORG] });
 
-  it.each(ALL_ROLES)('denies a Field Expert assigning the %s role', (role) => {
+  it.each(ALL_ROLES)('denies DepartmentAdmin assigning the %s role', (role) => {
     expect(
-      isRoleAssignmentAllowed(expert, request(role, orgScope(OWNED_ORG))),
+      isRoleAssignmentAllowed(deptAdmin, request(role, departmentScope(DEPT_A))),
     ).toBe(false);
   });
 
-  it.each(ALL_ROLES)('denies a plain User assigning the %s role', (role) => {
-    const decision = authorizeRoleAssignment(user, request(role, orgScope(OWNED_ORG)));
+  it.each(ALL_ROLES)('denies DepartmentAdmin revoking the %s role', (role) => {
+    expect(
+      isRoleAssignmentAllowed(deptAdmin, request(role, departmentScope(DEPT_A), 'revoke')),
+    ).toBe(false);
+  });
+
+  it('denies even for their own administered Department', () => {
+    const decision = authorizeRoleAssignment(
+      deptAdmin,
+      request('Student', departmentScope(DEPT_A)),
+    );
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toContain('REQ-ROLE-MATRIX-01');
   });
 });
 
-describe('authorizeRoleAssignment — multi-role actors', () => {
-  it('permits when a held role (Admin) authorizes what another (User) cannot', () => {
-    const multi = withRoles(['User', 'Admin']);
+describe('authorizeRoleAssignment — Student assigns nothing (Requirement 5.1)', () => {
+  const student = withRoles(['Student']);
+
+  it.each(ALL_ROLES)('denies a Student assigning the %s role', (role) => {
+    const decision = authorizeRoleAssignment(student, request(role, platformScope));
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain('REQ-ROLE-MATRIX-01');
+  });
+
+  it.each(ALL_ROLES)('denies a Student revoking the %s role', (role) => {
     expect(
-      isRoleAssignmentAllowed(multi, request('Admin', platformScope)),
+      isRoleAssignmentAllowed(student, request(role, departmentScope(DEPT_B), 'revoke')),
+    ).toBe(false);
+  });
+});
+
+describe('authorizeRoleAssignment — multi-role actors', () => {
+  it('permits when a held TechnicalAdmin role authorizes what DepartmentAdmin cannot', () => {
+    const multi = withRoles(['DepartmentAdmin', 'TechnicalAdmin'], {
+      administeredDepartmentIds: [DEPT_A],
+    });
+    expect(
+      isRoleAssignmentAllowed(multi, request('TechnicalAdmin', platformScope)),
     ).toBe(true);
   });
 
-  it('permits Field Expert assignment via a held Org Owner role in an owned org', () => {
-    const multi = withRoles(['Field Expert', 'Org Owner'], {
-      ownedOrganizationIds: [OWNED_ORG],
+  it('permits when Student+TechnicalAdmin held — TechnicalAdmin authorizes', () => {
+    const multi = withRoles(['Student', 'TechnicalAdmin']);
+    expect(
+      isRoleAssignmentAllowed(multi, request('DepartmentAdmin', departmentScope(DEPT_B))),
+    ).toBe(true);
+  });
+
+  it('denies when only Student+DepartmentAdmin — neither can assign', () => {
+    const multi = withRoles(['Student', 'DepartmentAdmin'], {
+      administeredDepartmentIds: [DEPT_A],
     });
     expect(
-      isRoleAssignmentAllowed(multi, request('Field Expert', orgScope(OWNED_ORG))),
-    ).toBe(true);
+      isRoleAssignmentAllowed(multi, request('Student', platformScope)),
+    ).toBe(false);
+  });
+});
+
+describe('authorizeRoleAssignment — decision symmetry (assign/revoke)', () => {
+  it('assign and revoke are symmetric for TechnicalAdmin', () => {
+    const admin = withRoles(['TechnicalAdmin']);
+    for (const role of ALL_ROLES) {
+      const assignDecision = authorizeRoleAssignment(admin, request(role, platformScope, 'assign'));
+      const revokeDecision = authorizeRoleAssignment(admin, request(role, platformScope, 'revoke'));
+      expect(assignDecision.allowed).toBe(revokeDecision.allowed);
+    }
+  });
+
+  it('assign and revoke are symmetric for DepartmentAdmin (both denied)', () => {
+    const deptAdmin = withRoles(['DepartmentAdmin'], {
+      administeredDepartmentIds: [DEPT_A],
+    });
+    for (const role of ALL_ROLES) {
+      const assignDecision = authorizeRoleAssignment(deptAdmin, request(role, departmentScope(DEPT_A), 'assign'));
+      const revokeDecision = authorizeRoleAssignment(deptAdmin, request(role, departmentScope(DEPT_A), 'revoke'));
+      expect(assignDecision.allowed).toBe(revokeDecision.allowed);
+      expect(assignDecision.allowed).toBe(false);
+    }
   });
 });

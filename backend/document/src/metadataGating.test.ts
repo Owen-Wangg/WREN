@@ -20,9 +20,9 @@ function field(
   id: string,
   label: string,
   required: boolean,
-  writingTypeId = 'wt-1',
+  documentTypeId = 'dt-1',
 ): CustomMetadataField {
-  return { id, writingTypeId, label, required };
+  return { id, documentTypeId, label, required };
 }
 
 const REQUIRED_TOPIC = field('f-topic', 'Writing Topic', true);

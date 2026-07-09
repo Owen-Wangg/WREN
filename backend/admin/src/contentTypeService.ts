@@ -1,17 +1,15 @@
 /**
- * Org-Owner-defined Content Types, scoped to a Writing Type (REQ-ORG-CONFIG-01 /
- * Requirement 30.2).
+ * DepartmentAdmin-defined Content Types, scoped to a Document Type
+ * (REQ-ORG-CONFIG-01 / Requirement 30.2).
  *
  * A Content Type (e.g. "case brief", "memo", "tort claim proposal") organizes
- * Document submissions within a Writing Type and scopes configuration. Business
- * management of the catalog — including Content Types — reuses the existing
- * `writingType.manageCatalog` capability (Org Owner within an owned
- * Organization, or Admin); there is deliberately NO separate capability for
- * Content Types, matching the capability matrix's documented scope (`@wren/auth`
- * `capabilityMatrix.ts`: "Writing Type catalog, Content Types, and custom
- * metadata"). Business Topics are a distinct entity with their own
- * `topic.manage` capability (`topicService.ts`) — they are never part of the
- * Writing Type catalog.
+ * Document submissions within a Document Type and scopes configuration.
+ * Business management of the catalog — including Content Types — reuses the
+ * existing `documentType.manageCatalog` capability (DepartmentAdmin within an
+ * administered Department); there is deliberately NO separate capability for
+ * Content Types, matching the capability matrix's documented scope.
+ *
+ * No superuser fallback — TechnicalAdmin CANNOT perform educational operations.
  *
  * Every mutation re-checks the capability BEFORE touching the database and
  * denies with no mutation when disallowed (Requirements 36.2, 36.3). All
@@ -35,57 +33,58 @@ import { NotFoundError } from './errors';
 /** Raw `content_type` row (snake_case columns from PostgreSQL). */
 interface ContentTypeRow {
   readonly id: string;
-  readonly writing_type_id: string;
+  readonly document_type_id: string;
   readonly label: string;
 }
 
-const RETURNING = 'id, writing_type_id, label';
+const RETURNING = 'id, document_type_id, label';
 
 /** Map a raw row to the validated shared {@link ContentType} DTO. */
 function toContentType(row: ContentTypeRow): ContentType {
   return contentTypeSchema.parse({
     id: row.id,
-    writingTypeId: row.writing_type_id,
+    documentTypeId: row.document_type_id,
     label: row.label,
   });
 }
 
-/** Load a Writing Type's owning Organization id, or `null` when it is unknown. */
-async function findOrganizationId(
-  writingTypeId: string,
+/** Load a Document Type's owning Department id, or `null` when it is unknown. */
+async function findDepartmentId(
+  documentTypeId: string,
   db: QueryExecutor,
 ): Promise<string | null> {
-  const rows = await db.query<{ organization_id: string }>(
-    'SELECT organization_id FROM writing_type WHERE id = $1',
-    [writingTypeId],
+  const rows = await db.query<{ department_id: string }>(
+    'SELECT department_id FROM document_type WHERE id = $1',
+    [documentTypeId],
   );
-  return rows[0]?.organization_id ?? null;
+  return rows[0]?.department_id ?? null;
 }
 
 /**
- * Create a Content Type within a Writing Type (`Org Owner` for owned orgs, or
- * `Admin`). Throws {@link NotFoundError} when the Writing Type does not exist.
+ * Create a Content Type within a Document Type (`DepartmentAdmin` for
+ * administered Departments). Throws {@link NotFoundError} when the Document
+ * Type does not exist.
  */
 export async function createContentType(
   actor: AuthContext,
   input: CreateContentTypeInput,
   db: QueryExecutor,
 ): Promise<ContentType> {
-  const { writingTypeId, label } = createContentTypeInputSchema.parse(input);
+  const { documentTypeId, label } = createContentTypeInputSchema.parse(input);
 
-  const organizationId = await findOrganizationId(writingTypeId, db);
-  if (organizationId === null) {
-    throw new NotFoundError(`Writing Type '${writingTypeId}' not found`);
+  const departmentId = await findDepartmentId(documentTypeId, db);
+  if (departmentId === null) {
+    throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
   }
 
   requireCapability(actor, {
-    capability: 'writingType.manageCatalog',
-    scope: { kind: 'writingType', writingTypeId, organizationId },
+    capability: 'documentType.manageCatalog',
+    scope: { kind: 'documentType', documentTypeId, departmentId },
   });
 
   const rows = await db.query<ContentTypeRow>(
-    `INSERT INTO content_type (writing_type_id, label) VALUES ($1, $2) RETURNING ${RETURNING}`,
-    [writingTypeId, label],
+    `INSERT INTO content_type (document_type_id, label) VALUES ($1, $2) RETURNING ${RETURNING}`,
+    [documentTypeId, label],
   );
 
   return toContentType(rows[0]!);
@@ -104,14 +103,14 @@ export async function getContentType(
   return row ? toContentType(row) : null;
 }
 
-/** List the Content Types for one Writing Type, ordered by label. */
+/** List the Content Types for one Document Type, ordered by label. */
 export async function listContentTypes(
-  writingTypeId: string,
+  documentTypeId: string,
   db: QueryExecutor,
 ): Promise<ContentType[]> {
   const rows = await db.query<ContentTypeRow>(
-    `SELECT ${RETURNING} FROM content_type WHERE writing_type_id = $1 ORDER BY label ASC`,
-    [writingTypeId],
+    `SELECT ${RETURNING} FROM content_type WHERE document_type_id = $1 ORDER BY label ASC`,
+    [documentTypeId],
   );
   return rows.map(toContentType);
 }
@@ -137,14 +136,14 @@ export async function updateContentType(
     throw new NotFoundError(`Content Type '${id}' not found`);
   }
 
-  const organizationId = await findOrganizationId(existing.writing_type_id, db);
-  if (organizationId === null) {
-    throw new NotFoundError(`Writing Type '${existing.writing_type_id}' not found`);
+  const departmentId = await findDepartmentId(existing.document_type_id, db);
+  if (departmentId === null) {
+    throw new NotFoundError(`Document Type '${existing.document_type_id}' not found`);
   }
 
   requireCapability(actor, {
-    capability: 'writingType.manageCatalog',
-    scope: { kind: 'writingType', writingTypeId: existing.writing_type_id, organizationId },
+    capability: 'documentType.manageCatalog',
+    scope: { kind: 'documentType', documentTypeId: existing.document_type_id, departmentId },
   });
 
   const rows = await db.query<ContentTypeRow>(
@@ -155,11 +154,9 @@ export async function updateContentType(
 }
 
 /**
- * Delete a Content Type (`Org Owner` for owned orgs, or `Admin`). Returns
- * `true` when a row was removed, `false` when no Content Type had that id.
- * Documents referencing this Content Type have their reference cleared
- * (`ON DELETE SET NULL` at the DB level) — deletion is never blocked by
- * Document references.
+ * Delete a Content Type (`DepartmentAdmin` for administered Departments).
+ * Returns `true` when a row was removed, `false` when no Content Type had
+ * that id.
  */
 export async function deleteContentType(
   actor: AuthContext,
@@ -175,14 +172,14 @@ export async function deleteContentType(
     return false;
   }
 
-  const organizationId = await findOrganizationId(existing.writing_type_id, db);
-  if (organizationId === null) {
+  const departmentId = await findDepartmentId(existing.document_type_id, db);
+  if (departmentId === null) {
     return false;
   }
 
   requireCapability(actor, {
-    capability: 'writingType.manageCatalog',
-    scope: { kind: 'writingType', writingTypeId: existing.writing_type_id, organizationId },
+    capability: 'documentType.manageCatalog',
+    scope: { kind: 'documentType', documentTypeId: existing.document_type_id, departmentId },
   });
 
   const rows = await db.query<{ id: string }>(

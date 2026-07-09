@@ -2,9 +2,9 @@
  * In-memory fake of the parameterized {@link QueryExecutor} for Admin_Service
  * unit tests.
  *
- * It stores `organization`, `writing_type`, `content_type`, and
+ * It stores `department`, `document_type`, `content_type`, and
  * `custom_metadata_field` rows in Maps (plus minimal `document` and
- * `role_assignment` rows used only for the Writing Type deletion-impact count)
+ * `role_assignment` rows used only for the Document Type deletion-impact count)
  * and interprets the exact parameterized statements the services issue —
  * binding `$1..$N` from the supplied params array, never interpolating them —
  * so the tests exercise the REAL service logic (capability checks, row↔DTO
@@ -17,15 +17,14 @@
  */
 import type { QueryExecutor } from './db';
 
-interface OrganizationRow {
+interface DepartmentRow {
   id: string;
   name: string;
-  access_state: string;
 }
 
-interface WritingTypeRow {
+interface DocumentTypeRow {
   id: string;
-  organization_id: string;
+  department_id: string;
   name: string;
   access_state: string;
   size_limit_words: number | null;
@@ -33,31 +32,31 @@ interface WritingTypeRow {
 
 interface ContentTypeRow {
   id: string;
-  writing_type_id: string;
+  document_type_id: string;
   label: string;
 }
 
 interface TopicRow {
   id: string;
-  organization_id: string;
+  department_id: string;
   name: string;
 }
 
 interface CustomMetadataFieldRow {
   id: string;
-  writing_type_id: string;
+  document_type_id: string;
   label: string;
   required: boolean;
 }
 
 /**
  * Minimal `document` row — only the columns the deletion-impact counts need.
- * `metadata` is optional so existing Writing-Type-impact seeds (which don't
+ * `metadata` is optional so existing Document-Type-impact seeds (which don't
  * care about metadata) keep working unchanged.
  */
 interface DocumentRow {
   id: string;
-  writing_type_id: string;
+  document_type_id: string;
   metadata?: Record<string, string>;
 }
 
@@ -66,11 +65,11 @@ interface RoleAssignmentRow {
   id: string;
   user_id: string;
   role: string;
-  scope: { writingTypeIds?: string[]; organizationId?: string } | null;
+  scope: { departmentId?: string } | null;
   granted_by: string | null;
 }
 
-/** `app_user` row (global User; carries no Organization ownership column). */
+/** `app_user` row (global User; carries no Department ownership column). */
 interface AppUserRow {
   id: string;
   email: string;
@@ -78,12 +77,12 @@ interface AppUserRow {
   last_name: string;
 }
 
-/** `access_grant` row. `scope` is JSONB shaped `{writingTypeId}` or `{organizationId}`. */
+/** `access_grant` row. Flat shape: `{document_type_id}`. */
 interface AccessGrantRow {
   id: string;
   user_id: string;
-  scope: { writingTypeId?: string; organizationId?: string };
-  granted_by: string | null;
+  document_type_id: string;
+  granted_by: string;
   granted_at: Date;
   revoked_at: Date | null;
 }
@@ -106,8 +105,8 @@ function applyAssignments(
 }
 
 export class FakeDb implements QueryExecutor {
-  public readonly organizations = new Map<string, OrganizationRow>();
-  public readonly writingTypes = new Map<string, WritingTypeRow>();
+  public readonly departments = new Map<string, DepartmentRow>();
+  public readonly documentTypes = new Map<string, DocumentTypeRow>();
   public readonly contentTypes = new Map<string, ContentTypeRow>();
   public readonly topics = new Map<string, TopicRow>();
   public readonly customMetadataFields = new Map<string, CustomMetadataFieldRow>();
@@ -124,39 +123,38 @@ export class FakeDb implements QueryExecutor {
     return `${prefix}-${this.seq}`;
   }
 
-  /** Seed an Organization directly (bypasses authorization) for test setup. */
-  public seedOrganization(row: Partial<OrganizationRow> & { id: string }): OrganizationRow {
-    const full: OrganizationRow = {
+  /** Seed a Department directly (bypasses authorization) for test setup. */
+  public seedDepartment(row: Partial<DepartmentRow> & { id: string }): DepartmentRow {
+    const full: DepartmentRow = {
       id: row.id,
-      name: row.name ?? 'Seed Org',
-      access_state: row.access_state ?? 'LOCKED',
+      name: row.name ?? 'Seed Dept',
     };
-    this.organizations.set(full.id, full);
+    this.departments.set(full.id, full);
     return full;
   }
 
-  /** Seed a Writing Type directly (bypasses authorization) for test setup. */
-  public seedWritingType(
-    row: Partial<WritingTypeRow> & { id: string; organization_id: string },
-  ): WritingTypeRow {
-    const full: WritingTypeRow = {
+  /** Seed a Document Type directly (bypasses authorization) for test setup. */
+  public seedDocumentType(
+    row: Partial<DocumentTypeRow> & { id: string; department_id: string },
+  ): DocumentTypeRow {
+    const full: DocumentTypeRow = {
       id: row.id,
-      organization_id: row.organization_id,
+      department_id: row.department_id,
       name: row.name ?? 'Seed Type',
-      access_state: row.access_state ?? 'INHERIT',
+      access_state: row.access_state ?? 'LOCKED',
       size_limit_words: row.size_limit_words ?? null,
     };
-    this.writingTypes.set(full.id, full);
+    this.documentTypes.set(full.id, full);
     return full;
   }
 
   /** Seed a Content Type directly (bypasses authorization) for test setup. */
   public seedContentType(
-    row: Partial<ContentTypeRow> & { id: string; writing_type_id: string },
+    row: Partial<ContentTypeRow> & { id: string; document_type_id: string },
   ): ContentTypeRow {
     const full: ContentTypeRow = {
       id: row.id,
-      writing_type_id: row.writing_type_id,
+      document_type_id: row.document_type_id,
       label: row.label ?? 'Seed Content Type',
     };
     this.contentTypes.set(full.id, full);
@@ -164,10 +162,10 @@ export class FakeDb implements QueryExecutor {
   }
 
   /** Seed a Topic directly (bypasses authorization) for test setup. */
-  public seedTopic(row: Partial<TopicRow> & { id: string; organization_id: string }): TopicRow {
+  public seedTopic(row: Partial<TopicRow> & { id: string; department_id: string }): TopicRow {
     const full: TopicRow = {
       id: row.id,
-      organization_id: row.organization_id,
+      department_id: row.department_id,
       name: row.name ?? 'Seed Topic',
     };
     this.topics.set(full.id, full);
@@ -176,11 +174,11 @@ export class FakeDb implements QueryExecutor {
 
   /** Seed a custom metadata field directly (bypasses authorization). */
   public seedCustomMetadataField(
-    row: Partial<CustomMetadataFieldRow> & { id: string; writing_type_id: string },
+    row: Partial<CustomMetadataFieldRow> & { id: string; document_type_id: string },
   ): CustomMetadataFieldRow {
     const full: CustomMetadataFieldRow = {
       id: row.id,
-      writing_type_id: row.writing_type_id,
+      document_type_id: row.document_type_id,
       label: row.label ?? 'Seed Field',
       required: row.required ?? false,
     };
@@ -191,7 +189,7 @@ export class FakeDb implements QueryExecutor {
   /** Seed a Document directly (bypasses authorization) for deletion-impact tests. */
   public seedDocument(row: {
     id: string;
-    writing_type_id: string;
+    document_type_id: string;
     metadata?: Record<string, string>;
   }): DocumentRow {
     this.documents.set(row.id, row);
@@ -199,15 +197,14 @@ export class FakeDb implements QueryExecutor {
   }
 
   /**
-   * Seed a `role_assignment` row directly for test setup. Mirrors the real
-   * schema: `scope` is JSONB shaped `{writingTypeIds: [...]}` for `Field
-   * Expert`, `{organizationId: "..."}` for `Org Owner`, or `null` for a global
-   * role (`User`/`Admin`).
+   * Seed a `role_assignment` row directly for test setup. `scope` is JSONB
+   * shaped `{departmentId: "..."}` for `DepartmentAdmin`, or `null` for a
+   * global role (`Student`/`TechnicalAdmin`).
    */
   public seedRoleAssignment(row: {
     id: string;
     role: string;
-    scope: { writingTypeIds?: string[]; organizationId?: string } | null;
+    scope: { departmentId?: string } | null;
     user_id?: string;
     granted_by?: string | null;
   }): RoleAssignmentRow {
@@ -236,12 +233,12 @@ export class FakeDb implements QueryExecutor {
 
   /** Seed an `access_grant` row directly (bypasses authorization) for test setup. */
   public seedAccessGrant(
-    row: Partial<AccessGrantRow> & { id: string; user_id: string },
+    row: Partial<AccessGrantRow> & { id: string; user_id: string; document_type_id: string },
   ): AccessGrantRow {
     const full: AccessGrantRow = {
       id: row.id,
       user_id: row.user_id,
-      scope: row.scope ?? {},
+      document_type_id: row.document_type_id,
       granted_by: row.granted_by ?? 'seed-granter',
       granted_at: row.granted_at ?? new Date(),
       revoked_at: row.revoked_at ?? null,
@@ -289,140 +286,133 @@ export class FakeDb implements QueryExecutor {
   ): Promise<Row[]> {
     const sql = collapse(text);
 
-    /* ---------------------------- organization --------------------------- */
+    /* ------------------------------ department ------------------------------ */
 
-    if (sql.startsWith('INSERT INTO organization (name) VALUES ($1)')) {
+    if (sql.startsWith('INSERT INTO department (id, name) VALUES ($1, $2)')) {
       this.mutationCount += 1;
-      const row: OrganizationRow = {
-        id: this.nextId('org'),
-        name: params[0] as string,
-        access_state: 'LOCKED',
+      const row: DepartmentRow = {
+        id: params[0] as string,
+        name: params[1] as string,
       };
-      this.organizations.set(row.id, row);
+      this.departments.set(row.id, row);
       return [row] as unknown as Row[];
     }
 
-    if (sql.startsWith('INSERT INTO organization (name, access_state)')) {
-      this.mutationCount += 1;
-      const row: OrganizationRow = {
-        id: this.nextId('org'),
-        name: params[0] as string,
-        access_state: params[1] as string,
-      };
-      this.organizations.set(row.id, row);
-      return [row] as unknown as Row[];
+    if (sql.startsWith('SELECT id FROM department WHERE id = $1')) {
+      const row = this.departments.get(params[0] as string);
+      return (row ? [{ id: row.id }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT id, name, access_state FROM organization WHERE id = $1')) {
-      const row = this.organizations.get(params[0] as string);
+    if (sql.startsWith('SELECT id, name FROM department WHERE id = $1')) {
+      const row = this.departments.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT id, name, access_state FROM organization ORDER BY name ASC')) {
-      const rows = [...this.organizations.values()]
+    if (sql.startsWith('SELECT id, name FROM department ORDER BY name ASC')) {
+      const rows = [...this.departments.values()]
         .map((r) => ({ ...r }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
     }
 
-    if (sql.startsWith('UPDATE organization SET')) {
-      const row = this.organizations.get(params[0] as string);
+    if (sql.startsWith('UPDATE department SET')) {
+      const row = this.departments.get(params[0] as string);
       if (!row) return [] as unknown as Row[];
       this.mutationCount += 1;
-      const setClause = sql.slice('UPDATE organization SET'.length, sql.indexOf('WHERE'));
+      const setClause = sql.slice('UPDATE department SET'.length, sql.indexOf('WHERE'));
       applyAssignments(setClause, row as unknown as Record<string, unknown>, params);
       return [{ ...row }] as unknown as Row[];
     }
 
-    if (sql.startsWith('DELETE FROM organization WHERE id = $1')) {
+    if (sql.startsWith('DELETE FROM department WHERE id = $1')) {
       const id = params[0] as string;
-      const existed = this.organizations.delete(id);
+      const existed = this.departments.delete(id);
       if (existed) this.mutationCount += 1;
       return (existed ? [{ id }] : []) as unknown as Row[];
     }
 
-    /* ---------------------------- writing_type --------------------------- */
+    /* ----------------------------- document_type ----------------------------- */
 
-    if (sql.startsWith('INSERT INTO writing_type (organization_id, name, size_limit_words)')) {
+    if (sql.startsWith('INSERT INTO document_type (department_id, name, size_limit_words)')) {
       this.mutationCount += 1;
-      const row: WritingTypeRow = {
-        id: this.nextId('wt'),
-        organization_id: params[0] as string,
+      const row: DocumentTypeRow = {
+        id: this.nextId('dt'),
+        department_id: params[0] as string,
         name: params[1] as string,
-        access_state: 'INHERIT',
+        access_state: 'LOCKED',
         size_limit_words: (params[2] as number | null) ?? null,
       };
-      this.writingTypes.set(row.id, row);
+      this.documentTypes.set(row.id, row);
       return [row] as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT organization_id FROM writing_type WHERE id = $1')) {
-      const row = this.writingTypes.get(params[0] as string);
-      return (row ? [{ organization_id: row.organization_id }] : []) as unknown as Row[];
+    if (sql.startsWith('SELECT department_id FROM document_type WHERE id = $1')) {
+      const row = this.documentTypes.get(params[0] as string);
+      return (row ? [{ department_id: row.department_id }] : []) as unknown as Row[];
     }
 
     if (
       sql.startsWith(
-        'SELECT id, organization_id, name, access_state, size_limit_words FROM writing_type WHERE id = $1',
+        'SELECT id, department_id, name, access_state, size_limit_words FROM document_type WHERE id = $1',
       )
     ) {
-      const row = this.writingTypes.get(params[0] as string);
+      const row = this.documentTypes.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
     if (
       sql.startsWith(
-        'SELECT id, organization_id, name, access_state, size_limit_words FROM writing_type WHERE organization_id = $1',
+        'SELECT id, department_id, name, access_state, size_limit_words FROM document_type WHERE department_id = $1',
       )
     ) {
-      const rows = [...this.writingTypes.values()]
-        .filter((r) => r.organization_id === (params[0] as string))
+      const rows = [...this.documentTypes.values()]
+        .filter((r) => r.department_id === (params[0] as string))
         .map((r) => ({ ...r }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
     }
 
-    if (sql.startsWith('UPDATE writing_type SET')) {
-      const row = this.writingTypes.get(params[0] as string);
+    if (sql.startsWith('UPDATE document_type SET')) {
+      const row = this.documentTypes.get(params[0] as string);
       if (!row) return [] as unknown as Row[];
       this.mutationCount += 1;
-      const setClause = sql.slice('UPDATE writing_type SET'.length, sql.indexOf('WHERE'));
+      const setClause = sql.slice('UPDATE document_type SET'.length, sql.indexOf('WHERE'));
       applyAssignments(setClause, row as unknown as Record<string, unknown>, params);
       return [{ ...row }] as unknown as Row[];
     }
 
-    if (sql.startsWith('DELETE FROM writing_type WHERE id = $1')) {
+    if (sql.startsWith('DELETE FROM document_type WHERE id = $1')) {
       const id = params[0] as string;
-      const existed = this.writingTypes.delete(id);
+      const existed = this.documentTypes.delete(id);
       if (existed) this.mutationCount += 1;
       return (existed ? [{ id }] : []) as unknown as Row[];
     }
 
-    /* --------------------------- content_type ----------------------------- */
+    /* ----------------------------- content_type ------------------------------- */
 
-    if (sql.startsWith('INSERT INTO content_type (writing_type_id, label)')) {
+    if (sql.startsWith('INSERT INTO content_type (document_type_id, label)')) {
       this.mutationCount += 1;
       const row: ContentTypeRow = {
         id: this.nextId('ct'),
-        writing_type_id: params[0] as string,
+        document_type_id: params[0] as string,
         label: params[1] as string,
       };
       this.contentTypes.set(row.id, row);
       return [row] as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT id, writing_type_id, label FROM content_type WHERE id = $1')) {
+    if (sql.startsWith('SELECT id, document_type_id, label FROM content_type WHERE id = $1')) {
       const row = this.contentTypes.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
     if (
       sql.startsWith(
-        'SELECT id, writing_type_id, label FROM content_type WHERE writing_type_id = $1',
+        'SELECT id, document_type_id, label FROM content_type WHERE document_type_id = $1',
       )
     ) {
       const rows = [...this.contentTypes.values()]
-        .filter((r) => r.writing_type_id === (params[0] as string))
+        .filter((r) => r.document_type_id === (params[0] as string))
         .map((r) => ({ ...r }))
         .sort((a, b) => a.label.localeCompare(b.label));
       return rows as unknown as Row[];
@@ -446,34 +436,34 @@ export class FakeDb implements QueryExecutor {
 
     /* -------------------------------- topic -------------------------------- */
 
-    if (sql.startsWith('INSERT INTO topic (organization_id, name)')) {
+    if (sql.startsWith('INSERT INTO topic (department_id, name)')) {
       this.mutationCount += 1;
       const row: TopicRow = {
         id: this.nextId('topic'),
-        organization_id: params[0] as string,
+        department_id: params[0] as string,
         name: params[1] as string,
       };
       this.topics.set(row.id, row);
       return [row] as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT organization_id FROM topic WHERE id = $1')) {
+    if (sql.startsWith('SELECT department_id FROM topic WHERE id = $1')) {
       const row = this.topics.get(params[0] as string);
-      return (row ? [{ organization_id: row.organization_id }] : []) as unknown as Row[];
+      return (row ? [{ department_id: row.department_id }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT id, organization_id, name FROM topic WHERE id = $1')) {
+    if (sql.startsWith('SELECT id, department_id, name FROM topic WHERE id = $1')) {
       const row = this.topics.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
     if (
       sql.startsWith(
-        'SELECT id, organization_id, name FROM topic WHERE organization_id = $1',
+        'SELECT id, department_id, name FROM topic WHERE department_id = $1',
       )
     ) {
       const rows = [...this.topics.values()]
-        .filter((r) => r.organization_id === (params[0] as string))
+        .filter((r) => r.department_id === (params[0] as string))
         .map((r) => ({ ...r }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
@@ -498,12 +488,12 @@ export class FakeDb implements QueryExecutor {
     /* ----------------------- custom_metadata_field ------------------------ */
 
     if (
-      sql.startsWith('INSERT INTO custom_metadata_field (writing_type_id, label, required)')
+      sql.startsWith('INSERT INTO custom_metadata_field (document_type_id, label, required)')
     ) {
       this.mutationCount += 1;
       const row: CustomMetadataFieldRow = {
         id: this.nextId('cmf'),
-        writing_type_id: params[0] as string,
+        document_type_id: params[0] as string,
         label: params[1] as string,
         required: params[2] as boolean,
       };
@@ -513,7 +503,7 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        'SELECT id, writing_type_id, label, required FROM custom_metadata_field WHERE id = $1',
+        'SELECT id, document_type_id, label, required FROM custom_metadata_field WHERE id = $1',
       )
     ) {
       const row = this.customMetadataFields.get(params[0] as string);
@@ -522,11 +512,11 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        'SELECT id, writing_type_id, label, required FROM custom_metadata_field WHERE writing_type_id = $1',
+        'SELECT id, document_type_id, label, required FROM custom_metadata_field WHERE document_type_id = $1',
       )
     ) {
       const rows = [...this.customMetadataFields.values()]
-        .filter((r) => r.writing_type_id === (params[0] as string))
+        .filter((r) => r.document_type_id === (params[0] as string))
         .map((r) => ({ ...r }))
         .sort((a, b) => a.label.localeCompare(b.label));
       return rows as unknown as Row[];
@@ -551,26 +541,12 @@ export class FakeDb implements QueryExecutor {
       return (existed ? [{ id }] : []) as unknown as Row[];
     }
 
-    /* --------------------- writing type deletion impact -------------------- */
+    /* -------------------- document type deletion impact -------------------- */
 
-    if (
-      sql.startsWith(
-        "SELECT COUNT(*)::int AS count FROM role_assignment WHERE role = 'Field Expert' AND scope -> 'writingTypeIds' ? $1",
-      )
-    ) {
-      const writingTypeId = params[0] as string;
-      const count = [...this.roleAssignments.values()].filter(
-        (r) =>
-          r.role === 'Field Expert' &&
-          (r.scope?.writingTypeIds ?? []).includes(writingTypeId),
-      ).length;
-      return [{ count }] as unknown as Row[];
-    }
-
-    if (sql.startsWith('SELECT COUNT(*)::int AS count FROM document WHERE writing_type_id = $1')) {
-      const writingTypeId = params[0] as string;
+    if (sql.startsWith('SELECT COUNT(*)::int AS count FROM document WHERE document_type_id = $1')) {
+      const documentTypeId = params[0] as string;
       const count = [...this.documents.values()].filter(
-        (d) => d.writing_type_id === writingTypeId,
+        (d) => d.document_type_id === documentTypeId,
       ).length;
       return [{ count }] as unknown as Row[];
     }
@@ -612,49 +588,15 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        "SELECT id, user_id, role, scope FROM role_assignment WHERE user_id = $1 AND role = $2 AND scope ->> 'organizationId' = $3",
+        "SELECT id, user_id, role, scope FROM role_assignment WHERE user_id = $1 AND role = $2 AND scope ->> 'departmentId' = $3",
       )
     ) {
-      const [userId, role, organizationId] = params as [string, string, string];
+      const [userId, role, departmentId] = params as [string, string, string];
       const row = [...this.roleAssignments.values()].find(
         (r) =>
-          r.user_id === userId && r.role === role && r.scope?.organizationId === organizationId,
+          r.user_id === userId && r.role === role && r.scope?.departmentId === departmentId,
       );
       return (row ? [{ ...row }] : []) as unknown as Row[];
-    }
-
-    if (
-      sql.startsWith(
-        "SELECT id, user_id, role, scope FROM role_assignment WHERE user_id = $1 AND role = 'Field Expert'",
-      )
-    ) {
-      const userId = params[0] as string;
-      const row = [...this.roleAssignments.values()].find(
-        (r) => r.user_id === userId && r.role === 'Field Expert',
-      );
-      return (row ? [{ ...row }] : []) as unknown as Row[];
-    }
-
-    if (
-      sql.startsWith(
-        "INSERT INTO role_assignment (user_id, role, scope, granted_by) VALUES ($1, 'Field Expert', $2, $3)",
-      )
-    ) {
-      this.mutationCount += 1;
-      const [userId, scope, grantedBy] = params as [
-        string,
-        { writingTypeIds?: string[] },
-        string,
-      ];
-      const row: RoleAssignmentRow = {
-        id: this.nextId('ra'),
-        user_id: userId,
-        role: 'Field Expert',
-        scope,
-        granted_by: grantedBy,
-      };
-      this.roleAssignments.set(row.id, row);
-      return [] as unknown as Row[];
     }
 
     if (sql.startsWith('INSERT INTO role_assignment (user_id, role, scope, granted_by)')) {
@@ -662,7 +604,7 @@ export class FakeDb implements QueryExecutor {
       const [userId, role, scope, grantedBy] = params as [
         string,
         string,
-        { organizationId?: string } | null,
+        { departmentId?: string } | null,
         string,
       ];
       const row: RoleAssignmentRow = {
@@ -673,17 +615,6 @@ export class FakeDb implements QueryExecutor {
         granted_by: grantedBy,
       };
       this.roleAssignments.set(row.id, row);
-      return [] as unknown as Row[];
-    }
-
-    if (sql.startsWith('UPDATE role_assignment SET scope = $2 WHERE id = $1')) {
-      this.mutationCount += 1;
-      const id = params[0] as string;
-      const scope = params[1] as { writingTypeIds?: string[] };
-      const row = this.roleAssignments.get(id);
-      if (row) {
-        this.roleAssignments.set(id, { ...row, scope });
-      }
       return [] as unknown as Row[];
     }
 
@@ -711,17 +642,13 @@ export class FakeDb implements QueryExecutor {
 
     /* ------------------------------ access_grant ---------------------------- */
 
-    if (sql.startsWith('INSERT INTO access_grant (user_id, scope, granted_by)')) {
+    if (sql.startsWith('INSERT INTO access_grant (user_id, document_type_id, granted_by)')) {
       this.mutationCount += 1;
-      const [userId, scope, grantedBy] = params as [
-        string,
-        { writingTypeId?: string; organizationId?: string },
-        string,
-      ];
+      const [userId, documentTypeId, grantedBy] = params as [string, string, string];
       const row: AccessGrantRow = {
         id: this.nextId('grant'),
         user_id: userId,
-        scope,
+        document_type_id: documentTypeId,
         granted_by: grantedBy,
         granted_at: new Date(),
         revoked_at: null,
@@ -732,7 +659,7 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        'SELECT id, user_id, scope, granted_by, granted_at, revoked_at FROM access_grant WHERE id = $1',
+        'SELECT id, user_id, document_type_id, granted_by, granted_at, revoked_at FROM access_grant WHERE id = $1',
       )
     ) {
       const row = this.accessGrants.get(params[0] as string);
@@ -741,24 +668,12 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        "SELECT id, user_id, scope, granted_by, granted_at, revoked_at FROM access_grant WHERE scope ->> 'writingTypeId' = $1 AND revoked_at IS NULL",
+        'SELECT id, user_id, document_type_id, granted_by, granted_at, revoked_at FROM access_grant WHERE document_type_id = $1 AND revoked_at IS NULL',
       )
     ) {
-      const writingTypeId = params[0] as string;
+      const documentTypeId = params[0] as string;
       const rows = [...this.accessGrants.values()]
-        .filter((r) => r.scope.writingTypeId === writingTypeId && r.revoked_at === null)
-        .sort((a, b) => a.granted_at.getTime() - b.granted_at.getTime());
-      return rows.map((r) => ({ ...r })) as unknown as Row[];
-    }
-
-    if (
-      sql.startsWith(
-        "SELECT id, user_id, scope, granted_by, granted_at, revoked_at FROM access_grant WHERE scope ->> 'organizationId' = $1 AND revoked_at IS NULL",
-      )
-    ) {
-      const organizationId = params[0] as string;
-      const rows = [...this.accessGrants.values()]
-        .filter((r) => r.scope.organizationId === organizationId && r.revoked_at === null)
+        .filter((r) => r.document_type_id === documentTypeId && r.revoked_at === null)
         .sort((a, b) => a.granted_at.getTime() - b.granted_at.getTime());
       return rows.map((r) => ({ ...r })) as unknown as Row[];
     }

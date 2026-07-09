@@ -1,44 +1,33 @@
 /**
  * {@link AuthContext} builders for Admin_Service unit tests. These mirror the
- * shapes the Auth_Service resolves from Postgres (roles + owned Organizations +
- * assigned Writing Types), so the capability re-checks under test run against
- * realistic actor contexts.
+ * shapes the Auth_Service resolves from Postgres (roles + administered
+ * Departments), so the capability re-checks under test run against realistic
+ * actor contexts.
  */
 import type { AuthContext } from '@wren/types';
 
-const BASE: Omit<AuthContext, 'roles' | 'ownedOrganizationIds' | 'assignedWritingTypeIds'> = {
+const BASE: Omit<AuthContext, 'roles' | 'administeredDepartmentIds'> = {
   userId: 'user-actor',
   idpSubject: 'sub-actor',
   email: 'actor@example.com',
   grants: [],
 };
 
-/** A technical `Admin` — every capability, every scope. */
-export function adminContext(): AuthContext {
-  return { ...BASE, roles: ['Admin'], ownedOrganizationIds: [], assignedWritingTypeIds: [] };
+/** A `Student` — no privileged capability. */
+export function studentContext(): AuthContext {
+  return { ...BASE, roles: ['Student'], administeredDepartmentIds: [] };
 }
 
-/** An `Org Owner` of the given Organizations (business management within them). */
-export function orgOwnerContext(...ownedOrganizationIds: string[]): AuthContext {
+/** A `DepartmentAdmin` who administers the given Departments. */
+export function deptAdminContext(departmentIds: string[]): AuthContext {
   return {
     ...BASE,
-    roles: ['Org Owner'],
-    ownedOrganizationIds,
-    assignedWritingTypeIds: [],
+    roles: ['DepartmentAdmin'],
+    administeredDepartmentIds: departmentIds,
   };
 }
 
-/** A `Field Expert` assigned to the given Writing Types (no catalog authority). */
-export function fieldExpertContext(...assignedWritingTypeIds: string[]): AuthContext {
-  return {
-    ...BASE,
-    roles: ['Field Expert'],
-    ownedOrganizationIds: [],
-    assignedWritingTypeIds,
-  };
-}
-
-/** A plain global `User` — no privileged capability. */
-export function userContext(): AuthContext {
-  return { ...BASE, roles: ['User'], ownedOrganizationIds: [], assignedWritingTypeIds: [] };
+/** A `TechnicalAdmin` — system-wide technical operations. */
+export function techAdminContext(): AuthContext {
+  return { ...BASE, roles: ['TechnicalAdmin'], administeredDepartmentIds: [] };
 }

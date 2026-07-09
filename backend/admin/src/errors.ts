@@ -8,7 +8,7 @@
  *     be thrown BEFORE any mutation, so a denied actor never changes state
  *     (Requirements 36.2, 36.3). It carries the audit-friendly `reason` from the
  *     capability matrix.
- *   - {@link NotFoundError} — the targeted Organization / Writing Type does not
+ *   - {@link NotFoundError} — the targeted Department / Document Type does not
  *     exist (raised only after the authorization check has passed).
  */
 
