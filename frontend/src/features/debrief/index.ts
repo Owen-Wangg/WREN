@@ -2,6 +2,7 @@
  * Barrel for the AI Debrief feature (task 18.3).
  */
 export { AiDebriefModal, type AiDebriefModalProps } from './components/AiDebriefModal';
+export { SidebarDebriefPanel, type SidebarDebriefPanelProps } from './components/SidebarDebriefPanel';
 export {
   FeedbackHelpfulnessPrompt,
   type FeedbackHelpfulnessPromptProps,

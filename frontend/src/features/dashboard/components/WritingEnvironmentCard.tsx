@@ -39,12 +39,12 @@ export function WritingEnvironmentCard({
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const topic = getDocumentTopic(document);
-  const writingType = document.metadata['Writing Type'];
+  const organization = document.metadata['Organization'];
   const documentType = document.metadata['Document Type'];
 
-  const breadcrumb = [writingType, documentType]
+  const breadcrumb = [organization, documentType]
     .filter(Boolean)
-    .join(' › ');
+    .join(' > ');
 
   const handleDeleteClick = () => {
     setShowDeleteDialog(true);
@@ -64,7 +64,7 @@ export function WritingEnvironmentCard({
 
   return (
     <>
-      <article className="relative flex h-[200px] w-[380px] flex-col justify-between rounded-md border border-text-muted/25 bg-surface-primary p-lg shadow-md">
+      <article className="relative flex h-[200px] w-[380px] flex-col justify-between rounded-md border border-text-muted/25 bg-surface-primary p-lg transition-all duration-200 hover:border-accent-primary/60 hover:shadow-lg hover:shadow-accent-primary/20 cursor-pointer">
         <div className="flex flex-col gap-xs">
           {breadcrumb && (
             <span className="text-bodySmall font-sans text-text-primary/45">

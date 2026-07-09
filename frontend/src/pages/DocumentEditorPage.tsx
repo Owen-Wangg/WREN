@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 
 import { AnchoredFeedbackEditorContainer } from '@/features/editor';
-import { AiDebriefModal } from '@/features/debrief';
-import { WrenChatPanel, MockAskWrenService } from '@/features/ask-wren';
+import { MockAskWrenService } from '@/features/ask-wren';
+import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
 
 import type { JSONContent } from '@tiptap/react';
@@ -128,12 +128,47 @@ export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const [debriefOpen, setDebriefOpen] = useState(false);
-  const [debriefAutoRegenerate, setDebriefAutoRegenerate] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(420);
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
+
+  const resizeRef = useRef<{ startX: number; startWidth: number; isDragging: boolean } | null>(null);
+  const sidebarDivRef = useRef<HTMLDivElement | null>(null);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    resizeRef.current = {
+      startX: e.clientX,
+      startWidth: rightSidebarWidth,
+      isDragging: true,
+    };
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const delta = moveEvent.clientX - resizeRef.current.startX;
+      const newWidth = Math.max(300, resizeRef.current.startWidth - delta);
+
+      if (sidebarDivRef.current) {
+        sidebarDivRef.current.style.width = `${newWidth}px`;
+      }
+    };
+
+    const handleUp = () => {
+      if (!resizeRef.current || !sidebarDivRef.current) return;
+      const currentWidth = parseInt(sidebarDivRef.current.style.width, 10);
+      setRightSidebarWidth(currentWidth);
+      resizeRef.current.isDragging = false;
+
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+  }, [rightSidebarWidth]);
 
   const envId = documentId ?? 'doc-1';
 
@@ -148,6 +183,7 @@ export function DocumentEditorPage() {
   const breadcrumb = [state?.organizationName, state?.contentType]
     .filter(Boolean)
     .join(' > ') || 'Law > Factum';
+
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/30">
@@ -167,10 +203,10 @@ export function DocumentEditorPage() {
         {/* Left sidebar */}
         <aside
           className={`relative flex shrink-0 flex-col border-r border-border-subtle bg-surface-primary transition-[width] duration-300 ease-in-out ${
-            sidebarCollapsed ? 'w-0 overflow-hidden border-r-0' : 'w-[280px]'
+            leftSidebarCollapsed ? 'w-0 overflow-hidden border-r-0' : 'w-[280px]'
           }`}
         >
-          <div className={`flex flex-1 flex-col p-lg ${sidebarCollapsed ? 'invisible' : 'visible'}`} style={{ minWidth: '280px' }}>
+          <div className={`flex flex-1 flex-col p-lg ${leftSidebarCollapsed ? 'invisible' : 'visible'}`} style={{ minWidth: '280px' }}>
             {/* Document header */}
             <div className="flex flex-col gap-xs">
               <span className="text-caption font-sans text-text-muted">
@@ -180,8 +216,10 @@ export function DocumentEditorPage() {
                 {documentName}
               </h2>
               <p className="text-caption text-text-secondary leading-relaxed">
-                Refer to the AI debrief for a progress overview and high level feedback. Click a quote to highlight it in your document.
-                For more specialized, thorough reflection, ask {appConfig.appName} for guidance. {appConfig.appName} will provide guiding reflective questions along with further highlights for reference.
+                <strong>AI Debrief</strong> gives you a bird's-eye view of your writing: where you're excelling and where you could improve. Click any quote within the AI Debrief content to see it highlighted in your draft.
+              </p>
+              <p className="text-caption text-text-secondary leading-relaxed">
+                <strong>Ask {appConfig.appName}</strong> takes you deeper. Ask specific questions to get guided reflections that help you think critically about your draft.
               </p>
             </div>
 
@@ -189,27 +227,13 @@ export function DocumentEditorPage() {
 
             {/* Action buttons — bottom aligned */}
             <nav className="mt-auto flex flex-col gap-sm" aria-label="Document actions">
-              {/* Feedback actions */}
+              {/* Open feedback & chat sidebar */}
               <button
                 type="button"
-                onClick={() => { setDebriefAutoRegenerate(false); setDebriefOpen(true); }}
+                onClick={() => setRightSidebarOpen(true)}
                 className="w-full rounded-md bg-accent-primary px-lg py-sm text-bodySmall font-sans font-semibold text-text-on-accent"
               >
-                View AI Debrief
-              </button>
-              <button
-                type="button"
-                onClick={() => { setDebriefAutoRegenerate(true); setDebriefOpen(true); }}
-                className="w-full rounded-md bg-accent-primary px-lg py-sm text-bodySmall font-sans font-semibold text-text-on-accent"
-              >
-                Regenerate AI Debrief
-              </button>
-              <button
-                type="button"
-                onClick={() => setChatOpen(!chatOpen)}
-                className="w-full rounded-md bg-accent-primary px-lg py-sm text-bodySmall font-sans font-semibold text-text-on-accent"
-              >
-                Ask {appConfig.appName}
+                Open {appConfig.appName} and AI Debrief
               </button>
 
               {/* Divider between feedback and file actions */}
@@ -237,14 +261,14 @@ export function DocumentEditorPage() {
           </div>
         </aside>
 
-        {/* Sidebar collapse/expand toggle */}
+        {/* Left sidebar collapse/expand toggle */}
         <button
           type="button"
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          onClick={() => setLeftSidebarCollapsed(!leftSidebarCollapsed)}
+          aria-label={leftSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           className="relative z-10 flex h-full w-[20px] shrink-0 items-center justify-center border-r border-border-subtle bg-surface-primary text-text-muted transition-colors hover:bg-surface-muted hover:text-text-primary"
         >
-          {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          {leftSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
 
         {/* Editor area — centered with max-width for comfortable reading */}
@@ -263,56 +287,60 @@ export function DocumentEditorPage() {
           </div>
         </main>
 
-        {/* Right panel: Ask Writing Coach — slides in/out */}
+        {/* Right panel: Writing Coach & AI Debrief sidebar */}
+        {rightSidebarOpen && !rightSidebarCollapsed && (
+          <div
+            className="w-1 cursor-col-resize bg-border-subtle hover:bg-accent-primary/80 active:bg-accent-primary transition-colors flex items-center justify-center group"
+            onMouseDown={handleResizeStart}
+            role="separator"
+            aria-label="Drag to resize panel"
+            aria-orientation="vertical"
+          >
+            <GripVertical size={18} className="text-accent-primary opacity-30 group-hover:opacity-100 transition-opacity" />
+          </div>
+        )}
         <div
-          className={`relative shrink-0 overflow-hidden border-l border-border-subtle shadow-[-4px_0_12px_rgba(0,0,0,0.05)] transition-all duration-300 ease-in-out ${
-            chatOpen ? 'w-[420px]' : 'w-0 border-l-0'
+          ref={sidebarDivRef}
+          className={`relative flex shrink-0 overflow-hidden border-l border-border-subtle shadow-[-4px_0_12px_rgba(0,0,0,0.05)] ${
+            !rightSidebarOpen ? 'border-l-0' : ''
           }`}
+          style={{
+            width: rightSidebarOpen ? (rightSidebarCollapsed ? '20px' : `${rightSidebarWidth}px`) : '0px',
+          }}
         >
-          <div className="flex h-full w-[420px] flex-col bg-surface-primary">
-            {/* Chat panel collapse toggle */}
+          {rightSidebarOpen && (
             <button
               type="button"
-              onClick={() => setChatOpen(false)}
-              aria-label="Close chat panel"
-              className="absolute left-0 top-1/2 z-10 flex h-[40px] w-[20px] -translate-x-full -translate-y-1/2 items-center justify-center rounded-l-md border border-r-0 border-border-subtle bg-surface-primary text-text-muted transition-colors hover:bg-surface-muted hover:text-text-primary"
+              onClick={() => setRightSidebarCollapsed(!rightSidebarCollapsed)}
+              aria-label={rightSidebarCollapsed ? 'Expand panel' : 'Collapse panel'}
+              className="relative z-10 flex h-full w-[20px] shrink-0 items-center justify-center border-r border-border-subtle bg-surface-primary text-text-muted transition-colors hover:bg-surface-muted hover:text-text-primary"
             >
-              <ChevronRight size={14} />
+              {rightSidebarCollapsed ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
             </button>
+          )}
 
-            {/* Resize handle on left edge */}
-            <div className="absolute left-0 top-0 flex h-full w-[6px] cursor-col-resize items-center justify-center opacity-0 transition-opacity hover:opacity-100">
-              <GripVertical size={12} className="text-text-muted" />
-            </div>
-
-            <WrenChatPanel
+          <div
+            className={`flex h-full flex-col bg-surface-primary flex-1 ${
+              rightSidebarCollapsed ? 'hidden' : 'visible'
+            }`}
+          >
+            <ChatFeedbackSidebar
               documentId={envId}
               draftId="draft-1"
               draftVersion={1}
               askWrenService={askWrenService}
-              className="h-full w-full"
               onHighlight={(anchorId) => {
                 setHighlightedAnchorId(anchorId);
                 setShowCoachHighlights(true);
+              }}
+              onQuoteClick={(anchorId) => {
+                console.log('Quote clicked, anchor ID:', anchorId);
+                setHighlightedAnchorId(anchorId);
               }}
             />
           </div>
         </div>
       </div>
-
-      <AiDebriefModal
-        environmentId={envId}
-        open={debriefOpen}
-        onOpenChange={(next) => {
-          setDebriefOpen(next);
-          if (!next) setDebriefAutoRegenerate(false);
-        }}
-        autoRegenerate={debriefAutoRegenerate}
-        onQuoteClick={(anchorId) => {
-          console.log('Quote clicked, anchor ID:', anchorId);
-          setHighlightedAnchorId(anchorId);
-        }}
-      />
     </div>
   );
 }

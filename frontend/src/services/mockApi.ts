@@ -63,7 +63,7 @@ const sampleDocuments: Document[] = [
     writingTypeId: 'wt-property-law',
     contentTypeId: 'ct-memo',
     name: 'Drafting Lien On Property',
-    metadata: { 'Document Type': 'Memo', 'Date Added': '2026-06-18' },
+    metadata: { 'Organization': 'Law', 'Document Type': 'Memo', 'Date Added': '2026-06-18' },
     status: 'Still Drafting',
     createdAt: '2026-06-18T00:00:00.000Z',
   },
@@ -73,7 +73,7 @@ const sampleDocuments: Document[] = [
     writingTypeId: 'wt-tort-law',
     contentTypeId: 'ct-factum',
     name: 'Tort Claim Proposal',
-    metadata: { 'Document Type': 'Factum', 'Date Added': '2026-06-18' },
+    metadata: { 'Organization': 'Law', 'Document Type': 'Factum', 'Date Added': '2026-06-18' },
     status: 'Polishing',
     createdAt: '2026-06-18T00:00:00.000Z',
   },
@@ -83,7 +83,7 @@ const sampleDocuments: Document[] = [
     writingTypeId: 'wt-criminal-law',
     contentTypeId: 'ct-memo',
     name: 'Appealing judgment',
-    metadata: { 'Document Type': 'Memo', 'Date Added': '2026-06-18' },
+    metadata: { 'Organization': 'Law', 'Document Type': 'Memo', 'Date Added': '2026-06-18' },
     status: 'Still Drafting',
     createdAt: '2026-06-18T00:00:00.000Z',
   },
@@ -355,8 +355,8 @@ const sampleAnchors: Anchor[] = [
     feedbackItemId: 'fb-grammar-2',
     draftId: 'draft-1',
     paragraphIndex: 4,
-    startOffset: 120,
-    endOffset: 280,
+    startOffset: 0,
+    endOffset: 157,
     contentFingerprint: 'fp-grammar-2',
     state: 'active',
   },
@@ -365,8 +365,8 @@ const sampleAnchors: Anchor[] = [
     feedbackItemId: 'fb-tone-2',
     draftId: 'draft-1',
     paragraphIndex: 4,
-    startOffset: 300,
-    endOffset: 450,
+    startOffset: 160,
+    endOffset: 296,
     contentFingerprint: 'fp-tone-2',
     state: 'active',
   },
@@ -378,6 +378,75 @@ const sampleAnchors: Anchor[] = [
     startOffset: 0,
     endOffset: 100,
     contentFingerprint: 'fp-clarity-2',
+    state: 'active',
+  },
+];
+
+/**
+ * Regenerated anchors for draft-2 — when debrief is regenerated, new anchors
+ * are computed from the current document state (Requirement 18: progress
+ * tracking requires anchors to be recomputed per draft version, never remapped).
+ * These tie to the same feedback items but with updated offsets.
+ */
+const regeneratedSampleAnchors: Anchor[] = [
+  {
+    id: 'anchor-1-draft2',
+    feedbackItemId: 'fb-1',
+    draftId: 'draft-2',
+    paragraphIndex: 2,
+    startOffset: 82,
+    endOffset: 288,
+    contentFingerprint: 'fp-anchor-1-draft2',
+    state: 'active',
+  },
+  {
+    id: 'anchor-2-draft2',
+    feedbackItemId: 'fb-3',
+    draftId: 'draft-2',
+    paragraphIndex: 4,
+    startOffset: 0,
+    endOffset: 112,
+    contentFingerprint: 'fp-anchor-2-draft2',
+    state: 'active',
+  },
+  {
+    id: 'anchor-3-draft2',
+    feedbackItemId: 'fb-4',
+    draftId: 'draft-2',
+    paragraphIndex: 6,
+    startOffset: 0,
+    endOffset: 86,
+    contentFingerprint: 'fp-anchor-3-draft2',
+    state: 'active',
+  },
+  {
+    id: 'anchor-grammar-2-draft2',
+    feedbackItemId: 'fb-grammar-2',
+    draftId: 'draft-2',
+    paragraphIndex: 4,
+    startOffset: 0,
+    endOffset: 157,
+    contentFingerprint: 'fp-grammar-2-draft2',
+    state: 'active',
+  },
+  {
+    id: 'anchor-tone-2-draft2',
+    feedbackItemId: 'fb-tone-2',
+    draftId: 'draft-2',
+    paragraphIndex: 4,
+    startOffset: 160,
+    endOffset: 296,
+    contentFingerprint: 'fp-tone-2-draft2',
+    state: 'active',
+  },
+  {
+    id: 'anchor-clarity-2-draft2',
+    feedbackItemId: 'fb-clarity-2',
+    draftId: 'draft-2',
+    paragraphIndex: 2,
+    startOffset: 0,
+    endOffset: 100,
+    contentFingerprint: 'fp-clarity-2-draft2',
     state: 'active',
   },
 ];
@@ -965,9 +1034,15 @@ export class MockApiClient implements HttpClient {
     }
 
     // After regenerate, the GET debrief endpoint should reflect the new data.
+    // Also update the anchors endpoint with regenerated anchors (Requirement 18:
+    // anchors must be recomputed per draft version, never remapped).
     if (key.endsWith('/debrief/regenerate') && method === 'POST') {
       const getKey = key.replace('POST ', 'GET ').replace('/regenerate', '');
       this.routes[getKey] = fixture;
+      // Update anchors for doc-1 regenerate
+      if (key === 'POST /documents/doc-1/debrief/regenerate') {
+        this.routes['GET /documents/doc-1/anchors'] = regeneratedSampleAnchors;
+      }
     }
 
     const result = options.schema.safeParse(fixture);
