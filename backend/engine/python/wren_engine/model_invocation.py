@@ -39,6 +39,7 @@ from .prompt_assembly import AssembledPrompt
 
 __all__ = [
     "ModelInvocationError",
+    "ModelReply",
     "ModelInvoker",
     "LangChainBedrockInvoker",
     "resolve_bedrock_model_id",
@@ -118,7 +119,13 @@ def resolve_bedrock_model_id(
         ssm_client = boto3.client("ssm")
 
     parameter_name = bedrock_model_id_parameter_name(stack_prefix)
-    response = ssm_client.get_parameter(Name=parameter_name)
+    try:
+        response = ssm_client.get_parameter(Name=parameter_name)
+    except Exception as exc:  # noqa: BLE001 - re-raised as a typed error below.
+        raise ModelInvocationError(
+            f"Failed to read SSM parameter {parameter_name!r}: {exc}"
+        ) from exc
+
     value = response.get("Parameter", {}).get("Value")
     if not value or not value.strip():
         raise ModelInvocationError(

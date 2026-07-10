@@ -14,10 +14,10 @@ import pytest
 from wren_engine import (
     LangChainBedrockInvoker,
     ModelInvocationError,
+    ModelReply,
     bedrock_model_id_parameter_name,
     resolve_bedrock_model_id,
 )
-from wren_engine.model_invocation import ModelReply
 from wren_engine.prompt_assembly import AssembledPrompt
 
 
@@ -94,6 +94,23 @@ def test_resolve_raises_when_ssm_parameter_value_is_empty():
         resolve_bedrock_model_id(
             env={"STACK_PREFIX": "wren-dev"}, ssm_client=EmptyValueSsmClient()
         )
+
+
+def test_resolve_wraps_ssm_client_errors_in_model_invocation_error():
+    """SSM failures (e.g. ParameterNotFound, AccessDenied) must not leak as raw
+    boto3/botocore exceptions — callers should only need to catch
+    ModelInvocationError (Requirement 51 error-handling consistency with the
+    wren_db.secrets convention)."""
+
+    class FailingSsmClient:
+        def get_parameter(self, Name: str) -> dict:  # noqa: N803
+            raise RuntimeError("ParameterNotFound: no parameter named " + Name)
+
+    with pytest.raises(ModelInvocationError) as exc_info:
+        resolve_bedrock_model_id(
+            env={"STACK_PREFIX": "wren-dev"}, ssm_client=FailingSsmClient()
+        )
+    assert "wren-dev" in str(exc_info.value)
 
 
 def test_resolve_never_returns_a_literal_default_when_unconfigured():
@@ -182,3 +199,29 @@ def test_invoke_without_explicit_model_id_resolves_lazily_and_raises_when_unconf
     invoker = LangChainBedrockInvoker(env={})
     with pytest.raises(ModelInvocationError):
         invoker.invoke(_prompt())
+
+
+def test_model_reply_is_importable_from_package_root():
+    """ModelReply is the public return type of ModelInvoker.invoke() and must
+    be reachable via `from wren_engine import ModelReply`, not only via the
+    submodule (mirrors how progress_tracker.py's return types are exported)."""
+    reply = ModelReply(text="hello")
+    assert reply.text == "hello"
+
+
+def test_resolved_model_id_reaches_the_real_chat_bedrock_converse_constructor():
+    """No client injected: exercises the real _resolve_chat() lazy-import path
+    against the actual ChatBedrockConverse class (construction only — no
+    network call is made), confirming the configured model id/region are
+    forwarded rather than any hardcoded default."""
+    invoker = LangChainBedrockInvoker(
+        model_id="anthropic.claude-3-5-haiku-20241022-v1:0",
+        region_name="ca-central-1",
+    )
+
+    chat = invoker._resolve_chat()
+
+    assert chat.model_id == "anthropic.claude-3-5-haiku-20241022-v1:0"
+    assert chat.region_name == "ca-central-1"
+    # Resolving twice reuses the cached instance rather than reconstructing it.
+    assert invoker._resolve_chat() is chat

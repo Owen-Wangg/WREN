@@ -105,6 +105,10 @@ class DocumentTypePromptConfig:
     def __post_init__(self) -> None:
         if not self.document_type_name.strip():
             raise ValueError("document_type_name must not be empty")
+        if not self.tone.strip():
+            raise ValueError("tone must not be empty")
+        if not self.density.strip():
+            raise ValueError("density must not be empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +127,13 @@ class UntrustedContent:
     def __post_init__(self) -> None:
         if not self.label.strip():
             raise ValueError("label must not be empty")
+        if "\n" in self.label or "\r" in self.label:
+            raise ValueError(
+                "label must not contain newlines (a multi-line label could "
+                "forge a spurious boundary marker line)"
+            )
+        if not isinstance(self.text, str):
+            raise TypeError(f"text must be a str, got {type(self.text).__name__}")
 
 
 @dataclass(frozen=True, slots=True)

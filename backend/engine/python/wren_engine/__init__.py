@@ -43,6 +43,7 @@ from .model_invocation import (
     LangChainBedrockInvoker,
     ModelInvocationError,
     ModelInvoker,
+    ModelReply,
     bedrock_model_id_parameter_name,
     resolve_bedrock_model_id,
 )
@@ -105,6 +106,7 @@ __all__ = [
     # Model invocation (Requirement 51 / REQ-NFR-MODEL-01 / Task 9.3)
     "ModelInvoker",
     "LangChainBedrockInvoker",
+    "ModelReply",
     "ModelInvocationError",
     "resolve_bedrock_model_id",
     "bedrock_model_id_parameter_name",
