@@ -104,7 +104,7 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
 - [x] 4. Checkpoint - foundations and authorization  〔Track A · after A4〕
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Departments, Document Types, roles, and access administration (Admin_Service)  〔Track A〕
+- [x] 5. Departments, Document Types, roles, and access administration (Admin_Service)  〔Track A〕
   - [x] 5.1 Implement Department groupings and the configurable Document Type catalog  〔Track A · A4〕
     - (Built as Organization groupings + a self-selectable Writing Type catalog with org- and type-level OPEN/LOCKED. V4: Departments are name-only groupings created via the joint Technical-Admin appointment action (Task 5.6, REQ-ROLE-DEPTADMIN-01.1); Document Types carry the sole OPEN/LOCKED state — no org-level state, no `INHERIT`.)
     - CRUD for the grouping + self-selectable Document Types; Document Types are configurable records, not a fixed domain set
@@ -122,7 +122,7 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 5.5 Write unit tests for admin role/access edge cases  〔Track A · A6〕
     - Cross-grouping scope denials (built also testing a V1 "no-Org-Owner superuser fallback" path — V4 has no superuser fallback (REQ-ROLE-TECHADMIN-01.4); that test is retired in Task 5.6 and replaced by a "Technical Admin cannot edit educational content" denial test)
     - _Requirements: 30.6_
-  - [ ] 5.6 Migrate V1-shaped admin/auth/schema code to the V4 three-role model  〔Track A · A6〕
+  - [x] 5.6 Migrate V1-shaped admin/auth/schema code to the V4 three-role model  〔Track A · A6〕
     - Apply the design.md V1→V4 mapping: rename `Organization`→remove/`Department`, `WritingType`→`DocumentType`, `WritingTypeConfig`→`DocumentTypeConfig`; drop the `INHERIT` access state and all org-level access state/inheritance; remove org-level Access Grants (only `{documentTypeId}` remains) and the `organization` usage scope
     - Collapse `RoleAssignment.role` values `FieldExpert`/`DocumentExpert`/`OrgOwner` → `DepartmentAdmin`, re-scoping each holder to `{departmentIds[]}` for the Department(s) containing their previously assigned Document Type(s) — never delete holders (avoid silently revoking active users' access)
     - Re-scope the capability matrix and access resolution: Technical Admin assigns any role + appoints/creates Departments; Department Admin holds full educational authority (taxonomy/prompt/reference/metadata/Content Types/Topics/Access Grants) for administered Departments only; remove the superuser fallback; deny Technical-Admin educational-content edits
@@ -182,13 +182,13 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 8.6 Implement the Progress Tracker  〔Track A · A8〕
     - Re-evaluate each anchored Feedback Item to exactly one Resolution Status; `removed` anchors → `removed`; unchanged spans → `unchanged` with no LLM call; changed spans use diff-selected region; re-evaluate document-wide structural items against the full new Draft (never `removed`, REQ-RESOLUTION-01.7); append-only resolution history; pattern detection across ≥2 drafts (improving/persistent/emerging), no claims with <2 drafts
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 18.2, 18.5_
-  - [ ]* 8.7 Write property test for resolution status correctness  〔Track A · A9〕
+  - [x]* 8.7 Write property test for resolution status correctness  〔Track A · A9〕
     - **Property 16: Resolution status correctness**
     - **Validates: Requirements 17.1, 17.2, 17.3, 17.4, 17.7**
-  - [ ]* 8.8 Write property test for resolution history accumulation  〔Track A · A9〕
+  - [x]* 8.8 Write property test for resolution history accumulation  〔Track A · A9〕
     - **Property 17: Resolution history accumulation**
     - **Validates: Requirements 17.6**
-  - [ ]* 8.9 Write property test for pattern acknowledgment gating  〔Track A · A9〕
+  - [x]* 8.9 Write property test for pattern acknowledgment gating  〔Track A · A9〕
     - **Property 18: Pattern acknowledgment gating**
     - **Validates: Requirements 18.2, 18.5**
 
