@@ -61,12 +61,33 @@ from .progress_tracker import (
     ResolutionUpdate,
     SpanJudge,
 )
+from .feedback_classifier import (
+    ClassificationOutcome,
+    DensityOutcome,
+    DensitySetting,
+    FeedbackClassifier,
+    compute_density_cap,
+)
+from .output_guardrail import (
+    GuardrailAuditSink,
+    GuardrailOutcome,
+    GuardrailViolation,
+    OutputGuardrail,
+    ValidatedFeedbackItem,
+    ViolationType,
+)
 from .prompt_assembly import (
     AssembledPrompt,
     DocumentTypePromptConfig,
     PromptAssembler,
     SystemScaffolding,
     UntrustedContent,
+)
+from .structural_feedback import (
+    DEFAULT_STRUCTURAL_CAP,
+    FeedbackPartition,
+    StructuralFeedbackItem,
+    StructuralFeedbackProcessor,
 )
 
 __all__ = [
@@ -110,4 +131,22 @@ __all__ = [
     "ModelInvocationError",
     "resolve_bedrock_model_id",
     "bedrock_model_id_parameter_name",
+    # Output guardrail (Requirement 11 / REQ-CORE-NOGHOST-01 / Task 9.4)
+    "OutputGuardrail",
+    "GuardrailOutcome",
+    "GuardrailViolation",
+    "GuardrailAuditSink",
+    "ValidatedFeedbackItem",
+    "ViolationType",
+    # Feedback classifier (Requirement 13, 15 / Task 9.6)
+    "FeedbackClassifier",
+    "ClassificationOutcome",
+    "DensityOutcome",
+    "DensitySetting",
+    "compute_density_cap",
+    # Structural feedback (Requirement 14 / REQ-FB-STRUCTURAL-01 / Task 9.9)
+    "StructuralFeedbackProcessor",
+    "StructuralFeedbackItem",
+    "FeedbackPartition",
+    "DEFAULT_STRUCTURAL_CAP",
 ]
