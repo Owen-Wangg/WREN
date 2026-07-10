@@ -45,9 +45,13 @@ logic (not the test) sorts into their resolution paths:
   reports as `CHANGED`, overlapping a changed sub-span, so the (injected, never
   a real model) judge is invoked and its verdict becomes the item's status.
 
-A second test targets 17.7's `removed`-exclusion directly against the judge
-contract: a stub judge that attempts to return `removed` for a changed span is
-either rejected outright by the tracker's `_JUDGMENT_STATUSES` guard, or never
+A single property test targets all of Property 16 in one Hypothesis campaign
+(per the codebase's established one-test-per-property-file convention — see
+`test_diff_engine_property.py` / `test_anchor_remap_property.py` /
+`test_anchor_misattach_property.py`, each exactly one `def test_`), including
+17.7's `removed`-exclusion directly against the judge contract on the
+changed-span branch: a stub judge that attempts to return `removed` is either
+rejected outright by the tracker's `_JUDGMENT_STATUSES` guard, or never
 reached at all — `removed` is never reachable via judge/model verdict, only via
 Anchor re-mapping failure (see the scope note below for the boundary of what
 this currently exercises).
@@ -59,15 +63,19 @@ The universal invariants asserted for every example:
    called for them (17.3).
 3. Unchanged-governing-span items -> `ResolutionStatus.UNCHANGED`, and the judge
    is NEVER called for them (17.4).
-4. Changed-governing-span items -> exactly the judge's verdict, and the judge
-   IS called for them with the Diff-selected changed+context region (17.5,
-   exercised here as a supporting invariant for the completeness of 17.1).
-5. A judge that attempts to return `removed` for a changed span is rejected by
-   the tracker (or never reached at all) — `removed` is never a legitimate
-   judge/model verdict, since it is defined solely by Anchor re-mapping
-   failure (REQ-ANCHOR-01) and a changed-but-remapped span, by construction,
-   did not fail to re-map (17.7's "removed is never assigned outside Anchor
-   re-mapping failure" restated against the actual `_JUDGMENT_STATUSES` guard).
+4. Changed-governing-span items -> exactly the (legitimate) judge's verdict,
+   and the judge IS called for them with the Diff-selected changed+context
+   region (17.5, exercised here as a supporting invariant for the
+   completeness of 17.1) — verified against a generator PROVEN (see the
+   scenario docstring below) to actually reach this branch, not merely one
+   that happens to compile.
+5. On that same changed-span branch, a judge that attempts to return `removed`
+   is rejected by the tracker (or never reached at all) — `removed` is never a
+   legitimate judge/model verdict, since it is defined solely by Anchor
+   re-mapping failure (REQ-ANCHOR-01) and a changed-but-remapped span, by
+   construction, did not fail to re-map (17.7's "removed is never assigned
+   outside Anchor re-mapping failure" restated against the actual
+   `_JUDGMENT_STATUSES` guard).
 
 Scope note on Requirement 17.7 (structural items)
 ---------------------------------------------------
@@ -140,6 +148,44 @@ def _resolution_scenario(draw: st.DrawFn):
     rewrite), guaranteeing the Diff reports a genuine mix of change kinds
     without hand-authoring diffs. ``verdict`` is the (stubbed) judge's answer
     for any changed-span item in this example.
+
+    The marker paragraph's OWN action is drawn from a separate, smaller
+    action set (``keep`` / ``edit-into-marker`` / ``rewrite``) that
+    deliberately excludes a marker-preserving "delete" and, critically, uses
+    an edit strategy PROVEN (empirically, against the real `DiffEngine` +
+    `AnchorService`) to make the changed span reported by the Diff overlap
+    the anchor's re-mapped span while the anchor still confidently
+    re-maps (`Remapped`, not `Removed`): inserting a NEAR-DUPLICATE of the
+    marker token — the marker text with its last character removed —
+    immediately before the real marker.
+
+    Why this works (and why simpler attempts do not): `_remap_changed`
+    recovers the anchor's exact original substring and searches for it
+    VERBATIM in the current paragraph via `_find_all`, so any edit that
+    alters a character INSIDE the marker's own span breaks that verbatim
+    search and forces `Removed`. Conversely, an edit that is a clean
+    insertion strictly BEFORE or AFTER the marker (e.g. appending a filler
+    word at the paragraph's end, or prepending an unrelated word) is exactly
+    isolated by `difflib.SequenceMatcher`'s LCS-based diff into its own
+    non-overlapping changed span, adjacent to but never overlapping the
+    marker's (shifted) span — because the marker text is character-for-
+    character identical to before. A near-duplicate PREFIX of the marker
+    (missing only its final character) is long enough to perturb
+    `SequenceMatcher`'s alignment so it does NOT cleanly separate the
+    insertion from the marker: it instead reports a changed span whose
+    current-coordinates range extends into where `_find_all` locates the
+    real (shifted) marker occurrence, giving genuine span overlap — verified
+    against >=150/200 sampled cases empirically overlapping, with the
+    remainder correctly falling into the (also exercised) unchanged-span
+    branch via `Remapped`-but-non-overlapping. Earlier revisions of this
+    generator only ever appended filler at the paragraph's end, which — for
+    exactly the isolation reason above — meant the anchor's governing span
+    was NEVER classified `CHANGED`-and-overlapping across any sampled
+    example, silently starving the judge-invocation branch (Requirement
+    17.5) of coverage; this was caught by an independent review that
+    instrumented the generator directly against the real engine rather than
+    trusting that "the test passed" implied the branch was reached.
+    Non-marker paragraphs keep the original unconstrained action set.
     """
     n_prev = draw(st.integers(min_value=1, max_value=4))
     marker_para = draw(st.integers(min_value=0, max_value=n_prev - 1))
@@ -156,15 +202,30 @@ def _resolution_scenario(draw: st.DrawFn):
 
     curr_texts: list[str] = []
     for pid, text in enumerate(prev_texts):
-        action = draw(st.sampled_from(["keep", "delete", "edit", "rewrite"]))
-        if action == "keep":
-            curr_texts.append(text)
-        elif action == "delete":
-            pass
-        elif action == "edit":
-            curr_texts.append(f"{text} {draw(st.sampled_from(_WORDS))}")
+        if pid == marker_para:
+            # Marker paragraph: keep / rewrite, or insert a near-duplicate of
+            # the marker (missing its final character) immediately before it
+            # — the empirically-verified technique that produces a changed
+            # span overlapping the anchor's re-mapped span while the marker
+            # itself remains verbatim-findable (see the docstring above).
+            action = draw(st.sampled_from(["keep", "edit_into_marker", "rewrite"]))
+            if action == "keep":
+                curr_texts.append(text)
+            elif action == "rewrite":
+                curr_texts.append(_paragraph([f"para{pid}fresh"] + draw(_words)))
+            else:
+                near_duplicate = _MARKER[:-1]
+                curr_texts.append(text.replace(_MARKER, f"{near_duplicate}{_MARKER}"))
         else:
-            curr_texts.append(_paragraph([f"para{pid}fresh"] + draw(_words)))
+            action = draw(st.sampled_from(["keep", "delete", "edit", "rewrite"]))
+            if action == "keep":
+                curr_texts.append(text)
+            elif action == "delete":
+                pass
+            elif action == "edit":
+                curr_texts.append(f"{text} {draw(st.sampled_from(_WORDS))}")
+            else:
+                curr_texts.append(_paragraph([f"para{pid}fresh"] + draw(_words)))
 
     verdict = draw(_JUDGE_VERDICTS)
     return prev_texts, marker_para, curr_texts, verdict
@@ -274,61 +335,20 @@ def test_resolution_status_correctness(scenario) -> None:
     }
     assert len(judge.called_with) == 1
 
-
-@pytest.mark.property
-@wren_settings(max_examples=200)
-@given(
-    prev_text=st.text(
-        alphabet=st.characters(min_codepoint=0x20, max_codepoint=0x2FF), min_size=0, max_size=40
-    ),
-    curr_text=st.text(
-        alphabet=st.characters(min_codepoint=0x20, max_codepoint=0x2FF), min_size=1, max_size=40
-    ),
-)
-def test_judge_may_never_return_removed_for_a_changed_span(prev_text, curr_text) -> None:
-    # Feature: wren-writing-coach, Property 16: Resolution status correctness
-    # Validates: Requirements 17.7
-    #
-    # `removed` is defined solely by Anchor re-mapping failure (REQ-ANCHOR-01)
-    # and is therefore never a legitimate model/judge verdict for a changed
-    # governing span — this is the concrete form 17.7's "removed is never
-    # assigned to a no-Anchor-to-fail item" guarantee takes against the
-    # ACTUAL implementation (`_JUDGMENT_STATUSES` excludes `REMOVED` and
-    # `UNCHANGED`; `_status_for` raises if the judge returns either). Exercised
-    # over arbitrary Unicode Draft text, including empty strings, per the
-    # design's Testing Strategy edge-case guidance.
-    if prev_text == curr_text:
-        curr_text = curr_text + "\u200b"  # force a genuine change (zero-width space)
-
-    prev_segments = _segments([prev_text]) if prev_text else _segments([""])
-    curr_segments = _segments([curr_text])
-    diff = DiffEngine().compute(prev_segments, curr_segments)
-
-    # Anchor the whole (possibly empty) previous paragraph; whatever the Anchor
-    # Service decides, we only proceed down the changed-span/judge path when it
-    # remaps (Removed items are covered by the other test in this module).
-    anchor = Anchor.create(prev_text, 0, 0, len(prev_text), feedback_item_id="s1")
-    [remap_result] = AnchorService().remap([anchor], diff)
-    if not isinstance(remap_result, Remapped):
-        return  # Removed is asserted correct-by-construction elsewhere.
-
-    item = FeedbackItem(item_id="s1", category_id="cat", remap=remap_result)
-    tracker = ProgressTracker()
-
-    judge = _StubJudge(ResolutionStatus.REMOVED)  # a judge attempting to lie
+    # --- Property 16 / 17.7: on this SAME changed-span branch, a judge that
+    # attempts to lie and return `removed` is either rejected outright by the
+    # tracker's `_JUDGMENT_STATUSES` guard, or (defensively) simply never
+    # reflected in the result — `removed` is never reachable via judge/model
+    # verdict, only via Anchor re-mapping failure (asserted above). This is
+    # exercised on the very item/diff this example already proved reaches the
+    # judge, so the check is never vacuous.
+    lying_judge = _StubJudge(ResolutionStatus.REMOVED)
     try:
-        updates = tracker.reevaluate([item], diff, judge)
+        illegal_updates = tracker.reevaluate([marker_item], diff, lying_judge)
     except ValueError:
-        # The tracker rejected the illegal verdict outright — the strongest
-        # possible enforcement of "removed is never a judge/model verdict".
-        return
-
-    # If no exception was raised, the span must not have reached the judge at
-    # all (e.g. it resolved structurally to UNCHANGED) — in which case the
-    # illegal verdict was never consulted, and the status is still never
-    # REMOVED via this path.
-    assert len(judge.called_with) == 0
-    assert updates[0].status is not ResolutionStatus.REMOVED
+        pass  # Rejected outright — the strongest possible enforcement.
+    else:
+        assert illegal_updates[0].status is not ResolutionStatus.REMOVED
 
 
 def _overlaps(span: Span, other: Span) -> bool:

@@ -61,9 +61,16 @@ under test rather than re-deriving the implementation):
      recurring, or first appearing on the latest Draft with zero open items)
      yields NO acknowledgment for that category.
 
-Edge cases exercised: zero categories, a single Draft, many Drafts, a category
+Edge cases exercised: zero categories, a single Draft (including a
+deliberately maximally-loaded single Draft — every category open — to prove
+gating holds even under the most "pattern-suggestive" single Draft possible,
+not merely one that happens to have few open items), many Drafts, a category
 present in every Draft, a category appearing only in the latest Draft, and
-categories that are fully resolved (open count 0 throughout).
+categories that are fully resolved (open count 0 throughout). A single
+property test covers all of the above (per the codebase's established
+one-test-per-property-file convention — see `test_diff_engine_property.py` /
+`test_anchor_remap_property.py` / `test_anchor_misattach_property.py`, each
+exactly one `def test_`).
 """
 from __future__ import annotations
 
@@ -107,10 +114,22 @@ def _history_scenario(draw: st.DrawFn):
     count (0/1/2) for ``draft_versions[i]``. Draft versions are drawn as a
     strictly increasing sequence so "first" / "latest" are unambiguous, while
     still exercising 0, 1, and many-Draft histories.
+
+    When exactly one Draft is generated, there is a 50% chance every category
+    is forced to its MAXIMUM open-item count on that sole Draft — a
+    deliberately heaviest-possible single-Draft load — so the gating
+    invariant (18.5) is proven to hold under the most "pattern-suggestive"
+    single Draft possible, not merely under whatever the general per-category
+    strategy happens to draw (which could, by chance, rarely load every
+    category at once).
     """
     n_drafts = draw(st.integers(min_value=0, max_value=5))
     draft_versions = tuple(range(1, n_drafts + 1))
-    trajectories = draw(_trajectories(n_drafts))
+
+    if n_drafts == 1 and draw(st.booleans()):
+        trajectories = {cat: [2] for cat in _CATEGORIES}
+    else:
+        trajectories = draw(_trajectories(n_drafts))
 
     history = ResolutionHistory()
     for i, version in enumerate(draft_versions):
@@ -222,28 +241,3 @@ def test_pattern_acknowledgment_gating(scenario) -> None:
             assert by_category.get(category) == PatternTendency.PERSISTENT
         else:
             assert category not in by_category
-
-
-@pytest.mark.property
-@wren_settings(max_examples=200)
-@given(st.integers(min_value=0, max_value=1))
-def test_fewer_than_two_drafts_never_acknowledges_even_with_many_open_items(n_drafts) -> None:
-    # Feature: wren-writing-coach, Property 18: Pattern acknowledgment gating
-    # Validates: Requirements 18.5
-    #
-    # A focused restatement of invariant 1 that deliberately maximizes open
-    # items on the single available Draft (rather than relying on the general
-    # scenario generator to happen to produce a heavily-loaded single Draft),
-    # confirming gating holds even under the most "pattern-suggestive" single
-    # Draft possible.
-    tracker = ProgressTracker()
-    history = ResolutionHistory()
-    if n_drafts == 1:
-        updates = [
-            ResolutionUpdate(f"item-{i}", category, ResolutionStatus.STILL_UNRESOLVED)
-            for i, category in enumerate(_CATEGORIES)
-            for _ in range(3)
-        ]
-        history = history.record(1, updates)
-
-    assert tracker.detect_patterns(history) == []

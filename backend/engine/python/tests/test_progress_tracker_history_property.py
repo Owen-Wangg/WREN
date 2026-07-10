@@ -54,7 +54,11 @@ Edge cases exercised (per the design's Testing Strategy generator guidance):
 empty per-Draft update lists, a single Draft, many Drafts, repeated
 `(item_id, category_id)` pairs recurring across Drafts with different
 statuses, and duplicate `draft_version` values reused across separate
-`record` calls (still must append, never overwrite).
+`record` calls (still must append, never overwrite). A single property test
+covers both the `record` convenience and its underlying `append` primitive
+(per the codebase's established one-test-per-property-file convention — see
+`test_diff_engine_property.py` / `test_anchor_remap_property.py` /
+`test_anchor_misattach_property.py`, each exactly one `def test_`).
 """
 from __future__ import annotations
 
@@ -159,21 +163,12 @@ def test_resolution_history_accumulation(steps) -> None:
             )
     assert rebuilt.entries == history.entries
 
-
-@pytest.mark.property
-@wren_settings(max_examples=200)
-@given(_step_sequence)
-def test_append_alone_is_also_non_mutating_and_order_preserving(steps) -> None:
-    # Feature: wren-writing-coach, Property 17: Resolution history accumulation
-    # Validates: Requirements 17.6
-    #
-    # `append` is `record`'s single-entry primitive (per the class docstring:
-    # "record and append return a NEW history ... existing entries plus the
-    # new ones"). This exercises the same non-mutation / order-preservation
-    # invariants directly against `append`, so the property covers BOTH
-    # production entry points into the append-only log, not only the
-    # higher-level `record` convenience.
-    history = ResolutionHistory()
+    # --- `append` itself is independently non-mutating and order-preserving
+    # (the atomic primitive `record` is built on — Requirement 17.6 covers
+    # both production entry points into the append-only log). Re-fold the
+    # SAME step sequence one entry at a time via `append` directly, checking
+    # non-mutation and exact single-entry growth at every call.
+    solo_history = ResolutionHistory()
     for draft_version, updates in steps:
         for update in updates:
             entry = ResolutionEntry(
@@ -182,9 +177,11 @@ def test_append_alone_is_also_non_mutating_and_order_preserving(steps) -> None:
                 draft_version=draft_version,
                 status=update.status,
             )
-            prior_entries = history.entries
-            new_history = history.append(entry)
+            prior_solo_entries = solo_history.entries
+            new_solo_history = solo_history.append(entry)
 
-            assert history.entries == prior_entries  # no mutation of the old object
-            assert new_history.entries == prior_entries + (entry,)  # exact append
-            history = new_history
+            assert solo_history.entries == prior_solo_entries  # no mutation
+            assert new_solo_history.entries == prior_solo_entries + (entry,)
+            solo_history = new_solo_history
+
+    assert solo_history.entries == history.entries
