@@ -61,6 +61,20 @@ from .progress_tracker import (
     ResolutionUpdate,
     SpanJudge,
 )
+from .carry_forward import (
+    CacheKey,
+    CachedFeedbackItem,
+    CarryForwardCache,
+    CarryForwardDecision,
+    ConfigSnapshot,
+)
+from .citation_attachment import (
+    Citation,
+    CitationAttacher,
+    CitedFeedbackItem,
+    CitedStructuralItem,
+    RELEVANCE_THRESHOLD,
+)
 from .feedback_classifier import (
     ClassificationOutcome,
     DensityOutcome,
@@ -82,6 +96,16 @@ from .prompt_assembly import (
     PromptAssembler,
     SystemScaffolding,
     UntrustedContent,
+)
+from .reference_store import (
+    EMBEDDING_TABLE_MIGRATION_SQL,
+    ReferenceBundle,
+    ReferenceBundleBuilder,
+    ReferenceChunk,
+    ReferenceMaterial,
+    ReferenceStore,
+    ReferenceTier,
+    RetrievalResult,
 )
 from .structural_feedback import (
     DEFAULT_STRUCTURAL_CAP,
@@ -149,4 +173,25 @@ __all__ = [
     "StructuralFeedbackItem",
     "FeedbackPartition",
     "DEFAULT_STRUCTURAL_CAP",
+    # Carry-forward caching (Requirement 49 / REQ-NFR-COST-01 / Task 9.10)
+    "CarryForwardCache",
+    "CarryForwardDecision",
+    "CachedFeedbackItem",
+    "CacheKey",
+    "ConfigSnapshot",
+    # Two-tier reference store (Requirement 20, 22 / Task 10.1)
+    "ReferenceStore",
+    "ReferenceBundleBuilder",
+    "ReferenceBundle",
+    "ReferenceMaterial",
+    "ReferenceChunk",
+    "ReferenceTier",
+    "RetrievalResult",
+    "EMBEDDING_TABLE_MIGRATION_SQL",
+    # Citation attachment (Requirement 21 / REQ-REFMAT-CITE-01 / Task 10.3)
+    "CitationAttacher",
+    "Citation",
+    "CitedFeedbackItem",
+    "CitedStructuralItem",
+    "RELEVANCE_THRESHOLD",
 ]
