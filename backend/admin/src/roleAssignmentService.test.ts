@@ -117,6 +117,39 @@ describe('assignRole — TechnicalAdmin (Requirement 5.1: any role, any scope)',
     expect(rows[0]!.granted_by).toBe(techAdminContext().userId);
   });
 
+  it('concurrent appointments to the same not-yet-existent department create exactly one department row (no race)', async () => {
+    const db = new FakeDb();
+    const otherUser = 'user-other';
+
+    // Two TechnicalAdmins concurrently appoint different DepartmentAdmins to
+    // the same not-yet-existent department. The atomic `ON CONFLICT DO
+    // NOTHING` upsert must ensure only one department row is ever created,
+    // regardless of interleaving, and both role assignments must still
+    // succeed against that single department.
+    await Promise.all([
+      assignRole(
+        techAdminContext(),
+        { userId: USER, role: 'DepartmentAdmin', scope: { kind: 'department', departmentId: DEPT }, departmentId: DEPT },
+        db,
+      ),
+      assignRole(
+        techAdminContext(),
+        { userId: otherUser, role: 'DepartmentAdmin', scope: { kind: 'department', departmentId: DEPT }, departmentId: DEPT },
+        db,
+      ),
+    ]);
+
+    // Exactly one department was created.
+    expect(db.departments.size).toBe(1);
+    expect(db.departments.has(DEPT)).toBe(true);
+
+    // Both DepartmentAdmin assignments landed against that one department.
+    const rows = [...db.roleAssignments.values()].filter((r) => r.role === 'DepartmentAdmin');
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.scope?.departmentId === DEPT)).toBe(true);
+    expect(new Set(rows.map((r) => r.user_id))).toEqual(new Set([USER, otherUser]));
+  });
+
   it('requires departmentId for DepartmentAdmin role', async () => {
     const db = new FakeDb();
     await expect(

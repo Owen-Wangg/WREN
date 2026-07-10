@@ -91,19 +91,19 @@ export async function assignRole(
     }
 
     // Joint department-creation-plus-appointment: if the department doesn't
-    // exist yet, create it implicitly.
-    const existingDept = await db.query<{ id: string }>(
-      'SELECT id FROM department WHERE id = $1',
-      [departmentId],
+    // exist yet, create it implicitly. This uses an atomic upsert
+    // (`INSERT ... ON CONFLICT (id) DO NOTHING`) rather than a
+    // check-then-insert, so two concurrent appointments to the same
+    // not-yet-existent departmentId cannot race — Postgres serializes the
+    // conflicting inserts and only one row is ever created, with no
+    // duplicate-key error surfaced to either caller. The department is
+    // created with the departmentId as its name initially; the
+    // DepartmentAdmin can rename it later via departmentService.
+    await db.query(
+      `INSERT INTO department (id, name) VALUES ($1, $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [departmentId, departmentId],
     );
-    if (existingDept.length === 0) {
-      // Create the department with the departmentId as its name initially.
-      // The DepartmentAdmin can rename it later via departmentService.
-      await db.query(
-        `INSERT INTO department (id, name) VALUES ($1, $2)`,
-        [departmentId, departmentId],
-      );
-    }
 
     // Check for existing assignment
     const existing = await findDeptScopedAssignment(userId, role, departmentId, db);

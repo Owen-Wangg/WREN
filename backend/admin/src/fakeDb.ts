@@ -288,6 +288,21 @@ export class FakeDb implements QueryExecutor {
 
     /* ------------------------------ department ------------------------------ */
 
+    if (sql.startsWith('INSERT INTO department (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING')) {
+      const id = params[0] as string;
+      if (this.departments.has(id)) {
+        // Conflict: department already exists — DO NOTHING, no mutation.
+        return [] as unknown as Row[];
+      }
+      this.mutationCount += 1;
+      const row: DepartmentRow = {
+        id,
+        name: params[1] as string,
+      };
+      this.departments.set(row.id, row);
+      return [row] as unknown as Row[];
+    }
+
     if (sql.startsWith('INSERT INTO department (id, name) VALUES ($1, $2)')) {
       this.mutationCount += 1;
       const row: DepartmentRow = {
