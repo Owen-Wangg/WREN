@@ -1,0 +1,23 @@
+# wren_engine — Feedback Engine RUNTIME dependency manifest.
+#
+# Unlike requirements.in (TEST-ONLY tooling for the whole wren_engine package),
+# this file lists the RUNTIME dependencies of ONLY the Feedback Engine's model
+# invocation path (wren_engine/model_invocation.py, Task 9.3). The Diff Engine,
+# Anchor Service, and Progress Tracker remain pure standard-library logic with
+# zero runtime dependencies and are NOT affected by this file.
+#
+# design.md: "Feedback_Engine, Feedback_Presenter (data) | Feedback Engine
+# container Lambda | Python 3.12 | Heavy AI workload; `langchain-aws`, larger
+# deps -> container image" — this manifest is bundled into that container
+# image only, never into the lightweight Diff/Anchor/Progress Lambda(s).
+#
+# Model invocation is model-agnostic (REQ-NFR-MODEL-01): langchain-aws's
+# ChatBedrockConverse accepts any Bedrock model id as a runtime string: no
+# model-specific package is added when the configured model id changes.
+#
+# Versions verified against PyPI release metadata: langchain-aws==1.0.0
+# requires langchain-core>=1.0.0 and boto3>=1.40.19; pinned below to the
+# latest releases satisfying those constraints at the time of writing.
+langchain-aws==1.0.0
+langchain-core==1.4.9
+boto3==1.40.63

@@ -11,9 +11,22 @@ The model dataclasses (:class:`Segment`, :class:`Span`, :class:`ParagraphChange`
 LLM-selection step (Requirement 10.2) and, later, the Anchor Service, which uses the
 prev->curr index mapping to re-map Anchors across Drafts (Requirement 10.5).
 
+This package also hosts the Feedback Engine's non-generative building blocks
+(Task 9 / design.md "Feedback Engine (Python 3.12, container Lambda)"):
+
+  - :mod:`wren_engine.prompt_assembly` (Task 9.1) — pure, dependency-free
+    layered prompt composition with untrusted-data isolation
+    (REQ-PROMPT-EDIT-01 criterion 8, REQ-SEC-PROMPTINJECT-01).
+  - :mod:`wren_engine.model_invocation` (Task 9.3) — model-agnostic Bedrock
+    invocation via ``langchain-aws`` (REQ-NFR-MODEL-01). Its ``langchain-aws``
+    dependency is imported lazily so importing ``wren_engine`` never requires
+    the container-Lambda-only runtime dependency.
+
 Design references:
   - design.md "Diff Engine, Anchor Service, Progress Tracker (Python 3.12)"
-  - requirements.md Requirement 10 (REQ-DRAFT-DIFF-01)
+  - design.md "Feedback Engine (Python 3.12, container Lambda)"
+  - requirements.md Requirement 10 (REQ-DRAFT-DIFF-01), Requirement 51
+    (REQ-NFR-MODEL-01)
 """
 from .anchor_service import (
     Anchor,
@@ -26,6 +39,13 @@ from .anchor_service import (
     compute_fingerprint,
 )
 from .diff_engine import DiffEngine
+from .model_invocation import (
+    LangChainBedrockInvoker,
+    ModelInvocationError,
+    ModelInvoker,
+    bedrock_model_id_parameter_name,
+    resolve_bedrock_model_id,
+)
 from .models import ChangeKind, Diff, ParagraphChange, Segment, Span
 from .progress_tracker import (
     DEFAULT_CONTEXT_WINDOW,
@@ -39,6 +59,13 @@ from .progress_tracker import (
     ResolutionStatus,
     ResolutionUpdate,
     SpanJudge,
+)
+from .prompt_assembly import (
+    AssembledPrompt,
+    DocumentTypePromptConfig,
+    PromptAssembler,
+    SystemScaffolding,
+    UntrustedContent,
 )
 
 __all__ = [
@@ -69,4 +96,16 @@ __all__ = [
     "ResolutionHistory",
     "PatternAck",
     "DEFAULT_CONTEXT_WINDOW",
+    # Prompt assembly (Requirement 25.5, 32.8, 38.1-38.2 / Task 9.1)
+    "PromptAssembler",
+    "SystemScaffolding",
+    "DocumentTypePromptConfig",
+    "UntrustedContent",
+    "AssembledPrompt",
+    # Model invocation (Requirement 51 / REQ-NFR-MODEL-01 / Task 9.3)
+    "ModelInvoker",
+    "LangChainBedrockInvoker",
+    "ModelInvocationError",
+    "resolve_bedrock_model_id",
+    "bedrock_model_id_parameter_name",
 ]

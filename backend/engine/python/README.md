@@ -104,6 +104,70 @@ steering). Regenerate the pinning with uv when available:
 uv pip compile backend/engine/python/requirements.in -o backend/engine/python/requirements.txt
 ```
 
+The **Feedback Engine**'s model-invocation path (`wren_engine/model_invocation.py`,
+below) is the one exception: it is a Python 3.12 **container** Lambda with a
+heavier runtime dependency (`langchain-aws`), pinned separately in
+`requirements-feedback-engine.in` / `.txt` so it is never bundled into the
+lightweight Diff/Anchor/Progress Lambda(s).
+
+## Feedback Engine building blocks (Task 9, design.md "Feedback Engine (Python 3.12, container Lambda)")
+
+### Prompt assembly (Requirement 25.5 / REQ-PROMPT-DOCTYPE-01, Requirement 32.8 /
+REQ-PROMPT-EDIT-01, Requirement 38 / REQ-SEC-PROMPTINJECT-01)
+
+`wren_engine.prompt_assembly.PromptAssembler` composes a model prompt in three
+layers, pure and dependency-free (no cloud calls):
+
+1. `SystemScaffolding` (outer, authoritative, Technical-Admin-owned) — cross-type
+   instructions, output schema, no-ghostwriting guardrail text.
+2. `DocumentTypePromptConfig` (inner, Department-Admin-owned) — taxonomy, tone,
+   density, category priority, type instructions, reference-grounding notes.
+3. `UntrustedContent` (submitted text / Reference Material) — rendered ONLY
+   inside a randomized-boundary-delimited data block in the user message,
+   never in the system message, so embedded instructions cannot override the
+   system layer or the guardrail (REQ-SEC-PROMPTINJECT-01).
+
+```python
+from wren_engine import DocumentTypePromptConfig, PromptAssembler, SystemScaffolding, UntrustedContent
+
+scaffolding = SystemScaffolding(
+    core_instructions="Provide Socratic feedback only; never rewrite the text.",
+    output_schema_text="Return {category, question, anchor?, citation?}.",
+    guardrail_text="Never emit replacement prose or a corrected version.",
+)
+document_type = DocumentTypePromptConfig(
+    document_type_name="Legal Memo",
+    category_names=("Citation Form", "Argument Structure"),
+    tone="formal",
+    density="medium",
+)
+submitted = UntrustedContent(label="SUBMITTED DOCUMENT", text="<student's draft text>")
+
+prompt = PromptAssembler().assemble(scaffolding, document_type, [submitted])
+prompt.system_message   # ONLY scaffolding content — never Document-Type or untrusted data
+prompt.user_message     # Document-Type layer + delimited untrusted-data block(s)
+```
+
+### Model invocation (Requirement 51 / REQ-NFR-MODEL-01)
+
+`wren_engine.model_invocation.LangChainBedrockInvoker` invokes the configured
+Bedrock model via `langchain-aws`'s `ChatBedrockConverse` — model-agnostic, so
+changing the configured model id is a configuration edit only:
+
+```python
+from wren_engine import LangChainBedrockInvoker, resolve_bedrock_model_id
+
+# model id resolved from BEDROCK_MODEL_ID env var, falling back to the SSM
+# parameter /${STACK_PREFIX}/config/bedrock-model-id — never hardcoded.
+invoker = LangChainBedrockInvoker(model_id=resolve_bedrock_model_id())
+reply = invoker.invoke(prompt)   # prompt: AssembledPrompt from PromptAssembler
+reply.text
+```
+
+`ModelInvoker` (a `Protocol`, mirroring `SpanJudge` in `progress_tracker.py`)
+is the injected boundary Feedback Engine orchestration logic depends on, so it
+stays testable without a real Bedrock call.
+
 ## Test
 
 ```bash

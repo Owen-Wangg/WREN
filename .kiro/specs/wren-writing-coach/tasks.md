@@ -193,13 +193,13 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
     - **Validates: Requirements 18.2, 18.5**
 
 - [ ] 9. Feedback Engine and no-ghostwriting guardrail (Python 3.12, container Lambda)  〔Track A〕
-  - [ ] 9.1 Implement layered prompt assembly with untrusted-data isolation  〔Track A · A9〕
+  - [x] 9.1 Implement layered prompt assembly with untrusted-data isolation  〔Track A · A9〕
     - Compose system scaffolding (cross-type instructions, output schema, guardrail) as the authoritative outer layer and the Document-Type prompt as the inner layer; insert submitted text + reference material only as clearly delimited untrusted data
     - _Requirements: 32.8, 38.1, 38.2, 25.5_
   - [ ]* 9.2 Write property test for untrusted content staying as data  〔Track A · A10〕
     - **Property 12: Untrusted content stays data**
     - **Validates: Requirements 38.1, 38.2, 32.8**
-  - [ ] 9.3 Implement model invocation via `langchain-aws` (model-agnostic)  〔Track A · A9〕
+  - [x] 9.3 Implement model invocation via `langchain-aws` (model-agnostic)  〔Track A · A9〕
     - Invoke configured Bedrock model id; no hardcoded model; changing the id is configuration only
     - _Requirements: 51.1, 51.2, 51.3_
   - [ ] 9.4 Implement the output no-ghostwriting guardrail  〔Track A · A10〕
