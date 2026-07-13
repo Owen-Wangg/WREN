@@ -245,7 +245,7 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
     - **Property 20: Feedback citation presence and content**
     - **Validates: Requirements 21.1, 21.3, 21.4**
 
-- [ ] 11. Checkpoint - feedback pipeline  〔Track A · after A12〕
+- [x] 11. Checkpoint - feedback pipeline  〔Track A · after A12〕
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 12. Config Service and prompt editor (Node 22)  〔Track A〕
@@ -268,75 +268,75 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
     - Rewrite the sample legal prompt to Socratic-only; ship no prompt that requests revisions/justifications; other Document Types start with empty taxonomy
     - _Requirements: 11.7, 15.5_
 
-- [ ] 13. Usage limits and overrides (Usage_Service)  〔Track A〕
+- [x] 13. Usage limits and overrides (Usage_Service)  〔Track A〕
   - [x] 13.1 Implement usage-limit configuration and current-usage reporting  〔Track A · A13〕
     - Configure limits at platform / Document-Type scope (Technical Admin); display current usage vs limit
     - _Requirements: 31.1, 31.2, 31.3, 54.1_
   - [x] 13.2 Implement multi-scope attribution and most-restrictive enforcement  〔Track A · A14〕
     - Attribute each feedback action to {Document Type, platform} (never a "home Department"); block when any applicable scope is at limit; message names the binding scope
     - _Requirements: 54.2, 54.3, 54.4_
-  - [ ]* 13.3 Write property test for usage attribution and most-restrictive enforcement  〔Track A · A15〕
+  - [x]* 13.3 Write property test for usage attribution and most-restrictive enforcement  〔Track A · A15〕
     - **Property 29: Usage attribution and most-restrictive enforcement**
     - **Validates: Requirements 54.2, 54.3, 54.4**
   - [x] 13.4 Implement temporary scoped overrides  〔Track A · A14〕
     - Department Admin (administering the Document Type's Department) or Technical Admin grants a Document-Type-scoped temporary override (audited with actor/role/user/type/reason/timestamp); overrides expire on usage-period reset; allow actions up to bounds while active
     - _Requirements: 54.5, 54.6, 54.7, 54.8_
-  - [ ]* 13.5 Write property test for override lifecycle  〔Track A · A15〕
+  - [x]* 13.5 Write property test for override lifecycle  〔Track A · A15〕
     - **Property 30: Override lifecycle**
     - **Validates: Requirements 54.5, 54.7, 54.8**
 
-- [ ] 14. Audit, activity log, and aggregate analytics (Audit_Service)  〔Track A〕
-  - [ ] 14.1 Implement the document-independent Actor–Verb–Object activity log  〔Track A · A14〕
+- [x] 14. Audit, activity log, and aggregate analytics (Audit_Service)  〔Track A〕
+  - [x] 14.1 Implement the document-independent Actor–Verb–Object activity log  〔Track A · A14〕
     - Append-only `{actor, verb, object, timestamp, context}` events persisted independently of document content; de-identify to stable pseudonym where retention requires, preserving aggregate value
     - _Requirements: 44.1, 44.2, 44.3, 44.4, 44.5_
-  - [ ]* 14.2 Write property test for de-identification preserving aggregate value  〔Track A · A15〕
+  - [x]* 14.2 Write property test for de-identification preserving aggregate value  〔Track A · A15〕
     - **Property 28: De-identification preserves aggregate value**
     - **Validates: Requirements 44.4**
-  - [ ] 14.3 Implement aggregate-only analytics projections with scoping  〔Track A · A14〕
+  - [x] 14.3 Implement aggregate-only analytics projections with scoping  〔Track A · A14〕
     - All-users aggregate totals only: Department Admin → Document Types within administered Departments; Technical Admin → platform-wide, filterable by Document Type; no per-Student entries/scores/named activity; numeric indicators never in the writer-facing view
     - _Requirements: 19.1, 19.2, 19.3, 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 41.1, 41.2, 41.3, 41.4, 41.5, 41.6, 42.1, 42.2, 42.3, 42.4, 42.5, 43.2_
-  - [ ]* 14.4 Write property test for analytics exposing only all-users aggregates  〔Track A · A15〕
+  - [x]* 14.4 Write property test for analytics exposing only all-users aggregates  〔Track A · A15〕
     - **Property 26: Analytics expose only all-users aggregates**
     - **Validates: Requirements 40.1, 40.2, 40.6, 41.2, 41.3, 41.6, 42.1, 42.5, 19.1, 19.2, 43.2**
-  - [ ] 14.5 Implement document-deletion retention partitioning  〔Track A · A15〕
+  - [x] 14.5 Implement document-deletion retention partitioning  〔Track A · A15〕
     - Deleting a Document (with confirmation describing permanent feedback removal) cascades Drafts/Anchors/Feedback Items/resolution history but retains activity-log events and aggregate counters
     - _Requirements: 39.3, 43.1, 43.3, 43.4, 45.1, 45.2, 45.3, 45.4_
-  - [ ]* 14.6 Write property test for deletion partitioning of operational vs retained state  〔Track A · A16〕
+  - [x]* 14.6 Write property test for deletion partitioning of operational vs retained state  〔Track A · A16〕
     - **Property 27: Document deletion partitions operational vs retained state**
     - **Validates: Requirements 45.1, 45.4, 44.2, 43.4, 39.3**
-  - [ ] 14.7 Implement audit recording for sensitive actions  〔Track A · A15〕
+  - [x] 14.7 Implement audit recording for sensitive actions  〔Track A · A15〕
     - Record config edits, role/grant changes, override grants, and guardrail outcomes with actor/role/scope/timestamp
     - _Requirements: 11.5, 23.3, 32.6, 45.2_
 
-- [ ] 15. Checkpoint - admin, usage, and audit  〔Track A · after A15〕
+- [x] 15. Checkpoint - admin, usage, and audit  〔Track A · after A15〕
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 16. API layer and service wiring  〔Track A + Convergence〕
-  - [ ] 16.1 Author the OpenAPI spec and `SpecRestApi` with the Lambda authorizer  〔Track A · A16〕
+- [x] 16. API layer and service wiring  〔Track A + Convergence〕
+  - [x] 16.1 Author the OpenAPI spec and `SpecRestApi` with the Lambda authorizer  〔Track A · A16〕
     - Define REST endpoints for documents/drafts, feedback, config, admin, usage, analytics; regional endpoint, throttling, ERROR logging; AppSync/WebSocket for feedback streaming
     - _Requirements: 36.1, 36.2, 47.2, 48.2_
-  - [ ] 16.2 Implement the `Compute` stack and wire all service Lambdas  〔Track A · A16〕
+  - [x] 16.2 Implement the `Compute` stack and wire all service Lambdas  〔Track A · A16〕
     - Provision Document (Node), Diff/Anchor/Progress (Python), Feedback Engine (container), Admin/Config/Auth/Usage (Node), Audit (Node); each with a scoped IAM role; SQS + DLQ for async jobs
     - _Requirements: 47.1, 47.2, 47.3_
-  - [ ] 16.3 Implement `CloudFrontWaf`, `Amplify`, `Observability`, and `CICD` stacks  〔Track A · A17〕
+  - [x] 16.3 Implement `CloudFrontWaf`, `Amplify`, `Observability`, and `CICD` stacks  〔Track A · A17〕
     - WAF managed rules + rate limiting; Amplify per-branch build; CloudWatch log groups + Powertools + latency/throttle/queue alarms; CodePipeline + ECR `imageScanOnPush`
     - _Requirements: 47.2, 48.1_
-  - [ ]* 16.4 Write integration tests for cross-service wiring  〔Convergence · C0〕
+  - [x]* 16.4 Write integration tests for cross-service wiring  〔Convergence · C0〕
     - Cognito JWT → app-DB identity in authorizer; Bedrock invoke via `langchain-aws` with swappable model id; submit → generate → persist → re-open without regeneration; activity log surviving deletion against a real DB
     - _Requirements: 37.5, 49.4, 51.2, 44.2_
 
-- [ ] 17. Frontend foundation (React 19 / Vite / Tailwind / shadcn/ui)  〔Track B〕
+- [x] 17. Frontend foundation (React 19 / Vite / Tailwind / shadcn/ui)  〔Track B〕
   - [x] 17.1 Scaffold the frontend with design tokens and shared API client  〔Track B · B0〕
     - Feature-based structure; centralized color/typography/spacing/radii/shadow tokens (no hardcoded values; lint rule); single Cognito-aware API client; React Query with per-environment cache keys; React Hook Form + Zod at the API boundary
     - _Requirements: 53.2_
-  - [ ] 17.2 Implement shared compliance primitives  〔Track B · B1〕
+  - [x] 17.2 Implement shared compliance primitives  〔Track B · B1〕
     - `<AiDisclaimerNotice>`; status-enum→color-token lookup (`Still Drafting`/`Polishing`); role-aware shared components for the three roles (Student / Department Admin / Technical Admin; no student-only assumptions); severity-by-color (never numeric)
     - _Requirements: 1.2, 18.3_
   - [x] 17.3 Implement auth screens  〔Track B · B1〕
     - `LoginForm` / `SignupForm` against Cognito
     - _Requirements: 37.1_
 
-- [ ] 18. Document editor and AI debrief (built on Tiptap; `docx-editor.dev`/`eigenpal/docx-editor` is deprecated/unavailable)  〔Track B〕
+- [x] 18. Document editor and AI debrief (built on Tiptap; `docx-editor.dev`/`eigenpal/docx-editor` is deprecated/unavailable)  〔Track B〕
   - [x] 18.1 Integrate a Tiptap-based `.docx` editor (MIT-only stack)  〔Track B · B1〕
     - Embed `@tiptap/react` + `@tiptap/starter-kit` (MIT) as the WYSIWYG editing surface; use `@sereneinserenade/tiptap-comment-extension` (MIT) for the anchored margin-comments layer feedback renders through (task 18.2); import `.docx` → editor content via `officeparser` (MIT, `harshankur/officeParser`); export editor content → `.docx` via `docx` (MIT, `dolanmiu/docx`); preserve paragraph structure across the import/edit/export round-trip; verify all four dependencies are MIT-licensed for the OSS deliverable (no mammoth.js — BSD-2-Clause was rejected per project policy; no Syncfusion — commercial)
     - _Requirements: 6.2, 52.1, 52.2_
@@ -352,32 +352,32 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x]* 18.5 Write property test for writer-facing progress carrying no numeric scoring  〔Track B · B4〕
     - **Property 19: Writer-facing progress carries no numeric scoring**
     - **Validates: Requirements 18.3**
-  - [ ] 18.6 Implement document creation, re-upload, citations, and Ask WREN  〔Track B · B2〕
+  - [x] 18.6 Implement document creation, re-upload, citations, and Ask WREN  〔Track B · B2〕
     - New-document form (Document Type select, configurable metadata incl. "Writing Topic", reference upload, Activate Editor disabled until required fields set); re-upload to create a new Draft; citation display on items; Ask WREN panel (Socratic-only, draft-anchored, same guardrail)
     - _Requirements: 6.6, 6.7, 8.1, 21.2, 11.1_
   - [x]* 18.7 Write compliance render tests for the editor and debrief  〔Track B · B3〕
     - Assert AI feedback is visually/structurally distinguishable from writer text and that no Apply/Insert/Accept affordance exists; AI Debrief modal focus trap, Escape/×, focus return
     - _Requirements: 11.2_
 
-- [ ] 19. Role consoles and writer dashboard  〔Track B〕
-  - [ ] 19.1 Implement the writer dashboard and self-selection of OPEN Document Types  〔Track B · B3〕
+- [x] 19. Role consoles and writer dashboard  〔Track B〕
+  - [x] 19.1 Implement the writer dashboard and self-selection of OPEN Document Types  〔Track B · B3〕
     - "My Documents" cards (Topic, Status, search/status filter); self-select any OPEN Document Type; access-request flow for LOCKED types
     - _Requirements: 4.2, 4.6, 6.8, 28.2_
-  - [ ] 19.2 Implement the Department Admin educational configuration surface  〔Track B · B3〕
+  - [x] 19.2 Implement the Department Admin educational configuration surface  〔Track B · B3〕
     - Active-Document-Type selection across administered Departments; taxonomy editor (add/remove/rename); convention + prompt editor with the Department-Admin/Technical-Admin edit boundary; Document-Type-scoped reference manager; Department-wide reference manager — all scoped to administered Departments (folds the former Field-Expert config surface directly into Department Admin, per V4)
     - _Requirements: 23.4, 24.1, 26.1, 32.2, 20.1_
-  - [ ] 19.3 Implement the Department Admin access, roster, and analytics console  〔Track B · B3〕
+  - [x] 19.3 Implement the Department Admin access, roster, and analytics console  〔Track B · B3〕
     - Administered Departments with their Document Types, Content Types, configurable metadata, Topics; scoped Student search + create/revoke Access Grants + approve/deny access requests; aggregate (administered-Department, Document-Type-filterable) analytics only; no standalone "create Department" control; rename/remove an administered Department (folds the former Org-Owner business console into Department Admin, per V4)
     - _Requirements: 29.6, 34.1, 34.2, 34.3, 34.5, 34.6, 42.1, 42.2_
-  - [ ] 19.4 Implement the Technical Admin technical console  〔Track B · B3〕
+  - [x] 19.4 Implement the Technical Admin technical console  〔Track B · B3〕
     - Model config, system prompt/guardrail config, app settings; assign/revoke Department Admin + appoint their Department(s), creating a name-only Department shell within the appointment flow (no standalone Department management); system-wide user/role view; usage limits + current usage; platform aggregate analytics filterable by Document Type; no educational-content functions
     - _Requirements: 33.1, 33.2, 33.3, 33.4, 41.1, 41.2_
 
-- [ ] 20. Final integration and checkpoint  〔Convergence〕
-  - [ ] 20.1 End-to-end wiring and smoke/config checks  〔Convergence · C0〕
+- [x] 20. Final integration and checkpoint  〔Convergence〕
+  - [x] 20.1 End-to-end wiring and smoke/config checks  〔Convergence · C0〕
     - Wire frontend ↔ API ↔ services for the full draft → feedback → revision → resubmission loop; app-name source scan returns zero non-config matches; `cdk synth` succeeds; LICENSE present and MIT; documented config values present
     - _Requirements: 49.4, 52.1, 52.3, 53.4_
-  - [ ] 20.2 Final checkpoint - ensure all tests pass  〔Convergence · C1〕
+  - [x] 20.2 Final checkpoint - ensure all tests pass  〔Convergence · C1〕
     - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
