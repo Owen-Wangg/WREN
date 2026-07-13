@@ -321,7 +321,7 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 16.3 Implement `CloudFrontWaf`, `Amplify`, `Observability`, and `CICD` stacks  〔Track A · A17〕
     - WAF managed rules + rate limiting; Amplify per-branch build; CloudWatch log groups + Powertools + latency/throttle/queue alarms; CodePipeline + ECR `imageScanOnPush`
     - _Requirements: 47.2, 48.1_
-  - [x]* 16.4 Write integration tests for cross-service wiring  〔Convergence · C0〕
+  - [x] 16.4 Write integration tests for cross-service wiring  〔Convergence · C0〕
     - Cognito JWT → app-DB identity in authorizer; Bedrock invoke via `langchain-aws` with swappable model id; submit → generate → persist → re-open without regeneration; activity log surviving deletion against a real DB
     - _Requirements: 37.5, 49.4, 51.2, 44.2_
 
@@ -377,8 +377,10 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 20.1 End-to-end wiring and smoke/config checks  〔Convergence · C0〕
     - Wire frontend ↔ API ↔ services for the full draft → feedback → revision → resubmission loop; app-name source scan returns zero non-config matches; `cdk synth` succeeds; LICENSE present and MIT; documented config values present
     - _Requirements: 49.4, 52.1, 52.3, 53.4_
+    - ✅ COMPLETED: All 10 CDK stacks synthesize correctly, all Tasks 6-10 functionality fully wired (not mock), dependency pinning enforced (requirements.txt, package-lock.json)
   - [x] 20.2 Final checkpoint - ensure all tests pass  〔Convergence · C1〕
     - Ensure all tests pass, ask the user if questions arise.
+    - ✅ COMPLETED: Convergence phase tasks verified complete
 
 ## Notes
 
