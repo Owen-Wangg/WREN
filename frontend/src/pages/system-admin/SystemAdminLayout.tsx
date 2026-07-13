@@ -1,9 +1,10 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { Info, Bell, User } from 'lucide-react';
+import { Home, Info, Bell, User } from 'lucide-react';
 
 import { appConfig } from '@/config/env';
 
 const navItems = [
+  { to: '/system-admin', label: 'Dashboard', icon: Home },
   { to: '/system-admin/guide', label: 'Guide', icon: Info },
   { to: '/system-admin/notifications', label: 'Notifications', icon: Bell },
   { to: '/system-admin/profile', label: 'Profile', icon: User },

@@ -17,3 +17,11 @@ export { DepartmentDetailPage } from './system-admin/DepartmentDetailPage';
 export { SystemAdminGuidePage } from './system-admin/SystemAdminGuidePage';
 export { SystemAdminNotificationsPage } from './system-admin/SystemAdminNotificationsPage';
 export { SystemAdminProfilePage } from './system-admin/SystemAdminProfilePage';
+
+// Department Admin pages
+export { DepartmentAdminLayout } from './department-admin/DepartmentAdminLayout';
+export { DepartmentAdminDashboard } from './department-admin/DepartmentAdminDashboard';
+export { DepartmentAdminGuidePage } from './department-admin/DepartmentAdminGuidePage';
+export { DepartmentAdminNotificationsPage } from './department-admin/DepartmentAdminNotificationsPage';
+export { DepartmentAdminProfilePage } from './department-admin/DepartmentAdminProfilePage';
+export { DocumentTypeDetailPage } from './department-admin/DocumentTypeDetailPage';

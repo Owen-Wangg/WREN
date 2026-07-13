@@ -20,6 +20,12 @@ import {
   SystemAdminGuidePage,
   SystemAdminNotificationsPage,
   SystemAdminProfilePage,
+  DepartmentAdminLayout,
+  DepartmentAdminDashboard,
+  DepartmentAdminGuidePage,
+  DepartmentAdminNotificationsPage,
+  DepartmentAdminProfilePage,
+  DocumentTypeDetailPage,
 } from '@/pages';
 
 export function App() {
@@ -54,6 +60,17 @@ export function App() {
         <Route path="/system-admin/notifications" element={<SystemAdminNotificationsPage />} />
         <Route path="/system-admin/profile" element={<SystemAdminProfilePage />} />
       </Route>
+
+      {/* Department Admin routes */}
+      <Route element={<DepartmentAdminLayout />}>
+        <Route path="/dept-admin" element={<DepartmentAdminDashboard />} />
+        <Route path="/dept-admin/guide" element={<DepartmentAdminGuidePage />} />
+        <Route path="/dept-admin/notifications" element={<DepartmentAdminNotificationsPage />} />
+        <Route path="/dept-admin/profile" element={<DepartmentAdminProfilePage />} />
+      </Route>
+
+      {/* Document Type Detail routes */}
+      <Route path="/dept-admin/document-type/:documentTypeId" element={<DocumentTypeDetailPage />} />
     </Routes>
   );
 }

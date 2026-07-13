@@ -1,4 +1,8 @@
+import { useNavigate } from 'react-router-dom';
+
 export function SystemAdminProfilePage() {
+  const navigate = useNavigate();
+
   return (
     <div className="max-w-4xl">
       <h1 className="mb-6 text-4xl font-bold text-gray-900">Profile</h1>
@@ -20,8 +24,13 @@ export function SystemAdminProfilePage() {
             <p className="text-gray-700">System Admin</p>
           </div>
 
-          <button className="rounded-lg bg-gray-900 px-6 py-2 font-semibold text-white hover:bg-gray-800">
-            Edit Profile
+          <hr className="border-gray-200" />
+
+          <button
+            onClick={() => navigate('/')}
+            className="rounded-lg border border-gray-300 px-6 py-2 font-semibold text-gray-900 hover:bg-gray-100"
+          >
+            Sign out
           </button>
         </div>
       </div>
