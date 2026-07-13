@@ -6,12 +6,15 @@
   "license": "MIT",
   "workspaces": [
     "types",
-    "backend/database/node"
+    "backend/database/node",
+    "backend/auth",
+    "backend/admin",
+    "backend/document"
   ],
   "scripts": {
-    "test": "jest",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "lint:appname": "node scripts/check-app-name.mjs",
-    "test:ci": "node scripts/check-app-name.mjs && jest --ci --silent"
+    "test:ci": "node scripts/check-app-name.mjs && node --experimental-vm-modules node_modules/jest/bin/jest.js --ci --silent"
   },
   "dependencies": {
     "zod": "^3.25.76"

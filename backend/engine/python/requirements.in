@@ -1,0 +1,12 @@
+# wren_engine — dependency manifest.
+#
+# The engine CORE (Diff Engine, and the forthcoming Anchor Service / Progress
+# Tracker) has ZERO third-party RUNTIME dependencies: it is pure standard-library
+# Python 3.12 logic (``difflib``). Nothing below is bundled into a Lambda layer.
+#
+# The dependencies listed here are TEST-ONLY tooling used to run the unit and
+# property-based test suites (per the UBC CIC Python testing steering: pytest +
+# Hypothesis with property/integration/slow markers). Keep them out of any
+# runtime bundle.
+pytest>=8
+hypothesis>=6

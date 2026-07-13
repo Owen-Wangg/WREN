@@ -11,20 +11,54 @@
 export * from './common';
 export * from './no-ghostwriting';
 export * from './schemas';
+export * from './auth';
+export * from './authorization';
 
+import type { AuthContext } from './auth';
+import type { AuthorizationDecision, CapabilityRequest } from './authorization';
 import type { Expect, LacksReplacementProse } from './no-ghostwriting';
 import type {
   AccessGrant,
+  AccessRequestApprovalInput,
   ActivityEvent,
+  AggregateCounter,
   Anchor,
+  AnalyticsQuery,
+  AnalyticsResult,
+  AssignRoleInput,
+  ContentType,
+  CreateAccessGrantInput,
+  CreateErrorCategoryInput,
+  CreateOverrideInput,
+  CreateReferenceMaterialInput,
+  CreateUsageLimitInput,
+  CustomMetadataField,
+  Department,
   Document,
+  DocumentType,
+  DocumentTypeConfig,
+  DocumentTypeDeletionImpact,
   Draft,
+  ErrorCategory,
   FeedbackItem,
-  GrantScope,
   Override,
   OverrideBounds,
+  PromptGuardrailViolation,
+  ReferenceMaterial,
+  RevokeRoleInput,
   Segment,
-  WritingType,
+  Topic,
+  CreateTopicInput,
+  UpdateDocumentTypeConfigInput,
+  UpdateErrorCategoryInput,
+  UpdateTopicInput,
+  UpdateUsageLimitInput,
+  TopicDeletionImpact,
+  UsageLimit,
+  UsageReport,
+  UserSearchInput,
+  UserSearchResult,
+  UserSummary,
 } from './schemas';
 
 /* -------------------------------------------------------------------------- */
@@ -36,32 +70,112 @@ import type {
 /* break the build if the invariant is ever violated.                         */
 /* -------------------------------------------------------------------------- */
 
-type _GuardWritingType = Expect<LacksReplacementProse<WritingType>>;
+type _GuardDocumentType = Expect<LacksReplacementProse<DocumentType>>;
+type _GuardDepartment = Expect<LacksReplacementProse<Department>>;
+type _GuardContentType = Expect<LacksReplacementProse<ContentType>>;
+type _GuardCustomMetadataField = Expect<LacksReplacementProse<CustomMetadataField>>;
+type _GuardDocumentTypeDeletionImpact = Expect<
+  LacksReplacementProse<DocumentTypeDeletionImpact>
+>;
+type _GuardTopic = Expect<LacksReplacementProse<Topic>>;
+type _GuardCreateTopicInput = Expect<LacksReplacementProse<CreateTopicInput>>;
+type _GuardUpdateTopicInput = Expect<LacksReplacementProse<UpdateTopicInput>>;
+type _GuardTopicDeletionImpact = Expect<LacksReplacementProse<TopicDeletionImpact>>;
 type _GuardDocument = Expect<LacksReplacementProse<Document>>;
 type _GuardSegment = Expect<LacksReplacementProse<Segment>>;
 type _GuardDraft = Expect<LacksReplacementProse<Draft>>;
 type _GuardAnchor = Expect<LacksReplacementProse<Anchor>>;
 type _GuardFeedbackItem = Expect<LacksReplacementProse<FeedbackItem>>;
-type _GuardGrantScope = Expect<LacksReplacementProse<GrantScope>>;
 type _GuardAccessGrant = Expect<LacksReplacementProse<AccessGrant>>;
 type _GuardOverrideBounds = Expect<LacksReplacementProse<OverrideBounds>>;
 type _GuardOverride = Expect<LacksReplacementProse<Override>>;
+type _GuardCreateOverrideInput = Expect<LacksReplacementProse<CreateOverrideInput>>;
 type _GuardActivityEvent = Expect<LacksReplacementProse<ActivityEvent>>;
+type _GuardAggregateCounter = Expect<LacksReplacementProse<AggregateCounter>>;
+type _GuardAnalyticsQuery = Expect<LacksReplacementProse<AnalyticsQuery>>;
+type _GuardAnalyticsResult = Expect<LacksReplacementProse<AnalyticsResult>>;
+type _GuardAuthContext = Expect<LacksReplacementProse<AuthContext>>;
+type _GuardAuthorizationDecision = Expect<LacksReplacementProse<AuthorizationDecision>>;
+type _GuardCapabilityRequest = Expect<LacksReplacementProse<CapabilityRequest>>;
+type _GuardUserSummary = Expect<LacksReplacementProse<UserSummary>>;
+type _GuardUserSearchInput = Expect<LacksReplacementProse<UserSearchInput>>;
+type _GuardUserSearchResult = Expect<LacksReplacementProse<UserSearchResult>>;
+type _GuardAssignRoleInput = Expect<LacksReplacementProse<AssignRoleInput>>;
+type _GuardRevokeRoleInput = Expect<LacksReplacementProse<RevokeRoleInput>>;
+type _GuardCreateAccessGrantInput = Expect<LacksReplacementProse<CreateAccessGrantInput>>;
+type _GuardAccessRequestApprovalInput = Expect<
+  LacksReplacementProse<AccessRequestApprovalInput>
+>;
+type _GuardErrorCategory = Expect<LacksReplacementProse<ErrorCategory>>;
+type _GuardCreateErrorCategoryInput = Expect<
+  LacksReplacementProse<CreateErrorCategoryInput>
+>;
+type _GuardUpdateErrorCategoryInput = Expect<
+  LacksReplacementProse<UpdateErrorCategoryInput>
+>;
+type _GuardDocumentTypeConfig = Expect<LacksReplacementProse<DocumentTypeConfig>>;
+type _GuardUpdateDocumentTypeConfigInput = Expect<
+  LacksReplacementProse<UpdateDocumentTypeConfigInput>
+>;
+type _GuardPromptGuardrailViolation = Expect<
+  LacksReplacementProse<PromptGuardrailViolation>
+>;
+type _GuardReferenceMaterial = Expect<LacksReplacementProse<ReferenceMaterial>>;
+type _GuardCreateReferenceMaterialInput = Expect<
+  LacksReplacementProse<CreateReferenceMaterialInput>
+>;
+type _GuardUsageLimit = Expect<LacksReplacementProse<UsageLimit>>;
+type _GuardCreateUsageLimitInput = Expect<LacksReplacementProse<CreateUsageLimitInput>>;
+type _GuardUpdateUsageLimitInput = Expect<LacksReplacementProse<UpdateUsageLimitInput>>;
+type _GuardUsageReport = Expect<LacksReplacementProse<UsageReport>>;
 
 /**
  * Aggregates the compile-time guards so they participate in type-checking even
  * under `noUnusedLocals`. Exported as a type only; it has no runtime footprint.
  */
 export type NoGhostwritingGuards = [
-  _GuardWritingType,
+  _GuardDocumentType,
+  _GuardDepartment,
+  _GuardContentType,
+  _GuardCustomMetadataField,
+  _GuardDocumentTypeDeletionImpact,
+  _GuardTopic,
+  _GuardCreateTopicInput,
+  _GuardUpdateTopicInput,
+  _GuardTopicDeletionImpact,
   _GuardDocument,
   _GuardSegment,
   _GuardDraft,
   _GuardAnchor,
   _GuardFeedbackItem,
-  _GuardGrantScope,
   _GuardAccessGrant,
   _GuardOverrideBounds,
   _GuardOverride,
+  _GuardCreateOverrideInput,
   _GuardActivityEvent,
+  _GuardAggregateCounter,
+  _GuardAnalyticsQuery,
+  _GuardAnalyticsResult,
+  _GuardAuthContext,
+  _GuardAuthorizationDecision,
+  _GuardCapabilityRequest,
+  _GuardUserSummary,
+  _GuardUserSearchInput,
+  _GuardUserSearchResult,
+  _GuardAssignRoleInput,
+  _GuardRevokeRoleInput,
+  _GuardCreateAccessGrantInput,
+  _GuardAccessRequestApprovalInput,
+  _GuardErrorCategory,
+  _GuardCreateErrorCategoryInput,
+  _GuardUpdateErrorCategoryInput,
+  _GuardDocumentTypeConfig,
+  _GuardUpdateDocumentTypeConfigInput,
+  _GuardPromptGuardrailViolation,
+  _GuardReferenceMaterial,
+  _GuardCreateReferenceMaterialInput,
+  _GuardUsageLimit,
+  _GuardCreateUsageLimitInput,
+  _GuardUpdateUsageLimitInput,
+  _GuardUsageReport,
 ];

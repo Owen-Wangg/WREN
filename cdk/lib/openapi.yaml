@@ -1,0 +1,780 @@
+openapi: "3.0.3"
+info:
+  title: WREN Writing Coach API
+  version: "1.0.0"
+  description: |
+    REST API for the WREN Writing Coach platform. All endpoints require
+    authentication via the Cognito-backed Lambda authorizer except where noted.
+    Authorization is enforced at two levels: the authorizer (coarse) and
+    inside each service Lambda (fine-grained, per-operation scope checks).
+
+servers:
+  - url: "https://{apiId}.execute-api.{region}.amazonaws.com/{stage}"
+    variables:
+      apiId:
+        default: "placeholder"
+      region:
+        default: "ca-central-1"
+      stage:
+        default: "dev"
+
+x-amazon-apigateway-request-validators:
+  body-only:
+    validateRequestBody: true
+    validateRequestParameters: false
+  params-only:
+    validateRequestBody: false
+    validateRequestParameters: true
+  full:
+    validateRequestBody: true
+    validateRequestParameters: true
+
+x-amazon-apigateway-request-validator: params-only
+
+# --------------------------------------------------------------------------
+# Security schemes
+# --------------------------------------------------------------------------
+components:
+  securitySchemes:
+    CognitoAuthorizer:
+      type: apiKey
+      name: Authorization
+      in: header
+      x-amazon-apigateway-authtype: custom
+      x-amazon-apigateway-authorizer:
+        type: token
+        authorizerUri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunctionArn}/invocations"
+        authorizerResultTtlInSeconds: 300
+        identitySource: method.request.header.Authorization
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        documentTypeId:
+          type: string
+        status:
+          type: string
+          enum: [Still Drafting, Polishing]
+        createdAt:
+          type: string
+          format: date-time
+
+    Draft:
+      type: object
+      properties:
+        id:
+          type: string
+        documentId:
+          type: string
+        versionNumber:
+          type: integer
+        wordCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    FeedbackItem:
+      type: object
+      properties:
+        id:
+          type: string
+        documentId:
+          type: string
+        kind:
+          type: string
+          enum: [inline, structural]
+        questionText:
+          type: string
+        errorCategoryId:
+          type: string
+
+    AnalyticsResult:
+      type: object
+      properties:
+        totals:
+          type: array
+          items:
+            $ref: "#/components/schemas/AggregateCounter"
+
+    AggregateCounter:
+      type: object
+      properties:
+        scopeKind:
+          type: string
+          enum: [platform, documentType]
+        scopeId:
+          type: string
+        metric:
+          type: string
+        value:
+          type: number
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Authenticated but insufficient role/scope
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+# --------------------------------------------------------------------------
+# Default security (all endpoints require auth unless overridden)
+# --------------------------------------------------------------------------
+security:
+  - CognitoAuthorizer: []
+
+# --------------------------------------------------------------------------
+# Paths
+# --------------------------------------------------------------------------
+paths:
+  # ==================== Documents & Drafts ====================
+  /v1/documents:
+    get:
+      summary: List the authenticated Student's documents
+      tags: [Documents]
+      operationId: listDocuments
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Still Drafting, Polishing]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated list of documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Document"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+
+    post:
+      summary: Create a new document (upload or paste)
+      tags: [Documents]
+      operationId: createDocument
+      x-amazon-apigateway-request-validator: full
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentTypeId, name]
+              properties:
+                documentTypeId:
+                  type: string
+                contentTypeId:
+                  type: string
+                name:
+                  type: string
+                metadata:
+                  type: object
+                  additionalProperties:
+                    type: string
+                source:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: [file, paste]
+                    text:
+                      type: string
+                    key:
+                      type: string
+      responses:
+        "201":
+          description: Document created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "400":
+          description: Validation error (unsupported format, oversize, missing required fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+
+  /v1/documents/{documentId}:
+    get:
+      summary: Get a document with its drafts
+      tags: [Documents]
+      operationId: getDocument
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document with drafts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+
+    delete:
+      summary: Delete a document (cascades to drafts/feedback; retains activity log)
+      tags: [Documents]
+      operationId: deleteDocument
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deletion receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documentId:
+                    type: string
+                  deletedDrafts:
+                    type: integer
+                  deletedFeedbackItems:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+
+  /v1/documents/{documentId}/drafts:
+    post:
+      summary: Submit a new draft (resubmission)
+      tags: [Documents]
+      operationId: submitDraft
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: [file, paste]
+                    text:
+                      type: string
+                    key:
+                      type: string
+      responses:
+        "201":
+          description: Draft created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+        "400":
+          description: Oversize or extraction failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+
+  # ==================== Feedback ====================
+  /v1/documents/{documentId}/feedback:
+    get:
+      summary: Get feedback items for the current draft
+      tags: [Feedback]
+      operationId: getFeedback
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Feedback items and progress summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FeedbackItem"
+                  progressSummary:
+                    type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+
+    post:
+      summary: Request feedback generation (async — returns job id)
+      tags: [Feedback]
+      operationId: requestFeedback
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Feedback generation enqueued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [queued, processing]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: Usage limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+
+  /v1/documents/{documentId}/feedback/status:
+    get:
+      summary: Poll feedback generation status
+      tags: [Feedback]
+      operationId: getFeedbackStatus
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current job status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [queued, processing, completed, failed]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+
+  # ==================== Config (DeptAdmin) ====================
+  /v1/document-types/{documentTypeId}/config:
+    get:
+      summary: Get Document Type configuration (taxonomy, conventions, prompt)
+      tags: [Config]
+      operationId: getDocumentTypeConfig
+      parameters:
+        - name: documentTypeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full Document Type configuration
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
+    put:
+      summary: Update Document Type configuration
+      tags: [Config]
+      operationId: updateDocumentTypeConfig
+      parameters:
+        - name: documentTypeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tone:
+                  type: string
+                density:
+                  type: string
+                typePromptText:
+                  type: string
+                categoryPriority:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Updated configuration
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
+  # ==================== Admin ====================
+  /v1/departments:
+    get:
+      summary: List departments (scoped by role)
+      tags: [Admin]
+      operationId: listDepartments
+      responses:
+        "200":
+          description: Departments visible to the actor
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
+  /v1/document-types:
+    get:
+      summary: List document types (filterable by department)
+      tags: [Admin]
+      operationId: listDocumentTypes
+      parameters:
+        - name: departmentId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document types
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
+  /v1/users:
+    get:
+      summary: Search users (TechAdmin system-wide, DeptAdmin scoped)
+      tags: [Admin]
+      operationId: searchUsers
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: role
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated user list
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
+  /v1/roles:
+    post:
+      summary: Assign a role (TechAdmin only)
+      tags: [Admin]
+      operationId: assignRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, role]
+              properties:
+                userId:
+                  type: string
+                role:
+                  type: string
+                  enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                administeredDepartmentIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Role assigned
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
+  # ==================== Usage & Overrides ====================
+  /v1/usage:
+    get:
+      summary: Get usage limits and current consumption
+      tags: [Usage]
+      operationId: getUsage
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [platform, documentType]
+        - name: scopeId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Usage information
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
+  /v1/overrides:
+    post:
+      summary: Grant a temporary usage override (DeptAdmin/TechAdmin)
+      tags: [Usage]
+      operationId: grantOverride
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, documentTypeId, bounds, reason, expiresAt]
+              properties:
+                userId:
+                  type: string
+                documentTypeId:
+                  type: string
+                bounds:
+                  type: object
+                  properties:
+                    additionalActions:
+                      type: integer
+                reason:
+                  type: string
+                expiresAt:
+                  type: string
+                  format: date-time
+      responses:
+        "201":
+          description: Override granted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
+  # ==================== Analytics ====================
+  /v1/analytics:
+    get:
+      summary: Get aggregate analytics (scoped by role)
+      tags: [Analytics]
+      operationId: getAnalytics
+      parameters:
+        - name: documentTypeId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Aggregate analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuditFunctionArn}/invocations"
+
+  # ==================== Upload (presigned URL) ====================
+  /v1/uploads/presign:
+    post:
+      summary: Get a presigned S3 URL for document upload
+      tags: [Documents]
+      operationId: getUploadUrl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, contentType]
+              properties:
+                filename:
+                  type: string
+                contentType:
+                  type: string
+      responses:
+        "200":
+          description: Presigned upload URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uploadUrl:
+                    type: string
+                  key:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"

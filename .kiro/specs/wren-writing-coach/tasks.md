@@ -104,7 +104,7 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
 - [x] 4. Checkpoint - foundations and authorization  〔Track A · after A4〕
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Departments, Document Types, roles, and access administration (Admin_Service)  〔Track A〕
+- [x] 5. Departments, Document Types, roles, and access administration (Admin_Service)  〔Track A〕
   - [x] 5.1 Implement Department groupings and the configurable Document Type catalog  〔Track A · A4〕
     - (Built as Organization groupings + a self-selectable Writing Type catalog with org- and type-level OPEN/LOCKED. V4: Departments are name-only groupings created via the joint Technical-Admin appointment action (Task 5.6, REQ-ROLE-DEPTADMIN-01.1); Document Types carry the sole OPEN/LOCKED state — no org-level state, no `INHERIT`.)
     - CRUD for the grouping + self-selectable Document Types; Document Types are configurable records, not a fixed domain set
@@ -122,7 +122,7 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 5.5 Write unit tests for admin role/access edge cases  〔Track A · A6〕
     - Cross-grouping scope denials (built also testing a V1 "no-Org-Owner superuser fallback" path — V4 has no superuser fallback (REQ-ROLE-TECHADMIN-01.4); that test is retired in Task 5.6 and replaced by a "Technical Admin cannot edit educational content" denial test)
     - _Requirements: 30.6_
-  - [ ] 5.6 Migrate V1-shaped admin/auth/schema code to the V4 three-role model  〔Track A · A6〕
+  - [x] 5.6 Migrate V1-shaped admin/auth/schema code to the V4 three-role model  〔Track A · A6〕
     - Apply the design.md V1→V4 mapping: rename `Organization`→remove/`Department`, `WritingType`→`DocumentType`, `WritingTypeConfig`→`DocumentTypeConfig`; drop the `INHERIT` access state and all org-level access state/inheritance; remove org-level Access Grants (only `{documentTypeId}` remains) and the `organization` usage scope
     - Collapse `RoleAssignment.role` values `FieldExpert`/`DocumentExpert`/`OrgOwner` → `DepartmentAdmin`, re-scoping each holder to `{departmentIds[]}` for the Department(s) containing their previously assigned Document Type(s) — never delete holders (avoid silently revoking active users' access)
     - Re-scope the capability matrix and access resolution: Technical Admin assigns any role + appoints/creates Departments; Department Admin holds full educational authority (taxonomy/prompt/reference/metadata/Content Types/Topics/Access Grants) for administered Departments only; remove the superuser fallback; deny Technical-Admin educational-content edits
@@ -182,161 +182,161 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 8.6 Implement the Progress Tracker  〔Track A · A8〕
     - Re-evaluate each anchored Feedback Item to exactly one Resolution Status; `removed` anchors → `removed`; unchanged spans → `unchanged` with no LLM call; changed spans use diff-selected region; re-evaluate document-wide structural items against the full new Draft (never `removed`, REQ-RESOLUTION-01.7); append-only resolution history; pattern detection across ≥2 drafts (improving/persistent/emerging), no claims with <2 drafts
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 18.2, 18.5_
-  - [ ]* 8.7 Write property test for resolution status correctness  〔Track A · A9〕
+  - [x]* 8.7 Write property test for resolution status correctness  〔Track A · A9〕
     - **Property 16: Resolution status correctness**
     - **Validates: Requirements 17.1, 17.2, 17.3, 17.4, 17.7**
-  - [ ]* 8.8 Write property test for resolution history accumulation  〔Track A · A9〕
+  - [x]* 8.8 Write property test for resolution history accumulation  〔Track A · A9〕
     - **Property 17: Resolution history accumulation**
     - **Validates: Requirements 17.6**
-  - [ ]* 8.9 Write property test for pattern acknowledgment gating  〔Track A · A9〕
+  - [x]* 8.9 Write property test for pattern acknowledgment gating  〔Track A · A9〕
     - **Property 18: Pattern acknowledgment gating**
     - **Validates: Requirements 18.2, 18.5**
 
-- [ ] 9. Feedback Engine and no-ghostwriting guardrail (Python 3.12, container Lambda)  〔Track A〕
-  - [ ] 9.1 Implement layered prompt assembly with untrusted-data isolation  〔Track A · A9〕
+- [x] 9. Feedback Engine and no-ghostwriting guardrail (Python 3.12, container Lambda)  〔Track A〕
+  - [x] 9.1 Implement layered prompt assembly with untrusted-data isolation  〔Track A · A9〕
     - Compose system scaffolding (cross-type instructions, output schema, guardrail) as the authoritative outer layer and the Document-Type prompt as the inner layer; insert submitted text + reference material only as clearly delimited untrusted data
     - _Requirements: 32.8, 38.1, 38.2, 25.5_
-  - [ ]* 9.2 Write property test for untrusted content staying as data  〔Track A · A10〕
+  - [x]* 9.2 Write property test for untrusted content staying as data  〔Track A · A10〕
     - **Property 12: Untrusted content stays data**
     - **Validates: Requirements 38.1, 38.2, 32.8**
-  - [ ] 9.3 Implement model invocation via `langchain-aws` (model-agnostic)  〔Track A · A9〕
+  - [x] 9.3 Implement model invocation via `langchain-aws` (model-agnostic)  〔Track A · A9〕
     - Invoke configured Bedrock model id; no hardcoded model; changing the id is configuration only
     - _Requirements: 51.1, 51.2, 51.3_
-  - [ ] 9.4 Implement the output no-ghostwriting guardrail  〔Track A · A10〕
+  - [x] 9.4 Implement the output no-ghostwriting guardrail  〔Track A · A10〕
     - Discard internal "correct version"; strip/reject any replacement prose, candidate rewrite, or "suggest a revision / explain the improvement"; persist only `{category, question, anchor?, citation?}`; emit audit event on violation
     - _Requirements: 11.1, 11.3, 11.4, 11.6, 12.3, 38.3, 38.4_
-  - [ ]* 9.5 Write property test for the no-ghostwriting guardrail  〔Track A · A11〕
+  - [x]* 9.5 Write property test for the no-ghostwriting guardrail  〔Track A · A11〕
     - **Property 10: No-ghostwriting guardrail**
     - **Validates: Requirements 11.1, 11.3, 11.4, 12.3, 15.4, 38.3**
-  - [ ] 9.6 Implement taxonomy-bound classification and density bounding  〔Track A · A10〕
+  - [x] 9.6 Implement taxonomy-bound classification and density bounding  〔Track A · A10〕
     - Classify only into the active Document Type's configured categories; scale inline item count with length bounded by configured density; prioritize recurring patterns when the cap binds
     - _Requirements: 13.1, 13.2, 13.3, 15.1_
-  - [ ]* 9.7 Write property test for classification within configured taxonomy  〔Track A · A11〕
+  - [x]* 9.7 Write property test for classification within configured taxonomy  〔Track A · A11〕
     - **Property 14: Classification stays within configured taxonomy**
     - **Validates: Requirements 15.1**
-  - [ ]* 9.8 Write property test for the annotation density bound  〔Track A · A11〕
+  - [x]* 9.8 Write property test for the annotation density bound  〔Track A · A11〕
     - **Property 13: Annotation density bound**
     - **Validates: Requirements 13.1, 13.2**
-  - [ ] 9.9 Implement document-wide structural feedback  〔Track A · A10〕
+  - [x] 9.9 Implement document-wide structural feedback  〔Track A · A10〕
     - Produce non-anchored Socratic/structural items distinct from inline items, subject to the same guardrail
     - _Requirements: 14.1, 14.2, 14.3_
-  - [ ] 9.10 Implement carry-forward caching and invalidation  〔Track A · A11〕
+  - [x] 9.10 Implement carry-forward caching and invalidation  〔Track A · A11〕
     - Reuse prior Feedback Items for spans unchanged in text and governing config; invalidate on text change or Document-Type config change; persist feedback so re-opening needs no regeneration
     - _Requirements: 10.3, 27.3, 49.1, 49.2, 49.4_
-  - [ ]* 9.11 Write property test for carry-forward caching  〔Track A · A12〕
+  - [x]* 9.11 Write property test for carry-forward caching  〔Track A · A12〕
     - **Property 9: Carry-forward caching**
     - **Validates: Requirements 10.3, 49.1, 49.2, 27.3**
-  - [ ] 9.12 Wire async feedback job execution  〔Track A · A12〕
+  - [x] 9.12 Wire async feedback job execution  〔Track A · A12〕
     - SQS + DLQ in front of the engine; idempotent handler with backoff/jitter; streamed/poll status to the client
     - _Requirements: 47.3, 48.1, 48.2, 48.3_
 
-- [ ] 10. Reference materials and citations  〔Track A〕
-  - [ ] 10.1 Implement the two-tier reference store and grounding  〔Track A · A11〕
+- [x] 10. Reference materials and citations  〔Track A〕
+  - [x] 10.1 Implement the two-tier reference store and grounding  〔Track A · A11〕
     - Department-wide (tier 1) and Document-Type-scoped (tier 2) Reference Material; parse/chunk/index content with **LlamaIndex** into the **single** `pgvector`-backed `embedding` table via a LlamaIndex `PGVectorStore`; bundle = department-wide ∪ that Document Type's type-scoped material (scoped by a `WHERE` filter on `tier`/`department_id`/`document_type_id` over that one table), never another type's
     - Add a forward-only migration creating the single `embedding` table (vector column + `reference_material_id`, `tier`, `department_id`, `document_type_id`, `chunk_index`, `content`, `metadata`) if it does not already exist; resolve `reference_material.embedding_id` against it
     - _Requirements: 20.1, 20.2, 20.3, 20.4, 22.1, 22.2, 22.3, 22.4, 26.1, 26.3_
-  - [ ]* 10.2 Write property test for reference bundle scoping  〔Track A · A12〕
+  - [x]* 10.2 Write property test for reference bundle scoping  〔Track A · A12〕
     - **Property 21: Reference bundle scoping**
     - **Validates: Requirements 22.2, 22.3, 20.4, 26.3**
-  - [ ] 10.3 Implement citation attachment  〔Track A · A11〕
+  - [x] 10.3 Implement citation attachment  〔Track A · A11〕
     - Attach a source-identity citation (title/section) when specific material informed an item; never reproduce replacement prose; no citation when none informed it
     - _Requirements: 21.1, 21.2, 21.3, 21.4_
-  - [ ]* 10.4 Write property test for citation presence and content  〔Track A · A12〕
+  - [x]* 10.4 Write property test for citation presence and content  〔Track A · A12〕
     - **Property 20: Feedback citation presence and content**
     - **Validates: Requirements 21.1, 21.3, 21.4**
 
-- [ ] 11. Checkpoint - feedback pipeline  〔Track A · after A12〕
+- [x] 11. Checkpoint - feedback pipeline  〔Track A · after A12〕
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 12. Config Service and prompt editor (Node 22)  〔Track A〕
-  - [ ] 12.1 Implement Document-Type-scoped taxonomy and convention configuration  〔Track A · A12〕
+- [x] 12. Config Service and prompt editor (Node 22)  〔Track A〕
+  - [x] 12.1 Implement Document-Type-scoped taxonomy and convention configuration  〔Track A · A12〕
     - Store error categories as data (not enum) with add/remove/rename where rename preserves Feedback Item linkage by id; store tone/density/priority/type prompt text; `updatedAt` drives carry-forward invalidation; require active-Document-Type selection for Department Admins administering multiple Departments/types
     - _Requirements: 15.1, 15.2, 15.3, 15.5, 24.1, 24.2, 24.3, 25.1, 25.2, 25.3, 27.1, 27.2, 27.3_
-  - [ ]* 12.2 Write property test for category rename preserving linkage  〔Track A · A13〕
+  - [x]* 12.2 Write property test for category rename preserving linkage  〔Track A · A13〕
     - **Property 15: Category rename preserves linkage**
     - **Validates: Requirements 15.3**
-  - [ ] 12.3 Implement the prompt editor with the Department-Admin/Technical-Admin edit boundary and save-time guardrail  〔Track A · A12〕
+  - [x] 12.3 Implement the prompt editor with the Department-Admin/Technical-Admin edit boundary and save-time guardrail  〔Track A · A12〕
     - Department Admins edit Document-Type prompt content for administered Departments; Technical Admin owns system scaffolding (read-only to Department Admins) and it always takes precedence; labeled fields with validation; reject/transform ghostwriting instructions on save with an offending-instruction error
     - _Requirements: 11.6, 25.4, 32.1, 32.2, 32.3, 32.4, 32.5, 32.7, 32.8_
-  - [ ]* 12.4 Write property test for the prompt content guardrail  〔Track A · A13〕
+  - [x]* 12.4 Write property test for the prompt content guardrail  〔Track A · A13〕
     - **Property 11: Prompt content guardrail rejects ghostwriting instructions**
     - **Validates: Requirements 11.6, 32.5**
-  - [ ] 12.5 Implement Document-Type-scoped reference material management UI/API  〔Track A · A12〕
+  - [x] 12.5 Implement Document-Type-scoped reference material management UI/API  〔Track A · A12〕
     - File / pasted-text / rich-HTML inputs; upload loading + error states with no partial persistence; visibility scoped to Department Admins who administer the Document Type's Department
     - _Requirements: 26.1, 26.2, 26.4, 26.5, 26.6_
-  - [ ] 12.6 Seed and validate no-ghostwriting-compliant default prompts  〔Track A · A13〕
+  - [x] 12.6 Seed and validate no-ghostwriting-compliant default prompts  〔Track A · A13〕
     - Rewrite the sample legal prompt to Socratic-only; ship no prompt that requests revisions/justifications; other Document Types start with empty taxonomy
     - _Requirements: 11.7, 15.5_
 
-- [ ] 13. Usage limits and overrides (Usage_Service)  〔Track A〕
-  - [ ] 13.1 Implement usage-limit configuration and current-usage reporting  〔Track A · A13〕
+- [x] 13. Usage limits and overrides (Usage_Service)  〔Track A〕
+  - [x] 13.1 Implement usage-limit configuration and current-usage reporting  〔Track A · A13〕
     - Configure limits at platform / Document-Type scope (Technical Admin); display current usage vs limit
     - _Requirements: 31.1, 31.2, 31.3, 54.1_
-  - [ ] 13.2 Implement multi-scope attribution and most-restrictive enforcement  〔Track A · A14〕
+  - [x] 13.2 Implement multi-scope attribution and most-restrictive enforcement  〔Track A · A14〕
     - Attribute each feedback action to {Document Type, platform} (never a "home Department"); block when any applicable scope is at limit; message names the binding scope
     - _Requirements: 54.2, 54.3, 54.4_
-  - [ ]* 13.3 Write property test for usage attribution and most-restrictive enforcement  〔Track A · A15〕
+  - [x]* 13.3 Write property test for usage attribution and most-restrictive enforcement  〔Track A · A15〕
     - **Property 29: Usage attribution and most-restrictive enforcement**
     - **Validates: Requirements 54.2, 54.3, 54.4**
-  - [ ] 13.4 Implement temporary scoped overrides  〔Track A · A14〕
+  - [x] 13.4 Implement temporary scoped overrides  〔Track A · A14〕
     - Department Admin (administering the Document Type's Department) or Technical Admin grants a Document-Type-scoped temporary override (audited with actor/role/user/type/reason/timestamp); overrides expire on usage-period reset; allow actions up to bounds while active
     - _Requirements: 54.5, 54.6, 54.7, 54.8_
-  - [ ]* 13.5 Write property test for override lifecycle  〔Track A · A15〕
+  - [x]* 13.5 Write property test for override lifecycle  〔Track A · A15〕
     - **Property 30: Override lifecycle**
     - **Validates: Requirements 54.5, 54.7, 54.8**
 
-- [ ] 14. Audit, activity log, and aggregate analytics (Audit_Service)  〔Track A〕
-  - [ ] 14.1 Implement the document-independent Actor–Verb–Object activity log  〔Track A · A14〕
+- [x] 14. Audit, activity log, and aggregate analytics (Audit_Service)  〔Track A〕
+  - [x] 14.1 Implement the document-independent Actor–Verb–Object activity log  〔Track A · A14〕
     - Append-only `{actor, verb, object, timestamp, context}` events persisted independently of document content; de-identify to stable pseudonym where retention requires, preserving aggregate value
     - _Requirements: 44.1, 44.2, 44.3, 44.4, 44.5_
-  - [ ]* 14.2 Write property test for de-identification preserving aggregate value  〔Track A · A15〕
+  - [x]* 14.2 Write property test for de-identification preserving aggregate value  〔Track A · A15〕
     - **Property 28: De-identification preserves aggregate value**
     - **Validates: Requirements 44.4**
-  - [ ] 14.3 Implement aggregate-only analytics projections with scoping  〔Track A · A14〕
+  - [x] 14.3 Implement aggregate-only analytics projections with scoping  〔Track A · A14〕
     - All-users aggregate totals only: Department Admin → Document Types within administered Departments; Technical Admin → platform-wide, filterable by Document Type; no per-Student entries/scores/named activity; numeric indicators never in the writer-facing view
     - _Requirements: 19.1, 19.2, 19.3, 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 41.1, 41.2, 41.3, 41.4, 41.5, 41.6, 42.1, 42.2, 42.3, 42.4, 42.5, 43.2_
-  - [ ]* 14.4 Write property test for analytics exposing only all-users aggregates  〔Track A · A15〕
+  - [x]* 14.4 Write property test for analytics exposing only all-users aggregates  〔Track A · A15〕
     - **Property 26: Analytics expose only all-users aggregates**
     - **Validates: Requirements 40.1, 40.2, 40.6, 41.2, 41.3, 41.6, 42.1, 42.5, 19.1, 19.2, 43.2**
-  - [ ] 14.5 Implement document-deletion retention partitioning  〔Track A · A15〕
+  - [x] 14.5 Implement document-deletion retention partitioning  〔Track A · A15〕
     - Deleting a Document (with confirmation describing permanent feedback removal) cascades Drafts/Anchors/Feedback Items/resolution history but retains activity-log events and aggregate counters
     - _Requirements: 39.3, 43.1, 43.3, 43.4, 45.1, 45.2, 45.3, 45.4_
-  - [ ]* 14.6 Write property test for deletion partitioning of operational vs retained state  〔Track A · A16〕
+  - [x]* 14.6 Write property test for deletion partitioning of operational vs retained state  〔Track A · A16〕
     - **Property 27: Document deletion partitions operational vs retained state**
     - **Validates: Requirements 45.1, 45.4, 44.2, 43.4, 39.3**
-  - [ ] 14.7 Implement audit recording for sensitive actions  〔Track A · A15〕
+  - [x] 14.7 Implement audit recording for sensitive actions  〔Track A · A15〕
     - Record config edits, role/grant changes, override grants, and guardrail outcomes with actor/role/scope/timestamp
     - _Requirements: 11.5, 23.3, 32.6, 45.2_
 
-- [ ] 15. Checkpoint - admin, usage, and audit  〔Track A · after A15〕
+- [x] 15. Checkpoint - admin, usage, and audit  〔Track A · after A15〕
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 16. API layer and service wiring  〔Track A + Convergence〕
-  - [ ] 16.1 Author the OpenAPI spec and `SpecRestApi` with the Lambda authorizer  〔Track A · A16〕
+- [x] 16. API layer and service wiring  〔Track A + Convergence〕
+  - [x] 16.1 Author the OpenAPI spec and `SpecRestApi` with the Lambda authorizer  〔Track A · A16〕
     - Define REST endpoints for documents/drafts, feedback, config, admin, usage, analytics; regional endpoint, throttling, ERROR logging; AppSync/WebSocket for feedback streaming
     - _Requirements: 36.1, 36.2, 47.2, 48.2_
-  - [ ] 16.2 Implement the `Compute` stack and wire all service Lambdas  〔Track A · A16〕
+  - [x] 16.2 Implement the `Compute` stack and wire all service Lambdas  〔Track A · A16〕
     - Provision Document (Node), Diff/Anchor/Progress (Python), Feedback Engine (container), Admin/Config/Auth/Usage (Node), Audit (Node); each with a scoped IAM role; SQS + DLQ for async jobs
     - _Requirements: 47.1, 47.2, 47.3_
-  - [ ] 16.3 Implement `CloudFrontWaf`, `Amplify`, `Observability`, and `CICD` stacks  〔Track A · A17〕
+  - [x] 16.3 Implement `CloudFrontWaf`, `Amplify`, `Observability`, and `CICD` stacks  〔Track A · A17〕
     - WAF managed rules + rate limiting; Amplify per-branch build; CloudWatch log groups + Powertools + latency/throttle/queue alarms; CodePipeline + ECR `imageScanOnPush`
     - _Requirements: 47.2, 48.1_
-  - [ ]* 16.4 Write integration tests for cross-service wiring  〔Convergence · C0〕
+  - [x]* 16.4 Write integration tests for cross-service wiring  〔Convergence · C0〕
     - Cognito JWT → app-DB identity in authorizer; Bedrock invoke via `langchain-aws` with swappable model id; submit → generate → persist → re-open without regeneration; activity log surviving deletion against a real DB
     - _Requirements: 37.5, 49.4, 51.2, 44.2_
 
-- [ ] 17. Frontend foundation (React 19 / Vite / Tailwind / shadcn/ui)  〔Track B〕
+- [x] 17. Frontend foundation (React 19 / Vite / Tailwind / shadcn/ui)  〔Track B〕
   - [x] 17.1 Scaffold the frontend with design tokens and shared API client  〔Track B · B0〕
     - Feature-based structure; centralized color/typography/spacing/radii/shadow tokens (no hardcoded values; lint rule); single Cognito-aware API client; React Query with per-environment cache keys; React Hook Form + Zod at the API boundary
     - _Requirements: 53.2_
-  - [ ] 17.2 Implement shared compliance primitives  〔Track B · B1〕
+  - [x] 17.2 Implement shared compliance primitives  〔Track B · B1〕
     - `<AiDisclaimerNotice>`; status-enum→color-token lookup (`Still Drafting`/`Polishing`); role-aware shared components for the three roles (Student / Department Admin / Technical Admin; no student-only assumptions); severity-by-color (never numeric)
     - _Requirements: 1.2, 18.3_
   - [x] 17.3 Implement auth screens  〔Track B · B1〕
     - `LoginForm` / `SignupForm` against Cognito
     - _Requirements: 37.1_
 
-- [ ] 18. Document editor and AI debrief (built on Tiptap; `docx-editor.dev`/`eigenpal/docx-editor` is deprecated/unavailable)  〔Track B〕
+- [x] 18. Document editor and AI debrief (built on Tiptap; `docx-editor.dev`/`eigenpal/docx-editor` is deprecated/unavailable)  〔Track B〕
   - [x] 18.1 Integrate a Tiptap-based `.docx` editor (MIT-only stack)  〔Track B · B1〕
     - Embed `@tiptap/react` + `@tiptap/starter-kit` (MIT) as the WYSIWYG editing surface; use `@sereneinserenade/tiptap-comment-extension` (MIT) for the anchored margin-comments layer feedback renders through (task 18.2); import `.docx` → editor content via `officeparser` (MIT, `harshankur/officeParser`); export editor content → `.docx` via `docx` (MIT, `dolanmiu/docx`); preserve paragraph structure across the import/edit/export round-trip; verify all four dependencies are MIT-licensed for the OSS deliverable (no mammoth.js — BSD-2-Clause was rejected per project policy; no Syncfusion — commercial)
     - _Requirements: 6.2, 52.1, 52.2_
@@ -352,32 +352,32 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x]* 18.5 Write property test for writer-facing progress carrying no numeric scoring  〔Track B · B4〕
     - **Property 19: Writer-facing progress carries no numeric scoring**
     - **Validates: Requirements 18.3**
-  - [ ] 18.6 Implement document creation, re-upload, citations, and Ask WREN  〔Track B · B2〕
+  - [x] 18.6 Implement document creation, re-upload, citations, and Ask WREN  〔Track B · B2〕
     - New-document form (Document Type select, configurable metadata incl. "Writing Topic", reference upload, Activate Editor disabled until required fields set); re-upload to create a new Draft; citation display on items; Ask WREN panel (Socratic-only, draft-anchored, same guardrail)
     - _Requirements: 6.6, 6.7, 8.1, 21.2, 11.1_
   - [x]* 18.7 Write compliance render tests for the editor and debrief  〔Track B · B3〕
     - Assert AI feedback is visually/structurally distinguishable from writer text and that no Apply/Insert/Accept affordance exists; AI Debrief modal focus trap, Escape/×, focus return
     - _Requirements: 11.2_
 
-- [ ] 19. Role consoles and writer dashboard  〔Track B〕
-  - [ ] 19.1 Implement the writer dashboard and self-selection of OPEN Document Types  〔Track B · B3〕
+- [x] 19. Role consoles and writer dashboard  〔Track B〕
+  - [x] 19.1 Implement the writer dashboard and self-selection of OPEN Document Types  〔Track B · B3〕
     - "My Documents" cards (Topic, Status, search/status filter); self-select any OPEN Document Type; access-request flow for LOCKED types
     - _Requirements: 4.2, 4.6, 6.8, 28.2_
-  - [ ] 19.2 Implement the Department Admin educational configuration surface  〔Track B · B3〕
+  - [x] 19.2 Implement the Department Admin educational configuration surface  〔Track B · B3〕
     - Active-Document-Type selection across administered Departments; taxonomy editor (add/remove/rename); convention + prompt editor with the Department-Admin/Technical-Admin edit boundary; Document-Type-scoped reference manager; Department-wide reference manager — all scoped to administered Departments (folds the former Field-Expert config surface directly into Department Admin, per V4)
     - _Requirements: 23.4, 24.1, 26.1, 32.2, 20.1_
-  - [ ] 19.3 Implement the Department Admin access, roster, and analytics console  〔Track B · B3〕
+  - [x] 19.3 Implement the Department Admin access, roster, and analytics console  〔Track B · B3〕
     - Administered Departments with their Document Types, Content Types, configurable metadata, Topics; scoped Student search + create/revoke Access Grants + approve/deny access requests; aggregate (administered-Department, Document-Type-filterable) analytics only; no standalone "create Department" control; rename/remove an administered Department (folds the former Org-Owner business console into Department Admin, per V4)
     - _Requirements: 29.6, 34.1, 34.2, 34.3, 34.5, 34.6, 42.1, 42.2_
-  - [ ] 19.4 Implement the Technical Admin technical console  〔Track B · B3〕
+  - [x] 19.4 Implement the Technical Admin technical console  〔Track B · B3〕
     - Model config, system prompt/guardrail config, app settings; assign/revoke Department Admin + appoint their Department(s), creating a name-only Department shell within the appointment flow (no standalone Department management); system-wide user/role view; usage limits + current usage; platform aggregate analytics filterable by Document Type; no educational-content functions
     - _Requirements: 33.1, 33.2, 33.3, 33.4, 41.1, 41.2_
 
-- [ ] 20. Final integration and checkpoint  〔Convergence〕
-  - [ ] 20.1 End-to-end wiring and smoke/config checks  〔Convergence · C0〕
+- [x] 20. Final integration and checkpoint  〔Convergence〕
+  - [x] 20.1 End-to-end wiring and smoke/config checks  〔Convergence · C0〕
     - Wire frontend ↔ API ↔ services for the full draft → feedback → revision → resubmission loop; app-name source scan returns zero non-config matches; `cdk synth` succeeds; LICENSE present and MIT; documented config values present
     - _Requirements: 49.4, 52.1, 52.3, 53.4_
-  - [ ] 20.2 Final checkpoint - ensure all tests pass  〔Convergence · C1〕
+  - [x] 20.2 Final checkpoint - ensure all tests pass  〔Convergence · C1〕
     - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
