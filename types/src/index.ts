@@ -26,6 +26,7 @@ import type {
   ContentType,
   CreateAccessGrantInput,
   CreateErrorCategoryInput,
+  CreateOverrideInput,
   CreateReferenceMaterialInput,
   CreateUsageLimitInput,
   CustomMetadataField,
@@ -85,6 +86,7 @@ type _GuardFeedbackItem = Expect<LacksReplacementProse<FeedbackItem>>;
 type _GuardAccessGrant = Expect<LacksReplacementProse<AccessGrant>>;
 type _GuardOverrideBounds = Expect<LacksReplacementProse<OverrideBounds>>;
 type _GuardOverride = Expect<LacksReplacementProse<Override>>;
+type _GuardCreateOverrideInput = Expect<LacksReplacementProse<CreateOverrideInput>>;
 type _GuardActivityEvent = Expect<LacksReplacementProse<ActivityEvent>>;
 type _GuardAuthContext = Expect<LacksReplacementProse<AuthContext>>;
 type _GuardAuthorizationDecision = Expect<LacksReplacementProse<AuthorizationDecision>>;
@@ -143,6 +145,7 @@ export type NoGhostwritingGuards = [
   _GuardAccessGrant,
   _GuardOverrideBounds,
   _GuardOverride,
+  _GuardCreateOverrideInput,
   _GuardActivityEvent,
   _GuardAuthContext,
   _GuardAuthorizationDecision,

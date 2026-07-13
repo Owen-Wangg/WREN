@@ -93,6 +93,16 @@ interface UsageCounterRow {
   consumed: number;
 }
 
+interface OverrideRow {
+  id: string;
+  user_id: string;
+  document_type_id: string;
+  bounds: { additionalActions: number };
+  reason: string;
+  granted_by: string | null;
+  expires_at: Date;
+}
+
 /**
  * Minimal `document` row — only the columns the deletion-impact counts need.
  * `metadata` is optional so existing Document-Type-impact seeds (which don't
@@ -163,6 +173,7 @@ export class FakeDb implements QueryExecutor {
   public readonly referenceMaterials = new Map<string, ReferenceMaterialRow>();
   public readonly usageLimits = new Map<string, UsageLimitRow>();
   public readonly usageCounters: UsageCounterRow[] = [];
+  public readonly overrides = new Map<string, OverrideRow>();
   public mutationCount = 0;
 
   private seq = 0;
@@ -368,6 +379,23 @@ export class FakeDb implements QueryExecutor {
       consumed: row.consumed ?? 0,
     };
     this.usageCounters.push(full);
+    return full;
+  }
+
+  /** Seed an override row directly (bypasses authorization) for test setup. */
+  public seedOverride(
+    row: Partial<OverrideRow> & { id: string; user_id: string; document_type_id: string },
+  ): OverrideRow {
+    const full: OverrideRow = {
+      id: row.id,
+      user_id: row.user_id,
+      document_type_id: row.document_type_id,
+      bounds: row.bounds ?? { additionalActions: 5 },
+      reason: row.reason ?? 'Seed reason',
+      granted_by: row.granted_by ?? 'seed-granter',
+      expires_at: row.expires_at ?? new Date('2099-01-01T00:00:00.000Z'),
+    };
+    this.overrides.set(full.id, full);
     return full;
   }
 
@@ -1096,6 +1124,80 @@ export class FakeDb implements QueryExecutor {
           r.period_start.getTime() === periodStart.getTime(),
       );
       return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'INSERT INTO usage_counter (scope_kind, scope_id, period_start, consumed)',
+      )
+    ) {
+      this.mutationCount += 1;
+      const [scopeKind, scopeId, periodStart] = params as [
+        'platform' | 'documentType',
+        string | null,
+        Date,
+      ];
+      const existing = this.usageCounters.find(
+        (r) =>
+          r.scope_kind === scopeKind &&
+          r.scope_id === scopeId &&
+          r.period_start.getTime() === periodStart.getTime(),
+      );
+      if (existing) {
+        existing.consumed += 1;
+        return [{ ...existing }] as unknown as Row[];
+      }
+      const row: UsageCounterRow = {
+        scope_kind: scopeKind,
+        scope_id: scopeId,
+        period_start: periodStart,
+        consumed: 1,
+      };
+      this.usageCounters.push(row);
+      return [row] as unknown as Row[];
+    }
+
+    /* -------------------------------- override --------------------------------- */
+
+    if (
+      sql.startsWith(
+        'INSERT INTO override (user_id, document_type_id, bounds, reason, granted_by, expires_at)',
+      )
+    ) {
+      this.mutationCount += 1;
+      const row: OverrideRow = {
+        id: this.nextId('override'),
+        user_id: params[0] as string,
+        document_type_id: params[1] as string,
+        bounds: params[2] as { additionalActions: number },
+        reason: params[3] as string,
+        granted_by: (params[4] as string | null) ?? null,
+        expires_at: params[5] as Date,
+      };
+      this.overrides.set(row.id, row);
+      return [row] as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, user_id, document_type_id, bounds, reason, granted_by, expires_at FROM override WHERE id = $1',
+      )
+    ) {
+      const row = this.overrides.get(params[0] as string);
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, user_id, document_type_id, bounds, reason, granted_by, expires_at FROM override WHERE user_id = $1 AND document_type_id = $2',
+      )
+    ) {
+      const [userId, documentTypeId] = params as [string, string];
+      const rows = [...this.overrides.values()]
+        .filter((r) => r.user_id === userId && r.document_type_id === documentTypeId)
+        .map((r) => ({ ...r }))
+        .sort((a, b) => b.expires_at.getTime() - a.expires_at.getTime());
+      return rows as unknown as Row[];
     }
 
     throw new Error(`FakeDb: unhandled SQL: ${sql}`);

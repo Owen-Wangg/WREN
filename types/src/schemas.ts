@@ -587,6 +587,23 @@ export const overrideSchema = z
   .strict();
 export type Override = z.infer<typeof overrideSchema>;
 
+/**
+ * Input to grant a temporary, Document-Type-scoped usage override
+ * (Requirement 54.5). `expiresAt` is the usage-period reset boundary the
+ * override is bound to (Requirement 54.7); the grantor's identity is taken
+ * from the authenticated actor, not from this input.
+ */
+export const createOverrideInputSchema = z
+  .object({
+    userId: idSchema,
+    documentTypeId: idSchema,
+    bounds: overrideBoundsSchema,
+    reason: z.string().min(1),
+    expiresAt: isoDateTimeSchema,
+  })
+  .strict();
+export type CreateOverrideInput = z.infer<typeof createOverrideInputSchema>;
+
 /* -------------------------------------------------------------------------- */
 /* ActivityEvent (Requirement 44 — Actor–Verb–Object, independent of documents)*/
 /* -------------------------------------------------------------------------- */

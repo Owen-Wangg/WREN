@@ -44,6 +44,7 @@ import { wrenProperty } from '../../../testing/typescript/property';
 
 const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
   'usageLimit.configure',
+  'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
 ]);

@@ -4,13 +4,16 @@
  *
  * V4 coverage (3 roles, no implicit hierarchy — Requirement 5.4):
  *   - TechnicalAdmin: platform-level operations ONLY (usageLimit.configure,
- *     user.search, documentType.setAccessState). NOT a superuser for
- *     educational content.
+ *     usageOverride.grant, user.search, documentType.setAccessState). NOT a
+ *     superuser for educational content.
  *   - DepartmentAdmin: educational operations ONLY within administered
  *     Departments (documentType.readConfig, documentType.modifyConfig,
  *     documentType.manageCatalog, topic.manage, department.manage,
  *     accessGrant.create, accessGrant.revoke, usageOverride.grant,
  *     user.searchScoped).
+ *   - `usageOverride.grant` is held by BOTH roles per Requirement 54.5 (a
+ *     Department Admin administering the Document Type's Department, OR a
+ *     Technical Admin platform-wide) — the only capability shared by both.
  *   - Student: no privileged capability.
  *   - Every denial returns `allowed: false` (deny-with-no-mutation contract).
  */
@@ -63,6 +66,7 @@ const req = (capability: Capability, scope: OperationScope): CapabilityRequest =
 
 const TECHNICAL_ADMIN_CAPABILITIES: Capability[] = [
   'usageLimit.configure',
+  'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
 ];
@@ -79,9 +83,22 @@ const DEPARTMENT_ADMIN_CAPABILITIES: Capability[] = [
   'user.searchScoped',
 ];
 
+/**
+ * DepartmentAdmin capabilities NOT also held by TechnicalAdmin — used for the
+ * "NOT a superuser" denial assertion, since `usageOverride.grant` is
+ * deliberately held by both roles (Requirement 54.5) and must be excluded
+ * from that check.
+ */
+const DEPARTMENT_ADMIN_EXCLUSIVE_CAPABILITIES: Capability[] =
+  DEPARTMENT_ADMIN_CAPABILITIES.filter(
+    (capability) => !TECHNICAL_ADMIN_CAPABILITIES.includes(capability),
+  );
+
 const ALL_CAPABILITIES: Capability[] = [
   ...TECHNICAL_ADMIN_CAPABILITIES,
-  ...DEPARTMENT_ADMIN_CAPABILITIES,
+  ...DEPARTMENT_ADMIN_CAPABILITIES.filter(
+    (capability) => !TECHNICAL_ADMIN_CAPABILITIES.includes(capability),
+  ),
 ];
 
 describe('authorizeCapability — TechnicalAdmin (platform-level operations only)', () => {
@@ -105,7 +122,7 @@ describe('authorizeCapability — TechnicalAdmin (platform-level operations only
   });
 
   it('DENIES DepartmentAdmin educational capabilities (NOT a superuser)', () => {
-    for (const capability of DEPARTMENT_ADMIN_CAPABILITIES) {
+    for (const capability of DEPARTMENT_ADMIN_EXCLUSIVE_CAPABILITIES) {
       expect(
         isCapabilityAllowed(admin, req(capability, platformScope)),
       ).toBe(false);

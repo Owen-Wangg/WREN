@@ -272,13 +272,13 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - [x] 13.1 Implement usage-limit configuration and current-usage reporting  〔Track A · A13〕
     - Configure limits at platform / Document-Type scope (Technical Admin); display current usage vs limit
     - _Requirements: 31.1, 31.2, 31.3, 54.1_
-  - [ ] 13.2 Implement multi-scope attribution and most-restrictive enforcement  〔Track A · A14〕
+  - [x] 13.2 Implement multi-scope attribution and most-restrictive enforcement  〔Track A · A14〕
     - Attribute each feedback action to {Document Type, platform} (never a "home Department"); block when any applicable scope is at limit; message names the binding scope
     - _Requirements: 54.2, 54.3, 54.4_
   - [ ]* 13.3 Write property test for usage attribution and most-restrictive enforcement  〔Track A · A15〕
     - **Property 29: Usage attribution and most-restrictive enforcement**
     - **Validates: Requirements 54.2, 54.3, 54.4**
-  - [ ] 13.4 Implement temporary scoped overrides  〔Track A · A14〕
+  - [x] 13.4 Implement temporary scoped overrides  〔Track A · A14〕
     - Department Admin (administering the Document Type's Department) or Technical Admin grants a Document-Type-scoped temporary override (audited with actor/role/user/type/reason/timestamp); overrides expire on usage-period reset; allow actions up to bounds while active
     - _Requirements: 54.5, 54.6, 54.7, 54.8_
   - [ ]* 13.5 Write property test for override lifecycle  〔Track A · A15〕

@@ -19,11 +19,12 @@
  * only, Requirement 5.4):
  *
  *   - `TechnicalAdmin` — platform-level operations ONLY: usage-limit
- *                         configuration, system-wide User search, and Document
- *                         Type access-state control. This role is NOT a
- *                         superuser for educational content — it cannot read or
- *                         modify Document Type configurations, manage Topics, or
- *                         manage the Document Type catalog.
+ *                         configuration, temporary usage overrides (for any
+ *                         Document Type, Requirement 54.5), system-wide User
+ *                         search, and Document Type access-state control. This
+ *                         role is NOT a superuser for educational content — it
+ *                         cannot read or modify Document Type configurations,
+ *                         manage Topics, or manage the Document Type catalog.
  *   - `DepartmentAdmin` — educational operations within administered
  *                          Departments: Document Type configuration, catalog
  *                          management, Topic management, Access Grants, usage
@@ -46,6 +47,7 @@ import type {
 /** Capabilities a `TechnicalAdmin` may exercise (platform-level operations). */
 const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
   'usageLimit.configure',
+  'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
 ]);
