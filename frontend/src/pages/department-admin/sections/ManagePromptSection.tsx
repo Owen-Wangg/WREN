@@ -8,7 +8,6 @@ interface PromptVersion {
 }
 
 interface ManagePromptSectionProps {
-  documentTypeId: string;
   documentTypeName: string;
 }
 
@@ -52,7 +51,6 @@ const promptSections = [
 ];
 
 export function ManagePromptSection({
-  documentTypeId,
   documentTypeName,
 }: ManagePromptSectionProps) {
   const [promptData, setPromptData] = useState<Record<string, string>>({

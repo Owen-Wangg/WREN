@@ -7,12 +7,10 @@ export interface FeedbackCategory {
 }
 
 interface AnalyticsSectionProps {
-  documentTypeId: string;
   feedbackCategories: FeedbackCategory[];
 }
 
 export function AnalyticsSection({
-  documentTypeId,
   feedbackCategories,
 }: AnalyticsSectionProps) {
   // Mock analytics data - showing improvement over time per feedback category
@@ -94,14 +92,14 @@ export function AnalyticsSection({
             <YAxis domain={[0, 100]} />
             <Tooltip formatter={(value) => `${value}%`} />
             <Legend />
-            {feedbackCategories.map((category, index) => (
+            {feedbackCategories.map((category, idx) => (
               <Line
                 key={category.id}
                 type="monotone"
                 dataKey={category.title}
-                stroke={colors[index % colors.length]}
+                stroke={colors[idx % colors.length]}
                 strokeWidth={2}
-                dot={{ fill: colors[index % colors.length], r: 4 }}
+                dot={{ fill: colors[idx % colors.length], r: 4 }}
                 connectNulls
               />
             ))}
@@ -111,7 +109,7 @@ export function AnalyticsSection({
 
       {/* Summary Stats */}
       <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        {feedbackCategories.map((category, index) => {
+        {feedbackCategories.map((category) => {
           const lastDataPoint = analyticsData[analyticsData.length - 1];
           const score = lastDataPoint[category.title as keyof typeof lastDataPoint] || 0;
           const firstDataPoint = analyticsData[0];

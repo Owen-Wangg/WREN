@@ -76,19 +76,16 @@ export function DocumentTypeDetailPage() {
         <div className="p-8">
           {activeTab === 'feedback-types' && (
             <FeedbackTypeSection
-              documentTypeId={documentType.id}
               feedbackCategories={feedbackCategories}
             />
           )}
           {activeTab === 'manage-prompt' && (
             <ManagePromptSection
-              documentTypeId={documentType.id}
               documentTypeName={documentType.name}
             />
           )}
           {activeTab === 'analytics' && (
             <AnalyticsSection
-              documentTypeId={documentType.id}
               feedbackCategories={feedbackCategories}
             />
           )}

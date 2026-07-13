@@ -7,12 +7,10 @@ export interface FeedbackCategory {
 }
 
 interface FeedbackTypeSectionProps {
-  documentTypeId: string;
   feedbackCategories: FeedbackCategory[];
 }
 
 export function FeedbackTypeSection({
-  documentTypeId,
   feedbackCategories,
 }: FeedbackTypeSectionProps) {
   // Mock: selected categories for this document type
