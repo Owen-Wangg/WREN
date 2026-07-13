@@ -25,19 +25,27 @@ import type {
   AssignRoleInput,
   ContentType,
   CreateAccessGrantInput,
+  CreateErrorCategoryInput,
+  CreateReferenceMaterialInput,
   CustomMetadataField,
   Department,
   Document,
   DocumentType,
+  DocumentTypeConfig,
   DocumentTypeDeletionImpact,
   Draft,
+  ErrorCategory,
   FeedbackItem,
   Override,
   OverrideBounds,
+  PromptGuardrailViolation,
+  ReferenceMaterial,
   RevokeRoleInput,
   Segment,
   Topic,
   CreateTopicInput,
+  UpdateDocumentTypeConfigInput,
+  UpdateErrorCategoryInput,
   UpdateTopicInput,
   TopicDeletionImpact,
   UserSearchInput,
@@ -86,6 +94,24 @@ type _GuardCreateAccessGrantInput = Expect<LacksReplacementProse<CreateAccessGra
 type _GuardAccessRequestApprovalInput = Expect<
   LacksReplacementProse<AccessRequestApprovalInput>
 >;
+type _GuardErrorCategory = Expect<LacksReplacementProse<ErrorCategory>>;
+type _GuardCreateErrorCategoryInput = Expect<
+  LacksReplacementProse<CreateErrorCategoryInput>
+>;
+type _GuardUpdateErrorCategoryInput = Expect<
+  LacksReplacementProse<UpdateErrorCategoryInput>
+>;
+type _GuardDocumentTypeConfig = Expect<LacksReplacementProse<DocumentTypeConfig>>;
+type _GuardUpdateDocumentTypeConfigInput = Expect<
+  LacksReplacementProse<UpdateDocumentTypeConfigInput>
+>;
+type _GuardPromptGuardrailViolation = Expect<
+  LacksReplacementProse<PromptGuardrailViolation>
+>;
+type _GuardReferenceMaterial = Expect<LacksReplacementProse<ReferenceMaterial>>;
+type _GuardCreateReferenceMaterialInput = Expect<
+  LacksReplacementProse<CreateReferenceMaterialInput>
+>;
 
 /**
  * Aggregates the compile-time guards so they participate in type-checking even
@@ -120,4 +146,12 @@ export type NoGhostwritingGuards = [
   _GuardRevokeRoleInput,
   _GuardCreateAccessGrantInput,
   _GuardAccessRequestApprovalInput,
+  _GuardErrorCategory,
+  _GuardCreateErrorCategoryInput,
+  _GuardUpdateErrorCategoryInput,
+  _GuardDocumentTypeConfig,
+  _GuardUpdateDocumentTypeConfigInput,
+  _GuardPromptGuardrailViolation,
+  _GuardReferenceMaterial,
+  _GuardCreateReferenceMaterialInput,
 ];

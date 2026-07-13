@@ -607,3 +607,181 @@ export const activityEventSchema = z
   })
   .strict();
 export type ActivityEvent = z.infer<typeof activityEventSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* ErrorCategory (Requirement 15 — REQ-TAXONOMY-01: configurable taxonomy,     */
+/* never a hardcoded enum; Task 12.1)                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A single error-taxonomy category, scoped to one Document Type. Stored as
+ * DATA (never an enum) so a DepartmentAdmin can add/remove/rename categories
+ * per Document Type (REQ-TAXONOMY-01 / Requirement 15.1, 15.2). `id` is the
+ * link Feedback Items classify against — renaming updates only `name`, so a
+ * rename never breaks existing Feedback Item linkage (Requirement 15.3).
+ *
+ * `internalGuidance` is a detection aid for the Feedback Engine's prompt
+ * assembly ONLY — it must never be surfaced to a Student (Requirement 15.4 /
+ * REQ-CORE-NOGHOST-01), so it is deliberately absent from any Student-facing
+ * projection of this type (callers must not spread this schema's output into a
+ * Student-facing response).
+ */
+export const errorCategorySchema = z
+  .object({
+    id: idSchema,
+    documentTypeId: idSchema,
+    name: z.string().min(1),
+    internalGuidance: z.string().nullable(),
+  })
+  .strict();
+export type ErrorCategory = z.infer<typeof errorCategorySchema>;
+
+/** Input to add a new error category to a Document Type's taxonomy. */
+export const createErrorCategoryInputSchema = z
+  .object({
+    documentTypeId: idSchema,
+    name: z.string().min(1),
+    internalGuidance: z.string().nullable().optional(),
+  })
+  .strict();
+export type CreateErrorCategoryInput = z.infer<typeof createErrorCategoryInputSchema>;
+
+/**
+ * Input to rename/update a category. `name` alone may change; `id` (and thus
+ * Feedback Item linkage) is immutable (Requirement 15.3).
+ */
+export const updateErrorCategoryInputSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    internalGuidance: z.string().nullable().optional(),
+  })
+  .strict();
+export type UpdateErrorCategoryInput = z.infer<typeof updateErrorCategoryInputSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* DocumentTypeConfig (Requirement 24, 25, 27 — tone/density/priority/prompt;  */
+/* Task 12.1, 12.3)                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A Document Type's feedback-generation configuration: tone, density,
+ * category priority order, and its own (Department-Admin-authored) prompt
+ * instruction text (REQ-CONFIG-CONV-01 / Requirement 24, REQ-PROMPT-DOCTYPE-01
+ * / Requirement 25). Distinct from the platform's Technical-Admin-owned system
+ * scaffolding ({@link SystemScaffolding}), which always takes precedence and is
+ * never editable here (design.md "Edit boundary").
+ *
+ * `updatedAt` drives the Feedback Engine's carry-forward cache invalidation —
+ * any change to this record invalidates previously cached feedback for the
+ * Document Type (Requirement 27.3 / REQ-NFR-COST-01).
+ */
+export const documentTypeConfigSchema = z
+  .object({
+    documentTypeId: idSchema,
+    /** Free-form tone label (e.g. "formal", "encouraging"); not an enum. */
+    tone: z.string().min(1).nullable(),
+    /** Free-form density setting (e.g. "low" | "medium" | "high"); not an enum. */
+    density: z.string().min(1).nullable(),
+    /** Ordered `ErrorCategory` ids, most-prioritized first (Requirement 24.3). */
+    categoryPriority: z.array(idSchema),
+    /** Department-Admin-authored Document-Type prompt instruction text. */
+    typePromptText: z.string().nullable(),
+    updatedAt: isoDateTimeSchema,
+  })
+  .strict();
+export type DocumentTypeConfig = z.infer<typeof documentTypeConfigSchema>;
+
+/** Partial update to a Document Type's tone/density/priority/prompt config. */
+export const updateDocumentTypeConfigInputSchema = z
+  .object({
+    tone: z.string().min(1).nullable().optional(),
+    density: z.string().min(1).nullable().optional(),
+    categoryPriority: z.array(idSchema).optional(),
+    typePromptText: z.string().nullable().optional(),
+  })
+  .strict();
+export type UpdateDocumentTypeConfigInput = z.infer<
+  typeof updateDocumentTypeConfigInputSchema
+>;
+
+/**
+ * Error returned when saved prompt content is rejected/transformed by the
+ * save-time no-ghostwriting guardrail (REQ-PROMPT-EDIT-01 / Requirement 32.5).
+ * `offendingText` is the specific substring identified as an instruction to
+ * produce replacement prose, a rewrite, or a justification for a revision, so
+ * the editor can highlight exactly what must be removed.
+ */
+export const promptGuardrailViolationSchema = z
+  .object({
+    offendingText: z.string().min(1),
+    reason: z.string().min(1),
+  })
+  .strict();
+export type PromptGuardrailViolation = z.infer<typeof promptGuardrailViolationSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* ReferenceMaterial (Requirement 20, 22, 26 — two-tier store; Task 12.5)      */
+/* -------------------------------------------------------------------------- */
+
+/** The scope tier of a Reference Material entry — mirrors `wren_engine.reference_store.ReferenceTier`. */
+export const referenceMaterialTierSchema = z.enum(['department', 'type']);
+export type ReferenceMaterialTier = z.infer<typeof referenceMaterialTierSchema>;
+
+/** How a Reference Material's content was supplied. */
+export const referenceMaterialContentKindSchema = z.enum(['file', 'text', 'html']);
+export type ReferenceMaterialContentKind = z.infer<
+  typeof referenceMaterialContentKindSchema
+>;
+
+/**
+ * A Reference Material entry: Department-wide (tier 1) or Document-Type-scoped
+ * (tier 2), managed by a DepartmentAdmin who administers the owning
+ * Department (REQ-REFMAT-MGMT-01 / Requirement 26). `embeddingId` links to the
+ * `wren_engine.reference_store` `embedding` table row(s) once indexed; it is
+ * `null` until indexing completes.
+ */
+export const referenceMaterialSchema = z
+  .object({
+    id: idSchema,
+    tier: referenceMaterialTierSchema,
+    departmentId: idSchema,
+    /** Required when `tier === 'type'`; absent for department-wide (tier 1). */
+    documentTypeId: idSchema.nullable(),
+    title: z.string().min(1),
+    section: z.string().nullable(),
+    contentKind: referenceMaterialContentKindSchema,
+    /** Present when `contentKind === 'file'`. */
+    s3Key: z.string().nullable(),
+    /** Present when `contentKind` is `'text'` or `'html'`. */
+    inlineContent: z.string().nullable(),
+    embeddingId: idSchema.nullable(),
+  })
+  .strict()
+  .refine(
+    (value) => (value.tier === 'type' ? value.documentTypeId !== null : true),
+    { message: 'documentTypeId is required when tier is "type"', path: ['documentTypeId'] },
+  );
+export type ReferenceMaterial = z.infer<typeof referenceMaterialSchema>;
+
+/**
+ * Input to create a Reference Material entry. Exactly one content source
+ * (`s3Key` for `file`, `inlineContent` for `text`/`html`) is expected to
+ * accompany the matching `contentKind`; the service layer validates that
+ * pairing and performs no partial persistence on a mismatch (Requirement
+ * 26.4, 26.5).
+ */
+export const createReferenceMaterialInputSchema = z
+  .object({
+    tier: referenceMaterialTierSchema,
+    departmentId: idSchema,
+    documentTypeId: idSchema.nullable().optional(),
+    title: z.string().min(1),
+    section: z.string().nullable().optional(),
+    contentKind: referenceMaterialContentKindSchema,
+    s3Key: z.string().nullable().optional(),
+    inlineContent: z.string().nullable().optional(),
+  })
+  .strict();
+export type CreateReferenceMaterialInput = z.infer<
+  typeof createReferenceMaterialInputSchema
+>;

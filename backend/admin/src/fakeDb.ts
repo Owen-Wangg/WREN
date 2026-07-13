@@ -49,6 +49,35 @@ interface CustomMetadataFieldRow {
   required: boolean;
 }
 
+interface ErrorCategoryRow {
+  id: string;
+  document_type_id: string;
+  name: string;
+  internal_guidance: string | null;
+}
+
+interface DocumentTypeConfigRow {
+  document_type_id: string;
+  tone: string | null;
+  density: string | null;
+  category_priority: string[];
+  type_prompt_text: string | null;
+  updated_at: Date;
+}
+
+interface ReferenceMaterialRow {
+  id: string;
+  tier: 'department' | 'type';
+  department_id: string;
+  document_type_id: string | null;
+  title: string;
+  section: string | null;
+  content_kind: 'file' | 'text' | 'html';
+  s3_key: string | null;
+  inline_content: string | null;
+  embedding_id: string | null;
+}
+
 /**
  * Minimal `document` row — only the columns the deletion-impact counts need.
  * `metadata` is optional so existing Document-Type-impact seeds (which don't
@@ -114,6 +143,9 @@ export class FakeDb implements QueryExecutor {
   public readonly roleAssignments = new Map<string, RoleAssignmentRow>();
   public readonly appUsers = new Map<string, AppUserRow>();
   public readonly accessGrants = new Map<string, AccessGrantRow>();
+  public readonly errorCategories = new Map<string, ErrorCategoryRow>();
+  public readonly documentTypeConfigs = new Map<string, DocumentTypeConfigRow>();
+  public readonly referenceMaterials = new Map<string, ReferenceMaterialRow>();
   public mutationCount = 0;
 
   private seq = 0;
@@ -244,6 +276,56 @@ export class FakeDb implements QueryExecutor {
       revoked_at: row.revoked_at ?? null,
     };
     this.accessGrants.set(full.id, full);
+    return full;
+  }
+
+  /** Seed an error category directly (bypasses authorization) for test setup. */
+  public seedErrorCategory(
+    row: Partial<ErrorCategoryRow> & { id: string; document_type_id: string },
+  ): ErrorCategoryRow {
+    const full: ErrorCategoryRow = {
+      id: row.id,
+      document_type_id: row.document_type_id,
+      name: row.name ?? 'Seed Category',
+      internal_guidance: row.internal_guidance ?? null,
+    };
+    this.errorCategories.set(full.id, full);
+    return full;
+  }
+
+  /** Seed a Document Type's config row directly (bypasses authorization) for test setup. */
+  public seedDocumentTypeConfig(
+    row: Partial<DocumentTypeConfigRow> & { document_type_id: string },
+  ): DocumentTypeConfigRow {
+    const full: DocumentTypeConfigRow = {
+      document_type_id: row.document_type_id,
+      tone: row.tone ?? null,
+      density: row.density ?? null,
+      category_priority: row.category_priority ?? [],
+      type_prompt_text: row.type_prompt_text ?? null,
+      updated_at: row.updated_at ?? new Date(),
+    };
+    this.documentTypeConfigs.set(full.document_type_id, full);
+    return full;
+  }
+
+  /** Seed a Reference Material row directly (bypasses authorization) for test setup. */
+  public seedReferenceMaterial(
+    row: Partial<ReferenceMaterialRow> & { id: string; department_id: string },
+  ): ReferenceMaterialRow {
+    const full: ReferenceMaterialRow = {
+      id: row.id,
+      tier: row.tier ?? 'department',
+      department_id: row.department_id,
+      document_type_id: row.document_type_id ?? null,
+      title: row.title ?? 'Seed Material',
+      section: row.section ?? null,
+      content_kind: row.content_kind ?? 'text',
+      s3_key: row.s3_key ?? null,
+      inline_content: row.inline_content ?? 'Seed content',
+      embedding_id: row.embedding_id ?? null,
+    };
+    this.referenceMaterials.set(full.id, full);
     return full;
   }
 
@@ -702,6 +784,181 @@ export class FakeDb implements QueryExecutor {
       this.mutationCount += 1;
       row.revoked_at = new Date();
       return [{ id }] as unknown as Row[];
+    }
+
+    /* ----------------------------- error_category ---------------------------- */
+
+    if (sql.startsWith('INSERT INTO error_category (document_type_id, name, internal_guidance)')) {
+      this.mutationCount += 1;
+      const row: ErrorCategoryRow = {
+        id: this.nextId('cat'),
+        document_type_id: params[0] as string,
+        name: params[1] as string,
+        internal_guidance: (params[2] as string | null) ?? null,
+      };
+      this.errorCategories.set(row.id, row);
+      return [row] as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT document_type_id FROM error_category WHERE id = $1')) {
+      const row = this.errorCategories.get(params[0] as string);
+      return (row ? [{ document_type_id: row.document_type_id }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, document_type_id, name, internal_guidance FROM error_category WHERE id = $1',
+      )
+    ) {
+      const row = this.errorCategories.get(params[0] as string);
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, document_type_id, name, internal_guidance FROM error_category WHERE document_type_id = $1',
+      )
+    ) {
+      const rows = [...this.errorCategories.values()]
+        .filter((r) => r.document_type_id === (params[0] as string))
+        .map((r) => ({ ...r }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('UPDATE error_category SET')) {
+      const row = this.errorCategories.get(params[0] as string);
+      if (!row) return [] as unknown as Row[];
+      this.mutationCount += 1;
+      const setClause = sql.slice('UPDATE error_category SET'.length, sql.indexOf('WHERE'));
+      applyAssignments(setClause, row as unknown as Record<string, unknown>, params);
+      return [{ ...row }] as unknown as Row[];
+    }
+
+    if (sql.startsWith('DELETE FROM error_category WHERE id = $1')) {
+      const id = params[0] as string;
+      const existed = this.errorCategories.delete(id);
+      if (existed) this.mutationCount += 1;
+      return (existed ? [{ id }] : []) as unknown as Row[];
+    }
+
+    /* -------------------------- document_type_config -------------------------- */
+
+    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, updated_at)')) {
+      this.mutationCount += 1;
+      const documentTypeId = params[0] as string;
+      const existing = this.documentTypeConfigs.get(documentTypeId);
+      const row: DocumentTypeConfigRow = existing
+        ? { ...existing, updated_at: new Date() }
+        : {
+            document_type_id: documentTypeId,
+            tone: null,
+            density: null,
+            category_priority: [],
+            type_prompt_text: null,
+            updated_at: new Date(),
+          };
+      this.documentTypeConfigs.set(documentTypeId, row);
+      return [{ ...row }] as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT document_type_id, tone, density, category_priority, type_prompt_text, updated_at FROM document_type_config WHERE document_type_id = $1',
+      )
+    ) {
+      const row = this.documentTypeConfigs.get(params[0] as string);
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, updated_at)')) {
+      this.mutationCount += 1;
+      const [documentTypeId, tone, density, categoryPriorityJson, typePromptText, shouldSetPrompt] =
+        params as [string, string | null, string | null, string | null, string | null, boolean];
+      const existing = this.documentTypeConfigs.get(documentTypeId);
+      const categoryPriority = categoryPriorityJson
+        ? (JSON.parse(categoryPriorityJson) as string[])
+        : existing?.category_priority ?? [];
+      const row: DocumentTypeConfigRow = {
+        document_type_id: documentTypeId,
+        tone: tone ?? existing?.tone ?? null,
+        density: density ?? existing?.density ?? null,
+        category_priority: categoryPriority,
+        type_prompt_text: shouldSetPrompt ? typePromptText : existing?.type_prompt_text ?? null,
+        updated_at: new Date(),
+      };
+      this.documentTypeConfigs.set(documentTypeId, row);
+      return [{ ...row }] as unknown as Row[];
+    }
+
+    /* ---------------------------- reference_material --------------------------- */
+
+    if (
+      sql.startsWith(
+        'INSERT INTO reference_material (tier, department_id, document_type_id, title, section, content_kind, s3_key, inline_content)',
+      )
+    ) {
+      this.mutationCount += 1;
+      const row: ReferenceMaterialRow = {
+        id: this.nextId('refmat'),
+        tier: params[0] as 'department' | 'type',
+        department_id: params[1] as string,
+        document_type_id: (params[2] as string | null) ?? null,
+        title: params[3] as string,
+        section: (params[4] as string | null) ?? null,
+        content_kind: params[5] as 'file' | 'text' | 'html',
+        s3_key: (params[6] as string | null) ?? null,
+        inline_content: (params[7] as string | null) ?? null,
+        embedding_id: null,
+      };
+      this.referenceMaterials.set(row.id, row);
+      return [row] as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, tier, department_id, document_type_id, title, section, content_kind, s3_key, inline_content, embedding_id FROM reference_material WHERE id = $1',
+      )
+    ) {
+      const row = this.referenceMaterials.get(params[0] as string);
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.includes(
+        "FROM reference_material WHERE tier = 'department' AND department_id = $1",
+      )
+    ) {
+      const rows = [...this.referenceMaterials.values()]
+        .filter((r) => r.tier === 'department' && r.department_id === (params[0] as string))
+        .map((r) => ({ ...r }))
+        .sort((a, b) => a.title.localeCompare(b.title));
+      return rows as unknown as Row[];
+    }
+
+    if (
+      sql.includes("FROM reference_material WHERE tier = 'type' AND document_type_id = $1")
+    ) {
+      const rows = [...this.referenceMaterials.values()]
+        .filter((r) => r.tier === 'type' && r.document_type_id === (params[0] as string))
+        .map((r) => ({ ...r }))
+        .sort((a, b) => a.title.localeCompare(b.title));
+      return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('UPDATE reference_material SET embedding_id = $2')) {
+      const row = this.referenceMaterials.get(params[0] as string);
+      if (!row) return [] as unknown as Row[];
+      this.mutationCount += 1;
+      row.embedding_id = params[1] as string;
+      return [{ ...row }] as unknown as Row[];
+    }
+
+    if (sql.startsWith('DELETE FROM reference_material WHERE id = $1')) {
+      const id = params[0] as string;
+      const existed = this.referenceMaterials.delete(id);
+      if (existed) this.mutationCount += 1;
+      return (existed ? [{ id }] : []) as unknown as Row[];
     }
 
     throw new Error(`FakeDb: unhandled SQL: ${sql}`);

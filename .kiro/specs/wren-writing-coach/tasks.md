@@ -249,19 +249,19 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 12. Config Service and prompt editor (Node 22)  〔Track A〕
-  - [ ] 12.1 Implement Document-Type-scoped taxonomy and convention configuration  〔Track A · A12〕
+  - [x] 12.1 Implement Document-Type-scoped taxonomy and convention configuration  〔Track A · A12〕
     - Store error categories as data (not enum) with add/remove/rename where rename preserves Feedback Item linkage by id; store tone/density/priority/type prompt text; `updatedAt` drives carry-forward invalidation; require active-Document-Type selection for Department Admins administering multiple Departments/types
     - _Requirements: 15.1, 15.2, 15.3, 15.5, 24.1, 24.2, 24.3, 25.1, 25.2, 25.3, 27.1, 27.2, 27.3_
   - [ ]* 12.2 Write property test for category rename preserving linkage  〔Track A · A13〕
     - **Property 15: Category rename preserves linkage**
     - **Validates: Requirements 15.3**
-  - [ ] 12.3 Implement the prompt editor with the Department-Admin/Technical-Admin edit boundary and save-time guardrail  〔Track A · A12〕
+  - [x] 12.3 Implement the prompt editor with the Department-Admin/Technical-Admin edit boundary and save-time guardrail  〔Track A · A12〕
     - Department Admins edit Document-Type prompt content for administered Departments; Technical Admin owns system scaffolding (read-only to Department Admins) and it always takes precedence; labeled fields with validation; reject/transform ghostwriting instructions on save with an offending-instruction error
     - _Requirements: 11.6, 25.4, 32.1, 32.2, 32.3, 32.4, 32.5, 32.7, 32.8_
   - [ ]* 12.4 Write property test for the prompt content guardrail  〔Track A · A13〕
     - **Property 11: Prompt content guardrail rejects ghostwriting instructions**
     - **Validates: Requirements 11.6, 32.5**
-  - [ ] 12.5 Implement Document-Type-scoped reference material management UI/API  〔Track A · A12〕
+  - [x] 12.5 Implement Document-Type-scoped reference material management UI/API  〔Track A · A12〕
     - File / pasted-text / rich-HTML inputs; upload loading + error states with no partial persistence; visibility scoped to Department Admins who administer the Document Type's Department
     - _Requirements: 26.1, 26.2, 26.4, 26.5, 26.6_
   - [ ] 12.6 Seed and validate no-ghostwriting-compliant default prompts  〔Track A · A13〕
