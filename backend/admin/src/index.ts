@@ -77,10 +77,22 @@ export {
 export { requireCapability } from './capabilityGuard';
 export { AuthorizationError, NotFoundError } from './errors';
 export type { QueryExecutor } from './db';
+export {
+  pseudonymForActor,
+  recordActivityEvent,
+  listActivityEvents,
+  deidentifyEvents,
+} from './activityLogService';
+export type { RecordActivityEventInput } from './activityLogService';
+export { getAnalytics } from './analyticsService';
 
 export type {
   AccessGrant,
   AccessRequestApprovalInput,
+  ActivityEvent,
+  AggregateCounter,
+  AnalyticsQuery,
+  AnalyticsResult,
   AssignRoleInput,
   AuthContext,
   ContentType,

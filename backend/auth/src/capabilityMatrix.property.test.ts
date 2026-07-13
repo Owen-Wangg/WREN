@@ -47,6 +47,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
+  'analytics.view',
 ]);
 
 const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
@@ -59,6 +60,7 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'accessGrant.revoke',
   'usageOverride.grant',
   'user.searchScoped',
+  'analytics.view',
 ]);
 
 /** Ground-truth authorization derived straight from the acceptance criteria. */
@@ -107,6 +109,7 @@ const ALL_CAPABILITIES: Capability[] = [
   'usageOverride.grant',
   'user.search',
   'user.searchScoped',
+  'analytics.view',
 ];
 
 const actorArb: fc.Arbitrary<AuthContext> = fc.record({

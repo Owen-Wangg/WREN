@@ -56,6 +56,10 @@ import { idSchema } from './common';
  *   / 2.5).
  * - `user.searchScoped` — scoped search of Users within an administered
  *   Department (DepartmentAdmin only).
+ * - `analytics.view` — view all-users aggregate analytics (never per-Student).
+ *   A `DepartmentAdmin` sees totals scoped to Document Types within
+ *   administered Departments; a `TechnicalAdmin` sees platform-wide totals,
+ *   filterable by Document Type (Requirements 40, 41, 42, 19).
  */
 export const capabilitySchema = z.enum([
   'documentType.readConfig',
@@ -70,6 +74,7 @@ export const capabilitySchema = z.enum([
   'usageOverride.grant',
   'user.search',
   'user.searchScoped',
+  'analytics.view',
 ]);
 export type Capability = z.infer<typeof capabilitySchema>;
 

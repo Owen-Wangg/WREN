@@ -4,16 +4,15 @@
  *
  * V4 coverage (3 roles, no implicit hierarchy — Requirement 5.4):
  *   - TechnicalAdmin: platform-level operations ONLY (usageLimit.configure,
- *     usageOverride.grant, user.search, documentType.setAccessState). NOT a
- *     superuser for educational content.
+ *     usageOverride.grant, user.search, documentType.setAccessState,
+ *     analytics.view). NOT a superuser for educational content.
  *   - DepartmentAdmin: educational operations ONLY within administered
  *     Departments (documentType.readConfig, documentType.modifyConfig,
  *     documentType.manageCatalog, topic.manage, department.manage,
  *     accessGrant.create, accessGrant.revoke, usageOverride.grant,
- *     user.searchScoped).
- *   - `usageOverride.grant` is held by BOTH roles per Requirement 54.5 (a
- *     Department Admin administering the Document Type's Department, OR a
- *     Technical Admin platform-wide) — the only capability shared by both.
+ *     user.searchScoped, analytics.view).
+ *   - `usageOverride.grant` and `analytics.view` are held by BOTH roles
+ *     (Requirements 54.5, 41, 42) — the only capabilities shared by both.
  *   - Student: no privileged capability.
  *   - Every denial returns `allowed: false` (deny-with-no-mutation contract).
  */
@@ -69,6 +68,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: Capability[] = [
   'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
+  'analytics.view',
 ];
 
 const DEPARTMENT_ADMIN_CAPABILITIES: Capability[] = [
@@ -81,6 +81,7 @@ const DEPARTMENT_ADMIN_CAPABILITIES: Capability[] = [
   'accessGrant.revoke',
   'usageOverride.grant',
   'user.searchScoped',
+  'analytics.view',
 ];
 
 /**

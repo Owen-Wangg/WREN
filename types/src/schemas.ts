@@ -626,6 +626,57 @@ export const activityEventSchema = z
 export type ActivityEvent = z.infer<typeof activityEventSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* AggregateCounter (Requirements 40-43 — all-users aggregate read model;      */
+/* never per-Student; retained across document deletion)                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A single all-users aggregate metric value for one scope and time window.
+ * `scopeKind`/`scopeId` mirror {@link UsageScope}'s shape (platform or one
+ * Document Type) so analytics and usage share one scoping vocabulary.
+ * `value` is a plain count/total across every Student in scope — this type
+ * carries NO per-Student breakdown, name, or identity (Requirement 43.2).
+ */
+export const aggregateCounterSchema = z
+  .object({
+    id: idSchema,
+    scopeKind: z.enum(['platform', 'documentType']),
+    scopeId: idSchema.optional(),
+    metric: z.string().min(1),
+    windowStart: isoDateTimeSchema,
+    value: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AggregateCounter = z.infer<typeof aggregateCounterSchema>;
+
+/**
+ * A request for aggregate analytics. `documentTypeId` filters to one
+ * Document Type; omitted, the result spans every Document Type in the
+ * caller's authorized scope (administered Departments for a DepartmentAdmin,
+ * the whole platform for a TechnicalAdmin) — Requirements 41.2, 42.2.
+ */
+export const analyticsQuerySchema = z
+  .object({
+    documentTypeId: idSchema.optional(),
+  })
+  .strict();
+export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>;
+
+/**
+ * The result of an analytics query: all-users aggregate totals only, one
+ * entry per metric/scope combination in the authorized/filtered set. There is
+ * deliberately no field for a per-Student value, name, or identity anywhere
+ * in this type (Requirements 40.6, 41.6, 42.5, 43.2) — see
+ * `analyticsResultSchema`'s guard registration in `index.ts`.
+ */
+export const analyticsResultSchema = z
+  .object({
+    totals: z.array(aggregateCounterSchema),
+  })
+  .strict();
+export type AnalyticsResult = z.infer<typeof analyticsResultSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* ErrorCategory (Requirement 15 — REQ-TAXONOMY-01: configurable taxonomy,     */
 /* never a hardcoded enum; Task 12.1)                                          */
 /* -------------------------------------------------------------------------- */

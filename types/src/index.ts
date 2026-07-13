@@ -21,7 +21,10 @@ import type {
   AccessGrant,
   AccessRequestApprovalInput,
   ActivityEvent,
+  AggregateCounter,
   Anchor,
+  AnalyticsQuery,
+  AnalyticsResult,
   AssignRoleInput,
   ContentType,
   CreateAccessGrantInput,
@@ -88,6 +91,9 @@ type _GuardOverrideBounds = Expect<LacksReplacementProse<OverrideBounds>>;
 type _GuardOverride = Expect<LacksReplacementProse<Override>>;
 type _GuardCreateOverrideInput = Expect<LacksReplacementProse<CreateOverrideInput>>;
 type _GuardActivityEvent = Expect<LacksReplacementProse<ActivityEvent>>;
+type _GuardAggregateCounter = Expect<LacksReplacementProse<AggregateCounter>>;
+type _GuardAnalyticsQuery = Expect<LacksReplacementProse<AnalyticsQuery>>;
+type _GuardAnalyticsResult = Expect<LacksReplacementProse<AnalyticsResult>>;
 type _GuardAuthContext = Expect<LacksReplacementProse<AuthContext>>;
 type _GuardAuthorizationDecision = Expect<LacksReplacementProse<AuthorizationDecision>>;
 type _GuardCapabilityRequest = Expect<LacksReplacementProse<CapabilityRequest>>;
@@ -147,6 +153,9 @@ export type NoGhostwritingGuards = [
   _GuardOverride,
   _GuardCreateOverrideInput,
   _GuardActivityEvent,
+  _GuardAggregateCounter,
+  _GuardAnalyticsQuery,
+  _GuardAnalyticsResult,
   _GuardAuthContext,
   _GuardAuthorizationDecision,
   _GuardCapabilityRequest,

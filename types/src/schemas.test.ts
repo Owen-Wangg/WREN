@@ -18,6 +18,9 @@ import fc from 'fast-check';
 import {
   accessGrantSchema,
   activityEventSchema,
+  aggregateCounterSchema,
+  analyticsQuerySchema,
+  analyticsResultSchema,
   anchorSchema,
   assertNoReplacementProse,
   containsReplacementProse,
@@ -148,6 +151,38 @@ const validExamples = {
       objectRef: 'doc_1',
       timestamp: ISO,
       context: { draftVersion: 2 },
+    },
+  },
+  aggregateCounter: {
+    schema: aggregateCounterSchema,
+    value: {
+      id: 'agg_1',
+      scopeKind: 'documentType',
+      scopeId: 'dt_1',
+      metric: 'feedback_requested_count',
+      windowStart: ISO,
+      value: 42,
+    },
+  },
+  analyticsQuery: {
+    schema: analyticsQuerySchema,
+    value: {
+      documentTypeId: 'dt_1',
+    },
+  },
+  analyticsResult: {
+    schema: analyticsResultSchema,
+    value: {
+      totals: [
+        {
+          id: 'agg_1',
+          scopeKind: 'documentType',
+          scopeId: 'dt_1',
+          metric: 'feedback_requested_count',
+          windowStart: ISO,
+          value: 42,
+        },
+      ],
     },
   },
 } as const;

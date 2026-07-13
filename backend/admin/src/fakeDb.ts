@@ -103,6 +103,27 @@ interface OverrideRow {
   expires_at: Date;
 }
 
+interface ActivityEventRow {
+  id: string;
+  actor_pseudonym: string;
+  verb: string;
+  object_type: string;
+  object_ref: string;
+  document_type_id: string | null;
+  department_id: string | null;
+  timestamp: Date;
+  context: Record<string, unknown>;
+}
+
+interface AggregateCounterRow {
+  id: string;
+  scope_kind: 'platform' | 'documentType';
+  scope_id: string | null;
+  metric: string;
+  window_start: Date;
+  value: number;
+}
+
 /**
  * Minimal `document` row — only the columns the deletion-impact counts need.
  * `metadata` is optional so existing Document-Type-impact seeds (which don't
@@ -174,6 +195,8 @@ export class FakeDb implements QueryExecutor {
   public readonly usageLimits = new Map<string, UsageLimitRow>();
   public readonly usageCounters: UsageCounterRow[] = [];
   public readonly overrides = new Map<string, OverrideRow>();
+  public readonly activityEvents: ActivityEventRow[] = [];
+  public readonly aggregateCounters = new Map<string, AggregateCounterRow>();
   public mutationCount = 0;
 
   private seq = 0;
@@ -396,6 +419,47 @@ export class FakeDb implements QueryExecutor {
       expires_at: row.expires_at ?? new Date('2099-01-01T00:00:00.000Z'),
     };
     this.overrides.set(full.id, full);
+    return full;
+  }
+
+  /** Seed an aggregate-counter row directly (bypasses recording) for test setup. */
+  public seedAggregateCounter(
+    row: Partial<AggregateCounterRow> & {
+      id: string;
+      scope_kind: 'platform' | 'documentType';
+      metric: string;
+      window_start: Date;
+      value: number;
+    },
+  ): AggregateCounterRow {
+    const full: AggregateCounterRow = {
+      id: row.id,
+      scope_kind: row.scope_kind,
+      scope_id: row.scope_id ?? null,
+      metric: row.metric,
+      window_start: row.window_start,
+      value: row.value,
+    };
+    this.aggregateCounters.set(full.id, full);
+    return full;
+  }
+
+  /** Seed an activity-event row directly (bypasses recording) for test setup. */
+  public seedActivityEvent(
+    row: Partial<ActivityEventRow> & { id: string; actor_pseudonym: string; verb: string },
+  ): ActivityEventRow {
+    const full: ActivityEventRow = {
+      id: row.id,
+      actor_pseudonym: row.actor_pseudonym,
+      verb: row.verb,
+      object_type: row.object_type ?? 'Document',
+      object_ref: row.object_ref ?? 'seed-ref',
+      document_type_id: row.document_type_id ?? null,
+      department_id: row.department_id ?? null,
+      timestamp: row.timestamp ?? new Date(),
+      context: row.context ?? {},
+    };
+    this.activityEvents.push(full);
     return full;
   }
 
@@ -1197,6 +1261,80 @@ export class FakeDb implements QueryExecutor {
         .filter((r) => r.user_id === userId && r.document_type_id === documentTypeId)
         .map((r) => ({ ...r }))
         .sort((a, b) => b.expires_at.getTime() - a.expires_at.getTime());
+      return rows as unknown as Row[];
+    }
+
+    /* ---------------------------- activity_event -------------------------------- */
+
+    if (sql.startsWith('INSERT INTO activity_event')) {
+      this.mutationCount += 1;
+      const row: ActivityEventRow = {
+        id: this.nextId('event'),
+        actor_pseudonym: params[0] as string,
+        verb: params[1] as string,
+        object_type: params[2] as string,
+        object_ref: params[3] as string,
+        document_type_id: (params[4] as string | null) ?? null,
+        department_id: (params[5] as string | null) ?? null,
+        timestamp: params[6] as Date,
+        context: (params[7] as Record<string, unknown>) ?? {},
+      };
+      this.activityEvents.push(row);
+      return [row] as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT') && sql.includes('FROM activity_event WHERE document_type_id = $1')) {
+      const [documentTypeId] = params as [string];
+      const rows = this.activityEvents
+        .filter((r) => r.document_type_id === documentTypeId)
+        .map((r) => ({ ...r }))
+        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT') && sql.includes('FROM activity_event WHERE department_id = $1')) {
+      const [departmentId] = params as [string];
+      const rows = this.activityEvents
+        .filter((r) => r.department_id === departmentId)
+        .map((r) => ({ ...r }))
+        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT') && sql.includes('FROM activity_event ORDER BY')) {
+      const rows = this.activityEvents
+        .map((r) => ({ ...r }))
+        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      return rows as unknown as Row[];
+    }
+
+    /* --------------------------- aggregate_counter ------------------------------ */
+
+    if (
+      sql.includes("FROM aggregate_counter") &&
+      sql.includes("scope_kind = 'documentType' AND scope_id = ANY($1)")
+    ) {
+      const [documentTypeIds] = params as [string[]];
+      const idSet = new Set(documentTypeIds);
+      const rows = [...this.aggregateCounters.values()]
+        .filter((r) => r.scope_kind === 'documentType' && r.scope_id !== null && idSet.has(r.scope_id))
+        .map((r) => ({ ...r }))
+        .sort(
+          (a, b) =>
+            a.metric.localeCompare(b.metric) ||
+            a.window_start.getTime() - b.window_start.getTime() ||
+            (a.scope_id ?? '').localeCompare(b.scope_id ?? ''),
+        );
+      return rows as unknown as Row[];
+    }
+
+    if (sql.includes("FROM aggregate_counter WHERE scope_kind = 'platform'")) {
+      const rows = [...this.aggregateCounters.values()]
+        .filter((r) => r.scope_kind === 'platform')
+        .map((r) => ({ ...r }))
+        .sort(
+          (a, b) => a.metric.localeCompare(b.metric) || a.window_start.getTime() - b.window_start.getTime(),
+        );
       return rows as unknown as Row[];
     }
 

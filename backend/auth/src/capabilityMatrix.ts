@@ -21,14 +21,17 @@
  *   - `TechnicalAdmin` — platform-level operations ONLY: usage-limit
  *                         configuration, temporary usage overrides (for any
  *                         Document Type, Requirement 54.5), system-wide User
- *                         search, and Document Type access-state control. This
- *                         role is NOT a superuser for educational content — it
- *                         cannot read or modify Document Type configurations,
- *                         manage Topics, or manage the Document Type catalog.
+ *                         search, Document Type access-state control, and
+ *                         platform-wide aggregate analytics filterable by
+ *                         Document Type (Requirement 41). This role is NOT a
+ *                         superuser for educational content — it cannot read or
+ *                         modify Document Type configurations, manage Topics, or
+ *                         manage the Document Type catalog.
  *   - `DepartmentAdmin` — educational operations within administered
  *                          Departments: Document Type configuration, catalog
  *                          management, Topic management, Access Grants, usage
- *                          overrides, and scoped User search — ALL limited to
+ *                          overrides, scoped User search, and aggregate
+ *                          analytics (Requirement 42) — ALL limited to
  *                          Departments in `actor.administeredDepartmentIds`.
  *   - `Student`         — no privileged capability.
  */
@@ -50,6 +53,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
+  'analytics.view',
 ]);
 
 /**
@@ -67,6 +71,7 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'accessGrant.revoke',
   'usageOverride.grant',
   'user.searchScoped',
+  'analytics.view',
 ]);
 
 /* -------------------------------------------------------------------------- */
