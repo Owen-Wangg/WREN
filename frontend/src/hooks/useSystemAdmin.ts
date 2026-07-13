@@ -19,6 +19,7 @@ import {
   updateAppName,
   getUsageLimits,
   setUsageLimit,
+  createDepartment,
 } from '@/services/api/systemAdminApi';
 import { useApiClient } from '@/services/apiClient';
 
@@ -266,6 +267,26 @@ export function useSetUsageLimit() {
     }) => setUsageLimit(client, scope, limit, scopeId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-admin', 'usage-limits'] });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Department Creation Hooks (Task 7.1) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Mutation hook: create a new Department (TechAdmin only).
+ * Auto-called when appointing a DepartmentAdmin to a non-existent department.
+ */
+export function useCreateDepartment() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => createDepartment(client, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.departments() });
     },
   });
 }

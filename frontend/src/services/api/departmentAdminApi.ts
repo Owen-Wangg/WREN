@@ -211,3 +211,260 @@ export async function getAnalytics(
     schema: analyticsSchema,
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/* Document Type CRUD (Task 7.1) */
+/* -------------------------------------------------------------------------- */
+
+export async function createDocumentType(
+  client: HttpClient,
+  departmentId: string,
+  input: {
+    name: string;
+    description?: string;
+  },
+) {
+  return client.request(
+    `/v1/departments/${departmentId}/document-types`,
+    {
+      method: 'POST',
+      body: input,
+      schema: documentTypeSchema,
+    },
+  );
+}
+
+export async function deleteDocumentType(
+  client: HttpClient,
+  documentTypeId: string,
+) {
+  return client.request(
+    `/v1/document-types/${documentTypeId}`,
+    { method: 'DELETE' },
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Content Types (Task 7.2) */
+/* -------------------------------------------------------------------------- */
+
+const contentTypeSchema = z.object({
+  id: z.string(),
+  documentTypeId: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+});
+
+export async function listContentTypes(
+  client: HttpClient,
+  documentTypeId: string,
+) {
+  return client.request(
+    `/v1/document-types/${documentTypeId}/content-types`,
+    { schema: z.array(contentTypeSchema) },
+  );
+}
+
+export async function createContentType(
+  client: HttpClient,
+  documentTypeId: string,
+  input: {
+    name: string;
+    description?: string;
+  },
+) {
+  return client.request(
+    `/v1/document-types/${documentTypeId}/content-types`,
+    {
+      method: 'POST',
+      body: input,
+      schema: contentTypeSchema,
+    },
+  );
+}
+
+export async function deleteContentType(
+  client: HttpClient,
+  documentTypeId: string,
+  contentTypeId: string,
+) {
+  return client.request(
+    `/v1/document-types/${documentTypeId}/content-types/${contentTypeId}`,
+    { method: 'DELETE' },
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Metadata Fields (Task 7.2) */
+/* -------------------------------------------------------------------------- */
+
+const metadataFieldSchema = z.object({
+  id: z.string(),
+  documentTypeId: z.string(),
+  name: z.string(),
+  required: z.boolean(),
+  fieldType: z.enum(['text', 'select', 'multiselect', 'date']),
+  options: z.array(z.string()).nullable(),
+});
+
+export async function listMetadataFields(
+  client: HttpClient,
+  documentTypeId: string,
+) {
+  return client.request(
+    `/v1/document-types/${documentTypeId}/metadata-fields`,
+    { schema: z.array(metadataFieldSchema) },
+  );
+}
+
+export async function createMetadataField(
+  client: HttpClient,
+  documentTypeId: string,
+  input: {
+    name: string;
+    required: boolean;
+    fieldType: 'text' | 'select' | 'multiselect' | 'date';
+    options?: string[];
+  },
+) {
+  return client.request(
+    `/v1/document-types/${documentTypeId}/metadata-fields`,
+    {
+      method: 'POST',
+      body: input,
+      schema: metadataFieldSchema,
+    },
+  );
+}
+
+export async function deleteMetadataField(
+  client: HttpClient,
+  documentTypeId: string,
+  fieldId: string,
+) {
+  return client.request(
+    `/v1/document-types/${documentTypeId}/metadata-fields/${fieldId}`,
+    { method: 'DELETE' },
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Topics (Task 7.3) */
+/* -------------------------------------------------------------------------- */
+
+const topicSchema = z.object({
+  id: z.string(),
+  departmentId: z.string(),
+  name: z.string(),
+});
+
+export async function listTopics(
+  client: HttpClient,
+  departmentId: string,
+) {
+  return client.request(
+    `/v1/departments/${departmentId}/topics`,
+    { schema: z.array(topicSchema) },
+  );
+}
+
+export async function createTopic(
+  client: HttpClient,
+  departmentId: string,
+  name: string,
+) {
+  return client.request(
+    `/v1/departments/${departmentId}/topics`,
+    {
+      method: 'POST',
+      body: { name },
+      schema: topicSchema,
+    },
+  );
+}
+
+export async function updateTopic(
+  client: HttpClient,
+  departmentId: string,
+  topicId: string,
+  name: string,
+) {
+  return client.request(
+    `/v1/departments/${departmentId}/topics/${topicId}`,
+    {
+      method: 'PUT',
+      body: { name },
+      schema: topicSchema,
+    },
+  );
+}
+
+export async function deleteTopic(
+  client: HttpClient,
+  departmentId: string,
+  topicId: string,
+) {
+  return client.request(
+    `/v1/departments/${departmentId}/topics/${topicId}`,
+    { method: 'DELETE' },
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Access State & Grants (Task 7.4) */
+/* -------------------------------------------------------------------------- */
+
+export async function setDocumentTypeAccessState(
+  client: HttpClient,
+  documentTypeId: string,
+  accessState: 'OPEN' | 'LOCKED',
+) {
+  return client.request(
+    `/v1/document-types/${documentTypeId}/access-state`,
+    {
+      method: 'PUT',
+      body: { accessState },
+      schema: z.object({ accessState: z.enum(['OPEN', 'LOCKED']) }),
+    },
+  );
+}
+
+export async function listAccessRequests(
+  client: HttpClient,
+  departmentId: string,
+) {
+  const accessRequestSchema = z.object({
+    id: z.string(),
+    userId: z.string(),
+    documentTypeId: z.string(),
+    status: z.enum(['pending', 'approved', 'denied']),
+    createdAt: z.string(),
+  });
+
+  return client.request(
+    `/v1/departments/${departmentId}/access-requests`,
+    { schema: z.array(accessRequestSchema) },
+  );
+}
+
+export async function approveAccessRequest(
+  client: HttpClient,
+  departmentId: string,
+  requestId: string,
+) {
+  return client.request(
+    `/v1/departments/${departmentId}/access-requests/${requestId}/approve`,
+    { method: 'POST', schema: z.object({ grantId: z.string() }) },
+  );
+}
+
+export async function denyAccessRequest(
+  client: HttpClient,
+  departmentId: string,
+  requestId: string,
+) {
+  return client.request(
+    `/v1/departments/${departmentId}/access-requests/${requestId}/deny`,
+    { method: 'POST' },
+  );
+}

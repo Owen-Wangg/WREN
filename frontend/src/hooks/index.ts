@@ -44,6 +44,26 @@ export {
   useDeleteDocumentTypeReferenceMaterial,
 } from './useReferenceMaterial';
 
+// Admin services hooks (Task 7)
+export {
+  useCreateDocumentType,
+  useDeleteDocumentType,
+  useListContentTypes,
+  useCreateContentType,
+  useDeleteContentType,
+  useListMetadataFields,
+  useCreateMetadataField,
+  useDeleteMetadataField,
+  useListTopics,
+  useCreateTopic,
+  useUpdateTopic,
+  useDeleteTopic,
+  useSetDocumentTypeAccessState,
+  useListAccessRequests,
+  useApproveAccessRequest,
+  useDenyAccessRequest,
+} from './useAdminServices';
+
 // Department admin hooks
 export {
   useListDepartments,
@@ -71,4 +91,5 @@ export {
   useUpdateAppName,
   useGetUsageLimits,
   useSetUsageLimit,
+  useCreateDepartment,
 } from './useSystemAdmin';

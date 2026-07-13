@@ -341,3 +341,26 @@ export async function setUsageLimit(
     schema: usageLimitSchema,
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/* Department Creation (Task 7.1) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Create a new Department (TechAdmin only).
+ * Called as part of DepartmentAdmin appointment (auto-creates shell if not exists).
+ */
+export async function createDepartment(
+  client: HttpClient,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  const schema = z.object({
+    id: z.string(),
+    name: z.string(),
+  });
+  return client.request('/v1/admin/departments', {
+    method: 'POST',
+    body: { name },
+    schema,
+  });
+}
