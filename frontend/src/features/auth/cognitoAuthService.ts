@@ -1,69 +1,137 @@
 /**
- * {@link AuthService} implementation backed by the Cognito User Pool
- * (Requirement 37.1). Reads its pool/client configuration from
- * `appConfig.cognito` (`src/config/env.ts`) — never a hardcoded pool id,
- * client id, or secret.
- *
- * The actual IdP SDK call (`amazon-cognito-identity-js` or AWS Amplify Auth)
- * is not wired yet: no such dependency exists in this codebase, and adding one
- * is out of scope for this task. This class defines the real shape the
- * integration will take — validating configuration up front and delegating to
- * a future SDK call — so that swapping `MockAuthService` for this
- * implementation (see `./defaultAuthService`) is a one-line change with no
- * call-site impact once the SDK is added.
+ * Cognito-backed implementation of AuthService.
+ * Uses token storage and refresh logic for persistent authentication.
  */
 import { appConfig } from '@/config/env';
-
 import {
+  AuthService,
+  AuthSession,
+  SignInCredentials,
+  SignUpInput,
+  SignUpResult,
   AuthError,
-  type AuthService,
-  type AuthSession,
-  type SignInCredentials,
-  type SignUpInput,
-  type SignUpResult,
+  type AuthErrorKind,
 } from './authService';
 
 export class CognitoAuthService implements AuthService {
-  private readonly userPoolId: string | undefined;
-  private readonly clientId: string | undefined;
-  private readonly region: string;
-
   constructor() {
-    this.userPoolId = appConfig.cognito.userPoolId;
-    this.clientId = appConfig.cognito.clientId;
-    this.region = appConfig.cognito.region;
-  }
-
-  async signIn(credentials: SignInCredentials): Promise<AuthSession> {
-    this.assertConfigured();
-    void credentials;
-    // Intentionally unimplemented: wiring the actual Cognito SRP/USER_PASSWORD_AUTH
-    // flow requires adding `amazon-cognito-identity-js` (or AWS Amplify Auth) as a
-    // dependency, which is a separate task. Until then this implementation is not
-    // selected by `defaultAuthService` — see that module for the current wiring.
-    throw new AuthError(
-      'Cognito sign-in is not yet wired up.',
-      'not_implemented',
-    );
-  }
-
-  async signUp(input: SignUpInput): Promise<SignUpResult> {
-    this.assertConfigured();
-    void input;
-    throw new AuthError(
-      'Cognito sign-up is not yet wired up.',
-      'not_implemented',
-    );
-  }
-
-  private assertConfigured(): void {
-    if (!this.userPoolId || !this.clientId) {
-      throw new AuthError(
-        'Cognito is not configured: set VITE_COGNITO_USER_POOL_ID and ' +
-          'VITE_COGNITO_CLIENT_ID.',
-        'not_implemented',
-        { region: this.region },
+    if (!appConfig.cognito.userPoolId || !appConfig.cognito.clientId) {
+      throw new Error(
+        'Cognito not configured: VITE_COGNITO_USER_POOL_ID and VITE_COGNITO_CLIENT_ID required',
       );
     }
   }
+
+  async signIn(credentials: SignInCredentials): Promise<AuthSession> {
+    try {
+      const response = await fetch(`${appConfig.apiBaseUrl}/v1/auth/signin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credentials),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        const kind: AuthErrorKind =
+          response.status === 401 ? 'invalid_credentials' : 'unknown';
+        throw new AuthError(`Sign in failed: ${error.message}`, kind, error);
+      }
+
+      const session: AuthSession = await response.json();
+      this.persistSession(session);
+      return session;
+    } catch (error) {
+      if (error instanceof AuthError) throw error;
+      throw new AuthError('Sign in failed', 'network', error);
+    }
+  }
+
+  async signUp(input: SignUpInput): Promise<SignUpResult> {
+    try {
+      const response = await fetch(`${appConfig.apiBaseUrl}/v1/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        const kind: AuthErrorKind =
+          response.status === 409 ? 'user_exists' : 'unknown';
+        throw new AuthError(`Sign up failed: ${error.message}`, kind, error);
+      }
+
+      const result: SignUpResult = await response.json();
+      return result;
+    } catch (error) {
+      if (error instanceof AuthError) throw error;
+      throw new AuthError('Sign up failed', 'network', error);
+    }
+  }
+
+  async getAccessToken(): Promise<string | null> {
+    const session = this.getPersistedSession();
+    if (!session) return null;
+
+    if (this.isTokenExpired(session.expiresAt)) {
+      return this.refreshAccessToken(session.refreshToken);
+    }
+
+    return session.accessToken;
+  }
+
+  signOut(): void {
+    localStorage.removeItem('cognito_session');
+  }
+
+  private persistSession(session: AuthSession): void {
+    localStorage.setItem('cognito_session', JSON.stringify(session));
+  }
+
+  private getPersistedSession(): AuthSession | null {
+    const stored = localStorage.getItem('cognito_session');
+    if (!stored) return null;
+    try {
+      return JSON.parse(stored) as AuthSession;
+    } catch {
+      return null;
+    }
+  }
+
+  private isTokenExpired(expiresAt: number): boolean {
+    return Date.now() > expiresAt;
+  }
+
+  private async refreshAccessToken(refreshToken: string | null): Promise<string | null> {
+    if (!refreshToken) return null;
+
+    try {
+      const response = await fetch(`${appConfig.apiBaseUrl}/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (!response.ok) {
+        this.signOut();
+        return null;
+      }
+
+      const session: AuthSession = await response.json();
+      this.persistSession(session);
+      return session.accessToken;
+    } catch {
+      this.signOut();
+      return null;
+    }
+  }
+}
+
+let instance: CognitoAuthService | null = null;
+
+export function getCognitoAuthService(): AuthService {
+  if (!instance) {
+    instance = new CognitoAuthService();
+  }
+  return instance;
 }
