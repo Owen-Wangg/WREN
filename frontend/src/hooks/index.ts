@@ -26,6 +26,7 @@ export {
   useGetFeedback,
   usePollFeedbackStatus,
   useRequestFeedback,
+  useCanGenerateFeedback,
 } from './useFeedback';
 
 // Feedback integration (Task 4)
@@ -92,4 +93,8 @@ export {
   useGetUsageLimits,
   useSetUsageLimit,
   useCreateDepartment,
+  useListBedrockModels,
+  useCheckUsageLimitExceeded,
+  useGetCurrentUsage,
+  useLogFeedbackGeneration,
 } from './useSystemAdmin';

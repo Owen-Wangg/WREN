@@ -20,6 +20,10 @@ import {
   getUsageLimits,
   setUsageLimit,
   createDepartment,
+  listBedrockModels,
+  checkUsageLimitExceeded,
+  getCurrentUsage,
+  logFeedbackGeneration,
 } from '@/services/api/systemAdminApi';
 import { useApiClient } from '@/services/apiClient';
 
@@ -287,6 +291,73 @@ export function useCreateDepartment() {
     mutationFn: (name: string) => createDepartment(client, name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.departments() });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Bedrock Models (Task 8 - Model Config) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Query hook: fetch available Bedrock models for dropdown selection.
+ */
+export function useListBedrockModels() {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: ['system-admin', 'bedrock-models'],
+    queryFn: () => listBedrockModels(client),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Usage Limits & Enforcement (Task 8.1) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Query hook: check if usage limit would be exceeded for feedback generation.
+ */
+export function useCheckUsageLimitExceeded(documentTypeId: string) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: ['usage', 'limit-check', documentTypeId],
+    queryFn: () => checkUsageLimitExceeded(client, documentTypeId),
+    enabled: !!documentTypeId,
+  });
+}
+
+/**
+ * Query hook: get current usage for a specific scope.
+ */
+export function useGetCurrentUsage(
+  scope: 'platform' | 'documentType',
+  scopeId?: string,
+) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: ['usage', 'current', scope, scopeId],
+    queryFn: () => getCurrentUsage(client, scope, scopeId),
+    staleTime: 30_000, // 30 seconds
+  });
+}
+
+/**
+ * Mutation hook: log a feedback generation action for audit purposes.
+ */
+export function useLogFeedbackGeneration() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: {
+      documentTypeId: string;
+      userId: string;
+      scope: 'platform' | 'documentType';
+      timestamp: string;
+    }) => logFeedbackGeneration(client, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage'] });
     },
   });
 }

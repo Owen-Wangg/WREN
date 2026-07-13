@@ -9,6 +9,7 @@ import {
   getFeedback,
   requestFeedback,
   getFeedbackStatus,
+  checkCanGenerateFeedback,
 } from '@/services/api/feedbackApi';
 import { useApiClient } from '@/services/apiClient';
 
@@ -71,5 +72,19 @@ export function useRequestFeedback() {
         status: 'queued',
       });
     },
+  });
+}
+
+/**
+ * Query hook: check if feedback generation is allowed for a document.
+ * Checks usage limits before allowing request (Task 8.1).
+ */
+export function useCanGenerateFeedback(documentId: string) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: queryKeys.feedbackStatus(documentId),
+    queryFn: () => checkCanGenerateFeedback(client, documentId),
+    enabled: !!documentId,
+    staleTime: 10_000, // 10 seconds
   });
 }

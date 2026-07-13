@@ -91,3 +91,31 @@ export async function getFeedbackStatus(
     schema: feedbackStatusSchema,
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/* Usage Limit Checking (Task 8.1) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Check if feedback generation is allowed for a document.
+ * Returns { allowed: boolean, reason?: string, scope: string }
+ */
+export async function checkCanGenerateFeedback(
+  client: HttpClient,
+  documentId: string,
+): Promise<{
+  allowed: boolean;
+  reason?: string;
+  scope?: 'platform' | 'documentType';
+}> {
+  const schema = z.object({
+    allowed: z.boolean(),
+    reason: z.string().optional(),
+    scope: z.enum(['platform', 'documentType']).optional(),
+  });
+
+  return client.request(
+    `${FEEDBACK_BASE_PATH}/${documentId}/feedback/can-generate`,
+    { schema },
+  );
+}

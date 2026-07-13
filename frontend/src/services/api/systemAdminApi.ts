@@ -364,3 +364,103 @@ export async function createDepartment(
     schema,
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/* Bedrock Models (Task 8 - Model Config) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * List available Bedrock models for selection.
+ */
+export async function listBedrockModels(
+  client: HttpClient,
+): Promise<Array<{ id: string; name: string; description?: string }>> {
+  const schema = z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string().optional(),
+    }),
+  );
+  return client.request('/v1/admin/bedrock-models', { schema });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Usage Limits Enforcement (Task 8.1) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Check if usage limit would be exceeded for a document type.
+ * Returns { allowed: boolean, remainingBefore: number, scope: string }
+ */
+export async function checkUsageLimitExceeded(
+  client: HttpClient,
+  documentTypeId: string,
+): Promise<{
+  allowed: boolean;
+  remainingBefore: number;
+  scope: 'platform' | 'documentType';
+}> {
+  const schema = z.object({
+    allowed: z.boolean(),
+    remainingBefore: z.number(),
+    scope: z.enum(['platform', 'documentType']),
+  });
+  return client.request(
+    `/v1/usage/check?documentTypeId=${documentTypeId}`,
+    { schema },
+  );
+}
+
+/**
+ * Get current usage for a specific scope.
+ * Returns { used: number, limit: number, remaining: number }
+ */
+export async function getCurrentUsage(
+  client: HttpClient,
+  scope: 'platform' | 'documentType',
+  scopeId?: string,
+): Promise<{
+  used: number;
+  limit: number;
+  remaining: number;
+}> {
+  const params = new URLSearchParams();
+  params.append('scope', scope);
+  if (scopeId) params.append('scopeId', scopeId);
+
+  const schema = z.object({
+    used: z.number(),
+    limit: z.number(),
+    remaining: z.number(),
+  });
+
+  return client.request(
+    `/v1/usage?${params.toString()}`,
+    { schema },
+  );
+}
+
+/**
+ * Record a feedback generation action for audit logging.
+ * Called when feedback is generated (Task 8.1, REQ-ACTIVITY-LOG-01).
+ */
+export async function logFeedbackGeneration(
+  client: HttpClient,
+  input: {
+    documentTypeId: string;
+    userId: string;
+    scope: 'platform' | 'documentType';
+    timestamp: string;
+  },
+): Promise<{ logged: boolean }> {
+  const schema = z.object({ logged: z.boolean() });
+  return client.request(
+    '/v1/admin/audit/feedback-generation',
+    {
+      method: 'POST',
+      body: input,
+      schema,
+    },
+  );
+}
