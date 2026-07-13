@@ -56,11 +56,19 @@ export {
   useGetAnalytics,
 } from './useDepartmentAdmin';
 
-// System admin hooks
+// System admin hooks (TechnicalAdmin)
 export {
   useSearchAllUsers,
   useAssignRole,
   useGrantUsageOverride,
   useGetUsageInfo,
   useGetAnalyticsPlatform,
+  useGetModelConfig,
+  useUpdateModelConfig,
+  useGetSystemPrompt,
+  useUpdateSystemPrompt,
+  useGetAppName,
+  useUpdateAppName,
+  useGetUsageLimits,
+  useSetUsageLimit,
 } from './useSystemAdmin';

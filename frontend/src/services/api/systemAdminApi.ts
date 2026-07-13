@@ -205,3 +205,139 @@ export async function getAnalyticsPlatform(
     schema: analyticsSchema,
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/* Model Configuration (Task 6.3) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Get current Bedrock model configuration (TechAdmin only).
+ */
+export async function getModelConfig(
+  client: HttpClient,
+): Promise<{ modelId: string }> {
+  const schema = z.object({ modelId: z.string() });
+  return client.request('/v1/admin/config/model', { schema });
+}
+
+/**
+ * Update Bedrock model configuration (TechAdmin only).
+ */
+export async function updateModelConfig(
+  client: HttpClient,
+  modelId: string,
+): Promise<{ modelId: string }> {
+  const schema = z.object({ modelId: z.string() });
+  return client.request('/v1/admin/config/model', {
+    method: 'PUT',
+    body: { modelId },
+    schema,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* System Prompt Configuration (Task 6.3) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Get system-level prompt/scaffolding (TechAdmin only).
+ */
+export async function getSystemPrompt(
+  client: HttpClient,
+): Promise<{ systemPrompt: string; scaffold: string }> {
+  const schema = z.object({
+    systemPrompt: z.string(),
+    scaffold: z.string(),
+  });
+  return client.request('/v1/admin/config/prompt', { schema });
+}
+
+/**
+ * Update system-level prompt/scaffolding (TechAdmin only).
+ */
+export async function updateSystemPrompt(
+  client: HttpClient,
+  systemPrompt: string,
+  scaffold: string,
+): Promise<{ systemPrompt: string; scaffold: string }> {
+  const schema = z.object({
+    systemPrompt: z.string(),
+    scaffold: z.string(),
+  });
+  return client.request('/v1/admin/config/prompt', {
+    method: 'PUT',
+    body: { systemPrompt, scaffold },
+    schema,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Application Settings (Task 6.3) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Get application name setting.
+ */
+export async function getAppName(
+  client: HttpClient,
+): Promise<{ appName: string }> {
+  const schema = z.object({ appName: z.string() });
+  return client.request('/v1/admin/config/app-name', { schema });
+}
+
+/**
+ * Update application name setting (TechAdmin only).
+ */
+export async function updateAppName(
+  client: HttpClient,
+  appName: string,
+): Promise<{ appName: string }> {
+  const schema = z.object({ appName: z.string() });
+  return client.request('/v1/admin/config/app-name', {
+    method: 'PUT',
+    body: { appName },
+    schema,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Usage Limits Configuration (Task 6.3) */
+/* -------------------------------------------------------------------------- */
+
+const usageLimitSchema = z.object({
+  scope: z.enum(['platform', 'documentType']),
+  scopeId: z.string().nullable().optional(),
+  limit: z.number().int().positive(),
+});
+
+/**
+ * Get all usage limits (platform and per-DocumentType).
+ */
+export async function getUsageLimits(
+  client: HttpClient,
+): Promise<(typeof usageLimitSchema)._type[]> {
+  return client.request('/v1/admin/config/usage-limits', {
+    schema: z.array(usageLimitSchema),
+  });
+}
+
+/**
+ * Set usage limit for platform or specific DocumentType (TechAdmin only).
+ */
+export async function setUsageLimit(
+  client: HttpClient,
+  scope: 'platform' | 'documentType',
+  limit: number,
+  scopeId?: string,
+): Promise<(typeof usageLimitSchema)._type> {
+  const body = {
+    scope,
+    limit,
+    ...(scopeId && { scopeId }),
+  };
+  return client.request('/v1/admin/config/usage-limits', {
+    method: 'POST',
+    body,
+    schema: usageLimitSchema,
+  });
+}

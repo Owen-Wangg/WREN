@@ -11,6 +11,14 @@ import {
   grantUsageOverride,
   getUsageInfo,
   getAnalyticsPlatform,
+  getModelConfig,
+  updateModelConfig,
+  getSystemPrompt,
+  updateSystemPrompt,
+  getAppName,
+  updateAppName,
+  getUsageLimits,
+  setUsageLimit,
 } from '@/services/api/systemAdminApi';
 import { useApiClient } from '@/services/apiClient';
 
@@ -120,6 +128,144 @@ export function useGrantUsageOverride() {
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.usage('platform') });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Model Configuration Hooks (Task 6.3) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Query hook: get current Bedrock model configuration.
+ */
+export function useGetModelConfig() {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: ['system-admin', 'model-config'],
+    queryFn: () => getModelConfig(client),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Mutation hook: update Bedrock model configuration.
+ */
+export function useUpdateModelConfig() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (modelId: string) => updateModelConfig(client, modelId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-admin', 'model-config'] });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* System Prompt Configuration Hooks (Task 6.3) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Query hook: get system-level prompt and scaffolding.
+ */
+export function useGetSystemPrompt() {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: ['system-admin', 'system-prompt'],
+    queryFn: () => getSystemPrompt(client),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Mutation hook: update system-level prompt and scaffolding.
+ */
+export function useUpdateSystemPrompt() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      systemPrompt,
+      scaffold,
+    }: {
+      systemPrompt: string;
+      scaffold: string;
+    }) => updateSystemPrompt(client, systemPrompt, scaffold),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-admin', 'system-prompt'] });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Application Settings Hooks (Task 6.3) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Query hook: get application name.
+ */
+export function useGetAppName() {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: ['system-admin', 'app-name'],
+    queryFn: () => getAppName(client),
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+/**
+ * Mutation hook: update application name.
+ */
+export function useUpdateAppName() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (appName: string) => updateAppName(client, appName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-admin', 'app-name'] });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Usage Limits Hooks (Task 6.3) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Query hook: get all usage limits (platform + per-DocumentType).
+ */
+export function useGetUsageLimits() {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: ['system-admin', 'usage-limits'],
+    queryFn: () => getUsageLimits(client),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Mutation hook: set usage limit for platform or specific DocumentType.
+ */
+export function useSetUsageLimit() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      scope,
+      limit,
+      scopeId,
+    }: {
+      scope: 'platform' | 'documentType';
+      limit: number;
+      scopeId?: string;
+    }) => setUsageLimit(client, scope, limit, scopeId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-admin', 'usage-limits'] });
     },
   });
 }
