@@ -4,6 +4,7 @@ dist/
 *.js
 *.d.ts
 !jest.config.js
+!lambda/**/*.js
 .cdk.staging/
 coverage/
 *.tsbuildinfo
