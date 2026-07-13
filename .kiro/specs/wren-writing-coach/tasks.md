@@ -326,36 +326,36 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
     - _Requirements: 37.5, 49.4, 51.2, 44.2_
 
 - [ ] 17. Frontend foundation (React 19 / Vite / Tailwind / shadcn/ui)  〔Track B〕
-  - [ ] 17.1 Scaffold the frontend with design tokens and shared API client  〔Track B · B0〕
+  - [x] 17.1 Scaffold the frontend with design tokens and shared API client  〔Track B · B0〕
     - Feature-based structure; centralized color/typography/spacing/radii/shadow tokens (no hardcoded values; lint rule); single Cognito-aware API client; React Query with per-environment cache keys; React Hook Form + Zod at the API boundary
     - _Requirements: 53.2_
   - [ ] 17.2 Implement shared compliance primitives  〔Track B · B1〕
     - `<AiDisclaimerNotice>`; status-enum→color-token lookup (`Still Drafting`/`Polishing`); role-aware shared components for the three roles (Student / Department Admin / Technical Admin; no student-only assumptions); severity-by-color (never numeric)
     - _Requirements: 1.2, 18.3_
-  - [ ] 17.3 Implement auth screens  〔Track B · B1〕
+  - [x] 17.3 Implement auth screens  〔Track B · B1〕
     - `LoginForm` / `SignupForm` against Cognito
     - _Requirements: 37.1_
 
-- [ ] 18. Document editor and AI debrief (built on docx-editor.dev)  〔Track B〕
-  - [ ] 18.1 Integrate the `docx-editor.dev` (`eigenpal/docx-editor`) component  〔Track B · B1〕
-    - Embed the open-source React OOXML editor; load/save `.docx`; preserve paragraph structure via canonical OOXML; verify MIT-compatible licensing for the OSS deliverable
+- [ ] 18. Document editor and AI debrief (built on Tiptap; `docx-editor.dev`/`eigenpal/docx-editor` is deprecated/unavailable)  〔Track B〕
+  - [x] 18.1 Integrate a Tiptap-based `.docx` editor (MIT-only stack)  〔Track B · B1〕
+    - Embed `@tiptap/react` + `@tiptap/starter-kit` (MIT) as the WYSIWYG editing surface; use `@sereneinserenade/tiptap-comment-extension` (MIT) for the anchored margin-comments layer feedback renders through (task 18.2); import `.docx` → editor content via `officeparser` (MIT, `harshankur/officeParser`); export editor content → `.docx` via `docx` (MIT, `dolanmiu/docx`); preserve paragraph structure across the import/edit/export round-trip; verify all four dependencies are MIT-licensed for the OSS deliverable (no mammoth.js — BSD-2-Clause was rejected per project policy; no Syncfusion — commercial)
     - _Requirements: 6.2, 52.1, 52.2_
-  - [ ] 18.2 Render inline anchored feedback through the editor's comments/tracked-changes layer  〔Track B · B2〕
+  - [x] 18.2 Render inline anchored feedback through the editor's comments/tracked-changes layer  〔Track B · B2〕
     - Map each anchored Feedback Item to a margin comment on its span (track-changes style); select-item↔highlight-span linkage; show category label + Socratic question; present `removed` anchors in a non-anchored "no longer applies" state; visually distinguish AI feedback from writer text
     - _Requirements: 11.2, 12.1, 12.2, 12.3, 12.4_
-  - [ ] 18.3 Implement the AI Debrief and structural-feedback view  〔Track B · B2〕
+  - [x] 18.3 Implement the AI Debrief and structural-feedback view  〔Track B · B2〕
     - View/Regenerate AI Debrief (triggers engine re-run; loading/error/empty states; React Query invalidation on regenerate); distinct presentation of document-wide structural feedback; no Apply/Insert/Accept affordance anywhere; helpfulness rating emits an audit event
     - _Requirements: 11.2, 14.2, 16.1, 16.2, 16.3, 16.4, 16.5, 48.2, 48.3_
-  - [ ] 18.4 Implement the writer progress summary (no numeric scoring)  〔Track B · B3〕
+  - [x] 18.4 Implement the writer progress summary (no numeric scoring)  〔Track B · B3〕
     - Show qualitative pattern-level progress summary before remaining items on drafts with ≥1 prior draft; no scores/grades/rankings/comparisons; bind feedback components to the draft version they were generated against
     - _Requirements: 18.1, 18.3, 18.4_
-  - [ ]* 18.5 Write property test for writer-facing progress carrying no numeric scoring  〔Track B · B4〕
+  - [x]* 18.5 Write property test for writer-facing progress carrying no numeric scoring  〔Track B · B4〕
     - **Property 19: Writer-facing progress carries no numeric scoring**
     - **Validates: Requirements 18.3**
   - [ ] 18.6 Implement document creation, re-upload, citations, and Ask WREN  〔Track B · B2〕
     - New-document form (Document Type select, configurable metadata incl. "Writing Topic", reference upload, Activate Editor disabled until required fields set); re-upload to create a new Draft; citation display on items; Ask WREN panel (Socratic-only, draft-anchored, same guardrail)
     - _Requirements: 6.6, 6.7, 8.1, 21.2, 11.1_
-  - [ ]* 18.7 Write compliance render tests for the editor and debrief  〔Track B · B3〕
+  - [x]* 18.7 Write compliance render tests for the editor and debrief  〔Track B · B3〕
     - Assert AI feedback is visually/structurally distinguishable from writer text and that no Apply/Insert/Accept affordance exists; AI Debrief modal focus trap, Escape/×, focus return
     - _Requirements: 11.2_
 

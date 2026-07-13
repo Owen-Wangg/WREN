@@ -1,0 +1,62 @@
+/**
+ * Application configuration — the SINGLE place the frontend resolves its
+ * runtime configuration from `VITE_`-prefixed build-time environment variables.
+ *
+ * Requirement 53.2: "THE frontend SHALL read the application name from a single
+ * configuration value." `appConfig.appName` below is that single value; no other
+ * module reads `VITE_APP_NAME` and no brand literal is hardcoded anywhere in the
+ * source. Rebranding is a single build-time environment change.
+ *
+ * The raw env is validated with Zod at module load so misconfiguration fails
+ * fast and predictably rather than surfacing as a broken UI later.
+ */
+import { z } from 'zod';
+
+const envSchema = z.object({
+  /**
+   * Application display name. Defaults to a neutral, non-brand placeholder so a
+   * missing configuration value never leaks a hardcoded product name into the UI.
+   */
+  VITE_APP_NAME: z.string().min(1).default('Writing Coach'),
+  VITE_ENVIRONMENT: z.string().min(1).default('local'),
+  VITE_API_BASE_URL: z.string().url().default('http://localhost:3000'),
+  VITE_COGNITO_USER_POOL_ID: z.string().optional(),
+  VITE_COGNITO_CLIENT_ID: z.string().optional(),
+  VITE_AWS_REGION: z.string().default('ca-central-1'),
+});
+
+const parsed = envSchema.safeParse(import.meta.env);
+
+if (!parsed.success) {
+  // Surface configuration problems clearly at startup.
+  throw new Error(
+    `Invalid frontend environment configuration:\n${parsed.error.toString()}`,
+  );
+}
+
+const env = parsed.data;
+
+export interface AppConfig {
+  /** The single application display-name value (Requirement 53.2). */
+  readonly appName: string;
+  /** Deployment environment name; namespaces React Query cache keys. */
+  readonly environment: string;
+  /** REST API base URL used by the shared API client. */
+  readonly apiBaseUrl: string;
+  readonly cognito: {
+    readonly userPoolId: string | undefined;
+    readonly clientId: string | undefined;
+    readonly region: string;
+  };
+}
+
+export const appConfig: AppConfig = {
+  appName: env.VITE_APP_NAME,
+  environment: env.VITE_ENVIRONMENT,
+  apiBaseUrl: env.VITE_API_BASE_URL.replace(/\/+$/, ''),
+  cognito: {
+    userPoolId: env.VITE_COGNITO_USER_POOL_ID,
+    clientId: env.VITE_COGNITO_CLIENT_ID,
+    region: env.VITE_AWS_REGION,
+  },
+};
