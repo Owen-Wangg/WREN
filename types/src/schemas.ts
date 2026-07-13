@@ -785,3 +785,73 @@ export const createReferenceMaterialInputSchema = z
 export type CreateReferenceMaterialInput = z.infer<
   typeof createReferenceMaterialInputSchema
 >;
+
+/* -------------------------------------------------------------------------- */
+/* UsageLimit / UsageCounter (Requirement 31, 54 — REQ-USAGE-LIMITS-01,        */
+/* REQ-TOKEN-LIMIT-01; Task 13.1)                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The scope a usage limit or counter applies to. `platform` has no
+ * associated Document Type; `documentType` always carries the specific
+ * Document Type id it limits. There is deliberately NO `department` or
+ * `organization` scope kind — usage is never attributed to a Student's
+ * "home Department" (REQ-TOKEN-LIMIT-01 criterion 2).
+ */
+export const usageScopeSchema = z.union([
+  z.object({ kind: z.literal('platform') }).strict(),
+  z.object({ kind: z.literal('documentType'), documentTypeId: idSchema }).strict(),
+]);
+export type UsageScope = z.infer<typeof usageScopeSchema>;
+
+/**
+ * A usage-limit configuration record (Technical-Admin-owned;
+ * REQ-USAGE-LIMITS-01 / Requirement 31.1, 31.3). `period` names the
+ * recurring reset window (e.g. "monthly", "daily"); free-form, not an enum,
+ * mirroring the platform's general "configurable, not hardcoded" convention.
+ */
+export const usageLimitSchema = z
+  .object({
+    id: idSchema,
+    scope: usageScopeSchema,
+    limitValue: z.number().int().nonnegative(),
+    period: z.string().min(1),
+  })
+  .strict();
+export type UsageLimit = z.infer<typeof usageLimitSchema>;
+
+/** Input to create a usage limit at a given scope. */
+export const createUsageLimitInputSchema = z
+  .object({
+    scope: usageScopeSchema,
+    limitValue: z.number().int().nonnegative(),
+    period: z.string().min(1),
+  })
+  .strict();
+export type CreateUsageLimitInput = z.infer<typeof createUsageLimitInputSchema>;
+
+/** Partial update to an existing usage limit's value and/or period. */
+export const updateUsageLimitInputSchema = z
+  .object({
+    limitValue: z.number().int().nonnegative().optional(),
+    period: z.string().min(1).optional(),
+  })
+  .strict();
+export type UpdateUsageLimitInput = z.infer<typeof updateUsageLimitInputSchema>;
+
+/**
+ * Current usage relative to a configured limit, for one scope and usage
+ * period (REQ-USAGE-LIMITS-01 / Requirement 31.2 — "display current usage
+ * relative to the configured limit"). `remaining` is never negative (floors
+ * at 0) even if `consumed` has exceeded `limitValue`.
+ */
+export const usageReportSchema = z
+  .object({
+    scope: usageScopeSchema,
+    limitValue: z.number().int().nonnegative(),
+    consumed: z.number().int().nonnegative(),
+    remaining: z.number().int().nonnegative(),
+    periodStart: isoDateTimeSchema,
+  })
+  .strict();
+export type UsageReport = z.infer<typeof usageReportSchema>;

@@ -78,6 +78,21 @@ interface ReferenceMaterialRow {
   embedding_id: string | null;
 }
 
+interface UsageLimitRow {
+  id: string;
+  scope_kind: 'platform' | 'documentType';
+  scope_id: string | null;
+  limit_value: number;
+  period: string;
+}
+
+interface UsageCounterRow {
+  scope_kind: 'platform' | 'documentType';
+  scope_id: string | null;
+  period_start: Date;
+  consumed: number;
+}
+
 /**
  * Minimal `document` row — only the columns the deletion-impact counts need.
  * `metadata` is optional so existing Document-Type-impact seeds (which don't
@@ -146,6 +161,8 @@ export class FakeDb implements QueryExecutor {
   public readonly errorCategories = new Map<string, ErrorCategoryRow>();
   public readonly documentTypeConfigs = new Map<string, DocumentTypeConfigRow>();
   public readonly referenceMaterials = new Map<string, ReferenceMaterialRow>();
+  public readonly usageLimits = new Map<string, UsageLimitRow>();
+  public readonly usageCounters: UsageCounterRow[] = [];
   public mutationCount = 0;
 
   private seq = 0;
@@ -326,6 +343,31 @@ export class FakeDb implements QueryExecutor {
       embedding_id: row.embedding_id ?? null,
     };
     this.referenceMaterials.set(full.id, full);
+    return full;
+  }
+
+  /** Seed a usage limit row directly (bypasses authorization) for test setup. */
+  public seedUsageLimit(row: Partial<UsageLimitRow> & { id: string }): UsageLimitRow {
+    const full: UsageLimitRow = {
+      id: row.id,
+      scope_kind: row.scope_kind ?? 'platform',
+      scope_id: row.scope_id ?? null,
+      limit_value: row.limit_value ?? 100,
+      period: row.period ?? 'monthly',
+    };
+    this.usageLimits.set(full.id, full);
+    return full;
+  }
+
+  /** Seed a usage counter row directly (bypasses authorization) for test setup. */
+  public seedUsageCounter(row: Partial<UsageCounterRow> & { period_start: Date }): UsageCounterRow {
+    const full: UsageCounterRow = {
+      scope_kind: row.scope_kind ?? 'platform',
+      scope_id: row.scope_id ?? null,
+      period_start: row.period_start,
+      consumed: row.consumed ?? 0,
+    };
+    this.usageCounters.push(full);
     return full;
   }
 
@@ -959,6 +1001,101 @@ export class FakeDb implements QueryExecutor {
       const existed = this.referenceMaterials.delete(id);
       if (existed) this.mutationCount += 1;
       return (existed ? [{ id }] : []) as unknown as Row[];
+    }
+
+    /* ------------------------------- usage_limit ------------------------------- */
+
+    if (sql.startsWith('INSERT INTO usage_limit (scope_kind, scope_id, limit_value, period)')) {
+      this.mutationCount += 1;
+      const row: UsageLimitRow = {
+        id: this.nextId('ulimit'),
+        scope_kind: params[0] as 'platform' | 'documentType',
+        scope_id: (params[1] as string | null) ?? null,
+        limit_value: params[2] as number,
+        period: params[3] as string,
+      };
+      this.usageLimits.set(row.id, row);
+      return [row] as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT id, scope_kind, scope_id, limit_value, period FROM usage_limit WHERE id = $1')) {
+      const row = this.usageLimits.get(params[0] as string);
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (sql.startsWith("SELECT id, scope_kind, scope_id, limit_value, period FROM usage_limit WHERE scope_kind = 'platform'")) {
+      const row = [...this.usageLimits.values()].find((r) => r.scope_kind === 'platform');
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        "SELECT id, scope_kind, scope_id, limit_value, period FROM usage_limit WHERE scope_kind = 'documentType' AND scope_id = $1",
+      )
+    ) {
+      const row = [...this.usageLimits.values()].find(
+        (r) => r.scope_kind === 'documentType' && r.scope_id === (params[0] as string),
+      );
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, scope_kind, scope_id, limit_value, period FROM usage_limit ORDER BY scope_kind ASC, scope_id ASC NULLS FIRST',
+      )
+    ) {
+      const rows = [...this.usageLimits.values()]
+        .map((r) => ({ ...r }))
+        .sort((a, b) => {
+          if (a.scope_kind !== b.scope_kind) return a.scope_kind.localeCompare(b.scope_kind);
+          return (a.scope_id ?? '').localeCompare(b.scope_id ?? '');
+        });
+      return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('UPDATE usage_limit SET')) {
+      const row = this.usageLimits.get(params[0] as string);
+      if (!row) return [] as unknown as Row[];
+      this.mutationCount += 1;
+      const setClause = sql.slice('UPDATE usage_limit SET'.length, sql.indexOf('WHERE'));
+      applyAssignments(setClause, row as unknown as Record<string, unknown>, params);
+      return [{ ...row }] as unknown as Row[];
+    }
+
+    if (sql.startsWith('DELETE FROM usage_limit WHERE id = $1')) {
+      const id = params[0] as string;
+      const existed = this.usageLimits.delete(id);
+      if (existed) this.mutationCount += 1;
+      return (existed ? [{ id }] : []) as unknown as Row[];
+    }
+
+    /* ------------------------------ usage_counter ------------------------------ */
+
+    if (
+      sql.startsWith(
+        "SELECT scope_kind, scope_id, period_start, consumed FROM usage_counter WHERE scope_kind = 'platform' AND period_start = $1",
+      )
+    ) {
+      const periodStart = params[0] as Date;
+      const row = this.usageCounters.find(
+        (r) => r.scope_kind === 'platform' && r.period_start.getTime() === periodStart.getTime(),
+      );
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        "SELECT scope_kind, scope_id, period_start, consumed FROM usage_counter WHERE scope_kind = 'documentType' AND scope_id = $1 AND period_start = $2",
+      )
+    ) {
+      const [scopeId, periodStart] = params as [string, Date];
+      const row = this.usageCounters.find(
+        (r) =>
+          r.scope_kind === 'documentType' &&
+          r.scope_id === scopeId &&
+          r.period_start.getTime() === periodStart.getTime(),
+      );
+      return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
     throw new Error(`FakeDb: unhandled SQL: ${sql}`);

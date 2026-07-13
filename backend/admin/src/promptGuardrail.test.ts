@@ -28,6 +28,11 @@ describe('findGhostwritingInstruction', () => {
     expect(violation).not.toBeNull();
   });
 
+  it('detects the exact CONFLICT-1 Figma sample text ("suggest a revised version")', () => {
+    const violation = findGhostwritingInstruction('Suggest a revised version of the passage.');
+    expect(violation).not.toBeNull();
+  });
+
   it('detects instructions to generate a "corrected version"', () => {
     const violation = findGhostwritingInstruction('Generate the corrected version and present it.');
     expect(violation).not.toBeNull();

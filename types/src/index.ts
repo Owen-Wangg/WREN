@@ -27,6 +27,7 @@ import type {
   CreateAccessGrantInput,
   CreateErrorCategoryInput,
   CreateReferenceMaterialInput,
+  CreateUsageLimitInput,
   CustomMetadataField,
   Department,
   Document,
@@ -47,7 +48,10 @@ import type {
   UpdateDocumentTypeConfigInput,
   UpdateErrorCategoryInput,
   UpdateTopicInput,
+  UpdateUsageLimitInput,
   TopicDeletionImpact,
+  UsageLimit,
+  UsageReport,
   UserSearchInput,
   UserSearchResult,
   UserSummary,
@@ -112,6 +116,10 @@ type _GuardReferenceMaterial = Expect<LacksReplacementProse<ReferenceMaterial>>;
 type _GuardCreateReferenceMaterialInput = Expect<
   LacksReplacementProse<CreateReferenceMaterialInput>
 >;
+type _GuardUsageLimit = Expect<LacksReplacementProse<UsageLimit>>;
+type _GuardCreateUsageLimitInput = Expect<LacksReplacementProse<CreateUsageLimitInput>>;
+type _GuardUpdateUsageLimitInput = Expect<LacksReplacementProse<UpdateUsageLimitInput>>;
+type _GuardUsageReport = Expect<LacksReplacementProse<UsageReport>>;
 
 /**
  * Aggregates the compile-time guards so they participate in type-checking even
@@ -154,4 +162,8 @@ export type NoGhostwritingGuards = [
   _GuardPromptGuardrailViolation,
   _GuardReferenceMaterial,
   _GuardCreateReferenceMaterialInput,
+  _GuardUsageLimit,
+  _GuardCreateUsageLimitInput,
+  _GuardUpdateUsageLimitInput,
+  _GuardUsageReport,
 ];

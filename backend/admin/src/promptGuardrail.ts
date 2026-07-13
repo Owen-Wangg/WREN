@@ -54,8 +54,8 @@ const GHOSTWRITING_INSTRUCTION_PATTERNS: ReadonlyArray<{
     reason: 'Instructs the model to produce a corrected/revised version of the text.',
   },
   {
-    pattern: /\bsuggest\s+a\s+(replacement|revision|rewrite)\b/i,
-    reason: 'Instructs the model to suggest replacement prose or a revision.',
+    pattern: /\bsuggest\s+a\s+(replacement|revision|rewrite|revised\s+version|corrected\s+version)\b/i,
+    reason: 'Instructs the model to suggest replacement prose, a revision, or a revised version.',
   },
   {
     pattern: /\b(write|generate|produce|draft)\s+(the|a|an)\s+(correct|corrected|revised|improved|better)\s+(version|sentence|paragraph|text)\b/i,
