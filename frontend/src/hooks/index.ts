@@ -65,6 +65,21 @@ export {
   useDenyAccessRequest,
 } from './useAdminServices';
 
+// Audit & analytics hooks (Task 9)
+export {
+  useEmitActivityEvent,
+  useEmitDocumentSubmitted,
+  useEmitFeedbackGenerated,
+  useEmitRoleAssigned,
+  useEmitAccessGranted,
+  useEmitConfigEdited,
+  useEmitDocumentDeleted,
+  useListActivityLog,
+  useDepartmentAggregateAnalytics,
+  usePlatformAggregateAnalytics,
+  useDeleteDocument,
+} from './useAudit';
+
 // Department admin hooks
 export {
   useListDepartments,
