@@ -1,9 +1,9 @@
 /**
- * Document Editor - Task 3.2
- * Tiptap editor with backend Draft sync
+ * Document Editor - Task 3.2 + Task 4 (Feedback integration)
+ * Textarea editor with Draft sync and async feedback generation polling
  */
 import React, { useEffect, useState } from 'react';
-import { useGetDocument, useSubmitDraft, usePollFeedbackStatus } from '@/hooks';
+import { useGetDocument, useSubmitDraft, usePollFeedbackStatus, useRequestFeedback, useGetFeedback } from '@/hooks';
 import { draftToTiptapJSON, tiptapJSONToDraft, countWords, validateWordCount } from '../utils/documentParser';
 import type { Draft } from '@wren/types';
 
@@ -17,14 +17,17 @@ export function DocumentEditor({ documentId, onDraftSaved }: DocumentEditorProps
   const [isSaving, setIsSaving] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [feedbackRequested, setFeedbackRequested] = useState(false);
 
   const getDocMutation = useGetDocument(documentId);
   const submitDraftMutation = useSubmitDraft();
-  const feedbackStatus = usePollFeedbackStatus(documentId);
+  const feedbackStatusQuery = usePollFeedbackStatus(documentId);
+  const feedbackQuery = useGetFeedback(documentId);
+  const requestFeedbackMutation = useRequestFeedback();
 
   const document = getDocMutation.data;
   const currentDraft = document?.drafts?.[0];
-  const wordCountError = document?.sizeLimitWords 
+  const wordCountError = document?.sizeLimitWords
     ? validateWordCount(editorContent, document.sizeLimitWords)
     : { valid: true };
 
@@ -41,6 +44,13 @@ export function DocumentEditor({ documentId, onDraftSaved }: DocumentEditorProps
   useEffect(() => {
     setWordCount(countWords(editorContent));
   }, [editorContent]);
+
+  // When feedback generation completes, refetch feedback
+  useEffect(() => {
+    if (feedbackStatusQuery.data?.status === 'completed') {
+      feedbackQuery.refetch();
+    }
+  }, [feedbackStatusQuery.data?.status, feedbackQuery]);
 
   const handleSaveDraft = async () => {
     if (!wordCountError.valid) {
@@ -69,8 +79,14 @@ export function DocumentEditor({ documentId, onDraftSaved }: DocumentEditorProps
   };
 
   const handleRequestFeedback = async () => {
-    // Would trigger feedback generation (Task 3.3)
-    console.log('Request feedback');
+    try {
+      setError(null);
+      setFeedbackRequested(true);
+      await requestFeedbackMutation.mutateAsync(documentId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to request feedback');
+      setFeedbackRequested(false);
+    }
   };
 
   if (getDocMutation.isLoading) {
@@ -84,13 +100,21 @@ export function DocumentEditor({ documentId, onDraftSaved }: DocumentEditorProps
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Toolbar */}
-      <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', display: 'flex', gap: '1rem' }}>
+      <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', display: 'flex', gap: '1rem', alignItems: 'center' }}>
         <button onClick={handleSaveDraft} disabled={isSaving || submitDraftMutation.isPending}>
           {isSaving ? 'Saving...' : 'Save Draft'}
         </button>
-        <button onClick={handleRequestFeedback} disabled={feedbackStatus.isLoading}>
-          {feedbackStatus.data?.status === 'processing' ? 'Generating Feedback...' : 'Request Feedback'}
+        <button
+          onClick={handleRequestFeedback}
+          disabled={feedbackRequested && (feedbackStatusQuery.data?.status === 'queued' || feedbackStatusQuery.data?.status === 'processing') || requestFeedbackMutation.isPending}
+        >
+          {feedbackRequested && (feedbackStatusQuery.data?.status === 'queued' || feedbackStatusQuery.data?.status === 'processing') ? 'Generating Feedback...' : 'Request Feedback'}
         </button>
+        {feedbackRequested && (feedbackStatusQuery.data?.status === 'queued' || feedbackStatusQuery.data?.status === 'processing') && (
+          <span style={{ marginLeft: '1rem', fontSize: '0.9em', color: '#666' }}>
+            Status: {feedbackStatusQuery.data?.status || 'queued'}
+          </span>
+        )}
         <span style={{ marginLeft: 'auto' }}>
           Words: {wordCount}
           {document?.sizeLimitWords && ` / ${document.sizeLimitWords}`}

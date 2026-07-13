@@ -28,6 +28,12 @@ export {
   useRequestFeedback,
 } from './useFeedback';
 
+// Feedback integration (Task 4)
+export {
+  useFeedbackIntegration,
+  requestFeedbackGeneration,
+} from './useFeedbackIntegration';
+
 // Department admin hooks
 export {
   useListDepartments,
