@@ -1,0 +1,55 @@
+/*
+ * Global stylesheet entry point.
+ *
+ * Order matters: Tailwind is imported first, then the WREN `@theme` mirror so
+ * the token-derived utilities are available application-wide.
+ */
+@import 'tailwindcss';
+@import './theme.css';
+
+:root {
+  color-scheme: light;
+}
+
+/*
+ * max-width t-shirt fix.
+ *
+ * The WREN `--spacing-*` scale uses semantic keys (xs/sm/md/lg/xl/2xl/3xl/4xl)
+ * that collide with Tailwind v4's `max-w-<size>` t-shirt names, so Tailwind
+ * resolves e.g. `max-w-sm` to `var(--spacing-sm)` (8px) instead of a container
+ * width — collapsing forms, panels, and sidebars to a few pixels wide. These
+ * unlayered rules restore the intended container widths (Tailwind's standard
+ * t-shirt scale); being unlayered, they win over Tailwind's layered utilities.
+ * Non-colliding sizes (5xl/6xl/7xl) already resolve correctly and are untouched.
+ */
+.max-w-xs {
+  max-width: 20rem;
+}
+.max-w-sm {
+  max-width: 24rem;
+}
+.max-w-md {
+  max-width: 28rem;
+}
+.max-w-lg {
+  max-width: 32rem;
+}
+.max-w-xl {
+  max-width: 36rem;
+}
+.max-w-2xl {
+  max-width: 42rem;
+}
+.max-w-3xl {
+  max-width: 48rem;
+}
+.max-w-4xl {
+  max-width: 56rem;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-muted);
+}

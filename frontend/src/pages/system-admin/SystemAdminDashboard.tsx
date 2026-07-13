@@ -1,0 +1,285 @@
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { Trash2, ChevronDown } from 'lucide-react';
+
+import { systemAdminApi } from '@/features/system-admin/systemAdminApi';
+import { ModelConfigurationForm } from '@/features/system-admin/components/ModelConfigurationForm';
+import { SystemUsageLimitsForm } from '@/features/system-admin/components/SystemUsageLimitsForm';
+
+export function SystemAdminDashboard() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterState, setFilterState] = useState('All');
+  const [expandedSection, setExpandedSection] = useState<'model' | 'limits' | null>(null);
+
+  const { data: departments = [], isLoading } = useQuery({
+    queryKey: ['system-departments'],
+    queryFn: () => systemAdminApi.getDepartments(),
+  });
+
+  const { data: modelConfig, isLoading: modelLoading } = useQuery({
+    queryKey: ['system-model-config'],
+    queryFn: () => systemAdminApi.getModelConfig(),
+  });
+
+  const { data: usageLimits, isLoading: limitsLoading } = useQuery({
+    queryKey: ['system-usage-limits'],
+    queryFn: () => systemAdminApi.getUsageLimits(),
+  });
+
+  const updateModelConfigMutation = useMutation<
+    any,
+    Error,
+    { modelIdentifier: string; temperature: number; maxTokens: number }
+  >({
+    mutationFn: (config) => systemAdminApi.updateModelConfig(config),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-model-config'] });
+      setExpandedSection(null);
+    },
+  });
+
+  const updateUsageLimitsMutation = useMutation<
+    any,
+    Error,
+    { messageLimit: number; debriefGenerationLimit: number; documentUploadLimit: number; draftsPerDocumentLimit: number }
+  >({
+    mutationFn: (limits) => systemAdminApi.updateUsageLimits(limits),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-usage-limits'] });
+      setExpandedSection(null);
+    },
+  });
+
+  if (isLoading) {
+    return <div className="p-8">Loading departments...</div>;
+  }
+
+  const filteredDepartments = departments.filter((dept) => {
+    const matchesSearch = dept.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesFilter = filterState === 'All' || dept.accessState === filterState;
+    return matchesSearch && matchesFilter;
+  });
+
+  const getAccessStateBadge = (state: string) => {
+    if (state === 'LOCKED') {
+      return (
+        <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">
+          {state}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+        {state}
+      </span>
+    );
+  };
+
+  return (
+    <div className="p-8">
+      {/* System Settings Section - At the top for visibility */}
+      <div className="mb-12">
+        <h1 className="mb-6 text-3xl font-bold text-gray-900">System Configuration</h1>
+        <div className={`gap-6 ${expandedSection ? 'space-y-6' : 'grid grid-cols-1 md:grid-cols-2'}`}>
+          {/* Model Configuration Card */}
+          {(expandedSection === null || expandedSection === 'model') && (
+            <div
+              className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() =>
+                setExpandedSection(expandedSection === 'model' ? null : 'model')
+              }
+            >
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">Model Configuration</h3>
+                <p className="text-sm text-gray-600 mt-1">System-wide settings applied to all departments</p>
+              </div>
+              <ChevronDown
+                size={20}
+                className={`text-gray-600 transition-transform flex-shrink-0 ${
+                  expandedSection === 'model' ? 'rotate-180' : ''
+                }`}
+              />
+            </div>
+
+            {modelConfig && !modelLoading && expandedSection !== 'model' && (
+              <div className="mb-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Model:</span>
+                  <span className="font-semibold text-gray-900">{modelConfig.modelIdentifier}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Temperature:</span>
+                  <span className="font-semibold text-gray-900">{modelConfig.temperature}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Max Tokens:</span>
+                  <span className="font-semibold text-gray-900">{modelConfig.maxTokens}</span>
+                </div>
+              </div>
+            )}
+
+            {expandedSection === 'model' && (
+              <div className="border-t border-gray-200 pt-6">
+                {modelLoading ? (
+                  <div>Loading...</div>
+                ) : (
+                  <ModelConfigurationForm
+                    initialData={modelConfig}
+                    onSubmit={(data) => updateModelConfigMutation.mutate(data)}
+                    isLoading={updateModelConfigMutation.isPending}
+                  />
+                )}
+              </div>
+            )}
+
+            {expandedSection === null && modelConfig && (
+              <button className="w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition">
+                Edit Configuration
+              </button>
+            )}
+            </div>
+          )}
+
+          {/* Usage Limits Card */}
+          {(expandedSection === null || expandedSection === 'limits') && (
+            <div
+              className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() =>
+                setExpandedSection(expandedSection === 'limits' ? null : 'limits')
+              }
+            >
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">Usage Limits</h3>
+                <p className="text-sm text-gray-600 mt-1">System-wide settings applied to all departments</p>
+              </div>
+              <ChevronDown
+                size={20}
+                className={`text-gray-600 transition-transform flex-shrink-0 ${
+                  expandedSection === 'limits' ? 'rotate-180' : ''
+                }`}
+              />
+            </div>
+
+            {usageLimits && !limitsLoading && expandedSection !== 'limits' && (
+              <div className="mb-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Message Limit:</span>
+                  <span className="font-semibold text-gray-900">{usageLimits.messageLimit}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Debrief Limit:</span>
+                  <span className="font-semibold text-gray-900">{usageLimits.debriefGenerationLimit}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Upload Limit:</span>
+                  <span className="font-semibold text-gray-900">{usageLimits.documentUploadLimit}</span>
+                </div>
+              </div>
+            )}
+
+            {expandedSection === 'limits' && (
+              <div className="border-t border-gray-200 pt-6">
+                {limitsLoading ? (
+                  <div>Loading...</div>
+                ) : (
+                  <SystemUsageLimitsForm
+                    initialData={usageLimits}
+                    onSubmit={(data) => updateUsageLimitsMutation.mutate(data)}
+                    isLoading={updateUsageLimitsMutation.isPending}
+                  />
+                )}
+              </div>
+            )}
+
+            {expandedSection === null && usageLimits && (
+              <button className="w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition">
+                Edit Limits
+              </button>
+            )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Departments Section */}
+      <div className="mb-12">
+        <div className="mb-8 flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-gray-900">Departments</h1>
+          <button className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800">
+            Create new Department
+          </button>
+        </div>
+
+        <p className="mb-6 font-semibold text-gray-900">My Departments ({departments.length})</p>
+
+        <div className="mb-6 flex gap-4">
+          <input
+            type="text"
+            placeholder="Search Departments"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+          />
+          <div className="relative">
+            <select
+              value={filterState}
+              onChange={(e) => setFilterState(e.target.value)}
+              className="appearance-none rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 pr-10"
+            >
+              <option value="All">All</option>
+              <option value="LOCKED">Locked</option>
+              <option value="OPEN">Open</option>
+            </select>
+            <ChevronDown size={18} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          {filteredDepartments.map((dept) => (
+            <div
+              key={dept.id}
+              className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => navigate(`/system-admin/department/${dept.id}`)}
+            >
+              <div className="mb-4 flex items-start justify-between">
+                <h3 className="text-xl font-semibold text-gray-900">{dept.name}</h3>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  className="p-1 text-gray-400 hover:text-red-500 transition hover:bg-gray-100 rounded"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
+              <div className="mb-6 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Access State:</span>
+                  {getAccessStateBadge(dept.accessState)}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Users:</span>
+                  <span className="font-semibold text-gray-900">{dept.userCount}</span>
+                </div>
+              </div>
+              <button
+                className="w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/system-admin/department/${dept.id}`);
+                }}
+              >
+                Manage Department
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
