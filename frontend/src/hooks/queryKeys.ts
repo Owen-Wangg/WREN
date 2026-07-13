@@ -123,6 +123,14 @@ export const queryKeys = {
   departmentAnalytics: (documentTypeId?: string) =>
     [ns, 'department-admin', 'analytics', documentTypeId ?? 'all'] as const,
 
+  /** Department-wide (tier 1) reference materials. */
+  departmentReferenceMaterial: (departmentId: string) =>
+    [ns, 'departments', departmentId, 'reference-material'] as const,
+
+  /** Document-type-scoped (tier 2) reference materials. */
+  documentTypeReferenceMaterial: (departmentId: string, documentTypeId: string) =>
+    [ns, 'departments', departmentId, 'document-types', documentTypeId, 'reference-material'] as const,
+
   // ---- System Admin Flow (Task 1.3) ----
 
   /** All users on the platform (TechAdmin only). */

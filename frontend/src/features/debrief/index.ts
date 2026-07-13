@@ -1,5 +1,5 @@
 /**
- * Barrel for the AI Debrief feature (task 18.3).
+ * Barrel for the AI Debrief feature (task 18.3 + Task 5.2 citations).
  */
 export { AiDebriefModal, type AiDebriefModalProps } from './components/AiDebriefModal';
 export { SidebarDebriefPanel, type SidebarDebriefPanelProps } from './components/SidebarDebriefPanel';
@@ -8,6 +8,7 @@ export {
   type FeedbackHelpfulnessPromptProps,
 } from './components/FeedbackHelpfulnessPrompt';
 export { FeedbackItemsList, type FeedbackItemsListProps } from './components/FeedbackItemsList';
+export { CitationDisplay, type CitationDisplayProps } from './components/CitationDisplay';
 
 export {
   debriefPath,

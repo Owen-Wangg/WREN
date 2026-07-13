@@ -34,6 +34,16 @@ export {
   requestFeedbackGeneration,
 } from './useFeedbackIntegration';
 
+// Reference material hooks (Task 5)
+export {
+  useListDepartmentReferenceMaterial,
+  useCreateDepartmentReferenceMaterial,
+  useDeleteDepartmentReferenceMaterial,
+  useListDocumentTypeReferenceMaterial,
+  useCreateDocumentTypeReferenceMaterial,
+  useDeleteDocumentTypeReferenceMaterial,
+} from './useReferenceMaterial';
+
 // Department admin hooks
 export {
   useListDepartments,
