@@ -14,6 +14,12 @@ import {
   GuidePage,
   NotificationsPage,
   ProfilePage,
+  SystemAdminDashboard,
+  SystemAdminLayout,
+  DepartmentDetailPage,
+  SystemAdminGuidePage,
+  SystemAdminNotificationsPage,
+  SystemAdminProfilePage,
 } from '@/pages';
 
 export function App() {
@@ -38,6 +44,15 @@ export function App() {
         <Route path="/guide" element={<GuidePage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
+      </Route>
+
+      {/* System Admin routes */}
+      <Route element={<SystemAdminLayout />}>
+        <Route path="/system-admin" element={<SystemAdminDashboard />} />
+        <Route path="/system-admin/department/:departmentId" element={<DepartmentDetailPage />} />
+        <Route path="/system-admin/guide" element={<SystemAdminGuidePage />} />
+        <Route path="/system-admin/notifications" element={<SystemAdminNotificationsPage />} />
+        <Route path="/system-admin/profile" element={<SystemAdminProfilePage />} />
       </Route>
     </Routes>
   );

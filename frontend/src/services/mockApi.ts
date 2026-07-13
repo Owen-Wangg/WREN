@@ -991,6 +991,75 @@ const contentTypeMockRoutes: MockRoutes = {
   })(),
 };
 
+const systemAdminMockRoutes: MockRoutes = {
+  'GET /api/system-admin/analytics': {
+    totalDepartments: 3,
+    totalUsers: 156,
+    totalDocuments: 487,
+    usageOverTime: [
+      { date: '2026-07-01', activeUsers: 45 },
+      { date: '2026-07-02', activeUsers: 52 },
+      { date: '2026-07-03', activeUsers: 48 },
+      { date: '2026-07-04', activeUsers: 61 },
+      { date: '2026-07-05', activeUsers: 55 },
+      { date: '2026-07-06', activeUsers: 68 },
+      { date: '2026-07-07', activeUsers: 72 },
+    ],
+    documentsByDepartment: [
+      { name: 'Factum', count: 120 },
+      { name: 'Memo', count: 85 },
+      { name: 'Client Letter', count: 67 },
+    ],
+    usersByDepartment: [
+      { name: 'Law', value: 78 },
+      { name: 'Arts', value: 45 },
+      { name: 'Science', value: 33 },
+    ],
+    modelUsage: [
+      { name: 'claude-opus', requests: 2345 },
+      { name: 'claude-sonnet', requests: 1820 },
+      { name: 'claude-haiku', requests: 892 },
+    ],
+  },
+  'GET /api/system-admin/model-config': {
+    modelIdentifier: 'claude-opus',
+    temperature: 0.7,
+    maxTokens: 2048,
+  },
+  'PUT /api/system-admin/model-config': {
+    modelIdentifier: 'claude-opus',
+    temperature: 0.7,
+    maxTokens: 2048,
+  },
+  'GET /api/system-admin/available-models': [
+    { id: 'claude-opus', name: 'Claude 3 Opus' },
+    { id: 'claude-sonnet', name: 'Claude 3 Sonnet' },
+    { id: 'claude-haiku', name: 'Claude 3 Haiku' },
+  ],
+  'GET /api/system-admin/usage-limits': {
+    messageLimit: 100,
+    debriefGenerationLimit: 15,
+    documentUploadLimit: 30,
+    draftsPerDocumentLimit: 15,
+  },
+  'PUT /api/system-admin/usage-limits': {
+    messageLimit: 100,
+    debriefGenerationLimit: 15,
+    documentUploadLimit: 30,
+    draftsPerDocumentLimit: 15,
+  },
+  'GET /api/system-admin/departments': [
+    { id: 'dept-law', name: 'Law', accessState: 'LOCKED', userCount: 78 },
+    { id: 'dept-arts', name: 'Arts', accessState: 'OPEN', userCount: 45 },
+    { id: 'dept-science', name: 'Science', accessState: 'OPEN', userCount: 33 },
+  ],
+  'GET /api/system-admin/users': [
+    { id: 'user-1', firstName: 'Jovan', lastName: 'S', email: 'JovanS@example.com', role: 'Department Admin' },
+    { id: 'user-2', firstName: 'John', lastName: 'Doe', email: 'JohnDoe@example.com', role: 'Student' },
+    { id: 'user-3', firstName: 'Stu', lastName: 'Dent', email: 'StuDent@example.com', role: 'Student' },
+  ],
+};
+
 export const defaultMockRoutes: MockRoutes = {
   'GET /writing-types': sampleWritingTypes,
   'GET /documents': sampleDocuments,
@@ -1006,6 +1075,7 @@ export const defaultMockRoutes: MockRoutes = {
   ...fieldExpertMockRoutes,
   ...orgOwnerMockRoutes,
   ...adminMockRoutes,
+  ...systemAdminMockRoutes,
 };
 
 export class MockApiClient implements HttpClient {
