@@ -8,7 +8,7 @@
  * - Ghostwriting guardrail rejects unsafe prompts
  */
 import React, { useState } from 'react';
-import { useAuth, useGetDocumentTypeConfig, useUpdateDocumentTypeConfig } from '@/hooks';
+import { useAuth, useGetDocumentTypeConfig, useUpdateDocumentTypeConfig, useValidatePromptCompliance, useEmitConfigEdited, validatePromptClientSide } from '@/hooks';
 import { ReferenceMaterialManager } from './ReferenceMaterialManager';
 
 export interface DocumentTypeConfigEditorProps {
@@ -23,6 +23,8 @@ export function DocumentTypeConfigEditor({
   const { user } = useAuth();
   const configQuery = useGetDocumentTypeConfig(documentTypeId);
   const updateConfigMutation = useUpdateDocumentTypeConfig();
+  const validatePromptMutation = useValidatePromptCompliance();
+  const emitConfigEditedMutation = useEmitConfigEdited();
 
   const [promptContent, setPromptContent] = useState('');
   const [tone, setTone] = useState('');
@@ -30,6 +32,7 @@ export function DocumentTypeConfigEditor({
   const [priority, setPriority] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [promptValidationError, setPromptValidationError] = useState<string | null>(null);
 
   const config = configQuery.data;
 
@@ -42,40 +45,63 @@ export function DocumentTypeConfigEditor({
     }
   }, [config]);
 
-  const validatePrompt = (text: string): string | null => {
-    // Guardrail: reject ghostwriting instructions (REQ-PROMPT-EDIT-01.5)
-    const ghostwritingPatterns = [
-      /write.*for.*student/i,
-      /generate.*submission/i,
-      /create.*essay/i,
-      /replace.*student.*work/i,
-    ];
-
-    for (const pattern of ghostwritingPatterns) {
-      if (pattern.test(text)) {
-        return 'Prompt cannot contain ghostwriting instructions. The AI should provide feedback and guidance only, not generate student work.';
-      }
+  // Real-time client-side validation (Task 10.3)
+  const handlePromptChange = (text: string) => {
+    setPromptContent(text);
+    const { violations, isCompliant } = validatePromptClientSide(text);
+    if (!isCompliant) {
+      setPromptValidationError(`Prompt contains ghostwriting instructions: ${violations.map(v => v.instruction).join(', ')}`);
+    } else {
+      setPromptValidationError(null);
     }
-
-    return null;
   };
 
   const handleSaveConfig = async () => {
-    const validation = validatePrompt(promptContent);
-    if (validation) {
-      setError(validation);
+    // Client-side validation first
+    const clientValidation = validatePromptClientSide(promptContent);
+    if (!clientValidation.isCompliant) {
+      setPromptValidationError(`Prompt contains ghostwriting instructions: ${clientValidation.violations.map(v => v.instruction).join(', ')}`);
       return;
     }
 
     try {
       setError(null);
-      await updateConfigMutation.mutateAsync({
+      setPromptValidationError(null);
+
+      // Server-side validation (Task 10.3)
+      const validation = await validatePromptMutation.mutateAsync(promptContent);
+
+      if (!validation.isCompliant) {
+        const violationMessages = validation.violations
+          .map(v => `${v.instruction} at: ${v.location}`)
+          .join('; ');
+        setPromptValidationError(`Guardrail rejected prompt: ${violationMessages}`);
+
+        // Log violation event (Task 10.3, REQ-PROMPT-EDIT-01.6)
+        await emitConfigEditedMutation.mutateAsync({
+          documentTypeId,
+          changes: { promptText: promptContent },
+          guardrailOutcome: `violation_rejected: ${violationMessages}`,
+        });
+        return;
+      }
+
+      // Save successful
+      const result = await updateConfigMutation.mutateAsync({
         documentTypeId,
         promptText: promptContent,
         tone,
         density,
         priority,
       });
+
+      // Log successful edit (Task 10.3, REQ-PROMPT-EDIT-01.6)
+      await emitConfigEditedMutation.mutateAsync({
+        documentTypeId,
+        changes: { promptText: promptContent, tone, density, priority },
+        guardrailOutcome: 'passed',
+      });
+
       setSuccessMessage('Configuration saved successfully');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
@@ -142,18 +168,26 @@ export function DocumentTypeConfigEditor({
             </label>
             <textarea
               value={promptContent}
-              onChange={(e) => setPromptContent(e.target.value)}
+              onChange={(e) => handlePromptChange(e.target.value)}
               placeholder="Describe what kind of feedback this document type should receive..."
               rows={8}
               style={{
                 width: '100%',
                 padding: '0.75rem',
-                border: '1px solid #ddd',
+                border: promptValidationError ? '2px solid red' : '1px solid #ddd',
                 borderRadius: '4px',
                 fontFamily: 'monospace',
                 fontSize: '0.9em',
               }}
             />
+            {promptValidationError && (
+              <p style={{ margin: '0.5rem 0 0 0', color: '#cc0000', fontSize: '0.9em' }}>
+                ⚠️ {promptValidationError}
+              </p>
+            )}
+            <p style={{ margin: '0.5rem 0 0 0', color: '#999', fontSize: '0.85em' }}>
+              💡 Tip: Write Socratic questions only. Do not request rewrites, revisions, or alternative versions.
+            </p>
           </div>
 
           {/* Tone */}

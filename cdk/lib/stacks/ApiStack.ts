@@ -54,7 +54,7 @@ export class ApiStack extends Stack {
     // substituted into the spec at deploy time.
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
       apiDefinition: apigateway.ApiDefinition.fromAsset(
-        path.join(__dirname, "openapi.yaml"),
+        path.join(__dirname, "..", "openapi.yaml"),
         // {
         //   // Variables are injected via Fn::Sub in the spec
         // },

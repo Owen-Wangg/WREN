@@ -80,6 +80,17 @@ export {
   useDeleteDocument,
 } from './useAudit';
 
+// Compliance hooks (Task 10)
+export {
+  useValidatePromptCompliance,
+  useValidateFeedbackCompliance,
+  useReportGuardrailViolation,
+  useGetDefaultPromptTemplate,
+  useGetComplianceReport,
+  validatePromptClientSide,
+  GHOSTWRITING_PATTERNS,
+} from './useCompliance';
+
 // Department admin hooks
 export {
   useListDepartments,

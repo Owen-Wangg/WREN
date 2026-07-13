@@ -1,4 +1,4 @@
-import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, SecretValue } from "aws-cdk-lib";
 import * as amplify from "@aws-cdk/aws-amplify-alpha";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import type { Construct } from "constructs";
@@ -49,8 +49,7 @@ export class AmplifyStack extends Stack {
       sourceCodeProvider: new amplify.GitHubSourceCodeProvider({
         owner: props.repositoryOwner,
         repository: props.repositoryName,
-        oauthToken: codebuild.BuildSpec.fromObject({}).toString() as unknown as import("aws-cdk-lib").SecretValue,
-        // Note: In production, use SecretValue.secretsManager(props.githubTokenSecretName)
+        oauthToken: SecretValue.secretsManager(props.githubTokenSecretName),
       }),
       buildSpec: codebuild.BuildSpec.fromObjectToYaml({
         version: "1.0",

@@ -20,6 +20,18 @@ export interface StorageStackProps extends StackProps {
 export class StorageStack extends Stack {
   public readonly storage: StorageResources;
 
+  get documentsBucketName(): string {
+    return this.storage.documentsBucket.bucketName;
+  }
+
+  get referenceBucketName(): string {
+    return this.storage.referenceBucket.bucketName;
+  }
+
+  get conversationTableName(): string {
+    return this.storage.conversationTable.tableName;
+  }
+
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
 
@@ -29,19 +41,19 @@ export class StorageStack extends Stack {
 
     new StringParameter(this, "DocumentsBucketNameParameter", {
       parameterName: ssmParameterNames.documentsBucketName(props.config),
-      stringValue: this.storage.documentsBucket.bucketName,
+      stringValue: this.documentsBucketName,
       description: "Name of the S3 bucket holding submitted document bytes.",
     });
 
     new StringParameter(this, "ReferenceBucketNameParameter", {
       parameterName: ssmParameterNames.referenceBucketName(props.config),
-      stringValue: this.storage.referenceBucket.bucketName,
+      stringValue: this.referenceBucketName,
       description: "Name of the S3 bucket holding Reference Material bytes.",
     });
 
     new StringParameter(this, "ConversationTableNameParameter", {
       parameterName: ssmParameterNames.conversationTableName(props.config),
-      stringValue: this.storage.conversationTable.tableName,
+      stringValue: this.conversationTableName,
       description: "Name of the DynamoDB conversation/session-state table.",
     });
   }
