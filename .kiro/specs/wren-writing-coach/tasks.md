@@ -192,56 +192,56 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
     - **Property 18: Pattern acknowledgment gating**
     - **Validates: Requirements 18.2, 18.5**
 
-- [ ] 9. Feedback Engine and no-ghostwriting guardrail (Python 3.12, container Lambda)  〔Track A〕
+- [x] 9. Feedback Engine and no-ghostwriting guardrail (Python 3.12, container Lambda)  〔Track A〕
   - [x] 9.1 Implement layered prompt assembly with untrusted-data isolation  〔Track A · A9〕
     - Compose system scaffolding (cross-type instructions, output schema, guardrail) as the authoritative outer layer and the Document-Type prompt as the inner layer; insert submitted text + reference material only as clearly delimited untrusted data
     - _Requirements: 32.8, 38.1, 38.2, 25.5_
-  - [ ]* 9.2 Write property test for untrusted content staying as data  〔Track A · A10〕
+  - [x]* 9.2 Write property test for untrusted content staying as data  〔Track A · A10〕
     - **Property 12: Untrusted content stays data**
     - **Validates: Requirements 38.1, 38.2, 32.8**
   - [x] 9.3 Implement model invocation via `langchain-aws` (model-agnostic)  〔Track A · A9〕
     - Invoke configured Bedrock model id; no hardcoded model; changing the id is configuration only
     - _Requirements: 51.1, 51.2, 51.3_
-  - [ ] 9.4 Implement the output no-ghostwriting guardrail  〔Track A · A10〕
+  - [x] 9.4 Implement the output no-ghostwriting guardrail  〔Track A · A10〕
     - Discard internal "correct version"; strip/reject any replacement prose, candidate rewrite, or "suggest a revision / explain the improvement"; persist only `{category, question, anchor?, citation?}`; emit audit event on violation
     - _Requirements: 11.1, 11.3, 11.4, 11.6, 12.3, 38.3, 38.4_
-  - [ ]* 9.5 Write property test for the no-ghostwriting guardrail  〔Track A · A11〕
+  - [x]* 9.5 Write property test for the no-ghostwriting guardrail  〔Track A · A11〕
     - **Property 10: No-ghostwriting guardrail**
     - **Validates: Requirements 11.1, 11.3, 11.4, 12.3, 15.4, 38.3**
-  - [ ] 9.6 Implement taxonomy-bound classification and density bounding  〔Track A · A10〕
+  - [x] 9.6 Implement taxonomy-bound classification and density bounding  〔Track A · A10〕
     - Classify only into the active Document Type's configured categories; scale inline item count with length bounded by configured density; prioritize recurring patterns when the cap binds
     - _Requirements: 13.1, 13.2, 13.3, 15.1_
-  - [ ]* 9.7 Write property test for classification within configured taxonomy  〔Track A · A11〕
+  - [x]* 9.7 Write property test for classification within configured taxonomy  〔Track A · A11〕
     - **Property 14: Classification stays within configured taxonomy**
     - **Validates: Requirements 15.1**
-  - [ ]* 9.8 Write property test for the annotation density bound  〔Track A · A11〕
+  - [x]* 9.8 Write property test for the annotation density bound  〔Track A · A11〕
     - **Property 13: Annotation density bound**
     - **Validates: Requirements 13.1, 13.2**
-  - [ ] 9.9 Implement document-wide structural feedback  〔Track A · A10〕
+  - [x] 9.9 Implement document-wide structural feedback  〔Track A · A10〕
     - Produce non-anchored Socratic/structural items distinct from inline items, subject to the same guardrail
     - _Requirements: 14.1, 14.2, 14.3_
-  - [ ] 9.10 Implement carry-forward caching and invalidation  〔Track A · A11〕
+  - [x] 9.10 Implement carry-forward caching and invalidation  〔Track A · A11〕
     - Reuse prior Feedback Items for spans unchanged in text and governing config; invalidate on text change or Document-Type config change; persist feedback so re-opening needs no regeneration
     - _Requirements: 10.3, 27.3, 49.1, 49.2, 49.4_
-  - [ ]* 9.11 Write property test for carry-forward caching  〔Track A · A12〕
+  - [x]* 9.11 Write property test for carry-forward caching  〔Track A · A12〕
     - **Property 9: Carry-forward caching**
     - **Validates: Requirements 10.3, 49.1, 49.2, 27.3**
-  - [ ] 9.12 Wire async feedback job execution  〔Track A · A12〕
+  - [x] 9.12 Wire async feedback job execution  〔Track A · A12〕
     - SQS + DLQ in front of the engine; idempotent handler with backoff/jitter; streamed/poll status to the client
     - _Requirements: 47.3, 48.1, 48.2, 48.3_
 
-- [ ] 10. Reference materials and citations  〔Track A〕
-  - [ ] 10.1 Implement the two-tier reference store and grounding  〔Track A · A11〕
+- [x] 10. Reference materials and citations  〔Track A〕
+  - [x] 10.1 Implement the two-tier reference store and grounding  〔Track A · A11〕
     - Department-wide (tier 1) and Document-Type-scoped (tier 2) Reference Material; parse/chunk/index content with **LlamaIndex** into the **single** `pgvector`-backed `embedding` table via a LlamaIndex `PGVectorStore`; bundle = department-wide ∪ that Document Type's type-scoped material (scoped by a `WHERE` filter on `tier`/`department_id`/`document_type_id` over that one table), never another type's
     - Add a forward-only migration creating the single `embedding` table (vector column + `reference_material_id`, `tier`, `department_id`, `document_type_id`, `chunk_index`, `content`, `metadata`) if it does not already exist; resolve `reference_material.embedding_id` against it
     - _Requirements: 20.1, 20.2, 20.3, 20.4, 22.1, 22.2, 22.3, 22.4, 26.1, 26.3_
-  - [ ]* 10.2 Write property test for reference bundle scoping  〔Track A · A12〕
+  - [x]* 10.2 Write property test for reference bundle scoping  〔Track A · A12〕
     - **Property 21: Reference bundle scoping**
     - **Validates: Requirements 22.2, 22.3, 20.4, 26.3**
-  - [ ] 10.3 Implement citation attachment  〔Track A · A11〕
+  - [x] 10.3 Implement citation attachment  〔Track A · A11〕
     - Attach a source-identity citation (title/section) when specific material informed an item; never reproduce replacement prose; no citation when none informed it
     - _Requirements: 21.1, 21.2, 21.3, 21.4_
-  - [ ]* 10.4 Write property test for citation presence and content  〔Track A · A12〕
+  - [x]* 10.4 Write property test for citation presence and content  〔Track A · A12〕
     - **Property 20: Feedback citation presence and content**
     - **Validates: Requirements 21.1, 21.3, 21.4**
 

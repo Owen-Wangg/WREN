@@ -21,6 +21,11 @@ This package also hosts the Feedback Engine's non-generative building blocks
     invocation via ``langchain-aws`` (REQ-NFR-MODEL-01). Its ``langchain-aws``
     dependency is imported lazily so importing ``wren_engine`` never requires
     the container-Lambda-only runtime dependency.
+  - :mod:`wren_engine.async_job` (Task 9.12) — async job lifecycle
+    (queued/in-progress/succeeded/failed/dead-lettered), idempotency-key
+    derivation, and exponential-backoff-with-jitter, behind an injectable
+    ``JobQueueClient`` protocol satisfied in production by an SQS + DLQ
+    adapter (provisioned by the CDK `Compute` stack, Task 16.2).
 
 Design references:
   - design.md "Diff Engine, Anchor Service, Progress Tracker (Python 3.12)"
@@ -37,6 +42,20 @@ from .anchor_service import (
     RemapResult,
     Removed,
     compute_fingerprint,
+)
+from .async_job import (
+    DEFAULT_BASE_DELAY_SECONDS,
+    DEFAULT_MAX_ATTEMPTS,
+    DEFAULT_MAX_DELAY_SECONDS,
+    AsyncFeedbackJobRunner,
+    FeedbackJob,
+    IdempotencyKey,
+    InMemoryJobQueueClient,
+    JobQueueClient,
+    JobResult,
+    JobStatus,
+    compute_backoff_delay,
+    derive_idempotency_key,
 )
 from .diff_engine import DiffEngine
 from .model_invocation import (
@@ -194,4 +213,17 @@ __all__ = [
     "CitedFeedbackItem",
     "CitedStructuralItem",
     "RELEVANCE_THRESHOLD",
+    # Async feedback job execution (Requirement 47, 48 / Task 9.12)
+    "AsyncFeedbackJobRunner",
+    "FeedbackJob",
+    "JobStatus",
+    "JobResult",
+    "JobQueueClient",
+    "InMemoryJobQueueClient",
+    "IdempotencyKey",
+    "derive_idempotency_key",
+    "compute_backoff_delay",
+    "DEFAULT_MAX_ATTEMPTS",
+    "DEFAULT_BASE_DELAY_SECONDS",
+    "DEFAULT_MAX_DELAY_SECONDS",
 ]
