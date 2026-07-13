@@ -55,54 +55,398 @@ components:
       properties:
         code:
           type: string
+          description: Error code (e.g., ValidationError, PermissionDenied, UsageLimitReached)
         message:
           type: string
+          description: Human-readable error message
+
+    # ==================== Core Domain Schemas ====================
+
+    Department:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: Unique department identifier
+        name:
+          type: string
+          description: Department name (mutable)
+          minLength: 1
+
+    DocumentType:
+      type: object
+      required: [id, departmentId, name, accessState]
+      properties:
+        id:
+          type: string
+          description: Unique document type identifier
+        departmentId:
+          type: string
+          description: Foreign key to Department (immutable)
+        name:
+          type: string
+          description: Document type name
+          minLength: 1
+        accessState:
+          type: string
+          enum: [OPEN, LOCKED]
+          description: |
+            OPEN - any authenticated student may self-select and submit
+            LOCKED - submission requires an Access Grant scoped to this DocumentType
+        sizeLimitWords:
+          type: integer
+          nullable: true
+          description: Word count limit for documents (null → inherit platform default)
+          minimum: 1
+
+    ContentType:
+      type: object
+      required: [id, documentTypeId, label]
+      properties:
+        id:
+          type: string
+          description: Unique content type identifier
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        label:
+          type: string
+          description: DepartmentAdmin-defined category label (e.g., "case brief", "memo")
+          minLength: 1
+
+    Topic:
+      type: object
+      required: [id, departmentId, name]
+      properties:
+        id:
+          type: string
+          description: Unique topic identifier
+        departmentId:
+          type: string
+          description: Foreign key to Department (scoped to one department)
+        name:
+          type: string
+          description: Business label for organizing work
+          minLength: 1
+
+    CustomMetadataField:
+      type: object
+      required: [id, documentTypeId, label, required]
+      properties:
+        id:
+          type: string
+          description: Unique field identifier
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        label:
+          type: string
+          description: Field label (e.g., "Writing Topic")
+          minLength: 1
+        required:
+          type: boolean
+          description: Whether this field must be populated at document submission
+
+    ErrorCategory:
+      type: object
+      required: [id, documentTypeId, name]
+      properties:
+        id:
+          type: string
+          description: Unique error category identifier
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        name:
+          type: string
+          description: Category name for feedback classification (e.g., "Clarity", "Citation Format")
+          minLength: 1
+        internalGuidance:
+          type: string
+          nullable: true
+          description: Internal guidance (never shown to students)
+
+    AccessGrant:
+      type: object
+      required: [id, userId, documentTypeId, grantedBy, grantedAt]
+      properties:
+        id:
+          type: string
+          description: Unique access grant identifier
+        userId:
+          type: string
+          description: Global user identifier (never department-owned)
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        grantedBy:
+          type: string
+          description: User ID of the administrator who granted access
+        grantedAt:
+          type: string
+          format: date-time
+          description: Timestamp when the grant was created
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the grant was revoked (null → still active)
+
+    Override:
+      type: object
+      required: [id, userId, documentTypeId, bounds, reason, grantedBy, expiresAt]
+      properties:
+        id:
+          type: string
+          description: Unique override identifier
+        userId:
+          type: string
+          description: Global user identifier
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        bounds:
+          type: object
+          required: [additionalActions]
+          properties:
+            additionalActions:
+              type: integer
+              description: Number of additional feedback requests allowed
+        reason:
+          type: string
+          description: Reason for granting the override
+        grantedBy:
+          type: string
+          description: User ID of the administrator who granted the override
+        expiresAt:
+          type: string
+          format: date-time
+          description: Timestamp when the override expires
+
+    Segment:
+      type: object
+      required: [index, text]
+      properties:
+        index:
+          type: integer
+          description: Zero-based paragraph index
+          minimum: 0
+        text:
+          type: string
+          description: Full text of the paragraph
 
     Document:
       type: object
+      required: [id, ownerUserId, documentTypeId, contentTypeId, name, metadata, status, createdAt]
       properties:
         id:
           type: string
-        name:
+          description: Unique document identifier
+        ownerUserId:
           type: string
+          description: Global user ID of the document owner
         documentTypeId:
           type: string
+          description: Foreign key to DocumentType
+        contentTypeId:
+          type: string
+          description: Foreign key to ContentType (e.g., "case brief", "memo")
+        name:
+          type: string
+          description: Document name
+          minLength: 1
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: DepartmentAdmin-defined custom metadata field values (e.g., {"Writing Topic": "Contracts"})
         status:
           type: string
           enum: [Still Drafting, Polishing]
+          description: Current document status
         createdAt:
           type: string
           format: date-time
+          description: Timestamp when document was created
 
     Draft:
       type: object
+      required: [id, documentId, versionNumber, s3Key, segments, wordCount, createdAt]
       properties:
         id:
           type: string
+          description: Unique draft identifier
         documentId:
           type: string
+          description: Foreign key to Document
         versionNumber:
           type: integer
+          description: Monotonically increasing version number (starting at 1)
+          minimum: 1
+        s3Key:
+          type: string
+          description: S3 object key where full draft content is stored
+          minLength: 1
+        segments:
+          type: array
+          description: Ordered paragraph segments for anchoring and diffing
+          items:
+            $ref: "#/components/schemas/Segment"
         wordCount:
           type: integer
+          description: Total word count in the draft
+          minimum: 0
         createdAt:
           type: string
           format: date-time
+          description: Timestamp when draft was created
 
-    FeedbackItem:
+    AnchorState:
+      type: string
+      enum: [active, removed]
+      description: |
+        active - anchor is valid and rendered to user
+        removed - anchor text no longer found in document
+
+    Anchor:
       type: object
+      required: [id, feedbackItemId, draftId, paragraphIndex, startOffset, endOffset, contentFingerprint, state]
       properties:
         id:
           type: string
+          description: Unique anchor identifier
+        feedbackItemId:
+          type: string
+          description: Foreign key to FeedbackItem
+        draftId:
+          type: string
+          description: Foreign key to Draft (which version this anchor is for)
+        paragraphIndex:
+          type: integer
+          description: Zero-based index of the paragraph containing the anchor
+          minimum: 0
+        startOffset:
+          type: integer
+          description: Start character offset within the paragraph
+          minimum: 0
+        endOffset:
+          type: integer
+          description: End character offset within the paragraph
+          minimum: 0
+        contentFingerprint:
+          type: string
+          description: Normalized text hash + bounded surrounding context for remapping
+          minLength: 1
+        state:
+          $ref: "#/components/schemas/AnchorState"
+
+    ResolutionStatus:
+      type: string
+      enum: [resolved, partially_resolved, still_unresolved, removed, unchanged]
+      description: |
+        resolved - user has addressed this feedback item
+        partially_resolved - user has partially addressed it
+        still_unresolved - feedback item remains unaddressed
+        removed - anchor text no longer found in document
+        unchanged - no progress on addressing the feedback
+
+    FeedbackItem:
+      type: object
+      required: [id, documentId, errorCategoryId, kind, questionText, sourceDraftId, createdAt]
+      properties:
+        id:
+          type: string
+          description: Unique feedback item identifier
         documentId:
           type: string
+          description: Foreign key to Document
+        errorCategoryId:
+          type: string
+          description: Foreign key to ErrorCategory (feedback classification)
         kind:
           type: string
           enum: [inline, structural]
+          description: |
+            inline - feedback anchored to specific text span
+            structural - feedback applies to the entire document
         questionText:
           type: string
-        errorCategoryId:
+          description: Socratic question presented to the user
+        quotedText:
           type: string
+          nullable: true
+          description: Optional exact quote from the document that triggered this feedback
+        currentAnchorId:
+          type: string
+          nullable: true
+          description: Foreign key to current Anchor (for inline feedback) or null for structural
+        sourceDraftId:
+          type: string
+          description: Foreign key to Draft (which version generated this feedback)
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when feedback was generated
+
+    DocumentTypeConfig:
+      type: object
+      required: [documentTypeId]
+      properties:
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        tone:
+          type: string
+          nullable: true
+          description: Preferred tone for feedback (e.g., "formal", "conversational")
+        density:
+          type: string
+          nullable: true
+          description: Density of feedback (e.g., "comprehensive", "minimal")
+        categoryPriority:
+          type: array
+          items:
+            type: string
+          description: Ordered list of error category IDs by priority
+        promptText:
+          type: string
+          nullable: true
+          description: Custom system prompt text for feedback generation
+
+    User:
+      type: object
+      required: [id, email]
+      properties:
+        id:
+          type: string
+          description: Unique global user identifier
+        email:
+          type: string
+          description: User email address
+          format: email
+
+    # ==================== Analytics Schemas ====================
+
+    AggregateCounter:
+      type: object
+      properties:
+        scopeKind:
+          type: string
+          enum: [platform, documentType]
+          description: |
+            platform - counter aggregated across entire platform
+            documentType - counter scoped to a specific document type
+        scopeId:
+          type: string
+          nullable: true
+          description: DocumentType ID if scopeKind is 'documentType', null if 'platform'
+        metric:
+          type: string
+          description: Metric name (e.g., "documents_created", "feedback_generated")
+        value:
+          type: number
+          description: Numeric value of the metric
 
     AnalyticsResult:
       type: object
@@ -111,19 +455,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AggregateCounter"
-
-    AggregateCounter:
-      type: object
-      properties:
-        scopeKind:
-          type: string
-          enum: [platform, documentType]
-        scopeId:
-          type: string
-        metric:
-          type: string
-        value:
-          type: number
+          description: Array of aggregate counters
 
   responses:
     Unauthorized:
@@ -484,6 +816,10 @@ paths:
       responses:
         "200":
           description: Full Document Type configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentTypeConfig"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -515,7 +851,7 @@ paths:
                   type: string
                 density:
                   type: string
-                typePromptText:
+                promptText:
                   type: string
                 categoryPriority:
                   type: array
@@ -524,6 +860,10 @@ paths:
       responses:
         "200":
           description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentTypeConfig"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -542,7 +882,13 @@ paths:
       operationId: listDepartments
       responses:
         "200":
-          description: Departments visible to the actor
+          description: Array of departments visible to the actor
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Department"
         "401":
           $ref: "#/components/responses/Unauthorized"
       x-amazon-apigateway-integration:
@@ -561,9 +907,16 @@ paths:
           in: query
           schema:
             type: string
+          description: Optional filter by department ID
       responses:
         "200":
-          description: Document types
+          description: Array of document types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentType"
         "401":
           $ref: "#/components/responses/Unauthorized"
       x-amazon-apigateway-integration:
@@ -582,23 +935,39 @@ paths:
           in: query
           schema:
             type: string
+          description: Search query string
         - name: role
           in: query
           schema:
             type: string
+          description: Optional filter by role
         - name: limit
           in: query
           schema:
             type: integer
             default: 20
+          description: Results per page
         - name: offset
           in: query
           schema:
             type: integer
             default: 0
+          description: Starting position in result set
       responses:
         "200":
-          description: Paginated user list
+          description: Paginated user search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/User"
+                  total:
+                    type: integer
+                    description: Total count of users matching query
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -624,16 +993,34 @@ paths:
               properties:
                 userId:
                   type: string
+                  description: Global user ID
                 role:
                   type: string
                   enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                  description: Role to assign
                 administeredDepartmentIds:
                   type: array
                   items:
                     type: string
+                  description: Required if role is DepartmentAdmin; list of department IDs to administer
       responses:
         "200":
-          description: Role assigned
+          description: Role assigned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId:
+                    type: string
+                  role:
+                    type: string
+        "400":
+          description: Validation error (e.g., missing administeredDepartmentIds for DepartmentAdmin)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -656,13 +1043,29 @@ paths:
           schema:
             type: string
             enum: [platform, documentType]
+          description: Scope of usage query
         - name: scopeId
           in: query
           schema:
             type: string
+          description: DocumentType ID if scope is 'documentType'
       responses:
         "200":
           description: Usage information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  limit:
+                    type: integer
+                    description: Maximum number of actions allowed
+                  consumed:
+                    type: integer
+                    description: Number of actions consumed
+                  remaining:
+                    type: integer
+                    description: Number of actions remaining
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -688,21 +1091,37 @@ paths:
               properties:
                 userId:
                   type: string
+                  description: Global user ID
                 documentTypeId:
                   type: string
+                  description: Document type to grant override for
                 bounds:
                   type: object
+                  required: [additionalActions]
                   properties:
                     additionalActions:
                       type: integer
+                      description: Number of additional feedback requests allowed
                 reason:
                   type: string
+                  description: Reason for granting the override
                 expiresAt:
                   type: string
                   format: date-time
+                  description: When the override expires
       responses:
         "201":
-          description: Override granted
+          description: Override granted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Override"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
