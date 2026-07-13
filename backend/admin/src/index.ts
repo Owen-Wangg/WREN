@@ -85,6 +85,18 @@ export {
 } from './activityLogService';
 export type { RecordActivityEventInput } from './activityLogService';
 export { getAnalytics } from './analyticsService';
+export {
+  deleteDocument,
+  getDocumentDeletionImpact,
+} from './documentDeletionService';
+export type { DeletionReceipt } from './documentDeletionService';
+export {
+  auditConfigEdit,
+  auditGuardrailOutcome,
+  auditOverrideGrant,
+  auditPromptEdit,
+  auditRoleOrGrantChange,
+} from './auditRecordingService';
 
 export type {
   AccessGrant,

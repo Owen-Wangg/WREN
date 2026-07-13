@@ -132,7 +132,39 @@ interface AggregateCounterRow {
 interface DocumentRow {
   id: string;
   document_type_id: string;
+  owner_user_id?: string;
   metadata?: Record<string, string>;
+}
+
+/** Minimal `draft` row for deletion-retention tests. */
+interface DraftRow {
+  id: string;
+  document_id: string;
+  version_number: number;
+}
+
+/** Minimal `feedback_item` row for deletion-retention tests. */
+interface FeedbackItemRow {
+  id: string;
+  document_id: string;
+  kind: 'inline' | 'structural';
+  question_text: string;
+}
+
+/** Minimal `anchor` row for deletion-retention tests. */
+interface AnchorRow {
+  id: string;
+  draft_id: string;
+  feedback_item_id: string;
+  state: 'active' | 'removed';
+}
+
+/** Minimal `resolution_status_history` row for deletion-retention tests. */
+interface ResolutionStatusHistoryRow {
+  id: string;
+  feedback_item_id: string;
+  draft_id: string;
+  status: string;
 }
 
 /** `role_assignment` row (authorization source of truth). */
@@ -186,6 +218,10 @@ export class FakeDb implements QueryExecutor {
   public readonly topics = new Map<string, TopicRow>();
   public readonly customMetadataFields = new Map<string, CustomMetadataFieldRow>();
   public readonly documents = new Map<string, DocumentRow>();
+  public readonly drafts = new Map<string, DraftRow>();
+  public readonly feedbackItems = new Map<string, FeedbackItemRow>();
+  public readonly anchors = new Map<string, AnchorRow>();
+  public readonly resolutionStatusHistory = new Map<string, ResolutionStatusHistoryRow>();
   public readonly roleAssignments = new Map<string, RoleAssignmentRow>();
   public readonly appUsers = new Map<string, AppUserRow>();
   public readonly accessGrants = new Map<string, AccessGrantRow>();
@@ -273,10 +309,40 @@ export class FakeDb implements QueryExecutor {
   public seedDocument(row: {
     id: string;
     document_type_id: string;
+    owner_user_id?: string;
     metadata?: Record<string, string>;
   }): DocumentRow {
-    this.documents.set(row.id, row);
-    return row;
+    const full: DocumentRow = { ...row, owner_user_id: row.owner_user_id ?? 'seed-user' };
+    this.documents.set(full.id, full);
+    return full;
+  }
+
+  /** Seed a Draft directly for deletion-retention tests. */
+  public seedDraft(row: { id: string; document_id: string; version_number?: number }): DraftRow {
+    const full: DraftRow = { id: row.id, document_id: row.document_id, version_number: row.version_number ?? 1 };
+    this.drafts.set(full.id, full);
+    return full;
+  }
+
+  /** Seed a FeedbackItem directly for deletion-retention tests. */
+  public seedFeedbackItem(row: { id: string; document_id: string; kind?: 'inline' | 'structural'; question_text?: string }): FeedbackItemRow {
+    const full: FeedbackItemRow = { id: row.id, document_id: row.document_id, kind: row.kind ?? 'inline', question_text: row.question_text ?? 'Why?' };
+    this.feedbackItems.set(full.id, full);
+    return full;
+  }
+
+  /** Seed an Anchor directly for deletion-retention tests. */
+  public seedAnchor(row: { id: string; draft_id: string; feedback_item_id: string; state?: 'active' | 'removed' }): AnchorRow {
+    const full: AnchorRow = { id: row.id, draft_id: row.draft_id, feedback_item_id: row.feedback_item_id, state: row.state ?? 'active' };
+    this.anchors.set(full.id, full);
+    return full;
+  }
+
+  /** Seed a ResolutionStatusHistory entry for deletion-retention tests. */
+  public seedResolutionStatusHistory(row: { id: string; feedback_item_id: string; draft_id: string; status?: string }): ResolutionStatusHistoryRow {
+    const full: ResolutionStatusHistoryRow = { id: row.id, feedback_item_id: row.feedback_item_id, draft_id: row.draft_id, status: row.status ?? 'resolved' };
+    this.resolutionStatusHistory.set(full.id, full);
+    return full;
   }
 
   /**
@@ -1336,6 +1402,103 @@ export class FakeDb implements QueryExecutor {
           (a, b) => a.metric.localeCompare(b.metric) || a.window_start.getTime() - b.window_start.getTime(),
         );
       return rows as unknown as Row[];
+    }
+
+    /* ----------------------- document deletion (Task 14.5) ---------------------- */
+
+    if (sql.includes('FROM document WHERE id = $1') && sql.includes('SELECT') && !sql.includes('DELETE')) {
+      const row = this.documents.get(params[0] as string);
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (sql.includes('COUNT') && sql.includes('FROM draft WHERE document_id = $1') && !sql.includes('feedback_item')) {
+      const count = [...this.drafts.values()].filter((d) => d.document_id === (params[0] as string)).length;
+      return [{ count }] as unknown as Row[];
+    }
+
+    if (sql.includes('COUNT') && sql.includes('FROM feedback_item WHERE document_id = $1') && !sql.includes('resolution_status_history')) {
+      const count = [...this.feedbackItems.values()].filter((f) => f.document_id === (params[0] as string)).length;
+      return [{ count }] as unknown as Row[];
+    }
+
+    if (sql.includes('COUNT') && sql.includes('FROM anchor WHERE draft_id IN')) {
+      const documentId = params[0] as string;
+      const draftIds = new Set([...this.drafts.values()].filter((d) => d.document_id === documentId).map((d) => d.id));
+      const count = [...this.anchors.values()].filter((a) => draftIds.has(a.draft_id)).length;
+      return [{ count }] as unknown as Row[];
+    }
+
+    if (sql.includes('COUNT') && sql.includes('FROM resolution_status_history WHERE feedback_item_id IN')) {
+      const documentId = params[0] as string;
+      const feedbackItemIds = new Set([...this.feedbackItems.values()].filter((f) => f.document_id === documentId).map((f) => f.id));
+      const count = [...this.resolutionStatusHistory.values()].filter((r) => feedbackItemIds.has(r.feedback_item_id)).length;
+      return [{ count }] as unknown as Row[];
+    }
+
+    if (sql.includes("FROM activity_event WHERE object_ref = $1 AND object_type = 'Document'") && sql.includes('COUNT')) {
+      const docId = params[0] as string;
+      const count = this.activityEvents.filter((e) => e.object_ref === docId && e.object_type === 'Document').length;
+      return [{ count }] as unknown as Row[];
+    }
+
+    if (sql.startsWith('DELETE FROM resolution_status_history WHERE feedback_item_id IN')) {
+      this.mutationCount += 1;
+      const documentId = params[0] as string;
+      const feedbackItemIds = new Set([...this.feedbackItems.values()].filter((f) => f.document_id === documentId).map((f) => f.id));
+      const deleted: ResolutionStatusHistoryRow[] = [];
+      for (const [id, row] of this.resolutionStatusHistory) {
+        if (feedbackItemIds.has(row.feedback_item_id)) {
+          deleted.push(row);
+          this.resolutionStatusHistory.delete(id);
+        }
+      }
+      return deleted.map(() => ({ count: 1 })) as unknown as Row[];
+    }
+
+    if (sql.startsWith('DELETE FROM anchor WHERE draft_id IN')) {
+      this.mutationCount += 1;
+      const documentId = params[0] as string;
+      const draftIds = new Set([...this.drafts.values()].filter((d) => d.document_id === documentId).map((d) => d.id));
+      const deleted: AnchorRow[] = [];
+      for (const [id, row] of this.anchors) {
+        if (draftIds.has(row.draft_id)) {
+          deleted.push(row);
+          this.anchors.delete(id);
+        }
+      }
+      return deleted.map(() => ({ count: 1 })) as unknown as Row[];
+    }
+
+    if (sql.startsWith('DELETE FROM feedback_item WHERE document_id = $1')) {
+      this.mutationCount += 1;
+      const documentId = params[0] as string;
+      const deleted: FeedbackItemRow[] = [];
+      for (const [id, row] of this.feedbackItems) {
+        if (row.document_id === documentId) {
+          deleted.push(row);
+          this.feedbackItems.delete(id);
+        }
+      }
+      return deleted.map(() => ({ count: 1 })) as unknown as Row[];
+    }
+
+    if (sql.startsWith('DELETE FROM draft WHERE document_id = $1')) {
+      this.mutationCount += 1;
+      const documentId = params[0] as string;
+      const deleted: DraftRow[] = [];
+      for (const [id, row] of this.drafts) {
+        if (row.document_id === documentId) {
+          deleted.push(row);
+          this.drafts.delete(id);
+        }
+      }
+      return deleted.map(() => ({ count: 1 })) as unknown as Row[];
+    }
+
+    if (sql.startsWith('DELETE FROM document WHERE id = $1')) {
+      this.mutationCount += 1;
+      this.documents.delete(params[0] as string);
+      return [] as unknown as Row[];
     }
 
     throw new Error(`FakeDb: unhandled SQL: ${sql}`);
