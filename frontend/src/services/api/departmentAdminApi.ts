@@ -37,7 +37,7 @@ const documentTypeConfigSchema = z.object({
   tone: z.string().nullable().optional(),
   density: z.string().nullable().optional(),
   categoryPriority: z.array(z.string()).optional(),
-  promptText: z.string().nullable().optional(),
+  typePromptText: z.string().nullable().optional(),
 });
 
 const usersSearchSchema = z.object({
@@ -101,7 +101,7 @@ export async function updateDocumentTypeConfig(
   updates: {
     tone?: string | null;
     density?: string | null;
-    promptText?: string | null;
+    typePromptText?: string | null;
     categoryPriority?: string[];
   },
 ): Promise<Record<string, unknown>> {
@@ -250,8 +250,7 @@ export async function deleteDocumentType(
 const contentTypeSchema = z.object({
   id: z.string(),
   documentTypeId: z.string(),
-  name: z.string(),
-  description: z.string().nullable(),
+  label: z.string(),
 });
 
 export async function listContentTypes(
@@ -268,8 +267,7 @@ export async function createContentType(
   client: HttpClient,
   documentTypeId: string,
   input: {
-    name: string;
-    description?: string;
+    label: string;
   },
 ) {
   return client.request(
@@ -300,10 +298,8 @@ export async function deleteContentType(
 const metadataFieldSchema = z.object({
   id: z.string(),
   documentTypeId: z.string(),
-  name: z.string(),
+  label: z.string(),
   required: z.boolean(),
-  fieldType: z.enum(['text', 'select', 'multiselect', 'date']),
-  options: z.array(z.string()).nullable(),
 });
 
 export async function listMetadataFields(
@@ -320,10 +316,8 @@ export async function createMetadataField(
   client: HttpClient,
   documentTypeId: string,
   input: {
-    name: string;
-    required: boolean;
-    fieldType: 'text' | 'select' | 'multiselect' | 'date';
-    options?: string[];
+    label: string;
+    required?: boolean;
   },
 ) {
   return client.request(

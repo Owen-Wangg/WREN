@@ -1,31 +1,36 @@
 /**
  * Document Service Lambda entry point — routes API Gateway events to service functions.
  * Adapter: API Gateway proxy events → backend/document service handlers.
+ *
+ * TODO: Phase 3 handlers
+ * - Document ingestion requires complex interaction with DocxExtractor, PdfExtractor, and segmentation
+ * - See backend/document/src/ingestion.ts for the IngestionDeps pattern and IngestResult types
+ * - Size limit checks use backend/document/src/sizeLimit.ts (segments-based, not text-based)
+ * - Metadata validation uses backend/document/src/metadataGating.ts (fields retrieved from DB)
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
   try {
-    const { httpMethod, resource, pathParameters } = event;
+    const { httpMethod, resource } = event;
 
-    // Route by HTTP method + resource path
     if (resource === '/v1/documents' && httpMethod === 'GET') {
-      return handleListDocuments(event);
+      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
     }
     if (resource === '/v1/documents' && httpMethod === 'POST') {
-      return handleCreateDocument(event);
+      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
     }
     if (resource === '/v1/documents/{documentId}' && httpMethod === 'GET') {
-      return handleGetDocument(event);
+      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
     }
     if (resource === '/v1/documents/{documentId}' && httpMethod === 'DELETE') {
-      return handleDeleteDocument(event);
+      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
     }
     if (resource === '/v1/documents/{documentId}/drafts' && httpMethod === 'POST') {
-      return handleSubmitDraft(event);
+      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
     }
     if (resource === '/v1/uploads/presign' && httpMethod === 'POST') {
-      return handleGetUploadUrl(event);
+      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
     }
 
     return {
@@ -40,27 +45,3 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     };
   }
 };
-
-async function handleListDocuments(event: any): Promise<APIGatewayProxyResult> {
-  return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
-}
-
-async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> {
-  return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
-}
-
-async function handleGetDocument(event: any): Promise<APIGatewayProxyResult> {
-  return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
-}
-
-async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> {
-  return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
-}
-
-async function handleSubmitDraft(event: any): Promise<APIGatewayProxyResult> {
-  return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
-}
-
-async function handleGetUploadUrl(event: any): Promise<APIGatewayProxyResult> {
-  return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
-}

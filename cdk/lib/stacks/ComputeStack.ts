@@ -264,14 +264,14 @@ export class ComputeStack extends Stack {
       functionName: `${config.stackPrefix}-diff-anchor-progress`,
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: "handler.handler",
-      code: lambda.Code.fromAsset("lambda/diff-anchor-progress"),
+      code: lambda.Code.fromAsset(path.join(__dirname, "../../lambda/diff-anchor-progress")),
       memorySize: 512,
       timeout: Duration.seconds(60),
       vpc,
       vpcSubnets: privateSubnets,
       environment: {
-        DATABASE_PROXY_ENDPOINT: props.databaseProxyEndpoint,
-        DATABASE_SECRET_ARN: props.databaseSecretArn,
+        DB_PROXY_HOST: props.databaseProxyEndpoint,
+        DB_SECRET_ARN: props.databaseSecretArn,
       },
     });
 

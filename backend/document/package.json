@@ -13,6 +13,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.515.0",
+    "@aws-sdk/s3-request-presigner": "^3.515.0",
+    "@wren/auth": "*",
     "@wren/db-node": "*",
     "@wren/types": "*",
     "@llamaindex/liteparse": "2.4.1",
