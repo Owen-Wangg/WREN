@@ -1,142 +1,132 @@
+/**
+ * System Admin (TechnicalAdmin) API — unified `/v1/*` routes via shared HttpClient.
+ *
+ * All calls route through `apiClient` with Cognito auth + Zod validation at boundary.
+ * Responses validated against `@wren/types` schemas (frontend steering §7).
+ */
 import { z } from 'zod';
-
+import { departmentSchema, userSummarySchema } from '@wren/types';
 import { apiClient } from '@/services';
 
+/* -------------------------------------------------------------------------- */
+/* Analytics — platform-wide aggregates */
+/* -------------------------------------------------------------------------- */
+
 const analyticsSchema = z.object({
-  totalDepartments: z.number(),
-  totalUsers: z.number(),
-  totalDocuments: z.number(),
-  usageOverTime: z.array(
-    z.object({ date: z.string(), activeUsers: z.number() })
+  totals: z.array(
+    z.object({
+      scopeKind: z.enum(['platform', 'documentType']),
+      scopeId: z.string().nullable().optional(),
+      metric: z.string(),
+      value: z.number(),
+    }),
   ),
-  documentsByDepartment: z.array(
-    z.object({ name: z.string(), count: z.number() })
-  ),
-  usersByDepartment: z.array(
-    z.object({ name: z.string(), value: z.number() })
-  ),
-  modelUsage: z.array(z.object({ name: z.string(), requests: z.number() })),
 });
 
-const modelConfigResponseSchema = z.object({
-  modelIdentifier: z.string(),
-  temperature: z.number(),
-  maxTokens: z.number(),
+export async function getAnalytics() {
+  return apiClient.request('/v1/analytics', { schema: analyticsSchema });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Departments — platform-wide management (TechAdmin only) */
+/* -------------------------------------------------------------------------- */
+
+export async function listDepartments() {
+  return apiClient.request('/v1/departments', { schema: z.array(departmentSchema) });
+}
+
+export async function getDepartment(departmentId: string) {
+  return apiClient.request(`/v1/departments/${departmentId}`, { schema: departmentSchema });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Users — platform-wide search (TechAdmin only) */
+/* -------------------------------------------------------------------------- */
+
+const usersSearchSchema = z.object({
+  items: z.array(userSummarySchema),
+  total: z.number().int().nonnegative(),
 });
 
-const availableModelSchema = z.array(
-  z.object({ id: z.string(), name: z.string() })
-);
+export async function searchAllUsers(options?: {
+  q?: string;
+  role?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const params = new URLSearchParams();
+  if (options?.q) params.append('q', options.q);
+  if (options?.role) params.append('role', options.role);
+  if (options?.limit) params.append('limit', String(options.limit));
+  if (options?.offset) params.append('offset', String(options.offset));
 
-const usageLimitsSchema = z.object({
-  messageLimit: z.number(),
-  debriefGenerationLimit: z.number(),
-  documentUploadLimit: z.number(),
-  draftsPerDocumentLimit: z.number(),
+  const queryString = params.toString();
+  const path = queryString ? `/v1/users?${queryString}` : '/v1/users';
+
+  return apiClient.request(path, { schema: usersSearchSchema });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Usage & Overrides — platform-wide limits */
+/* -------------------------------------------------------------------------- */
+
+const usageReportSchema = z.object({
+  limit: z.number().int().nonnegative(),
+  consumed: z.number().int().nonnegative(),
+  remaining: z.number().int().nonnegative(),
 });
 
-const departmentSchema = z.array(
-  z.object({
-    id: z.string(),
-    name: z.string(),
-    accessState: z.string(),
-    userCount: z.number(),
-  })
-);
+export async function getUsageReport(scope: 'platform' | string, periodStart?: string) {
+  const params = new URLSearchParams();
+  params.append('scope', scope);
+  if (periodStart) params.append('periodStart', periodStart);
+  return apiClient.request(`/v1/usage?${params}`, { schema: usageReportSchema });
+}
 
-const userSchema = z.array(
-  z.object({
-    id: z.string(),
-    firstName: z.string(),
-    lastName: z.string(),
-    email: z.string(),
-    role: z.string(),
-  })
-);
+const overrideSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  documentTypeId: z.string(),
+  bounds: z.object({
+    additionalActions: z.number().int().nonnegative(),
+  }),
+  reason: z.string(),
+  grantedBy: z.string(),
+  expiresAt: z.string().datetime(),
+});
 
-export const systemAdminApi = {
-  // Analytics
-  getAnalytics: async () =>
-    apiClient.request('/api/system-admin/analytics', {
-      schema: analyticsSchema,
-    }),
+export async function grantUsageOverride(input: {
+  userId: string;
+  documentTypeId: string;
+  bounds: { additionalActions: number };
+  reason: string;
+  expiresAt: string;
+}) {
+  return apiClient.request('/v1/overrides', {
+    method: 'POST',
+    body: input,
+    schema: overrideSchema,
+  });
+}
 
-  // Model Configuration (System-wide)
-  getModelConfig: async () =>
-    apiClient.request('/api/system-admin/model-config', {
-      schema: modelConfigResponseSchema,
-    }),
+/* -------------------------------------------------------------------------- */
+/* Roles — platform-wide role assignment (TechAdmin only) */
+/* -------------------------------------------------------------------------- */
 
-  updateModelConfig: async (config: {
-    modelIdentifier: string;
-    temperature: number;
-    maxTokens: number;
-  }) =>
-    apiClient.request('/api/system-admin/model-config', {
-      method: 'PUT',
-      body: config,
-      schema: modelConfigResponseSchema,
-    }),
+const roleAssignmentSchema = z.object({
+  userId: z.string(),
+  role: z.enum(['Student', 'DepartmentAdmin', 'TechnicalAdmin']),
+  administeredDepartmentIds: z.array(z.string()).optional(),
+});
 
-  getAvailableModels: async () =>
-    apiClient.request('/api/system-admin/available-models', {
-      schema: availableModelSchema,
-    }),
-
-  // Usage Limits (System-wide)
-  getUsageLimits: async () =>
-    apiClient.request('/api/system-admin/usage-limits', {
-      schema: usageLimitsSchema,
-    }),
-
-  updateUsageLimits: async (limits: {
-    messageLimit: number;
-    debriefGenerationLimit: number;
-    documentUploadLimit: number;
-    draftsPerDocumentLimit: number;
-  }) =>
-    apiClient.request('/api/system-admin/usage-limits', {
-      method: 'PUT',
-      body: limits,
-      schema: usageLimitsSchema,
-    }),
-
-  // Departments
-  getDepartments: async () =>
-    apiClient.request('/api/system-admin/departments', {
-      schema: departmentSchema,
-    }),
-
-  createDepartment: async (data: {
-    name: string;
-    description?: string;
-  }) =>
-    apiClient.request('/api/system-admin/departments', {
-      method: 'POST',
-      body: data,
-      schema: departmentSchema,
-    }),
-
-  // Users
-  getUsers: async (_params?: {
-    role?: string;
-    department?: string;
-    page?: number;
-  }) =>
-    apiClient.request('/api/system-admin/users', {
-      schema: userSchema,
-    }),
-
-  updateUser: async (userId: string, data: any) =>
-    apiClient.request(`/api/system-admin/users/${userId}`, {
-      method: 'PUT',
-      body: data,
-      schema: userSchema,
-    }),
-
-  deleteUser: async (userId: string) =>
-    apiClient.request(`/api/system-admin/users/${userId}`, {
-      method: 'DELETE',
-      schema: z.object({ success: z.boolean() }),
-    }),
-};
+export async function assignRole(input: {
+  userId: string;
+  role: 'Student' | 'DepartmentAdmin' | 'TechnicalAdmin';
+  administeredDepartmentIds?: string[];
+}) {
+  return apiClient.request('/v1/roles', {
+    method: 'POST',
+    body: input,
+    schema: roleAssignmentSchema,
+  });
+}

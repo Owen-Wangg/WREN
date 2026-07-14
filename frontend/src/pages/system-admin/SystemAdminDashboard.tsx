@@ -1,56 +1,26 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Trash2, ChevronDown } from 'lucide-react';
 
-import { systemAdminApi } from '@/features/system-admin/systemAdminApi';
+import { listDepartments, getAnalytics } from '@/features/system-admin/systemAdminApi';
 import { ModelConfigurationForm } from '@/features/system-admin/components/ModelConfigurationForm';
 import { SystemUsageLimitsForm } from '@/features/system-admin/components/SystemUsageLimitsForm';
 
 export function SystemAdminDashboard() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterState, setFilterState] = useState('All');
   const [expandedSection, setExpandedSection] = useState<'model' | 'limits' | null>(null);
 
   const { data: departments = [], isLoading } = useQuery({
     queryKey: ['system-departments'],
-    queryFn: () => systemAdminApi.getDepartments(),
+    queryFn: () => listDepartments(),
   });
 
-  const { data: modelConfig, isLoading: modelLoading } = useQuery({
-    queryKey: ['system-model-config'],
-    queryFn: () => systemAdminApi.getModelConfig(),
-  });
-
-  const { data: usageLimits, isLoading: limitsLoading } = useQuery({
-    queryKey: ['system-usage-limits'],
-    queryFn: () => systemAdminApi.getUsageLimits(),
-  });
-
-  const updateModelConfigMutation = useMutation<
-    any,
-    Error,
-    { modelIdentifier: string; temperature: number; maxTokens: number }
-  >({
-    mutationFn: (config) => systemAdminApi.updateModelConfig(config),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['system-model-config'] });
-      setExpandedSection(null);
-    },
-  });
-
-  const updateUsageLimitsMutation = useMutation<
-    any,
-    Error,
-    { messageLimit: number; debriefGenerationLimit: number; documentUploadLimit: number; draftsPerDocumentLimit: number }
-  >({
-    mutationFn: (limits) => systemAdminApi.updateUsageLimits(limits),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['system-usage-limits'] });
-      setExpandedSection(null);
-    },
+  const { data: analytics, isLoading: analyticsLoading } = useQuery({
+    queryKey: ['system-analytics'],
+    queryFn: () => getAnalytics(),
   });
 
   if (isLoading) {

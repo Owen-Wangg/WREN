@@ -161,6 +161,8 @@ if (github.owner && github.repo) {
     repositoryName: github.repo,
     githubTokenSecretName: `/${config.stackPrefix}/github/token`,
     apiEndpoint: apiStack.apiEndpoint,
+    cognitoUserPoolId: cognitoStack.userPoolId,
+    cognitoClientId: cognitoStack.userPoolClientId,
   });
 } else {
   // eslint-disable-next-line no-console

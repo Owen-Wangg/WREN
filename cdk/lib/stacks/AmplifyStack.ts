@@ -18,6 +18,10 @@ export interface AmplifyStackProps extends StackProps {
   readonly githubTokenSecretName: string;
   /** The API endpoint URL for the frontend to connect to. */
   readonly apiEndpoint: string;
+  /** Cognito User Pool ID. */
+  readonly cognitoUserPoolId: string;
+  /** Cognito User Pool Client ID. */
+  readonly cognitoClientId: string;
 }
 
 /**
@@ -77,8 +81,15 @@ export class AmplifyStack extends Stack {
         ],
       }),
       environmentVariables: {
-        VITE_API_ENDPOINT: props.apiEndpoint,
+        // Frontend config (frontend/src/config/env.ts reads these)
+        VITE_API_BASE_URL: props.apiEndpoint,
         VITE_APP_NAME: config.appName,
+        VITE_ENVIRONMENT: config.environmentName,
+        VITE_USE_LIVE_API: "true",
+        VITE_COGNITO_USER_POOL_ID: props.cognitoUserPoolId,
+        VITE_COGNITO_CLIENT_ID: props.cognitoClientId,
+        VITE_AWS_REGION: config.env.region || "ca-central-1",
+        // Build config
         NODE_VERSION: "22",
       },
     });
