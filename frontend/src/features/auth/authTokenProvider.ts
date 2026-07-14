@@ -4,7 +4,7 @@
  * Connects AuthContext to the shared ApiClient so JWT tokens are
  * automatically injected into the Authorization header on every API call.
  */
-import { getCognitoAuthService } from './cognitoAuthService';
+import { authService } from './defaultAuthService';
 import type { AuthTokenProvider } from '@/services/apiClient';
 
 /**
@@ -12,8 +12,6 @@ import type { AuthTokenProvider } from '@/services/apiClient';
  * Used by ApiClient to inject Bearer tokens into requests.
  */
 export function createAuthTokenProvider(): AuthTokenProvider {
-  const authService = getCognitoAuthService();
-
   return async () => {
     try {
       const token = await authService.getAccessToken();

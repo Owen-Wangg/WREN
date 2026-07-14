@@ -14,7 +14,7 @@
  * 6. Every API call re-checks database permissions
  */
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { getCognitoAuthService } from './cognitoAuthService';
+import { authService } from './defaultAuthService';
 import type { AuthSession } from './authService';
 
 export interface AuthUser {
@@ -49,7 +49,6 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
-  const authService = getCognitoAuthService();
 
   // Restore session and fetch user from DATABASE on mount
   useEffect(() => {

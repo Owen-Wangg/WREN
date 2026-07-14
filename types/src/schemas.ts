@@ -321,6 +321,32 @@ export const documentSchema = z
   .strict();
 export type Document = z.infer<typeof documentSchema>;
 
+/**
+ * Input to create a Document from a file upload or pasted text. `source.kind`
+ * distinguishes an S3-uploaded file (`key`) from pasted text (`text`).
+ * `contentTypeId` is optional at creation; `metadata` carries any
+ * DepartmentAdmin-defined custom field values captured at submission.
+ */
+export const createDocumentSourceSchema = z
+  .object({
+    kind: z.enum(['file', 'paste']),
+    text: z.string().optional(),
+    key: z.string().optional(),
+  })
+  .strict();
+export type CreateDocumentSource = z.infer<typeof createDocumentSourceSchema>;
+
+export const createDocumentInputSchema = z
+  .object({
+    documentTypeId: idSchema,
+    contentTypeId: idSchema.optional(),
+    name: z.string().min(1),
+    metadata: z.record(z.string(), z.string()).default({}),
+    source: createDocumentSourceSchema,
+  })
+  .strict();
+export type CreateDocumentInput = z.infer<typeof createDocumentInputSchema>;
+
 /* -------------------------------------------------------------------------- */
 /* Draft (Requirement 8 — immutable, monotonically versioned)                  */
 /* -------------------------------------------------------------------------- */

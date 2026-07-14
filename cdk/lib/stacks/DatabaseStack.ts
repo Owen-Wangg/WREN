@@ -22,6 +22,10 @@ export interface DatabaseStackProps extends StackProps {
  */
 export class DatabaseStack extends Stack {
   public readonly database: DatabaseResources;
+  /** RDS Proxy endpoint hostname — passed to the Compute stack for Lambda DB access. */
+  public readonly proxyEndpoint: string;
+  /** ARN of the Secrets Manager secret holding DB admin credentials. */
+  public readonly databaseSecretArn: string;
 
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
@@ -30,6 +34,9 @@ export class DatabaseStack extends Stack {
       config: props.config,
       vpc: props.vpc,
     });
+
+    this.proxyEndpoint = this.database.proxy.endpoint;
+    this.databaseSecretArn = this.database.credentialsSecret.secretArn;
 
     new StringParameter(this, "ProxyEndpointParameter", {
       parameterName: ssmParameterNames.databaseProxyEndpoint(props.config),

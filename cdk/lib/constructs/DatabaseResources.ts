@@ -3,6 +3,7 @@ import {
   InstanceClass,
   InstanceSize,
   InstanceType,
+  Peer,
   Port,
   SecurityGroup,
   SubnetType,
@@ -138,6 +139,16 @@ export class DatabaseResources extends Construct {
       this.proxySecurityGroup,
       Port.tcp(5432),
       "Allow RDS Proxy to reach PostgreSQL",
+    );
+
+    // Allow in-VPC compute (the service Lambdas run in private subnets) to
+    // reach the proxy over TLS PostgreSQL. Scoped to the VPC CIDR so no
+    // cross-stack security-group reference (and thus no circular stack
+    // dependency) is introduced between Database and Compute.
+    this.proxySecurityGroup.addIngressRule(
+      Peer.ipv4(this.props.vpc.vpcCidrBlock),
+      Port.tcp(5432),
+      "Allow in-VPC Lambdas to reach the RDS Proxy",
     );
 
     return proxy;

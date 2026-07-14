@@ -72,27 +72,24 @@ export class ApiStack extends Stack {
       cloudWatchRole: true,
     });
 
-    // Grant API Gateway permission to invoke the authorizer Lambda.
-    const authorizerFunction = lambda.Function.fromFunctionArn(
-      this,
-      "AuthorizerFn",
-      props.authorizerFunctionArn,
-    );
-    authorizerFunction.addPermission("ApiGatewayInvoke", {
-      principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
-      sourceArn: this.api.arnForExecuteApi(),
-    });
-
-    // Grant API Gateway permission to invoke each service Lambda.
-    const serviceFunctions = [
+    // Grant API Gateway permission to invoke each Lambda. The functions live in
+    // the Compute stack, so they are imported by ARN here — but with
+    // `sameEnvironment: true` so CDK knows they share this stack's account/region
+    // and actually emits the `AWS::Lambda::Permission` (a bare `fromFunctionArn`
+    // silently no-ops `addPermission()` across token-ARN boundaries).
+    const invokableFunctions = [
+      { id: "AuthorizerFn", arn: props.authorizerFunctionArn },
       { id: "DocumentFn", arn: props.documentFunctionArn },
       { id: "FeedbackFn", arn: props.feedbackFunctionArn },
       { id: "AdminFn", arn: props.adminFunctionArn },
       { id: "AuditFn", arn: props.auditFunctionArn },
     ];
 
-    for (const svc of serviceFunctions) {
-      const fn = lambda.Function.fromFunctionArn(this, svc.id, svc.arn);
+    for (const svc of invokableFunctions) {
+      const fn = lambda.Function.fromFunctionAttributes(this, svc.id, {
+        functionArn: svc.arn,
+        sameEnvironment: true,
+      });
       fn.addPermission(`${svc.id}-ApiGatewayInvoke`, {
         principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
         sourceArn: this.api.arnForExecuteApi(),
