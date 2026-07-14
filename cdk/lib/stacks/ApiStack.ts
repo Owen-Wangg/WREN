@@ -1,4 +1,6 @@
+import * as fs from "fs";
 import * as path from "path";
+import YAML from "js-yaml";
 import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -49,16 +51,50 @@ export class ApiStack extends Stack {
 
     const { config } = props;
 
-    // The OpenAPI spec references these Lambda ARNs via Fn::Sub variables.
-    // SpecRestApi passes them through as CloudFormation parameters that get
-    // substituted into the spec at deploy time.
+    // Read the OpenAPI spec and load it as an object. The spec contains
+    // Fn::Sub references (CloudFormation intrinsics) which SpecRestApi will
+    // handle correctly via JSON representation.
+    const specPath = path.join(__dirname, "..", "openapi.yaml");
+    const rawSpec = fs.readFileSync(specPath, "utf8");
+
+    // Parse YAML to JSON object. Fn::Sub inside YAML becomes a regular JSON string
+    // that CDK/CloudFormation will process correctly.
+    const specObject = YAML.load(rawSpec) as Record<string, any>;
+
+    // Inject the Lambda ARNs into the spec's integration paths by walking the
+    // paths and replacing the placeholder tokens.
+    function injectLambdaArns(obj: any, arns: Record<string, string>): void {
+      if (typeof obj !== "object" || obj === null) return;
+      if (Array.isArray(obj)) {
+        obj.forEach((item) => injectLambdaArns(item, arns));
+      } else {
+        for (const [key, value] of Object.entries(obj)) {
+          if (typeof value === "string") {
+            // Replace Lambda ARN placeholders with actual ARNs
+            let replaced = value as string;
+            replaced = replaced.replace(/\$\{AuthorizerFunctionArn\}/g, arns.AuthorizerFunctionArn);
+            replaced = replaced.replace(/\$\{DocumentFunctionArn\}/g, arns.DocumentFunctionArn);
+            replaced = replaced.replace(/\$\{FeedbackFunctionArn\}/g, arns.FeedbackFunctionArn);
+            replaced = replaced.replace(/\$\{AdminFunctionArn\}/g, arns.AdminFunctionArn);
+            replaced = replaced.replace(/\$\{AuditFunctionArn\}/g, arns.AuditFunctionArn);
+            obj[key] = replaced;
+          } else {
+            injectLambdaArns(value, arns);
+          }
+        }
+      }
+    }
+
+    injectLambdaArns(specObject, {
+      AuthorizerFunctionArn: props.authorizerFunctionArn,
+      DocumentFunctionArn: props.documentFunctionArn,
+      FeedbackFunctionArn: props.feedbackFunctionArn,
+      AdminFunctionArn: props.adminFunctionArn,
+      AuditFunctionArn: props.auditFunctionArn,
+    });
+
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
-      apiDefinition: apigateway.ApiDefinition.fromAsset(
-        path.join(__dirname, "..", "openapi.yaml"),
-        // {
-        //   // Variables are injected via Fn::Sub in the spec
-        // },
-      ),
+      apiDefinition: apigateway.ApiDefinition.fromInline(specObject),
       restApiName: `${config.stackPrefix}-api`,
       endpointTypes: [apigateway.EndpointType.REGIONAL],
       deployOptions: {

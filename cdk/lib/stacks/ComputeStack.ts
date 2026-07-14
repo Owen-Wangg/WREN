@@ -26,6 +26,10 @@ export interface ComputeStackProps extends StackProps {
   readonly referenceBucketName: string;
   /** DynamoDB conversation table name. */
   readonly conversationTableName: string;
+  /** Cognito User Pool ID (from Cognito stack). */
+  readonly userPoolId: string;
+  /** Cognito User Pool Client ID (from Cognito stack). */
+  readonly userPoolClientId: string;
 }
 
 /**
@@ -68,9 +72,10 @@ export class ComputeStack extends Stack {
     });
 
     // Shared environment variables for Node Lambdas that access the DB.
+    // Note: @wren/db-node reads DB_SECRET_ARN and DB_PROXY_HOST, not DATABASE_*.
     const dbEnv = {
-      DATABASE_PROXY_ENDPOINT: props.databaseProxyEndpoint,
-      DATABASE_SECRET_ARN: props.databaseSecretArn,
+      DB_PROXY_HOST: props.databaseProxyEndpoint,
+      DB_SECRET_ARN: props.databaseSecretArn,
       NODE_OPTIONS: "--enable-source-maps",
     };
 
@@ -88,8 +93,8 @@ export class ComputeStack extends Stack {
       vpcSubnets: privateSubnets,
       environment: {
         ...dbEnv,
-        COGNITO_USER_POOL_ID: `/${config.stackPrefix}/auth/user-pool-id`,
-        COGNITO_CLIENT_ID: `/${config.stackPrefix}/auth/client-id`,
+        COGNITO_USER_POOL_ID: props.userPoolId,
+        COGNITO_CLIENT_ID: props.userPoolClientId,
       },
     });
 

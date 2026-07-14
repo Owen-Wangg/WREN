@@ -191,6 +191,10 @@ export const ssmParameterNames = {
   /** Name of the DynamoDB conversation/session-state table. */
   conversationTableName: (config: AppConfig): string =>
     `/${config.stackPrefix}/storage/conversation-table-name`,
+  /** Cognito User Pool ID published by the `Cognito` stack. */
+  userPoolId: (config: AppConfig): string => `/${config.stackPrefix}/auth/user-pool-id`,
+  /** Cognito User Pool Client ID published by the `Cognito` stack. */
+  userPoolClientId: (config: AppConfig): string => `/${config.stackPrefix}/auth/client-id`,
 } as const;
 
 /**

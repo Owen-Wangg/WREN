@@ -1,7 +1,14 @@
 /**
  * Cognito-backed implementation of AuthService.
- * Uses token storage and refresh logic for persistent authentication.
+ * Uses amazon-cognito-identity-js SDK for direct Cognito authentication.
+ * Tokens are cached in memory across the app lifetime.
  */
+import {
+  CognitoUserPool,
+  CognitoUser,
+  AuthenticationDetails,
+  CognitoUserAttribute,
+} from 'amazon-cognito-identity-js';
 import { appConfig } from '@/config/env';
 import { AuthError } from './authService';
 import type {
@@ -14,116 +21,127 @@ import type {
 } from './authService';
 
 export class CognitoAuthService implements AuthService {
+  private userPool: CognitoUserPool;
+  private currentUser: CognitoUser | null = null;
+
   constructor() {
     if (!appConfig.cognito.userPoolId || !appConfig.cognito.clientId) {
       throw new Error(
         'Cognito not configured: VITE_COGNITO_USER_POOL_ID and VITE_COGNITO_CLIENT_ID required',
       );
     }
+
+    this.userPool = new CognitoUserPool({
+      UserPoolId: appConfig.cognito.userPoolId,
+      ClientId: appConfig.cognito.clientId,
+    });
+
+    // Restore current user from Cognito's internal storage
+    this.currentUser = this.userPool.getCurrentUser();
   }
 
   async signIn(credentials: SignInCredentials): Promise<AuthSession> {
-    try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/v1/auth/signin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials),
+    return new Promise((resolve, reject) => {
+      const user = new CognitoUser({
+        Username: credentials.email,
+        Pool: this.userPool,
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        const kind: AuthErrorKind =
-          response.status === 401 ? 'invalid_credentials' : 'unknown';
-        throw new AuthError(`Sign in failed: ${error.message}`, kind, error);
-      }
+      const authDetails = new AuthenticationDetails({
+        Username: credentials.email,
+        Password: credentials.password,
+      });
 
-      const session: AuthSession = await response.json();
-      this.persistSession(session);
-      return session;
-    } catch (error) {
-      if (error instanceof AuthError) throw error;
-      throw new AuthError('Sign in failed', 'network', error);
-    }
+      user.authenticateUser(authDetails, {
+        onSuccess: (session) => {
+          this.currentUser = user;
+          const tokens = this.extractSessionFromCognitoSession(session);
+          this.persistSession(tokens);
+          resolve(tokens);
+        },
+        onFailure: (error) => {
+          const kind: AuthErrorKind =
+            error.code === 'NotAuthorizedException' ||
+            error.code === 'UserNotFoundException'
+              ? 'invalid_credentials'
+              : 'unknown';
+          reject(new AuthError(`Sign in failed: ${error.message}`, kind, error));
+        },
+      });
+    });
   }
 
   async signUp(input: SignUpInput): Promise<SignUpResult> {
-    try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/v1/auth/signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
+    return new Promise((resolve, reject) => {
+      const attributes = [
+        new CognitoUserAttribute({ Name: 'email', Value: input.email }),
+        new CognitoUserAttribute({ Name: 'given_name', Value: input.firstName }),
+        new CognitoUserAttribute({ Name: 'family_name', Value: input.lastName }),
+      ];
+
+      this.userPool.signUp(input.email, input.password, attributes, [], (error, result) => {
+        if (error) {
+          const kind: AuthErrorKind = error.code === 'UsernameExistsException' ? 'user_exists' : 'unknown';
+          reject(new AuthError(`Sign up failed: ${error.message}`, kind, error));
+          return;
+        }
+
+        if (!result) {
+          reject(new AuthError('Sign up failed: no result', 'unknown'));
+          return;
+        }
+
+        resolve({
+          userSub: result.userSub,
+          confirmationRequired: !result.userConfirmed,
+        });
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        const kind: AuthErrorKind =
-          response.status === 409 ? 'user_exists' : 'unknown';
-        throw new AuthError(`Sign up failed: ${error.message}`, kind, error);
-      }
-
-      const result: SignUpResult = await response.json();
-      return result;
-    } catch (error) {
-      if (error instanceof AuthError) throw error;
-      throw new AuthError('Sign up failed', 'network', error);
-    }
+    });
   }
 
   async getAccessToken(): Promise<string | null> {
-    const session = this.getPersistedSession();
-    if (!session) return null;
+    if (!this.currentUser) return null;
 
-    if (this.isTokenExpired(session.expiresAt)) {
-      return this.refreshAccessToken(session.refreshToken);
-    }
+    return new Promise((resolve) => {
+      this.currentUser!.getSession((error: any, session: any) => {
+        if (error) {
+          resolve(null);
+          return;
+        }
 
-    return session.accessToken;
+        if (!session.isValid()) {
+          resolve(null);
+          return;
+        }
+
+        resolve(session.getAccessToken().getJwtToken());
+      });
+    });
   }
 
   signOut(): void {
+    if (this.currentUser) {
+      this.currentUser.signOut();
+      this.currentUser = null;
+    }
     localStorage.removeItem('cognito_session');
+  }
+
+  private extractSessionFromCognitoSession(cognitoSession: any): AuthSession {
+    const accessToken = cognitoSession.getAccessToken().getJwtToken();
+    const idToken = cognitoSession.getIdToken().getJwtToken();
+    const refreshToken = cognitoSession.getRefreshToken()?.getToken();
+    const expiresAt = cognitoSession.getAccessToken().getExpiration() * 1000; // Cognito returns seconds
+    return {
+      accessToken,
+      idToken,
+      refreshToken: refreshToken || null,
+      expiresAt,
+    };
   }
 
   private persistSession(session: AuthSession): void {
     localStorage.setItem('cognito_session', JSON.stringify(session));
-  }
-
-  private getPersistedSession(): AuthSession | null {
-    const stored = localStorage.getItem('cognito_session');
-    if (!stored) return null;
-    try {
-      return JSON.parse(stored) as AuthSession;
-    } catch {
-      return null;
-    }
-  }
-
-  private isTokenExpired(expiresAt: number): boolean {
-    return Date.now() > expiresAt;
-  }
-
-  private async refreshAccessToken(refreshToken: string | null): Promise<string | null> {
-    if (!refreshToken) return null;
-
-    try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/v1/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-
-      if (!response.ok) {
-        this.signOut();
-        return null;
-      }
-
-      const session: AuthSession = await response.json();
-      this.persistSession(session);
-      return session.accessToken;
-    } catch {
-      this.signOut();
-      return null;
-    }
   }
 }
 

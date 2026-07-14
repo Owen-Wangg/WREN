@@ -258,9 +258,11 @@ components:
           minLength: 1
         metadata:
           type: object
+          description: >-
+            DepartmentAdmin-defined custom metadata field values
+            (e.g., {"Writing Topic": "Contracts"})
           additionalProperties:
             type: string
-          description: DepartmentAdmin-defined custom metadata field values (e.g., {"Writing Topic": "Contracts"})
         status:
           type: string
           enum: [Still Drafting, Polishing]
@@ -487,6 +489,47 @@ security:
 # Paths
 # --------------------------------------------------------------------------
 paths:
+  # ==================== Auth ====================
+  /v1/auth/me:
+    get:
+      summary: Get the authenticated user's identity and DB-backed roles
+      tags: [Auth]
+      operationId: getMe
+      responses:
+        "200":
+          description: Current user with roles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [userId, email, roles, administeredDepartmentIds]
+                properties:
+                  userId:
+                    type: string
+                    description: Global user identifier (from app database)
+                  email:
+                    type: string
+                    format: email
+                    description: User email address
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                      enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                    description: Array of roles assigned to this user
+                  administeredDepartmentIds:
+                    type: array
+                    items:
+                      type: string
+                    description: Department IDs administered by this user (if DepartmentAdmin)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
   # ==================== Documents & Drafts ====================
   /v1/documents:
     get:

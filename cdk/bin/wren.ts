@@ -4,6 +4,7 @@ import { resolveAppConfig, stackName } from "../lib/config.js";
 import { applyStandardTags } from "../lib/tags.js";
 import { ConfigStack } from "../lib/stacks/ConfigStack.js";
 import { VpcStack } from "../lib/stacks/VpcStack.js";
+import { CognitoStack } from "../lib/stacks/CognitoStack.js";
 import { DatabaseStack } from "../lib/stacks/DatabaseStack.js";
 import { StorageStack } from "../lib/stacks/StorageStack.js";
 import { ApiStack } from "../lib/stacks/ApiStack.js";
@@ -87,8 +88,13 @@ const storageStack = new StorageStack(app, stackName(config, "Storage"), {
   config,
 });
 
-// Compute stack - Lambda functions (depends on VPC, Database, Storage)
-// Note: For now we create with minimal props; full props would come from Database/Storage stacks
+// Cognito stack - User authentication
+const cognitoStack = new CognitoStack(app, stackName(config, "Cognito"), {
+  env: config.env,
+  config,
+});
+
+// Compute stack - Lambda functions (depends on VPC, Database, Storage, Cognito)
 const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   env: config.env,
   config,
@@ -98,6 +104,8 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   documentsBucketName: storageStack.documentsBucketName,
   referenceBucketName: storageStack.referenceBucketName,
   conversationTableName: storageStack.conversationTableName,
+  userPoolId: cognitoStack.userPoolId,
+  userPoolClientId: cognitoStack.userPoolClientId,
 });
 
 // API Gateway stack (depends on Compute for Lambda function ARNs).
