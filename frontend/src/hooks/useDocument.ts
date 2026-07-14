@@ -14,8 +14,6 @@ import {
   submitDraft,
   getPresignedUrl,
   type CreateDocumentInput,
-  type Document,
-  type Draft,
 } from '@/services/api/documentApi';
 import { useApiClient } from '@/services/apiClient';
 
@@ -107,7 +105,7 @@ export function useSubmitDraft() {
         key?: string;
       };
     }) => submitDraft(client, documentId, source),
-    onSuccess: (data, { documentId }) => {
+    onSuccess: (_data, { documentId }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.drafts(documentId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.feedback(documentId) });
       queryClient.setQueryData(queryKeys.feedbackStatus(documentId), {

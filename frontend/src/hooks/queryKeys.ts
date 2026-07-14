@@ -72,9 +72,6 @@ export const queryKeys = {
   /** Organization groupings (id + effective access state) for INHERIT resolution (task 19.1). */
   organizations: () => [ns, 'organizations'] as const,
 
-  /** The current user's Access Grants, used to resolve submission permission for LOCKED types (task 19.1). */
-  accessGrants: () => [ns, 'access-grants'] as const,
-
   /**
    * The Writing Types a Field Expert is assigned to (task 19.2; Requirement
    * 23.4). A Field Expert may be assigned several, across organizations; the

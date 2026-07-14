@@ -76,4 +76,8 @@ export class AuthError extends Error {
 export interface AuthService {
   signIn(credentials: SignInCredentials): Promise<AuthSession>;
   signUp(input: SignUpInput): Promise<SignUpResult>;
+  /** Clears any persisted session (idempotent). */
+  signOut(): void;
+  /** Resolves the current access token (refreshing if needed), or `null`. */
+  getAccessToken(): Promise<string | null>;
 }

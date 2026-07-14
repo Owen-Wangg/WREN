@@ -11,6 +11,7 @@
  *    (frontend steering §7) so malformed payloads fail safely instead of
  *    rendering broken UI.
  */
+import { createContext, useContext } from 'react';
 import type { ZodType } from 'zod';
 
 /** Resolves the current Cognito access/ID token, or `null` when unauthenticated. */
@@ -26,8 +27,12 @@ export interface RequestOptions<T> {
   readonly method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /** JSON-serializable request body. */
   readonly body?: unknown;
-  /** Zod schema used to validate the response body at the boundary. */
-  readonly schema: ZodType<T>;
+  /**
+   * Zod schema used to validate the response body at the boundary. Optional for
+   * requests that return no meaningful body (e.g. `DELETE`); when omitted the
+   * raw response is returned unvalidated as `T`.
+   */
+  readonly schema?: ZodType<T>;
   readonly signal?: AbortSignal;
   readonly headers?: Record<string, string>;
 }
@@ -98,6 +103,9 @@ export class ApiClient implements HttpClient {
     }
 
     const raw = await safeReadJson(response);
+    if (!schema) {
+      return raw as T;
+    }
     const result = schema.safeParse(raw);
     if (!result.success) {
       throw new ApiError(
@@ -121,4 +129,26 @@ async function safeReadJson(response: Response): Promise<unknown> {
   } catch {
     return text;
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* React context: injects the shared HttpClient into hooks/components.          */
+/*                                                                            */
+/* Every data hook resolves its client via {@link useApiClient} so tests can   */
+/* inject a MockApiClient through {@link ApiClientProvider} without touching    */
+/* the global singleton (frontend steering §11: one shared client wrapper).     */
+/* -------------------------------------------------------------------------- */
+
+const ApiClientContext = createContext<HttpClient | null>(null);
+
+/** Provides the {@link HttpClient} instance to the React tree. */
+export const ApiClientProvider = ApiClientContext.Provider;
+
+/** Resolves the {@link HttpClient} from context; throws if no provider is mounted. */
+export function useApiClient(): HttpClient {
+  const client = useContext(ApiClientContext);
+  if (!client) {
+    throw new Error('useApiClient must be used within an <ApiClientProvider>');
+  }
+  return client;
 }

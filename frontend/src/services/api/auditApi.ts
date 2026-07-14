@@ -169,7 +169,7 @@ export async function listActivityLog(
     limit?: number;
     offset?: number;
   },
-): Promise<(typeof activityEventSchema)._type[]> {
+): Promise<z.infer<typeof activityEventSchema>[]> {
   const params = new URLSearchParams();
   if (options?.verb) params.append('verb', options.verb);
   if (options?.actor) params.append('actor', options.actor);
@@ -197,7 +197,7 @@ export async function getDepartmentAggregateAnalytics(
   client: HttpClient,
   departmentId: string,
   documentTypeId?: string,
-): Promise<(typeof aggregateAnalyticsSchema)._type[]> {
+): Promise<z.infer<typeof aggregateAnalyticsSchema>[]> {
   const params = documentTypeId ? `?documentTypeId=${documentTypeId}` : '';
   return client.request(
     `/v1/departments/${departmentId}/analytics/aggregates${params}`,
@@ -213,7 +213,7 @@ export async function getDepartmentAggregateAnalytics(
 export async function getPlatformAggregateAnalytics(
   client: HttpClient,
   documentTypeId?: string,
-): Promise<(typeof aggregateAnalyticsSchema)._type[]> {
+): Promise<z.infer<typeof aggregateAnalyticsSchema>[]> {
   const params = documentTypeId ? `?documentTypeId=${documentTypeId}` : '';
   return client.request(
     `/v1/admin/analytics/aggregates${params}`,

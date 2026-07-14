@@ -11,7 +11,7 @@ import { WritingTypeSelector } from './WritingTypeSelector';
 
 import type { ResolvedWritingType } from '../writingTypeAccess';
 
-import type { WritingType } from '@wren/types';
+import type { WritingType } from '../dashboardTypes';
 
 function makeWritingType(overrides: Partial<WritingType> = {}): WritingType {
   return {

@@ -7,7 +7,7 @@
  * 3. Fetch feedback once ready
  * 4. Display progress summary + inline feedback
  */
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useRequestFeedback, usePollFeedbackStatus, useGetFeedback } from './useFeedback';
 import type { FeedbackItem } from '@wren/types';
 
@@ -31,8 +31,6 @@ export function useFeedbackIntegration(documentId: string): FeedbackIntegrationS
   const requestFeedbackMutation = useRequestFeedback();
   const feedbackStatusQuery = usePollFeedbackStatus(documentId);
   const feedbackQuery = useGetFeedback(documentId);
-
-  const hasRequestedRef = useRef(false);
 
   // When feedback generation completes, refetch feedback
   useEffect(() => {
@@ -66,5 +64,5 @@ export async function requestFeedbackGeneration(
   mutation: ReturnType<typeof useRequestFeedback>,
   documentId: string,
 ): Promise<void> {
-  return mutation.mutateAsync(documentId);
+  await mutation.mutateAsync(documentId);
 }

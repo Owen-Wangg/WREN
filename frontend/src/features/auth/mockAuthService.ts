@@ -23,6 +23,7 @@ interface MockAccount {
 
 export class MockAuthService implements AuthService {
   private readonly accounts = new Map<string, MockAccount>();
+  private currentAccessToken: string | null = null;
 
   async signIn({ email, password }: SignInCredentials): Promise<AuthSession> {
     const account = this.accounts.get(email.toLowerCase());
@@ -34,9 +35,10 @@ export class MockAuthService implements AuthService {
     }
 
     const now = Date.now();
+    this.currentAccessToken = `mock-access-token.${account.userSub}`;
     return {
       idToken: `mock-id-token.${account.userSub}`,
-      accessToken: `mock-access-token.${account.userSub}`,
+      accessToken: this.currentAccessToken,
       refreshToken: `mock-refresh-token.${account.userSub}`,
       expiresAt: now + 60 * 60 * 1000,
     };
@@ -59,5 +61,13 @@ export class MockAuthService implements AuthService {
     });
 
     return { userSub, confirmationRequired: false };
+  }
+
+  signOut(): void {
+    this.currentAccessToken = null;
+  }
+
+  async getAccessToken(): Promise<string | null> {
+    return this.currentAccessToken;
   }
 }

@@ -2,7 +2,6 @@
  * Citation Display - Task 5.2
  * Shows citation source (title/section) for feedback items informed by reference materials
  */
-import React from 'react';
 
 export interface CitationDisplayProps {
   readonly citationReferenceId?: string;

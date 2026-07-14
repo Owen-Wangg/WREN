@@ -10,11 +10,9 @@
  */
 import type {
   AccessGrant,
-  AccessState,
   Anchor,
   Document,
   FeedbackItem,
-  WritingType,
 } from '@wren/types';
 
 import { ApiError, type HttpClient, type RequestOptions } from './apiClient';
@@ -22,8 +20,21 @@ import { ApiError, type HttpClient, type RequestOptions } from './apiClient';
 /** A registry of canned responses keyed by `"<METHOD> <path>"`. */
 export type MockRoutes = Record<string, unknown>;
 
+/**
+ * Local fixture shape for the legacy writing-type mock routes. These routes are
+ * data-only (served as `unknown` through {@link MockRoutes}); the canonical
+ * catalog entity is {@link import('@wren/types').DocumentType}.
+ */
+interface WritingTypeFixture {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly name: string;
+  readonly accessState: 'OPEN' | 'LOCKED';
+  readonly sizeLimitWords: number | null;
+}
+
 /** Illustrative fixtures shaped by the shared domain contract (`@wren/types`). */
-const sampleWritingTypes: WritingType[] = [];
+const sampleWritingTypes: WritingTypeFixture[] = [];
 
 interface ContentTypeFixture {
   readonly id: string;
@@ -60,7 +71,7 @@ const sampleDocuments: Document[] = [
   {
     id: 'doc-1',
     ownerUserId: 'user-1',
-    writingTypeId: 'wt-property-law',
+    documentTypeId: 'wt-property-law',
     contentTypeId: 'ct-memo',
     name: 'Drafting Lien On Property',
     metadata: { 'Organization': 'Law', 'Document Type': 'Memo', 'Date Added': '2026-06-18' },
@@ -70,7 +81,7 @@ const sampleDocuments: Document[] = [
   {
     id: 'doc-2',
     ownerUserId: 'user-1',
-    writingTypeId: 'wt-tort-law',
+    documentTypeId: 'wt-tort-law',
     contentTypeId: 'ct-factum',
     name: 'Tort Claim Proposal',
     metadata: { 'Organization': 'Law', 'Document Type': 'Factum', 'Date Added': '2026-06-18' },
@@ -80,7 +91,7 @@ const sampleDocuments: Document[] = [
   {
     id: 'doc-3',
     ownerUserId: 'user-1',
-    writingTypeId: 'wt-criminal-law',
+    documentTypeId: 'wt-criminal-law',
     contentTypeId: 'ct-memo',
     name: 'Appealing judgment',
     metadata: { 'Organization': 'Law', 'Document Type': 'Memo', 'Date Added': '2026-06-18' },
@@ -503,7 +514,7 @@ const sampleInlineFeedbackItems: FeedbackItem[] = [
 interface OrganizationAccessFixture {
   readonly id: string;
   readonly name: string;
-  readonly accessState: AccessState;
+  readonly accessState: 'OPEN' | 'LOCKED';
 }
 
 const sampleOrganizations: OrganizationAccessFixture[] = [
@@ -602,7 +613,7 @@ const progressMockRoutes: MockRoutes = {
 /* -------------------------------------------------------------------------- */
 
 /** The Writing Types this Field Expert is assigned to (Requirement 23.4: may be several). */
-const fieldExpertWritingTypes: WritingType[] = [
+const fieldExpertWritingTypes: WritingTypeFixture[] = [
   {
     id: 'wt-legal-memo',
     organizationId: 'org-allard-law',
@@ -1115,6 +1126,9 @@ export class MockApiClient implements HttpClient {
       }
     }
 
+    if (!options.schema) {
+      return fixture as T;
+    }
     const result = options.schema.safeParse(fixture);
     if (!result.success) {
       throw new ApiError(

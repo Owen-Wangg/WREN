@@ -55,9 +55,9 @@ export async function validatePromptCompliance(
 /* -------------------------------------------------------------------------- */
 
 const feedbackComplianceSchema = z.object({
-  hasProse: boolean;
-  hasApplyAffordance: boolean;
-  isCompliant: boolean;
+  hasProse: z.boolean(),
+  hasApplyAffordance: z.boolean(),
+  isCompliant: z.boolean(),
   violations: z.array(z.string()).optional(),
 });
 

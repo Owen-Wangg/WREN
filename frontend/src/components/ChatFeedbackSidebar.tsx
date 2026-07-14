@@ -13,7 +13,6 @@ import { useEffect, useState } from 'react';
 
 import { WrenChatPanel, type AskWrenService } from '@/features/ask-wren';
 import { SidebarDebriefPanel } from '@/features/debrief';
-import { useRequestFeedback } from '@/hooks';
 
 export interface ChatFeedbackSidebarProps {
   readonly documentId: string;
@@ -34,12 +33,10 @@ export function ChatFeedbackSidebar({
   draftId,
   draftVersion,
   askWrenService,
-  onDebriefRegenerate,
   onHighlight,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
   const [activeTab, setActiveTab] = useState<TabType>('chat');
-  const requestFeedback = useRequestFeedback();
 
   useEffect(() => {
     const stored = localStorage.getItem(ACTIVE_TAB_KEY) as TabType | null;
@@ -51,14 +48,6 @@ export function ChatFeedbackSidebar({
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
     localStorage.setItem(ACTIVE_TAB_KEY, tab);
-  };
-
-  const handleDebriefRegenerate = async (autoRegenerate: boolean) => {
-    // Auto regenerate on first debrief request, or manual regenerate
-    if (autoRegenerate) {
-      await requestFeedback.mutateAsync(documentId);
-    }
-    onDebriefRegenerate?.(autoRegenerate);
   };
 
   return (

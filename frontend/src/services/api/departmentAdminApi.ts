@@ -8,12 +8,11 @@ import { z } from 'zod';
 import {
   departmentSchema,
   documentTypeSchema,
-  documentTypeConfigSchema,
   accessGrantSchema,
   userSummarySchema,
   type Department,
   type DocumentType,
-  type User,
+  type UserSummary,
   type AccessGrant,
 } from '@wren/types';
 import type { HttpClient } from '@/services/apiClient';
@@ -130,7 +129,7 @@ export async function searchUsers(
     offset?: number;
   },
 ): Promise<{
-  items: User[];
+  items: UserSummary[];
   total: number;
 }> {
   const params = new URLSearchParams();

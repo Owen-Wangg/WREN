@@ -16,7 +16,7 @@ import {
   deleteDocumentTypeReferenceMaterial,
 } from '@/services/api/referenceMaterialApi';
 import { useApiClient } from '@/services/apiClient';
-import type { ReferenceMaterial, CreateReferenceMaterialInput } from '@wren/types';
+import type { CreateReferenceMaterialInput } from '@wren/types';
 
 /* -------------------------------------------------------------------------- */
 /* Department-wide Reference Material */

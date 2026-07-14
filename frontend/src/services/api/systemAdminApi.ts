@@ -6,9 +6,8 @@
  */
 import { z } from 'zod';
 import {
-  roleSchema,
   userSummarySchema,
-  type User,
+  type UserSummary,
 } from '@wren/types';
 import type { HttpClient } from '@/services/apiClient';
 
@@ -65,7 +64,7 @@ export async function searchAllUsers(
     offset?: number;
   },
 ): Promise<{
-  items: User[];
+  items: UserSummary[];
   total: number;
 }> {
   const params = new URLSearchParams();
@@ -131,7 +130,7 @@ export async function grantUsageOverride(
   additionalActions: number,
   reason: string,
   expiresAt: string,
-): Promise<(typeof overrideSchema)._type> {
+): Promise<z.infer<typeof overrideSchema>> {
   const body = {
     userId,
     documentTypeId,
@@ -315,7 +314,7 @@ const usageLimitSchema = z.object({
  */
 export async function getUsageLimits(
   client: HttpClient,
-): Promise<(typeof usageLimitSchema)._type[]> {
+): Promise<z.infer<typeof usageLimitSchema>[]> {
   return client.request('/v1/admin/config/usage-limits', {
     schema: z.array(usageLimitSchema),
   });
@@ -329,7 +328,7 @@ export async function setUsageLimit(
   scope: 'platform' | 'documentType',
   limit: number,
   scopeId?: string,
-): Promise<(typeof usageLimitSchema)._type> {
+): Promise<z.infer<typeof usageLimitSchema>> {
   const body = {
     scope,
     limit,

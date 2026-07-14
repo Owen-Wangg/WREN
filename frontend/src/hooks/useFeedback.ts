@@ -36,7 +36,6 @@ export function useGetFeedback(documentId: string) {
  */
 export function usePollFeedbackStatus(documentId: string) {
   const client = useApiClient();
-  const queryClient = useQueryClient();
 
   return useQuery({
     queryKey: queryKeys.feedbackStatus(documentId),

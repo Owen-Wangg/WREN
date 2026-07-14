@@ -1,155 +1,98 @@
 /**
- * Document Editor - Task 3.2 + Task 4 (Feedback integration)
- * Textarea editor with Draft sync and async feedback generation polling
+ * `<DocumentEditor>` — the Tiptap editing surface (task 18.1; Requirements 6.2,
+ * 52.1, 52.2).
+ *
+ * A controlled-ish rich-text editor built on `@tiptap/react` + StarterKit, with
+ * the highlight mark (for AI-Debrief quote highlighting) and the comment mark
+ * (`@sereneinserenade/tiptap-comment-extension`) registered so
+ * `<AnchoredFeedbackEditor>` (task 18.2) can attach inline feedback via
+ * `setComment`/`unsetComment` without re-configuring the editor.
+ *
+ * Every comment-mark span carries `data-ai-feedback="true"` so AI-attached
+ * content is structurally distinguishable from writer text (no-ghostwriting,
+ * REQ-CORE-NOGHOST-01 / frontend steering §3).
+ *
+ * Exposes an imperative {@link DocumentEditorHandle} (`getEditor` + `.docx`
+ * import/export) so callers can drive the underlying editor and round-trip
+ * `.docx` content (Requirement 6.2) via the MIT-only mapper in
+ * `../docxContentMapper`.
  */
-import React, { useEffect, useState } from 'react';
-import { useGetDocument, useSubmitDraft, usePollFeedbackStatus, useRequestFeedback, useGetFeedback } from '@/hooks';
-import { draftToTiptapJSON, tiptapJSONToDraft, countWords, validateWordCount } from '../utils/documentParser';
-import type { Draft } from '@wren/types';
+import { forwardRef, useImperativeHandle } from 'react';
+
+import { CommentExtension } from '@sereneinserenade/tiptap-comment-extension';
+import Highlight from '@tiptap/extension-highlight';
+import { EditorContent, useEditor, type Editor, type JSONContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+
+import { docxBytesToTiptapContent, tiptapContentToDocxBlob } from '../docxContentMapper';
 
 export interface DocumentEditorProps {
-  readonly documentId: string;
-  readonly onDraftSaved?: (draft: Draft) => void;
+  /** Initial Tiptap document content (e.g. mapped from an uploaded `.docx`). */
+  readonly initialContent?: JSONContent;
+  /** Accessible name for the editing surface (exposed as `role="textbox"`). */
+  readonly ariaLabel?: string;
+  /** Extra classes applied to the editing surface. */
+  readonly className?: string;
+  /** Fires with the editor's `JSONContent` on every content change. */
+  readonly onContentChange?: (content: JSONContent) => void;
+  /** Fires with the activated comment id (or `null`) when a comment mark is focused. */
+  readonly onCommentActivated?: (commentId: string | null) => void;
 }
 
-export function DocumentEditor({ documentId, onDraftSaved }: DocumentEditorProps) {
-  const [editorContent, setEditorContent] = useState<string>('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [wordCount, setWordCount] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [feedbackRequested, setFeedbackRequested] = useState(false);
+/** Imperative handle exposed via `ref` for driving the editor + `.docx` I/O. */
+export interface DocumentEditorHandle {
+  /** The underlying Tiptap {@link Editor}, or `null` before it is created. */
+  getEditor: () => Editor | null;
+  /** Replaces the document content from `.docx` bytes (Requirement 6.2). */
+  importDocx: (bytes: Uint8Array) => Promise<void>;
+  /** Serializes the current content to a `.docx` `Blob` (Requirement 52.2). */
+  exportDocx: () => Promise<Blob>;
+}
 
-  const getDocMutation = useGetDocument(documentId);
-  const submitDraftMutation = useSubmitDraft();
-  const feedbackStatusQuery = usePollFeedbackStatus(documentId);
-  const feedbackQuery = useGetFeedback(documentId);
-  const requestFeedbackMutation = useRequestFeedback();
+const EMPTY_DOC: JSONContent = { type: 'doc', content: [{ type: 'paragraph' }] };
 
-  const document = getDocMutation.data;
-  const currentDraft = document?.drafts?.[0];
-  const wordCountError = document?.sizeLimitWords
-    ? validateWordCount(editorContent, document.sizeLimitWords)
-    : { valid: true };
-
-  // Load draft on mount
-  useEffect(() => {
-    if (currentDraft) {
-      const tiptapJson = draftToTiptapJSON(currentDraft);
-      const { text } = tiptapJSONToDraft(tiptapJson, currentDraft.wordCount);
-      setEditorContent(text);
-    }
-  }, [currentDraft]);
-
-  // Update word count
-  useEffect(() => {
-    setWordCount(countWords(editorContent));
-  }, [editorContent]);
-
-  // When feedback generation completes, refetch feedback
-  useEffect(() => {
-    if (feedbackStatusQuery.data?.status === 'completed') {
-      feedbackQuery.refetch();
-    }
-  }, [feedbackStatusQuery.data?.status, feedbackQuery]);
-
-  const handleSaveDraft = async () => {
-    if (!wordCountError.valid) {
-      setError(wordCountError.message || 'Word count exceeded');
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      setError(null);
-
-      const result = await submitDraftMutation.mutateAsync({
-        documentId,
-        source: {
-          kind: 'paste',
-          text: editorContent,
+export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorProps>(
+  function DocumentEditor(
+    { initialContent, ariaLabel, className, onContentChange, onCommentActivated },
+    ref,
+  ) {
+    const editor = useEditor({
+      extensions: [
+        StarterKit,
+        Highlight.configure({ multicolor: true }),
+        CommentExtension.configure({
+          HTMLAttributes: { 'data-ai-feedback': 'true' },
+          onCommentActivated: (commentId) => onCommentActivated?.(commentId),
+        }),
+      ],
+      content: initialContent ?? EMPTY_DOC,
+      editorProps: {
+        attributes: {
+          role: 'textbox',
+          'aria-label': ariaLabel ?? 'Document editor',
+          class: ['prose max-w-none focus:outline-none', className]
+            .filter(Boolean)
+            .join(' '),
         },
-      });
+      },
+      onUpdate: ({ editor: current }) => {
+        onContentChange?.(current.getJSON());
+      },
+    });
 
-      onDraftSaved?.(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save draft');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    useImperativeHandle(
+      ref,
+      (): DocumentEditorHandle => ({
+        getEditor: () => editor,
+        importDocx: async (bytes: Uint8Array) => {
+          const content = await docxBytesToTiptapContent(bytes);
+          editor?.commands.setContent(content);
+        },
+        exportDocx: () => tiptapContentToDocxBlob(editor?.getJSON() ?? EMPTY_DOC),
+      }),
+      [editor],
+    );
 
-  const handleRequestFeedback = async () => {
-    try {
-      setError(null);
-      setFeedbackRequested(true);
-      await requestFeedbackMutation.mutateAsync(documentId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to request feedback');
-      setFeedbackRequested(false);
-    }
-  };
-
-  if (getDocMutation.isLoading) {
-    return <div>Loading document...</div>;
-  }
-
-  if (getDocMutation.isError) {
-    return <div>Error loading document</div>;
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Toolbar */}
-      <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', display: 'flex', gap: '1rem', alignItems: 'center' }}>
-        <button onClick={handleSaveDraft} disabled={isSaving || submitDraftMutation.isPending}>
-          {isSaving ? 'Saving...' : 'Save Draft'}
-        </button>
-        <button
-          onClick={handleRequestFeedback}
-          disabled={feedbackRequested && (feedbackStatusQuery.data?.status === 'queued' || feedbackStatusQuery.data?.status === 'processing') || requestFeedbackMutation.isPending}
-        >
-          {feedbackRequested && (feedbackStatusQuery.data?.status === 'queued' || feedbackStatusQuery.data?.status === 'processing') ? 'Generating Feedback...' : 'Request Feedback'}
-        </button>
-        {feedbackRequested && (feedbackStatusQuery.data?.status === 'queued' || feedbackStatusQuery.data?.status === 'processing') && (
-          <span style={{ marginLeft: '1rem', fontSize: '0.9em', color: '#666' }}>
-            Status: {feedbackStatusQuery.data?.status || 'queued'}
-          </span>
-        )}
-        <span style={{ marginLeft: 'auto' }}>
-          Words: {wordCount}
-          {document?.sizeLimitWords && ` / ${document.sizeLimitWords}`}
-        </span>
-      </div>
-
-      {/* Status */}
-      {document && (
-        <div style={{ padding: '0.5rem 1rem', fontSize: '0.9em', color: '#666' }}>
-          Status: {document.status}
-          {currentDraft && ` • Draft v${currentDraft.versionNumber}`}
-        </div>
-      )}
-
-      {/* Editor */}
-      <textarea
-        value={editorContent}
-        onChange={(e) => setEditorContent(e.target.value)}
-        style={{
-          flex: 1,
-          padding: '1rem',
-          fontFamily: 'monospace',
-          fontSize: '0.95em',
-          lineHeight: '1.6',
-          border: wordCountError.valid ? 'none' : '2px solid red',
-        }}
-      />
-
-      {/* Error message */}
-      {error && <div style={{ padding: '1rem', color: 'red', borderTop: '1px solid #ddd' }}>{error}</div>}
-      {!wordCountError.valid && (
-        <div style={{ padding: '1rem', color: 'red', borderTop: '1px solid #ddd' }}>
-          ⚠️ {wordCountError.message}
-        </div>
-      )}
-    </div>
-  );
-}
+    return <EditorContent editor={editor} className={className} />;
+  },
+);

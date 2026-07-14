@@ -77,7 +77,6 @@ export {
   useListActivityLog,
   useDepartmentAggregateAnalytics,
   usePlatformAggregateAnalytics,
-  useDeleteDocument,
 } from './useAudit';
 
 // Compliance hooks (Task 10)

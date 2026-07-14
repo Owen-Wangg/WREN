@@ -5,7 +5,6 @@
  * DepartmentAdmin → admin dashboard (scoped to departments)
  * TechnicalAdmin → system admin dashboard
  */
-import React from 'react';
 import { useAuth } from './AuthContext';
 
 export function DashboardRouter() {

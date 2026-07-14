@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { apiClient, type HttpClient } from '@/services';
+import { apiClient } from '@/services';
 
 const analyticsSchema = z.object({
   totalDepartments: z.number(),
@@ -118,7 +118,7 @@ export const systemAdminApi = {
     }),
 
   // Users
-  getUsers: async (params?: {
+  getUsers: async (_params?: {
     role?: string;
     department?: string;
     page?: number;

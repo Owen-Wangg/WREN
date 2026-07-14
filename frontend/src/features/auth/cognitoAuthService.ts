@@ -3,14 +3,14 @@
  * Uses token storage and refresh logic for persistent authentication.
  */
 import { appConfig } from '@/config/env';
-import {
+import { AuthError } from './authService';
+import type {
   AuthService,
   AuthSession,
   SignInCredentials,
   SignUpInput,
   SignUpResult,
-  AuthError,
-  type AuthErrorKind,
+  AuthErrorKind,
 } from './authService';
 
 export class CognitoAuthService implements AuthService {

@@ -16,6 +16,10 @@ import {
 } from '@wren/types';
 import type { HttpClient } from '@/services/apiClient';
 
+// Re-export the shared domain types consumed alongside these API helpers so
+// hooks can import both the functions and their types from one module.
+export type { Document, Draft, CreateDocumentInput } from '@wren/types';
+
 /* -------------------------------------------------------------------------- */
 /* Path Constants */
 /* -------------------------------------------------------------------------- */

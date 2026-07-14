@@ -1,12 +1,19 @@
-// Task 3: Document Submission & Editor Integration
+// Task 18: Anchored feedback editor (the routed document-editing surface)
 
 // Components
-export { DocumentUploadForm } from './components/DocumentUploadForm';
-export { DocumentEditor } from './components/DocumentEditor';
-export { DocumentsList } from './components/DocumentsList';
-
-// Hooks
-export { useDocumentEditor } from './hooks/useDocumentEditor';
+export {
+  DocumentEditor,
+  type DocumentEditorProps,
+  type DocumentEditorHandle,
+} from './components/DocumentEditor';
+export {
+  AnchoredFeedbackEditor,
+  type AnchoredFeedbackEditorProps,
+} from './components/AnchoredFeedbackEditor';
+export {
+  AnchoredFeedbackEditorContainer,
+  type AnchoredFeedbackEditorContainerProps,
+} from './components/AnchoredFeedbackEditorContainer';
 
 // Utilities
 export {
