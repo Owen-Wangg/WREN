@@ -1,3 +1,4 @@
+import * as ec2 from "aws-cdk-lib/aws-ec2";
 import { Stack } from "aws-cdk-lib";
 import type { StackProps } from "aws-cdk-lib";
 import type { IVpc } from "aws-cdk-lib/aws-ec2";
@@ -5,6 +6,7 @@ import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import type { Construct } from "constructs";
 import { ssmParameterNames, type AppConfig } from "../config.js";
 import { DatabaseResources } from "../constructs/DatabaseResources.js";
+import { MigrationRunner } from "../constructs/MigrationRunner.js";
 
 export interface DatabaseStackProps extends StackProps {
   readonly config: AppConfig;
@@ -26,6 +28,8 @@ export class DatabaseStack extends Stack {
   public readonly proxyEndpoint: string;
   /** ARN of the Secrets Manager secret holding DB admin credentials. */
   public readonly databaseSecretArn: string;
+  /** Migration runner custom resource. */
+  public readonly migrations: MigrationRunner;
 
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
@@ -48,6 +52,18 @@ export class DatabaseStack extends Stack {
       parameterName: ssmParameterNames.databaseSecretArn(props.config),
       stringValue: this.database.credentialsSecret.secretArn,
       description: "ARN of the Secrets Manager secret holding DB admin credentials.",
+    });
+
+    // Run migrations after the database is ready
+    const privateSubnets = props.vpc.selectSubnets({
+      subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+    });
+
+    this.migrations = new MigrationRunner(this, "Migrations", {
+      databaseProxyEndpoint: this.database.proxy.endpoint,
+      databaseSecretArn: this.database.credentialsSecret.secretArn,
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
     });
   }
 }
