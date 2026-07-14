@@ -78,7 +78,7 @@ export function useCreateContentType(documentTypeId: string) {
 
   return useMutation({
     mutationFn: (input: { name: string; description?: string }) =>
-      createContentType(client, documentTypeId, input),
+      createContentType(client, documentTypeId, { label: input.name, ...input }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['admin', 'content-types', documentTypeId],
@@ -125,7 +125,7 @@ export function useCreateMetadataField(documentTypeId: string) {
       required: boolean;
       fieldType: 'text' | 'select' | 'multiselect' | 'date';
       options?: string[];
-    }) => createMetadataField(client, documentTypeId, input),
+    }) => createMetadataField(client, documentTypeId, { label: input.name, required: input.required }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['admin', 'metadata-fields', documentTypeId],

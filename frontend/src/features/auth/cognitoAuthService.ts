@@ -79,9 +79,9 @@ export class CognitoAuthService implements AuthService {
         new CognitoUserAttribute({ Name: 'family_name', Value: input.lastName }),
       ];
 
-      this.userPool.signUp(input.email, input.password, attributes, [], (error, result) => {
+      this.userPool.signUp(input.email, input.password, attributes, [], (error: any, result: any) => {
         if (error) {
-          const kind: AuthErrorKind = error.code === 'UsernameExistsException' ? 'user_exists' : 'unknown';
+          const kind: AuthErrorKind = (error as any).code === 'UsernameExistsException' ? 'user_exists' : 'unknown';
           reject(new AuthError(`Sign up failed: ${error.message}`, kind, error));
           return;
         }

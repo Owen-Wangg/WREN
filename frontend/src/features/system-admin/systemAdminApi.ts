@@ -130,3 +130,14 @@ export async function assignRole(input: {
     schema: roleAssignmentSchema,
   });
 }
+
+/* Unified API object for consistency with other API modules */
+export const systemAdminApi = {
+  getAnalytics,
+  listDepartments,
+  getDepartment,
+  searchAllUsers,
+  getUsageReport,
+  grantUsageOverride,
+  assignRole,
+};
