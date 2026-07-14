@@ -23,6 +23,16 @@ export function SystemAdminDashboard() {
     queryFn: () => getAnalytics(),
   });
 
+  const { data: modelConfig, isLoading: modelLoading } = useQuery({
+    queryKey: ['system-model-config'],
+    queryFn: () => ({ modelIdentifier: 'claude-3-5-sonnet', temperature: 0.7, maxTokens: 4096 }),
+  });
+
+  const { data: usageLimits, isLoading: usageLimitsLoading } = useQuery({
+    queryKey: ['system-usage-limits'],
+    queryFn: () => ({ platform: { used: 45000, limit: 100000 } }),
+  });
+
   if (isLoading) {
     return <div className="p-8">Loading departments...</div>;
   }

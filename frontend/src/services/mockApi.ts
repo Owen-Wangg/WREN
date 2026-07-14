@@ -34,7 +34,11 @@ interface WritingTypeFixture {
 }
 
 /** Illustrative fixtures shaped by the shared domain contract (`@wren/types`). */
-const sampleWritingTypes: WritingTypeFixture[] = [];
+const sampleWritingTypes: WritingTypeFixture[] = [
+  { id: 'wt-criminal-law', organizationId: 'org-law', name: 'Criminal Law', accessState: 'OPEN', sizeLimitWords: null },
+  { id: 'wt-tort-law', organizationId: 'org-law', name: 'Tort Law', accessState: 'OPEN', sizeLimitWords: null },
+  { id: 'wt-property-law', organizationId: 'org-law', name: 'Property Law', accessState: 'LOCKED', sizeLimitWords: null },
+];
 
 interface ContentTypeFixture {
   readonly id: string;

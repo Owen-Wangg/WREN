@@ -37,7 +37,7 @@ const populatedRoutes: MockRoutes = {
     {
       id: 'doc-1',
       ownerUserId: 'user-1',
-      writingTypeId: 'wt-legal-memo',
+      documentTypeId: 'wt-legal-memo',
       contentTypeId: 'ct-1',
       name: 'Charter s.8 analysis',
       metadata: { 'Writing Topic': 'Search and seizure' },
@@ -47,7 +47,7 @@ const populatedRoutes: MockRoutes = {
     {
       id: 'doc-2',
       ownerUserId: 'user-1',
-      writingTypeId: 'wt-legal-memo',
+      documentTypeId: 'wt-legal-memo',
       contentTypeId: 'ct-1',
       name: 'Contract formation notes',
       metadata: { 'Writing Topic': 'Offer and acceptance' },
@@ -81,7 +81,6 @@ const lockedRoutes: MockRoutes = {
   ],
   'GET /organizations': [{ id: 'org-1', name: 'Allard Law', accessState: 'OPEN' }],
   'GET /access-grants': [],
-  'POST /access-requests': { requested: true },
 };
 
 describe('WriterDashboard', () => {

@@ -31,6 +31,9 @@ function buildSocraticReply(userText: string): string {
   if (!trimmed) {
     return 'What part of your draft would you like to talk through?';
   }
+  if (trimmed.includes('intro') || trimmed.includes('fix')) {
+    return 'What makes you say the intro needs fixing? Is it the hook, the thesis statement, or how you frame the topic?';
+  }
   if (trimmed.includes('formal') || trimmed.includes('tone')) {
     return "Look at this sentence: \"Expenses happened too from medications and travel although receipts are not all available currently.\" Notice the passive voice and wordy phrasing — \"happened\", \"although receipts are not\" — these create distance from the reader. What would it sound like if you made it more direct and active?";
   }

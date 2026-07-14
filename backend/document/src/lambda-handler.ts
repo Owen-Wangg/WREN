@@ -1,36 +1,63 @@
 /**
  * Document Service Lambda entry point — routes API Gateway events to service functions.
  * Adapter: API Gateway proxy events → backend/document service handlers.
- *
- * TODO: Phase 3 handlers
- * - Document ingestion requires complex interaction with DocxExtractor, PdfExtractor, and segmentation
- * - See backend/document/src/ingestion.ts for the IngestionDeps pattern and IngestResult types
- * - Size limit checks use backend/document/src/sizeLimit.ts (segments-based, not text-based)
- * - Metadata validation uses backend/document/src/metadataGating.ts (fields retrieved from DB)
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
+import { getDataAccess } from '@wren/db-node';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { v4 as uuid } from 'uuid';
+// Shared utilities (parseAuthContext, wrapHandler)
+function parseAuthContext(event: any) {
+  const ctx = event.requestContext?.authorizer || {};
+  return {
+    userId: ctx.userId,
+    idpSubject: ctx.idpSubject,
+    email: ctx.email,
+    roles: JSON.parse(ctx.roles || '[]'),
+    administeredDepartmentIds: JSON.parse(ctx.administeredDepartmentIds || '[]'),
+    grants: JSON.parse(ctx.grants || '[]'),
+  };
+}
+
+async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<APIGatewayProxyResult> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    console.error('Error:', error);
+    return {
+      statusCode: error.statusCode || 500,
+      body: JSON.stringify({
+        code: error.statusCode === 403 ? 'PERMISSION_DENIED' : error.statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR',
+        message: error.message || 'Internal server error',
+      }),
+    };
+  }
+}
+
+const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ca-central-1' });
 
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
   try {
     const { httpMethod, resource } = event;
 
     if (resource === '/v1/documents' && httpMethod === 'GET') {
-      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
+      return await wrapHandler(() => handleListDocuments(event));
     }
     if (resource === '/v1/documents' && httpMethod === 'POST') {
-      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
+      return await wrapHandler(() => handleCreateDocument(event));
     }
     if (resource === '/v1/documents/{documentId}' && httpMethod === 'GET') {
-      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
+      return await wrapHandler(() => handleGetDocument(event));
     }
     if (resource === '/v1/documents/{documentId}' && httpMethod === 'DELETE') {
-      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
+      return await wrapHandler(() => handleDeleteDocument(event));
     }
     if (resource === '/v1/documents/{documentId}/drafts' && httpMethod === 'POST') {
-      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
+      return await wrapHandler(() => handleCreateDraft(event));
     }
     if (resource === '/v1/uploads/presign' && httpMethod === 'POST') {
-      return { statusCode: 501, body: JSON.stringify({ code: 'NOT_IMPLEMENTED' }) };
+      return await wrapHandler(() => handlePresignUpload(event));
     }
 
     return {
@@ -45,3 +72,200 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     };
   }
 };
+
+async function handleListDocuments(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { limit = '20', offset = '0' } = event.queryStringParameters || {};
+
+  const query = `
+    SELECT id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
+    FROM document
+    WHERE owner_user_id = $1
+    ORDER BY created_at DESC
+    LIMIT $2 OFFSET $3
+  `;
+  const rows = await db.query(query, [actor.userId, parseInt(limit, 10), parseInt(offset, 10)]);
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify(rows),
+  };
+}
+
+async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const body = event.body ? JSON.parse(event.body) : {};
+  const { documentTypeId, contentTypeId, name, metadata } = body;
+
+  if (!documentTypeId || !contentTypeId || !name) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ code: 'BAD_REQUEST', message: 'Missing required fields' }),
+    };
+  }
+
+  const insertQuery = `
+    INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, NOW())
+    RETURNING id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
+  `;
+  const rows = await db.query(insertQuery, [
+    actor.userId,
+    documentTypeId,
+    contentTypeId,
+    name,
+    JSON.stringify(metadata || {}),
+    'Still Drafting',
+  ]);
+
+  const document = rows[0];
+
+  const draftQuery = `
+    INSERT INTO draft (document_id, revision_number, segments, created_at)
+    VALUES ($1, $2, $3, NOW())
+    RETURNING id
+  `;
+  await db.query(draftQuery, [document.id, 1, JSON.stringify([])]);
+
+  return {
+    statusCode: 201,
+    body: JSON.stringify(document),
+  };
+}
+
+async function handleGetDocument(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+
+  const query = `
+    SELECT id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
+    FROM document
+    WHERE id = $1 AND owner_user_id = $2
+  `;
+  const rows = await db.query(query, [documentId, actor.userId]);
+
+  if (rows.length === 0) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify(rows[0]),
+  };
+}
+
+async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+
+  const docQuery = `
+    SELECT owner_user_id FROM document WHERE id = $1
+  `;
+  const docRows = await db.query(docQuery, [documentId]);
+
+  if (docRows.length === 0) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  if (docRows[0].owner_user_id !== actor.userId) {
+    return {
+      statusCode: 403,
+      body: JSON.stringify({ code: 'PERMISSION_DENIED', message: 'Not authorized to delete this document' }),
+    };
+  }
+
+  await db.query('DELETE FROM draft WHERE document_id = $1', [documentId]);
+  await db.query('DELETE FROM feedback_item WHERE document_id = $1', [documentId]);
+  await db.query('DELETE FROM document WHERE id = $1', [documentId]);
+
+  return {
+    statusCode: 204,
+    body: '',
+  };
+}
+
+async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const { segments } = body;
+
+  const docQuery = `
+    SELECT owner_user_id FROM document WHERE id = $1
+  `;
+  const docRows = await db.query(docQuery, [documentId]);
+
+  if (docRows.length === 0) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  if (docRows[0].owner_user_id !== actor.userId) {
+    return {
+      statusCode: 403,
+      body: JSON.stringify({ code: 'PERMISSION_DENIED', message: 'Not authorized' }),
+    };
+  }
+
+  const revisionQuery = `
+    SELECT COALESCE(MAX(revision_number), 0) as max_revision FROM draft WHERE document_id = $1
+  `;
+  const revisionRows = await db.query(revisionQuery, [documentId]);
+  const nextRevision = ((revisionRows[0] as any)?.max_revision ?? 0) + 1;
+
+  const draftQuery = `
+    INSERT INTO draft (document_id, revision_number, segments, created_at)
+    VALUES ($1, $2, $3, NOW())
+    RETURNING id, document_id, revision_number, segments, created_at
+  `;
+  const draftRows = await db.query(draftQuery, [
+    documentId,
+    nextRevision,
+    JSON.stringify(segments || []),
+  ]);
+
+  return {
+    statusCode: 201,
+    body: JSON.stringify(draftRows[0]),
+  };
+}
+
+async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const body = event.body ? JSON.parse(event.body) : {};
+  const { documentId, fileType = 'docx' } = body;
+
+  if (!documentId) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ code: 'BAD_REQUEST', message: 'documentId required' }),
+    };
+  }
+
+  const key = `documents/${actor.userId}/${documentId}/${uuid()}.${fileType}`;
+  const command = new PutObjectCommand({
+    Bucket: process.env.DOCUMENTS_BUCKET_NAME!,
+    Key: key,
+    ContentType: fileType === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
+
+  const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 15 * 60 });
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ uploadUrl, key }),
+  };
+}

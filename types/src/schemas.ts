@@ -784,6 +784,10 @@ export const documentTypeConfigSchema = z
     categoryPriority: z.array(idSchema),
     /** Department-Admin-authored Document-Type prompt instruction text. */
     typePromptText: z.string().nullable(),
+    /** Tone guidance for feedback generation (e.g., "Be supportive and encouraging"). */
+    toneDescription: z.string().nullable().optional(),
+    /** Density guidance for feedback generation (e.g., "Provide comprehensive feedback"). */
+    densityDescription: z.string().nullable().optional(),
     updatedAt: isoDateTimeSchema,
   })
   .strict();
@@ -796,6 +800,8 @@ export const updateDocumentTypeConfigInputSchema = z
     density: z.string().min(1).nullable().optional(),
     categoryPriority: z.array(idSchema).optional(),
     typePromptText: z.string().nullable().optional(),
+    toneDescription: z.string().nullable().optional(),
+    densityDescription: z.string().nullable().optional(),
   })
   .strict();
 export type UpdateDocumentTypeConfigInput = z.infer<

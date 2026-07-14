@@ -288,9 +288,9 @@ export class ComputeStack extends Stack {
       this.diffAnchorProgressFunction,
     ], props.databaseSecretArn);
 
-    // Document Lambda: S3 read/write for document uploads.
+    // Document Lambda: S3 read/write for document uploads + presigned URLs.
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:GetSignedUrl"],
       resources: [`arn:aws:s3:::${props.documentsBucketName}/*`],
     }));
 
@@ -300,13 +300,13 @@ export class ComputeStack extends Stack {
       resources: [`arn:aws:s3:::${props.referenceBucketName}/*`],
     }));
 
-    // Feedback Engine: Bedrock invoke (model-agnostic).
+    // Feedback Engine: Bedrock invoke (scoped to account, model-agnostic for cross-region inference).
     this.feedbackEngineFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: [
         "bedrock:InvokeModel",
         "bedrock:InvokeModelWithResponseStream",
       ],
-      resources: ["*"], // Bedrock model ARNs are dynamic (cross-region inference)
+      resources: [`arn:aws:bedrock:*:${this.account}:model/*`],
     }));
 
     // Feedback Engine: S3 read for documents + reference materials.
@@ -316,6 +316,12 @@ export class ComputeStack extends Stack {
         `arn:aws:s3:::${props.documentsBucketName}/*`,
         `arn:aws:s3:::${props.referenceBucketName}/*`,
       ],
+    }));
+
+    // Feedback Engine: SQS consume (read/delete messages from feedback queue).
+    this.feedbackEngineFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
+      resources: [this.feedbackQueue.queueArn],
     }));
 
     // -----------------------------------------------------------------------
