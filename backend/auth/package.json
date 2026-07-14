@@ -20,6 +20,8 @@
     "node-fetch": "^2.7.0"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.145"
+    "@types/aws-lambda": "^8.10.145",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node-fetch": "^2.6.9"
   }
 }

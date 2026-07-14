@@ -65,7 +65,9 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     }
 
     // Step 6: Update database
-    await updateDocumentTypeConfig(documentTypeId, body);
+    if (documentTypeId) {
+      await updateDocumentTypeConfig(documentTypeId, body);
+    }
 
     return {
       statusCode: 200,

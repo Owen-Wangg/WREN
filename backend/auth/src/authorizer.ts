@@ -164,7 +164,7 @@ async function defaultDepsProvider(): Promise<AuthorizerDeps> {
   if (cachedDeps) return cachedDeps;
   const [{ getDataAccess }, { CognitoTokenVerifier }] = await Promise.all([
     import('@wren/db-node'),
-    import('./tokenVerifier'),
+    import('./tokenVerifier.js'),
   ]);
   const db = await getDataAccess();
   const verifier = new CognitoTokenVerifier(resolveCognitoVerifierConfig());

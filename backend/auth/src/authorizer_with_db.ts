@@ -65,7 +65,7 @@ export async function handler(event: AuthorizerEvent): Promise<APIGatewayAuthori
       userId: user.userId,
       idpSubject: cognitoSub,
       email: user.email,
-      roles: roles.map(r => r.role),
+      roles: roles.map(r => r.role) as ('Student' | 'DepartmentAdmin' | 'TechnicalAdmin')[],
       administeredDepartmentIds: roles
         .filter(r => r.administeredDepartmentId)
         .map(r => r.administeredDepartmentId!),
@@ -191,8 +191,8 @@ async function queryUserIdentity(cognitoSub: string): Promise<{ userId: string; 
     }
 
     return {
-      userId: rows[0].id,
-      email: rows[0].email,
+      userId: String(rows[0].id),
+      email: String(rows[0].email),
     };
   } catch (error) {
     console.error('Failed to query user identity:', error);
@@ -220,8 +220,8 @@ async function queryUserRoles(
     `;
     const deptRows = await db.query(deptQuery, [userId]);
 
-    const adminDeptIds = deptRows.map(r => r.administered_department_id);
-    const roles = rolesRows.map(r => ({ role: r.role }));
+    const adminDeptIds = deptRows.map(r => String(r.administered_department_id));
+    const roles = rolesRows.map(r => ({ role: String(r.role) }));
 
     const enrichedRoles = [
       ...roles,
