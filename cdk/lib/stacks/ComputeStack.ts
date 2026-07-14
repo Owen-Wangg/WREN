@@ -1,5 +1,8 @@
+import * as path from "path";
 import { Stack, type StackProps, Duration, CfnOutput } from "aws-cdk-lib";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
+import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
@@ -82,11 +85,11 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Lambda Authorizer (Node 22)
     // -----------------------------------------------------------------------
-    this.authorizerFunction = new lambda.Function(this, "AuthorizerFn", {
+    this.authorizerFunction = new lambdaNodejs.NodejsFunction(this, "AuthorizerFn", {
       functionName: `${config.stackPrefix}-authorizer`,
+      entry: path.join(__dirname, "../../lambda-handlers/authorizer.ts"),
+      handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/authorizer"),
       memorySize: 256,
       timeout: Duration.seconds(10),
       vpc,
@@ -96,16 +99,22 @@ export class ComputeStack extends Stack {
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
       },
+      bundling: {
+        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
+        minify: true,
+        sourceMap: true,
+        target: "node22",
+      },
     });
 
     // -----------------------------------------------------------------------
     // Document / Draft Service Lambda (Node 22)
     // -----------------------------------------------------------------------
-    this.documentFunction = new lambda.Function(this, "DocumentFn", {
+    this.documentFunction = new lambdaNodejs.NodejsFunction(this, "DocumentFn", {
       functionName: `${config.stackPrefix}-document`,
+      entry: path.join(__dirname, "../../lambda-handlers/document.ts"),
+      handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/document"),
       memorySize: 512,
       timeout: Duration.seconds(30),
       vpc,
@@ -114,16 +123,22 @@ export class ComputeStack extends Stack {
         ...dbEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
       },
+      bundling: {
+        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
+        minify: true,
+        sourceMap: true,
+        target: "node22",
+      },
     });
 
     // -----------------------------------------------------------------------
     // Admin / Config / Auth / Usage Service Lambda (Node 22)
     // -----------------------------------------------------------------------
-    this.adminFunction = new lambda.Function(this, "AdminFn", {
+    this.adminFunction = new lambdaNodejs.NodejsFunction(this, "AdminFn", {
       functionName: `${config.stackPrefix}-admin`,
+      entry: path.join(__dirname, "../../lambda-handlers/admin.ts"),
+      handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/admin"),
       memorySize: 512,
       timeout: Duration.seconds(30),
       vpc,
@@ -132,16 +147,22 @@ export class ComputeStack extends Stack {
         ...dbEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
       },
+      bundling: {
+        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
+        minify: true,
+        sourceMap: true,
+        target: "node22",
+      },
     });
 
     // -----------------------------------------------------------------------
     // Audit / Activity-Log / Analytics Service Lambda (Node 22)
     // -----------------------------------------------------------------------
-    this.auditFunction = new lambda.Function(this, "AuditFn", {
+    this.auditFunction = new lambdaNodejs.NodejsFunction(this, "AuditFn", {
       functionName: `${config.stackPrefix}-audit`,
+      entry: path.join(__dirname, "../../lambda-handlers/audit.ts"),
+      handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/audit"),
       memorySize: 256,
       timeout: Duration.seconds(15),
       vpc,
@@ -149,6 +170,12 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv,
         WREN_ACTIVITY_PSEUDONYM_SALT: `/${config.stackPrefix}/audit/pseudonym-salt`,
+      },
+      bundling: {
+        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
+        minify: true,
+        sourceMap: true,
+        target: "node22",
       },
     });
 
@@ -172,11 +199,11 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Feedback Orchestrator Lambda (Node 22) — enqueues to SQS, returns job id
     // -----------------------------------------------------------------------
-    this.feedbackOrchestratorFunction = new lambda.Function(this, "FeedbackOrchestratorFn", {
+    this.feedbackOrchestratorFunction = new lambdaNodejs.NodejsFunction(this, "FeedbackOrchestratorFn", {
       functionName: `${config.stackPrefix}-feedback-orchestrator`,
+      entry: path.join(__dirname, "../../lambda-handlers/feedback-orchestrator.ts"),
+      handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      handler: "index.handler",
-      code: lambda.Code.fromAsset("lambda/feedback-orchestrator"),
       memorySize: 256,
       timeout: Duration.seconds(15),
       vpc,
@@ -185,24 +212,38 @@ export class ComputeStack extends Stack {
         ...dbEnv,
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
       },
+      bundling: {
+        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
+        minify: true,
+        sourceMap: true,
+        target: "node22",
+      },
     });
     this.feedbackQueue.grantSendMessages(this.feedbackOrchestratorFunction);
 
     // -----------------------------------------------------------------------
     // Feedback Engine Lambda (Python 3.12, container — AI workload via Bedrock)
     // -----------------------------------------------------------------------
+    const feedbackEngineRepo = ecr.Repository.fromRepositoryName(
+      this,
+      "FeedbackEngineRepo",
+      `${config.stackPrefix}-feedback-engine`,
+    );
+
     this.feedbackEngineFunction = new lambda.Function(this, "FeedbackEngineFn", {
       functionName: `${config.stackPrefix}-feedback-engine`,
-      runtime: lambda.Runtime.PYTHON_3_12,
-      handler: "handler.handler",
-      code: lambda.Code.fromAsset("lambda/feedback-engine"),
+      runtime: lambda.Runtime.FROM_IMAGE,
+      code: lambda.Code.fromEcrImage(feedbackEngineRepo, {
+        tagOrDigest: "latest",
+      }),
+      handler: lambda.Handler.FROM_IMAGE,
       memorySize: 1024,
       timeout: Duration.minutes(5), // AI workload — generous timeout
       vpc,
       vpcSubnets: privateSubnets,
       environment: {
-        DATABASE_PROXY_ENDPOINT: props.databaseProxyEndpoint,
-        DATABASE_SECRET_ARN: props.databaseSecretArn,
+        DB_PROXY_HOST: props.databaseProxyEndpoint,
+        DB_SECRET_ARN: props.databaseSecretArn,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,

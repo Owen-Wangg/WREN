@@ -63,7 +63,7 @@ export class ApiStack extends Stack {
 
     // Inject the Lambda ARNs into the spec's integration paths by walking the
     // paths and replacing the placeholder tokens.
-    function injectLambdaArns(obj: any, arns: Record<string, string>): void {
+    function injectLambdaArns(obj: any, arns: Record<string, string | undefined>): void {
       if (typeof obj !== "object" || obj === null) return;
       if (Array.isArray(obj)) {
         obj.forEach((item) => injectLambdaArns(item, arns));
@@ -71,12 +71,22 @@ export class ApiStack extends Stack {
         for (const [key, value] of Object.entries(obj)) {
           if (typeof value === "string") {
             // Replace Lambda ARN placeholders with actual ARNs
-            let replaced = value as string;
-            replaced = replaced.replace(/\$\{AuthorizerFunctionArn\}/g, arns.AuthorizerFunctionArn);
-            replaced = replaced.replace(/\$\{DocumentFunctionArn\}/g, arns.DocumentFunctionArn);
-            replaced = replaced.replace(/\$\{FeedbackFunctionArn\}/g, arns.FeedbackFunctionArn);
-            replaced = replaced.replace(/\$\{AdminFunctionArn\}/g, arns.AdminFunctionArn);
-            replaced = replaced.replace(/\$\{AuditFunctionArn\}/g, arns.AuditFunctionArn);
+            let replaced = value;
+            if (arns.AuthorizerFunctionArn) {
+              replaced = replaced.replace(/\$\{AuthorizerFunctionArn\}/g, arns.AuthorizerFunctionArn);
+            }
+            if (arns.DocumentFunctionArn) {
+              replaced = replaced.replace(/\$\{DocumentFunctionArn\}/g, arns.DocumentFunctionArn);
+            }
+            if (arns.FeedbackFunctionArn) {
+              replaced = replaced.replace(/\$\{FeedbackFunctionArn\}/g, arns.FeedbackFunctionArn);
+            }
+            if (arns.AdminFunctionArn) {
+              replaced = replaced.replace(/\$\{AdminFunctionArn\}/g, arns.AdminFunctionArn);
+            }
+            if (arns.AuditFunctionArn) {
+              replaced = replaced.replace(/\$\{AuditFunctionArn\}/g, arns.AuditFunctionArn);
+            }
             obj[key] = replaced;
           } else {
             injectLambdaArns(value, arns);
@@ -86,11 +96,11 @@ export class ApiStack extends Stack {
     }
 
     injectLambdaArns(specObject, {
-      AuthorizerFunctionArn: props.authorizerFunctionArn,
-      DocumentFunctionArn: props.documentFunctionArn,
-      FeedbackFunctionArn: props.feedbackFunctionArn,
-      AdminFunctionArn: props.adminFunctionArn,
-      AuditFunctionArn: props.auditFunctionArn,
+      AuthorizerFunctionArn: String(props.authorizerFunctionArn),
+      DocumentFunctionArn: String(props.documentFunctionArn),
+      FeedbackFunctionArn: String(props.feedbackFunctionArn),
+      AdminFunctionArn: String(props.adminFunctionArn),
+      AuditFunctionArn: String(props.auditFunctionArn),
     });
 
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
