@@ -72,7 +72,7 @@ export class DatabaseResources extends Construct {
   protected createParameterGroup(): ParameterGroup {
     return new ParameterGroup(this, "ParameterGroup", {
       engine: DatabaseInstanceEngine.postgres({
-        version: PostgresEngineVersion.VER_16_8,
+        version: PostgresEngineVersion.VER_16_13,
       }),
       description:
         "Enforce TLS for all PostgreSQL client connections (rds.force_ssl).",
@@ -101,7 +101,7 @@ export class DatabaseResources extends Construct {
   protected createInstance(): DatabaseInstance {
     return new DatabaseInstance(this, "Instance", {
       engine: DatabaseInstanceEngine.postgres({
-        version: PostgresEngineVersion.VER_16_8,
+        version: PostgresEngineVersion.VER_16_13,
       }),
       vpc: this.props.vpc,
       vpcSubnets: { subnetType: SubnetType.PRIVATE_ISOLATED },

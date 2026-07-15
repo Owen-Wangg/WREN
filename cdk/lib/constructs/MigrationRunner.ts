@@ -44,13 +44,31 @@ export class MigrationRunner extends CustomResource {
       environment: {
         DB_PROXY_HOST: props.databaseProxyEndpoint,
         DB_SECRET_ARN: props.databaseSecretArn,
+        MIGRATIONS_DIR: '/var/task/migrations',
         NODE_OPTIONS: '--enable-source-maps',
       },
       bundling: {
-        externalModules: ['@wren/db-node'],
         minify: true,
         sourceMap: true,
         target: 'node22',
+        commandHooks: {
+          beforeBundling(): string[] {
+            return [];
+          },
+          afterBundling(inputDir: string, outputDir: string): string[] {
+            // Copy migration SQL files into the Lambda bundle so they exist at runtime.
+            // inputDir is the project root (where cdk.json lives).
+            const isWindows = process.platform === 'win32';
+            const migrationsSource = path.join(inputDir, '..', 'backend', 'database', 'migrations');
+            if (isWindows) {
+              return [`xcopy /E /I /Y "${migrationsSource}" "${outputDir}\\migrations"`];
+            }
+            return [`cp -r "${migrationsSource}" "${outputDir}/migrations"`];
+          },
+          beforeInstall(): string[] {
+            return [];
+          },
+        },
       },
     });
 

@@ -65,5 +65,11 @@ export class DatabaseStack extends Stack {
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
     });
+
+    // The migration custom resource must wait for the proxy target group to be
+    // fully registered — otherwise the proxy has no backend and resets connections.
+    // The target group is a child construct of the proxy created by CDK's addProxy().
+    const proxyTargetGroup = this.database.proxy.node.findChild("ProxyTargetGroup");
+    this.migrations.node.addDependency(proxyTargetGroup);
   }
 }
