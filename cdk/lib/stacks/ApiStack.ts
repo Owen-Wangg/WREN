@@ -138,6 +138,25 @@ export class ApiStack extends Stack {
       }
     }
 
+    // Remove the global security requirement from the spec — we'll rely on
+    // per-method security instead. This prevents API Gateway from applying
+    // the authorizer to OPTIONS methods that have security: [].
+    delete resolvedSpec.security;
+
+    // Add per-method security to all non-OPTIONS methods so the authorizer
+    // still applies to them.
+    if (resolvedSpec.paths) {
+      for (const pathValue of Object.values(resolvedSpec.paths as Record<string, any>)) {
+        for (const [method, methodValue] of Object.entries(pathValue)) {
+          if (method === "options" || typeof methodValue !== "object" || methodValue === null) continue;
+          // Only add security if the method doesn't already have it explicitly set
+          if (!("security" in methodValue)) {
+            methodValue.security = [{ CognitoAuthorizer: [] }];
+          }
+        }
+      }
+    }
+
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
       apiDefinition: apigateway.ApiDefinition.fromInline(resolvedSpec),
       restApiName: `${config.stackPrefix}-api`,
