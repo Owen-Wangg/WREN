@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import YAML from "js-yaml";
-import { Stack, type StackProps, CfnOutput, Duration } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -108,22 +108,6 @@ export class ApiStack extends Stack {
         tracingEnabled: true, // X-Ray tracing
       },
       cloudWatchRole: true,
-    });
-
-    // Add CORS headers to all responses via default response models
-    const resource = this.api.root;
-    resource.addCorsPreflight({
-      allowOrigins: ["*"],
-      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      allowHeaders: [
-        "Content-Type",
-        "X-Amz-Date",
-        "Authorization",
-        "X-Api-Key",
-        "X-Amz-Security-Token",
-        "X-Amz-User-Agent",
-      ],
-      maxAge: Duration.days(1),
     });
 
     // Grant API Gateway permission to invoke each Lambda. The functions live in

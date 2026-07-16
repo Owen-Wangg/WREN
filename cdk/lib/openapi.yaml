@@ -31,6 +31,27 @@ x-amazon-apigateway-request-validators:
 
 x-amazon-apigateway-request-validator: params-only
 
+x-amazon-apigateway-cors:
+  allowedOrigins:
+    - "*"
+  allowedMethods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+  allowedHeaders:
+    - Content-Type
+    - X-Amz-Date
+    - Authorization
+    - X-Api-Key
+    - X-Amz-Security-Token
+    - X-Amz-User-Agent
+  exposeHeaders:
+    - X-Amzn-RequestId
+    - x-amzn-ErrorType
+  maxAge: 86400
+
 # --------------------------------------------------------------------------
 # Security schemes
 # --------------------------------------------------------------------------
@@ -529,6 +550,34 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
   # ==================== Documents & Drafts ====================
   /v1/documents:
@@ -629,6 +678,34 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
   /v1/documents/{documentId}:
     get:
@@ -657,91 +734,35 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
-
-    delete:
-      summary: Delete a document (cascades to drafts/feedback; retains activity log)
-      tags: [Documents]
-      operationId: deleteDocument
-      parameters:
-        - name: documentId
-          in: path
-          required: true
-          schema:
-            type: string
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
       responses:
         "200":
-          description: Deletion receipt
-          content:
-            application/json:
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
               schema:
-                type: object
-                properties:
-                  documentId:
-                    type: string
-                  deletedDrafts:
-                    type: integer
-                  deletedFeedbackItems:
-                    type: integer
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
-  /v1/documents/{documentId}/drafts:
-    post:
-      summary: Submit a new draft (resubmission)
-      tags: [Documents]
-      operationId: submitDraft
-      parameters:
-        - name: documentId
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                source:
-                  type: object
-                  properties:
-                    kind:
-                      type: string
-                      enum: [file, paste]
-                    text:
-                      type: string
-                    key:
-                      type: string
-      responses:
-        "201":
-          description: Draft created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Draft"
-        "400":
-          description: Oversize or extraction failure
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
-
-  # ==================== Feedback ====================
   /v1/documents/{documentId}/feedback:
     get:
       summary: Get feedback items for the current draft
@@ -755,18 +776,13 @@ paths:
             type: string
       responses:
         "200":
-          description: Feedback items and progress summary
+          description: Feedback items
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/FeedbackItem"
-                  progressSummary:
-                    type: object
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeedbackItem"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -776,75 +792,34 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
-
-    post:
-      summary: Request feedback generation (async — returns job id)
-      tags: [Feedback]
-      operationId: requestFeedback
-      parameters:
-        - name: documentId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "202":
-          description: Feedback generation enqueued
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  jobId:
-                    type: string
-                  status:
-                    type: string
-                    enum: [queued, processing]
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          description: Usage limit reached
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+    options:
+      summary: CORS preflight
       x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
-
-  /v1/documents/{documentId}/feedback/status:
-    get:
-      summary: Poll feedback generation status
-      tags: [Feedback]
-      operationId: getFeedbackStatus
-      parameters:
-        - name: documentId
-          in: path
-          required: true
-          schema:
-            type: string
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
       responses:
         "200":
-          description: Current job status
-          content:
-            application/json:
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    enum: [queued, processing, completed, failed]
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
-
-  # ==================== Config (DeptAdmin) ====================
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
   /v1/document-types/{documentTypeId}/config:
     get:
       summary: Get Document Type configuration (taxonomy, conventions, prompt)
@@ -872,145 +847,50 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
-
-    put:
-      summary: Update Document Type configuration
-      tags: [Config]
-      operationId: updateDocumentTypeConfig
-      parameters:
-        - name: documentTypeId
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                tone:
-                  type: string
-                density:
-                  type: string
-                promptText:
-                  type: string
-                categoryPriority:
-                  type: array
-                  items:
-                    type: string
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
       responses:
         "200":
-          description: Updated configuration
-          content:
-            application/json:
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
               schema:
-                $ref: "#/components/schemas/DocumentTypeConfig"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
-  # ==================== Admin ====================
-  /v1/departments:
-    get:
-      summary: List departments (scoped by role)
-      tags: [Admin]
-      operationId: listDepartments
-      responses:
-        "200":
-          description: Array of departments visible to the actor
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Department"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
-
-  /v1/document-types:
-    get:
-      summary: List document types (filterable by department)
-      tags: [Admin]
-      operationId: listDocumentTypes
-      parameters:
-        - name: departmentId
-          in: query
-          schema:
-            type: string
-          description: Optional filter by department ID
-      responses:
-        "200":
-          description: Array of document types
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/DocumentType"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
 
   /v1/users:
     get:
-      summary: Search users (TechAdmin system-wide, DeptAdmin scoped)
-      tags: [Admin]
+      summary: Search users (DeptAdmin/TechAdmin)
+      tags: [Users]
       operationId: searchUsers
-      parameters:
-        - name: q
-          in: query
-          schema:
-            type: string
-          description: Search query string
-        - name: role
-          in: query
-          schema:
-            type: string
-          description: Optional filter by role
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-          description: Results per page
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
-          description: Starting position in result set
       responses:
         "200":
-          description: Paginated user search results
+          description: List of users
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/User"
-                  total:
-                    type: integer
-                    description: Total count of users matching query
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1020,50 +900,53 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
   /v1/roles:
     post:
-      summary: Assign a role (TechAdmin only)
-      tags: [Admin]
+      summary: Assign role to user (TechAdmin)
+      tags: [Roles]
       operationId: assignRole
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [userId, role]
-              properties:
-                userId:
-                  type: string
-                  description: Global user ID
-                role:
-                  type: string
-                  enum: [Student, DepartmentAdmin, TechnicalAdmin]
-                  description: Role to assign
-                administeredDepartmentIds:
-                  type: array
-                  items:
-                    type: string
-                  description: Required if role is DepartmentAdmin; list of department IDs to administer
       responses:
         "200":
-          description: Role assigned successfully
+          description: Role assigned
           content:
             application/json:
               schema:
                 type: object
+                required: [userId, role]
                 properties:
                   userId:
                     type: string
                   role:
                     type: string
-        "400":
-          description: Validation error (e.g., missing administeredDepartmentIds for DepartmentAdmin)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1073,51 +956,34 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
-
-  # ==================== Usage & Overrides ====================
-  /v1/usage:
-    get:
-      summary: Get usage limits and current consumption
-      tags: [Usage]
-      operationId: getUsage
-      parameters:
-        - name: scope
-          in: query
-          schema:
-            type: string
-            enum: [platform, documentType]
-          description: Scope of usage query
-        - name: scopeId
-          in: query
-          schema:
-            type: string
-          description: DocumentType ID if scope is 'documentType'
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
       responses:
         "200":
-          description: Usage information
-          content:
-            application/json:
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
               schema:
-                type: object
-                properties:
-                  limit:
-                    type: integer
-                    description: Maximum number of actions allowed
-                  consumed:
-                    type: integer
-                    description: Number of actions consumed
-                  remaining:
-                    type: integer
-                    description: Number of actions remaining
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
   /v1/overrides:
     post:
@@ -1151,20 +1017,14 @@ paths:
                 expiresAt:
                   type: string
                   format: date-time
-                  description: When the override expires
+                  description: Timestamp when the override expires
       responses:
         "201":
-          description: Override granted successfully
+          description: Override created
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Override"
-        "400":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1174,8 +1034,35 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
-  # ==================== Analytics ====================
   /v1/analytics:
     get:
       summary: Get aggregate analytics (scoped by role)
@@ -1202,6 +1089,35 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuditFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
 
   # ==================== Upload (presigned URL) ====================
   /v1/uploads/presign:
@@ -1240,3 +1156,33 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
