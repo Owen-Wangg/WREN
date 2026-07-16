@@ -83,18 +83,13 @@ export class ComputeStack extends Stack {
     };
 
     // Shared bundling config: workspace packages are resolved from the monorepo
-    // root node_modules (npm workspaces hoist them there). esbuild needs the
-    // projectRoot set to the monorepo root so it can resolve @wren/* packages.
+    // root node_modules (npm workspaces hoist them there). esbuild runs from the
+    // monorepo root so it naturally resolves @wren/* via the workspace symlinks.
     const monorepoRoot = path.join(__dirname, "../../..");
     const sharedBundling: lambdaNodejs.BundlingOptions = {
       minify: true,
       sourceMap: true,
       target: "node22",
-      // Tell esbuild to also look in the monorepo root node_modules for @wren/* packages
-      esbuildArgs: {
-        "--resolve-extensions": ".ts,.js,.mjs,.json",
-        "--node-paths": path.join(monorepoRoot, "node_modules"),
-      },
     };
 
     // -----------------------------------------------------------------------

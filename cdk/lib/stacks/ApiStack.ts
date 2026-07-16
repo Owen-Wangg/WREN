@@ -95,6 +95,49 @@ export class ApiStack extends Stack {
 
     const resolvedSpec = resolveSpec(specObject);
 
+    // -----------------------------------------------------------------------
+    // Inject CORS OPTIONS mock integration on every path.
+    // This bypasses the Lambda authorizer for preflight requests (security: [])
+    // and returns CORS headers via a MOCK integration (no Lambda invocation).
+    // -----------------------------------------------------------------------
+    const allowedOrigins = "*"; // Tighten to Amplify domain in prod
+    const corsResponseParams = {
+      "method.response.header.Access-Control-Allow-Origin": `'${allowedOrigins}'`,
+      "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+      "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+    };
+
+    if (resolvedSpec.paths) {
+      for (const pathValue of Object.values(resolvedSpec.paths as Record<string, any>)) {
+        if (!pathValue.options) {
+          pathValue.options = {
+            summary: "CORS preflight",
+            security: [],
+            responses: {
+              "200": {
+                description: "CORS preflight response",
+                headers: {
+                  "Access-Control-Allow-Origin": { schema: { type: "string" } },
+                  "Access-Control-Allow-Methods": { schema: { type: "string" } },
+                  "Access-Control-Allow-Headers": { schema: { type: "string" } },
+                },
+              },
+            },
+            "x-amazon-apigateway-integration": {
+              type: "mock",
+              requestTemplates: { "application/json": '{"statusCode": 200}' },
+              responses: {
+                default: {
+                  statusCode: "200",
+                  responseParameters: corsResponseParams,
+                },
+              },
+            },
+          };
+        }
+      }
+    }
+
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
       apiDefinition: apigateway.ApiDefinition.fromInline(resolvedSpec),
       restApiName: `${config.stackPrefix}-api`,

@@ -63,7 +63,12 @@ export class AmplifyStack extends Stack {
             frontend: {
               phases: {
                 preBuild: {
-                  commands: ["npm ci"],
+                  commands: [
+                    // Install at monorepo root first so workspace packages
+                    // (types, etc.) can resolve their dependencies (e.g. zod)
+                    "cd .. && npm ci && cd frontend",
+                    "npm ci",
+                  ],
                 },
                 build: {
                   commands: ["npm run build"],
