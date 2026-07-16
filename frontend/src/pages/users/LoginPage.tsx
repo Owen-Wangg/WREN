@@ -1,27 +1,38 @@
 import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 import { LoginForm } from '@/features/auth/components/LoginForm';
 import { useAuth } from '@/features/auth/AuthContext';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { signIn, user, isLoading } = useAuth();
+  const [isWaitingForRedirect, setIsWaitingForRedirect] = useState(false);
 
-  const handleLoginSuccess = () => {
-    if (!user) {
-      navigate('/dashboard');
-      return;
-    }
-
-    const primaryRole = user.roles[0];
-    if (primaryRole === 'TechnicalAdmin') {
-      navigate('/system-admin');
-    } else if (primaryRole === 'DepartmentAdmin') {
-      navigate('/dept-admin');
-    } else {
-      navigate('/dashboard');
+  const handleLoginSuccess = async (email: string, password: string) => {
+    try {
+      // Sign in through auth context to fetch user roles from database
+      await signIn(email, password);
+      setIsWaitingForRedirect(true);
+    } catch (error) {
+      console.error('Failed to sign in through auth context:', error);
+      setIsWaitingForRedirect(false);
     }
   };
+
+  useEffect(() => {
+    // Redirect once user is populated from auth context
+    if (isWaitingForRedirect && !isLoading && user) {
+      const primaryRole = user.roles[0];
+      if (primaryRole === 'TechnicalAdmin') {
+        navigate('/system-admin', { replace: true });
+      } else if (primaryRole === 'DepartmentAdmin') {
+        navigate('/dept-admin', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
+    }
+  }, [isWaitingForRedirect, user, isLoading, navigate]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-muted">
