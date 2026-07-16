@@ -19,6 +19,8 @@ interface MockAccount {
   readonly email: string;
   readonly password: string;
   readonly userSub: string;
+  confirmed: boolean;
+  readonly confirmationCode?: string;
 }
 
 export class MockAuthService implements AuthService {
@@ -31,6 +33,13 @@ export class MockAuthService implements AuthService {
       throw new AuthError(
         'Incorrect email or password.',
         'invalid_credentials',
+      );
+    }
+
+    if (!account.confirmed) {
+      throw new AuthError(
+        'Please confirm your email before signing in.',
+        'unknown',
       );
     }
 
@@ -54,13 +63,30 @@ export class MockAuthService implements AuthService {
     }
 
     const userSub = `mock-user-${this.accounts.size + 1}`;
+    const confirmationCode = String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+
     this.accounts.set(key, {
       email: key,
       password: input.password,
       userSub,
+      confirmed: false,
+      confirmationCode,
     });
 
-    return { userSub, confirmationRequired: false };
+    return { userSub, confirmationRequired: true };
+  }
+
+  async confirmSignUp(email: string, code: string): Promise<void> {
+    const account = this.accounts.get(email.toLowerCase());
+    if (!account) {
+      throw new AuthError('Email not found.', 'unknown');
+    }
+
+    if (account.confirmationCode !== code) {
+      throw new AuthError('Invalid verification code.', 'unknown');
+    }
+
+    account.confirmed = true;
   }
 
   signOut(): void {

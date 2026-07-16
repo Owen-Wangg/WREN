@@ -99,6 +99,24 @@ export class CognitoAuthService implements AuthService {
     });
   }
 
+  async confirmSignUp(email: string, code: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const user = new CognitoUser({
+        Username: email,
+        Pool: this.userPool,
+      });
+
+      user.confirmRegistration(code, true, (error: any) => {
+        if (error) {
+          const kind: AuthErrorKind = error.code === 'CodeMismatchException' ? 'unknown' : 'unknown';
+          reject(new AuthError(`Confirmation failed: ${error.message}`, kind, error));
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
   async getAccessToken(): Promise<string | null> {
     if (!this.currentUser) return null;
 
