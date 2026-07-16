@@ -82,29 +82,39 @@ export class ComputeStack extends Stack {
       NODE_OPTIONS: "--enable-source-maps",
     };
 
+    // Shared bundling config: workspace packages are resolved from the monorepo
+    // root node_modules (npm workspaces hoist them there). esbuild needs the
+    // projectRoot set to the monorepo root so it can resolve @wren/* packages.
+    const monorepoRoot = path.join(__dirname, "../../..");
+    const sharedBundling: lambdaNodejs.BundlingOptions = {
+      minify: true,
+      sourceMap: true,
+      target: "node22",
+      // Tell esbuild to also look in the monorepo root node_modules for @wren/* packages
+      esbuildArgs: { "--resolve-extensions": ".ts,.js,.mjs,.json" },
+      nodePaths: [path.join(monorepoRoot, "node_modules")],
+    };
+
     // -----------------------------------------------------------------------
     // Lambda Authorizer (Node 22)
     // -----------------------------------------------------------------------
     this.authorizerFunction = new lambdaNodejs.NodejsFunction(this, "AuthorizerFn", {
       functionName: `${config.stackPrefix}-authorizer`,
-      entry: path.join(__dirname, "../../lambda-handlers/authorizer.ts"),
+      entry: path.join(monorepoRoot, "backend/auth/src/authorizer.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
       timeout: Duration.seconds(10),
       vpc,
       vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv,
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
       },
-      bundling: {
-        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
-        minify: true,
-        sourceMap: true,
-        target: "node22",
-      },
+      bundling: sharedBundling,
     });
 
     // -----------------------------------------------------------------------
@@ -112,23 +122,20 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     this.documentFunction = new lambdaNodejs.NodejsFunction(this, "DocumentFn", {
       functionName: `${config.stackPrefix}-document`,
-      entry: path.join(__dirname, "../../lambda-handlers/document.ts"),
+      entry: path.join(monorepoRoot, "backend/document/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 512,
       timeout: Duration.seconds(30),
       vpc,
       vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
       },
-      bundling: {
-        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
-        minify: true,
-        sourceMap: true,
-        target: "node22",
-      },
+      bundling: sharedBundling,
     });
 
     // -----------------------------------------------------------------------
@@ -136,23 +143,20 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     this.adminFunction = new lambdaNodejs.NodejsFunction(this, "AdminFn", {
       functionName: `${config.stackPrefix}-admin`,
-      entry: path.join(__dirname, "../../lambda-handlers/admin.ts"),
+      entry: path.join(monorepoRoot, "backend/admin/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 512,
       timeout: Duration.seconds(30),
       vpc,
       vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
       },
-      bundling: {
-        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
-        minify: true,
-        sourceMap: true,
-        target: "node22",
-      },
+      bundling: sharedBundling,
     });
 
     // -----------------------------------------------------------------------
@@ -160,23 +164,20 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     this.auditFunction = new lambdaNodejs.NodejsFunction(this, "AuditFn", {
       functionName: `${config.stackPrefix}-audit`,
-      entry: path.join(__dirname, "../../lambda-handlers/audit.ts"),
+      entry: path.join(monorepoRoot, "backend/admin/src/lambda-audit.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
       timeout: Duration.seconds(15),
       vpc,
       vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv,
         WREN_ACTIVITY_PSEUDONYM_SALT: `/${config.stackPrefix}/audit/pseudonym-salt`,
       },
-      bundling: {
-        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
-        minify: true,
-        sourceMap: true,
-        target: "node22",
-      },
+      bundling: sharedBundling,
     });
 
     // -----------------------------------------------------------------------
@@ -201,23 +202,20 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     this.feedbackOrchestratorFunction = new lambdaNodejs.NodejsFunction(this, "FeedbackOrchestratorFn", {
       functionName: `${config.stackPrefix}-feedback-orchestrator`,
-      entry: path.join(__dirname, "../../lambda-handlers/feedback-orchestrator.ts"),
+      entry: path.join(monorepoRoot, "backend/feedback/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
       timeout: Duration.seconds(15),
       vpc,
       vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv,
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
       },
-      bundling: {
-        externalModules: ["@wren/auth", "@wren/db-node", "@wren/admin", "@wren/document", "@wren/feedback", "@wren/types"],
-        minify: true,
-        sourceMap: true,
-        target: "node22",
-      },
+      bundling: sharedBundling,
     });
     this.feedbackQueue.grantSendMessages(this.feedbackOrchestratorFunction);
 
@@ -290,7 +288,7 @@ export class ComputeStack extends Stack {
 
     // Document Lambda: S3 read/write for document uploads + presigned URLs.
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:GetSignedUrl"],
+      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       resources: [`arn:aws:s3:::${props.documentsBucketName}/*`],
     }));
 

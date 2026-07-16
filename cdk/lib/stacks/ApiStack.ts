@@ -57,54 +57,46 @@ export class ApiStack extends Stack {
     const specPath = path.join(__dirname, "..", "openapi.yaml");
     const rawSpec = fs.readFileSync(specPath, "utf8");
 
-    // Parse YAML to JSON object. Fn::Sub inside YAML becomes a regular JSON string
-    // that CDK/CloudFormation will process correctly.
+    // Parse YAML to JSON object.
     const specObject = YAML.load(rawSpec) as Record<string, any>;
 
-    // Inject the Lambda ARNs into the spec's integration paths by walking the
-    // paths and replacing the placeholder tokens.
-    function injectLambdaArns(obj: any, arns: Record<string, string | undefined>): void {
-      if (typeof obj !== "object" || obj === null) return;
-      if (Array.isArray(obj)) {
-        obj.forEach((item) => injectLambdaArns(item, arns));
-      } else {
-        for (const [key, value] of Object.entries(obj)) {
-          if (typeof value === "string") {
-            // Replace Lambda ARN placeholders with actual ARNs
-            let replaced = value;
-            if (arns.AuthorizerFunctionArn) {
-              replaced = replaced.replace(/\$\{AuthorizerFunctionArn\}/g, arns.AuthorizerFunctionArn);
-            }
-            if (arns.DocumentFunctionArn) {
-              replaced = replaced.replace(/\$\{DocumentFunctionArn\}/g, arns.DocumentFunctionArn);
-            }
-            if (arns.FeedbackFunctionArn) {
-              replaced = replaced.replace(/\$\{FeedbackFunctionArn\}/g, arns.FeedbackFunctionArn);
-            }
-            if (arns.AdminFunctionArn) {
-              replaced = replaced.replace(/\$\{AdminFunctionArn\}/g, arns.AdminFunctionArn);
-            }
-            if (arns.AuditFunctionArn) {
-              replaced = replaced.replace(/\$\{AuditFunctionArn\}/g, arns.AuditFunctionArn);
-            }
-            obj[key] = replaced;
-          } else {
-            injectLambdaArns(value, arns);
-          }
-        }
-      }
-    }
-
-    injectLambdaArns(specObject, {
+    // Resolve all Fn::Sub intrinsics and Lambda ARN placeholders into plain
+    // strings. Since we know all values at synth time (region + Lambda ARNs),
+    // we don't need CloudFormation to resolve them at deploy time.
+    const substitutions: Record<string, string> = {
+      "AWS::Region": config.env.region,
       AuthorizerFunctionArn: String(props.authorizerFunctionArn),
       DocumentFunctionArn: String(props.documentFunctionArn),
       FeedbackFunctionArn: String(props.feedbackFunctionArn),
       AdminFunctionArn: String(props.adminFunctionArn),
       AuditFunctionArn: String(props.auditFunctionArn),
-    });
+    };
+
+    function resolveSpec(obj: any): any {
+      if (typeof obj !== "object" || obj === null) return obj;
+      if (Array.isArray(obj)) return obj.map(resolveSpec);
+
+      // If this object is a Fn::Sub intrinsic, resolve it to a plain string.
+      if ("Fn::Sub" in obj && typeof obj["Fn::Sub"] === "string") {
+        let resolved = obj["Fn::Sub"] as string;
+        for (const [key, value] of Object.entries(substitutions)) {
+          resolved = resolved.replace(new RegExp(`\\$\\{${key}\\}`, "g"), value);
+        }
+        return resolved;
+      }
+
+      // Otherwise recurse into all keys.
+      const result: Record<string, any> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        result[key] = resolveSpec(value);
+      }
+      return result;
+    }
+
+    const resolvedSpec = resolveSpec(specObject);
 
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
-      apiDefinition: apigateway.ApiDefinition.fromInline(specObject),
+      apiDefinition: apigateway.ApiDefinition.fromInline(resolvedSpec),
       restApiName: `${config.stackPrefix}-api`,
       endpointTypes: [apigateway.EndpointType.REGIONAL],
       deployOptions: {

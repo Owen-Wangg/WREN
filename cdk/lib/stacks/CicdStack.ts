@@ -118,15 +118,6 @@ export class CicdStack extends Stack {
     // Grant CodeBuild permission to push to ECR.
     this.ecrRepository.grantPullPush(buildProject);
 
-    // Grant CodeBuild permission to read Secrets Manager (for DB tests if needed).
-    // NOTE: buildProject does not need Secrets Manager access during normal builds.
-    // Scoped to empty resources to comply with least-privilege principle.
-    // If DB integration tests are added, reference the specific secret ARN via props.
-    buildProject.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["secretsmanager:GetSecretValue"],
-      resources: [],
-    }));
-
     // -------------------------------------------------------------------
     // CodePipeline
     // -------------------------------------------------------------------
