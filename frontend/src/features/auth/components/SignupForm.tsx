@@ -15,7 +15,7 @@ import { useWatch } from 'react-hook-form';
 
 export interface SignupFormProps {
   /** Called after a successful sign-up (the account may still require IdP confirmation). */
-  readonly onSuccess?: (result: { readonly confirmationRequired: boolean; readonly email: string }) => void;
+  readonly onSuccess?: (result: { readonly confirmationRequired: boolean; readonly email: string; readonly password?: string }) => void;
 }
 
 export function SignupForm({ onSuccess }: SignupFormProps) {
@@ -33,7 +33,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
     setSubmitError(null);
     try {
       const result = await authService.signUp(values);
-      onSuccess?.({ ...result, email: values.email });
+      onSuccess?.({ ...result, email: values.email, password: values.password });
     } catch (cause) {
       setSubmitError(
         cause instanceof AuthError
