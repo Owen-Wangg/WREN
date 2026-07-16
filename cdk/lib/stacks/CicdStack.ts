@@ -3,7 +3,6 @@ import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
 import * as codepipelineActions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as ecr from "aws-cdk-lib/aws-ecr";
-import * as iam from "aws-cdk-lib/aws-iam";
 import type { Construct } from "constructs";
 
 import type { AppConfig } from "../config";

@@ -91,8 +91,10 @@ export class ComputeStack extends Stack {
       sourceMap: true,
       target: "node22",
       // Tell esbuild to also look in the monorepo root node_modules for @wren/* packages
-      esbuildArgs: { "--resolve-extensions": ".ts,.js,.mjs,.json" },
-      nodePaths: [path.join(monorepoRoot, "node_modules")],
+      esbuildArgs: {
+        "--resolve-extensions": ".ts,.js,.mjs,.json",
+        "--node-paths": path.join(monorepoRoot, "node_modules"),
+      },
     };
 
     // -----------------------------------------------------------------------
