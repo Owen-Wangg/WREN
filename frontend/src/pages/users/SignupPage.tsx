@@ -9,7 +9,6 @@ export function SignupPage() {
   const navigate = useNavigate();
   const [showVerification, setShowVerification] = useState(false);
   const [email, setEmail] = useState('');
-  const [verificationError, setVerificationError] = useState<string | null>(null);
 
   const handleSignupSuccess = (result: {
     readonly confirmationRequired: boolean;
@@ -25,13 +24,11 @@ export function SignupPage() {
 
   const handleVerificationConfirm = async (code: string) => {
     try {
-      setVerificationError(null);
       await authService.confirmSignUp(email, code);
       navigate('/dashboard');
     } catch (cause) {
-      setVerificationError(
-        cause instanceof Error ? cause.message : 'Verification failed. Please try again.',
-      );
+      console.error('Verification failed:', cause);
+      throw cause;
     }
   };
 

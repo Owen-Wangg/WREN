@@ -16,7 +16,6 @@ export function VerificationCodeDialog({ email, onConfirm, isOpen }: Verificatio
     register,
     handleSubmit,
     formState: { errors },
-    reset,
   } = useZodForm(confirmationSchema);
 
   const onSubmit = async (values: ConfirmationFormValues) => {
