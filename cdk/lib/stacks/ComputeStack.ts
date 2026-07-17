@@ -229,7 +229,7 @@ export class ComputeStack extends Stack {
       functionName: `${config.stackPrefix}-feedback-engine`,
       runtime: lambda.Runtime.FROM_IMAGE,
       code: lambda.Code.fromEcrImage(feedbackEngineRepo, {
-        tagOrDigest: "latest",
+        tagOrDigest: "bootstrap",
       }),
       handler: lambda.Handler.FROM_IMAGE,
       memorySize: 1024,

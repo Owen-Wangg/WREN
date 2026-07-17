@@ -54,7 +54,6 @@ const github = {
   owner: ctxOrEnv("githubOwner", "GITHUB_OWNER"),
   repo: ctxOrEnv("githubRepo", "GITHUB_REPO"),
   branch: ctxOrEnv("githubBranch", "GITHUB_BRANCH") ?? "main",
-  connectionArn: ctxOrEnv("codestarConnectionArn", "GITHUB_CONNECTION_ARN"),
 };
 
 // Single-source application configuration (app name + Bedrock model id) is
@@ -167,7 +166,7 @@ if (github.owner && github.repo) {
     config,
     repositoryOwner: github.owner,
     repositoryName: github.repo,
-    githubTokenSecretName: `/${config.stackPrefix}/github/token`,
+    githubTokenSecretName: `${config.stackPrefix}/github/token`,
     apiEndpoint: amplifyApiEndpoint,
     cognitoUserPoolId: cognitoStack.userPoolId,
     cognitoClientId: cognitoStack.userPoolClientId,
@@ -179,19 +178,18 @@ if (github.owner && github.repo) {
   );
 }
 
-if (github.owner && github.repo && github.connectionArn) {
+if (github.owner && github.repo) {
   new CicdStack(app, stackName(config, "Cicd"), {
     env: config.env,
     config,
     repositoryOwner: github.owner,
     repositoryName: github.repo,
     branch: github.branch,
-    connectionArn: github.connectionArn,
   });
 } else {
   // eslint-disable-next-line no-console
   console.warn(
-    "[wren] Skipping CICD stack — set githubOwner/githubRepo/codestarConnectionArn (or GITHUB_OWNER/GITHUB_REPO/GITHUB_CONNECTION_ARN) to enable the pipeline.",
+    "[wren] Skipping CICD stack — set githubOwner/githubRepo (or GITHUB_OWNER/GITHUB_REPO) to enable the pipeline.",
   );
 }
 
