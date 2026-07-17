@@ -13,11 +13,16 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1089.0",
     "@wren/db-node": "*",
     "@wren/types": "*",
-    "aws-jwt-verify": "^4.0.1"
+    "aws-jwt-verify": "^4.0.1",
+    "jsonwebtoken": "^9.0.0",
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.145"
+    "@types/aws-lambda": "^8.10.145",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node-fetch": "^2.6.9"
   }
 }

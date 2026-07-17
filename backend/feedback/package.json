@@ -1,0 +1,21 @@
+{
+  "name": "@wren/feedback",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WREN Feedback Service — feedback generation orchestration (Node 22).",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.7"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.515.0",
+    "@wren/db-node": "*",
+    "@wren/types": "*",
+    "uuid": "^9.0.0"
+  }
+}

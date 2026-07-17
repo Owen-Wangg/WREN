@@ -1,14 +1,43 @@
 import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
-import { LoginForm } from '@/features/auth';
+import { LoginForm } from '@/features/auth/components/LoginForm';
+import { useAuth } from '@/features/auth/AuthContext';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const { signIn, user, isLoading } = useAuth();
+  const [isWaitingForRedirect, setIsWaitingForRedirect] = useState(false);
+
+  const handleLoginSuccess = async (email: string, password: string) => {
+    try {
+      // Sign in through auth context to fetch user roles from database
+      await signIn(email, password);
+      setIsWaitingForRedirect(true);
+    } catch (error) {
+      console.error('Failed to sign in through auth context:', error);
+      setIsWaitingForRedirect(false);
+    }
+  };
+
+  useEffect(() => {
+    // Redirect once user is populated from auth context
+    if (isWaitingForRedirect && !isLoading && user) {
+      const primaryRole = user.roles[0];
+      if (primaryRole === 'TechnicalAdmin') {
+        navigate('/system-admin', { replace: true });
+      } else if (primaryRole === 'DepartmentAdmin') {
+        navigate('/dept-admin', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
+    }
+  }, [isWaitingForRedirect, user, isLoading, navigate]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-muted">
       <div className="flex w-full max-w-[480px] flex-col gap-xl">
-        <LoginForm onSuccess={() => navigate('/dashboard')} />
+        <LoginForm onSuccess={handleLoginSuccess} />
 
         <div className="flex flex-col items-center gap-sm">
           <span className="text-bodySmall text-text-muted">

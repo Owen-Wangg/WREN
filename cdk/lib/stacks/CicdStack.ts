@@ -3,7 +3,6 @@ import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
 import * as codepipelineActions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as ecr from "aws-cdk-lib/aws-ecr";
-import * as iam from "aws-cdk-lib/aws-iam";
 import type { Construct } from "constructs";
 
 import type { AppConfig } from "../config";
@@ -118,12 +117,6 @@ export class CicdStack extends Stack {
     // Grant CodeBuild permission to push to ECR.
     this.ecrRepository.grantPullPush(buildProject);
 
-    // Grant CodeBuild permission to read Secrets Manager (for DB tests if needed).
-    buildProject.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["secretsmanager:GetSecretValue"],
-      resources: ["*"], // Scoped further in production
-    }));
-
     // -------------------------------------------------------------------
     // CodePipeline
     // -------------------------------------------------------------------
@@ -165,7 +158,7 @@ export class CicdStack extends Stack {
               actionName: "Deploy_CDK",
               stackName: `${config.stackPrefix}-Compute`,
               templatePath: buildOutput.atPath(`${config.stackPrefix}-Compute.template.json`),
-              adminPermissions: true, // CDK deploy needs broad permissions
+              adminPermissions: false, // Replaced adminPermissions=true with least-privilege approach
             }),
           ],
         },

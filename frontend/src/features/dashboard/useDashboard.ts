@@ -18,8 +18,8 @@ import {
   requestAccess,
 } from './dashboardApi';
 
-import type { AccessRequestAck, AccessRequestInput, ContentType, OrganizationAccess } from './dashboardTypes';
-import type { AccessGrant, Document, WritingType } from '@wren/types';
+import type { AccessRequestAck, AccessRequestInput, ContentType, OrganizationAccess, WritingType } from './dashboardTypes';
+import type { AccessGrant, Document } from '@wren/types';
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 
 import { queryKeys } from '@/hooks/queryKeys';

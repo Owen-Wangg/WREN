@@ -23,6 +23,16 @@ const envSchema = z.object({
   VITE_COGNITO_USER_POOL_ID: z.string().optional(),
   VITE_COGNITO_CLIENT_ID: z.string().optional(),
   VITE_AWS_REGION: z.string().default('ca-central-1'),
+  /**
+   * When `"true"`, the app talks to the real API Gateway (`liveApiClient`) and
+   * enforces Cognito auth + role-guarded routes. Defaults to `false` so local
+   * dev runs entirely against the in-memory mock with no login wall — flip this
+   * (plus the Cognito vars) once the backend is deployed.
+   */
+  VITE_USE_LIVE_API: z
+    .string()
+    .optional()
+    .transform((value) => value === 'true' || value === '1'),
 });
 
 const parsed = envSchema.safeParse(import.meta.env);
@@ -43,6 +53,8 @@ export interface AppConfig {
   readonly environment: string;
   /** REST API base URL used by the shared API client. */
   readonly apiBaseUrl: string;
+  /** When true, use the live API client + Cognito auth + route guards. */
+  readonly useLiveApi: boolean;
   readonly cognito: {
     readonly userPoolId: string | undefined;
     readonly clientId: string | undefined;
@@ -54,9 +66,15 @@ export const appConfig: AppConfig = {
   appName: env.VITE_APP_NAME,
   environment: env.VITE_ENVIRONMENT,
   apiBaseUrl: env.VITE_API_BASE_URL.replace(/\/+$/, ''),
+  useLiveApi: env.VITE_USE_LIVE_API ?? false,
   cognito: {
     userPoolId: env.VITE_COGNITO_USER_POOL_ID,
     clientId: env.VITE_COGNITO_CLIENT_ID,
     region: env.VITE_AWS_REGION,
   },
 };
+
+/** True when Cognito pool configuration is present (auth can run for real). */
+export const isCognitoConfigured = Boolean(
+  appConfig.cognito.userPoolId && appConfig.cognito.clientId,
+);

@@ -19,10 +19,13 @@ interface MockAccount {
   readonly email: string;
   readonly password: string;
   readonly userSub: string;
+  confirmed: boolean;
+  readonly confirmationCode?: string;
 }
 
 export class MockAuthService implements AuthService {
   private readonly accounts = new Map<string, MockAccount>();
+  private currentAccessToken: string | null = null;
 
   async signIn({ email, password }: SignInCredentials): Promise<AuthSession> {
     const account = this.accounts.get(email.toLowerCase());
@@ -33,10 +36,18 @@ export class MockAuthService implements AuthService {
       );
     }
 
+    if (!account.confirmed) {
+      throw new AuthError(
+        'Please confirm your email before signing in.',
+        'unknown',
+      );
+    }
+
     const now = Date.now();
+    this.currentAccessToken = `mock-access-token.${account.userSub}`;
     return {
       idToken: `mock-id-token.${account.userSub}`,
-      accessToken: `mock-access-token.${account.userSub}`,
+      accessToken: this.currentAccessToken,
       refreshToken: `mock-refresh-token.${account.userSub}`,
       expiresAt: now + 60 * 60 * 1000,
     };
@@ -52,12 +63,37 @@ export class MockAuthService implements AuthService {
     }
 
     const userSub = `mock-user-${this.accounts.size + 1}`;
+    const confirmationCode = String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+
     this.accounts.set(key, {
       email: key,
       password: input.password,
       userSub,
+      confirmed: false,
+      confirmationCode,
     });
 
-    return { userSub, confirmationRequired: false };
+    return { userSub, confirmationRequired: true };
+  }
+
+  async confirmSignUp(email: string, code: string): Promise<void> {
+    const account = this.accounts.get(email.toLowerCase());
+    if (!account) {
+      throw new AuthError('Email not found.', 'unknown');
+    }
+
+    if (account.confirmationCode !== code) {
+      throw new AuthError('Invalid verification code.', 'unknown');
+    }
+
+    account.confirmed = true;
+  }
+
+  signOut(): void {
+    this.currentAccessToken = null;
+  }
+
+  async getAccessToken(): Promise<string | null> {
+    return this.currentAccessToken;
   }
 }

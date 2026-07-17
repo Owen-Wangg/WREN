@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { writingTypeSchema } from '@wren/types';
+import { writingTypeSchema } from '@/features/dashboard/dashboardTypes';
 
 import { MockApiClient } from './mockApi';
 

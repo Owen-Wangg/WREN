@@ -77,11 +77,13 @@ export function DocumentTypeDetailPage() {
           {activeTab === 'feedback-types' && (
             <FeedbackTypeSection
               feedbackCategories={feedbackCategories}
+              documentTypeId={documentTypeId || ''}
             />
           )}
           {activeTab === 'manage-prompt' && (
             <ManagePromptSection
               documentTypeName={documentType.name}
+              documentTypeId={documentTypeId || ''}
             />
           )}
           {activeTab === 'analytics' && (

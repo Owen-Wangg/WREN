@@ -75,6 +75,7 @@ describe('AnchoredFeedbackEditor', () => {
         initialContent={initialContent}
         feedbackItems={[activeFeedbackItem]}
         anchors={[activeAnchor]}
+        showCoachHighlights={true}
       />,
     );
 
@@ -108,6 +109,7 @@ describe('AnchoredFeedbackEditor', () => {
         initialContent={initialContent}
         feedbackItems={[activeFeedbackItem, removedFeedbackItem]}
         anchors={[activeAnchor, removedAnchor]}
+        showCoachHighlights={true}
       />,
     );
 
@@ -129,6 +131,7 @@ describe('AnchoredFeedbackEditor', () => {
         initialContent={initialContent}
         feedbackItems={[activeFeedbackItem]}
         anchors={[activeAnchor]}
+        showCoachHighlights={true}
       />,
     );
 

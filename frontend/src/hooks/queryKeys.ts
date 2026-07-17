@@ -19,16 +19,26 @@ import { appConfig } from '@/config/env';
 const ns = appConfig.environment;
 
 export const queryKeys = {
-  /** List of writing environments (documents) for the current user. */
+  // ---- Student Flow (Task 1.3) ----
+
+  /** List of documents for the current user (with pagination). */
   documents: () => [ns, 'documents'] as const,
 
-  /** A single writing environment (document). */
-  document: (environmentId: string) =>
-    [ns, 'documents', environmentId] as const,
+  /** A single document with metadata. */
+  document: (documentId: string) =>
+    [ns, 'documents', documentId] as const,
 
-  /** Drafts belonging to a writing environment. */
-  drafts: (environmentId: string) =>
-    [ns, 'documents', environmentId, 'drafts'] as const,
+  /** Drafts belonging to a document. */
+  drafts: (documentId: string) =>
+    [ns, 'documents', documentId, 'drafts'] as const,
+
+  /** Feedback items for a document's current draft. */
+  feedback: (documentId: string) =>
+    [ns, 'documents', documentId, 'feedback'] as const,
+
+  /** Status of async feedback generation for a document (for polling). */
+  feedbackStatus: (documentId: string) =>
+    [ns, 'documents', documentId, 'feedback', 'status'] as const,
 
   /**
    * The AI Debrief for a writing environment. Invalidate this exact key on
@@ -36,10 +46,6 @@ export const queryKeys = {
    */
   debrief: (environmentId: string) =>
     [ns, 'documents', environmentId, 'debrief'] as const,
-
-  /** Feedback items for a writing environment / draft. */
-  feedback: (environmentId: string, draftId: string) =>
-    [ns, 'documents', environmentId, 'feedback', draftId] as const,
 
   /**
    * The writer-facing qualitative progress summary for a writing environment's
@@ -66,9 +72,6 @@ export const queryKeys = {
   /** Organization groupings (id + effective access state) for INHERIT resolution (task 19.1). */
   organizations: () => [ns, 'organizations'] as const,
 
-  /** The current user's Access Grants, used to resolve submission permission for LOCKED types (task 19.1). */
-  accessGrants: () => [ns, 'access-grants'] as const,
-
   /**
    * The Writing Types a Field Expert is assigned to (task 19.2; Requirement
    * 23.4). A Field Expert may be assigned several, across organizations; the
@@ -92,7 +95,54 @@ export const queryKeys = {
   fieldExpertAggregateAnalytics: (writingTypeId: string) =>
     [ns, 'field-expert', writingTypeId, 'aggregate-analytics'] as const,
 
-  /* ---- Admin console (task 19.4; Requirements 33.1–33.4, 41.1, 41.2) ---- */
+  // ---- Department Admin Flow (Task 1.3) ----
+
+  /** Departments visible to the current user. */
+  departments: () => [ns, 'departments'] as const,
+
+  /** Document types, optionally filtered by department. */
+  documentTypes: (departmentId?: string) =>
+    [ns, 'document-types', departmentId ?? 'all'] as const,
+
+  /** Configuration for a specific document type (tone, density, prompt). */
+  documentTypeConfig: (documentTypeId: string) =>
+    [ns, 'document-types', documentTypeId, 'config'] as const,
+
+  /** Users (scoped search for DepartmentAdmins or platform-wide for TechAdmins). */
+  users: (query?: string) =>
+    [ns, 'users', query ?? 'all'] as const,
+
+  /** Access grants for a specific user. */
+  accessGrants: (userId?: string) =>
+    [ns, 'access-grants', userId ?? 'current'] as const,
+
+  /** Analytics scoped to departments/document types. */
+  departmentAnalytics: (documentTypeId?: string) =>
+    [ns, 'department-admin', 'analytics', documentTypeId ?? 'all'] as const,
+
+  /** Department-wide (tier 1) reference materials. */
+  departmentReferenceMaterial: (departmentId: string) =>
+    [ns, 'departments', departmentId, 'reference-material'] as const,
+
+  /** Document-type-scoped (tier 2) reference materials. */
+  documentTypeReferenceMaterial: (departmentId: string, documentTypeId: string) =>
+    [ns, 'departments', departmentId, 'document-types', documentTypeId, 'reference-material'] as const,
+
+  // ---- System Admin Flow (Task 1.3) ----
+
+  /** All users on the platform (TechAdmin only). */
+  allUsers: (query?: string) =>
+    [ns, 'admin', 'users', query ?? 'all'] as const,
+
+  /** Usage information (platform-wide or scoped). */
+  usage: (scope: 'platform' | 'documentType', scopeId?: string) =>
+    [ns, 'admin', 'usage', scope, scopeId ?? 'all'] as const,
+
+  /** Platform-wide analytics. */
+  platformAnalytics: (documentTypeId?: string) =>
+    [ns, 'admin', 'analytics', documentTypeId ?? 'all'] as const,
+
+  /* ---- Existing Admin console (task 19.4; Requirements 33.1–33.4, 41.1, 41.2) ---- */
 
   /** Bedrock model configuration (editable; Requirement 33.1). */
   adminModelConfig: () => [ns, 'admin', 'model-config'] as const,

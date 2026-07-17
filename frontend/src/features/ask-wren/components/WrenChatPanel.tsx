@@ -101,7 +101,7 @@ export function WrenChatPanel({
 
       {/* Draft progress indicator */}
       <div className="flex flex-col gap-xs">
-        <span className="text-bodySmall font-sans font-semibold text-text-primary">Draft Progress</span>
+        <span className="text-bodySmall font-sans font-semibold text-text-primary">Draft version {draftVersion}</span>
         <div className="h-[6px] w-full overflow-hidden rounded-full bg-surface-subtle">
           <div
             className="h-full rounded-full bg-signal-positive transition-all duration-300"

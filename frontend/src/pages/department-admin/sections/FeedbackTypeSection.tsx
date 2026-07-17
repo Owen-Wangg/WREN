@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 
 export interface FeedbackCategory {
   id: string;
@@ -8,15 +9,29 @@ export interface FeedbackCategory {
 
 interface FeedbackTypeSectionProps {
   feedbackCategories: FeedbackCategory[];
+  documentTypeId: string;
 }
 
 export function FeedbackTypeSection({
   feedbackCategories,
+  documentTypeId,
 }: FeedbackTypeSectionProps) {
   // Mock: selected categories for this document type
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(
     new Set(['1', '2', '3', '4', '5', '6', '7'])
   );
+
+  const saveMutation = useMutation({
+    mutationFn: async (categoryIds: string[]) => {
+      const response = await fetch(`/v1/document-types/${documentTypeId}/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryPriority: categoryIds }),
+      });
+      if (!response.ok) throw new Error(`Failed to save: ${response.statusText}`);
+      return response.json();
+    },
+  });
 
   const toggleCategory = (categoryId: string) => {
     const newSelected = new Set(selectedCategories);
@@ -26,6 +41,10 @@ export function FeedbackTypeSection({
       newSelected.add(categoryId);
     }
     setSelectedCategories(newSelected);
+  };
+
+  const handleSave = async () => {
+    await saveMutation.mutateAsync(Array.from(selectedCategories));
   };
 
   return (
@@ -60,9 +79,19 @@ export function FeedbackTypeSection({
       </div>
 
       <div className="mt-8 flex gap-3">
-        <button className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800">
-          Save Changes
+        <button
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
         </button>
+        {saveMutation.isSuccess && (
+          <span className="text-green-600 font-semibold">Saved successfully!</span>
+        )}
+        {saveMutation.isError && (
+          <span className="text-red-600 font-semibold">Error saving changes</span>
+        )}
       </div>
     </div>
   );

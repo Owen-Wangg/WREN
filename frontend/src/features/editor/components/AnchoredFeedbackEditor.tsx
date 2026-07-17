@@ -30,6 +30,8 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 
+import { TextSelection } from '@tiptap/pm/state';
+
 import { DocumentEditor, type DocumentEditorHandle, type DocumentEditorProps } from './DocumentEditor';
 
 import { collectCommentIds, resolveAnchorRange } from '../anchorRange';
@@ -102,7 +104,6 @@ export function AnchoredFeedbackEditor({
     // Only show comment marks after coach has responded
     if (!showCoachHighlights) {
       // Clear all comment marks
-      const activeIds = new Set<string>();
       for (const commentId of collectCommentIds(editor.state.doc)) {
         editor.commands.unsetComment(commentId);
       }
@@ -167,7 +168,7 @@ export function AnchoredFeedbackEditor({
     }
 
     // Scroll to the highlighted text by temporarily selecting then deselecting
-    const scrollTr = editor.state.tr.setSelection(editor.state.selection.constructor.near(editor.state.doc.resolve(from)));
+    const scrollTr = editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(from)));
     editor.view.dispatch(scrollTr);
     editor.view.focus();
 

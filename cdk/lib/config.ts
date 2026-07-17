@@ -115,6 +115,13 @@ export function resolveAppConfig(app: App): AppConfig {
   const bedrockModelId = readContext(app, "bedrockModelId") ?? DEFAULT_BEDROCK_MODEL_ID;
   const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
 
+  // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
+  // The region is resolved from the `region` context key and otherwise pinned
+  // to ca-central-1 — deliberately NOT read from CDK_DEFAULT_REGION, so a
+  // deployer's ambient AWS profile region can never silently place resources
+  // outside the residency boundary. Override explicitly with `-c region=...`.
+  const region = readContext(app, "region") ?? DEFAULT_REGION;
+
   return {
     appName,
     projectName,
@@ -123,7 +130,7 @@ export function resolveAppConfig(app: App): AppConfig {
     stackPrefix,
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,
-      region: process.env.CDK_DEFAULT_REGION ?? DEFAULT_REGION,
+      region,
     },
   };
 }
@@ -184,6 +191,10 @@ export const ssmParameterNames = {
   /** Name of the DynamoDB conversation/session-state table. */
   conversationTableName: (config: AppConfig): string =>
     `/${config.stackPrefix}/storage/conversation-table-name`,
+  /** Cognito User Pool ID published by the `Cognito` stack. */
+  userPoolId: (config: AppConfig): string => `/${config.stackPrefix}/auth/user-pool-id`,
+  /** Cognito User Pool Client ID published by the `Cognito` stack. */
+  userPoolClientId: (config: AppConfig): string => `/${config.stackPrefix}/auth/client-id`,
 } as const;
 
 /**

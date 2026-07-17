@@ -58,8 +58,10 @@ export class ObservabilityStack extends Stack {
     // -------------------------------------------------------------------
     // CloudWatch Log Groups (deliberate retention)
     // -------------------------------------------------------------------
-    for (const functionName of props.functionNames) {
-      new logs.LogGroup(this, `LogGroup-${functionName}`, {
+    const functionNames = props.functionNames || [];
+    for (let i = 0; i < functionNames.length; i++) {
+      const functionName = functionNames[i]!;
+      new logs.LogGroup(this, `LogGroup${i}`, {
         logGroupName: `/aws/lambda/${functionName}`,
         retention: retentionDays,
         removalPolicy: RemovalPolicy.RETAIN,
@@ -69,7 +71,8 @@ export class ObservabilityStack extends Stack {
     // -------------------------------------------------------------------
     // Lambda Error Alarms
     // -------------------------------------------------------------------
-    for (const functionName of props.functionNames) {
+    for (let i = 0; i < functionNames.length; i++) {
+      const functionName = functionNames[i]!;
       const errorMetric = new cloudwatch.Metric({
         namespace: "AWS/Lambda",
         metricName: "Errors",
@@ -78,7 +81,7 @@ export class ObservabilityStack extends Stack {
         period: Duration.minutes(5),
       });
 
-      const errorAlarm = new cloudwatch.Alarm(this, `ErrorAlarm-${functionName}`, {
+      const errorAlarm = new cloudwatch.Alarm(this, `ErrorAlarm${i}`, {
         alarmName: `${config.stackPrefix}-${functionName}-errors`,
         metric: errorMetric,
         threshold: 5,
@@ -93,7 +96,8 @@ export class ObservabilityStack extends Stack {
     // -------------------------------------------------------------------
     // Lambda Throttle Alarms
     // -------------------------------------------------------------------
-    for (const functionName of props.functionNames) {
+    for (let i = 0; i < functionNames.length; i++) {
+      const functionName = functionNames[i]!;
       const throttleMetric = new cloudwatch.Metric({
         namespace: "AWS/Lambda",
         metricName: "Throttles",
@@ -102,7 +106,7 @@ export class ObservabilityStack extends Stack {
         period: Duration.minutes(5),
       });
 
-      const throttleAlarm = new cloudwatch.Alarm(this, `ThrottleAlarm-${functionName}`, {
+      const throttleAlarm = new cloudwatch.Alarm(this, `ThrottleAlarm${i}`, {
         alarmName: `${config.stackPrefix}-${functionName}-throttles`,
         metric: throttleMetric,
         threshold: 1,

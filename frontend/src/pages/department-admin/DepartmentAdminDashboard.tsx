@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Trash2 } from 'lucide-react';
 
-import { departmentAdminApi } from '@/features/department-admin/departmentAdminApi';
+import { listDepartments, listDocumentTypes } from '@/features/department-admin/departmentAdminApi';
 import { ManageFeedbackCategoriesModal, type FeedbackCategory } from './ManageFeedbackCategoriesModal';
 
 export function DepartmentAdminDashboard() {
@@ -20,24 +20,16 @@ export function DepartmentAdminDashboard() {
     { id: '7', title: 'Organization', description: 'Structure, logical flow, proper section organization, and document layout' },
   ]);
 
-  // Mock data for development
-  const mockCurrentDepartment = { id: 'dept-1', name: 'Law', accessState: 'OPEN' as const, userCount: 12 };
-
-  const { data: currentDepartment = mockCurrentDepartment, isLoading: deptLoading } = useQuery({
-    queryKey: ['dept-admin-current-department'],
-    queryFn: () => departmentAdminApi.getCurrentDepartment(),
+  const { data: departments = [], isLoading: deptLoading } = useQuery({
+    queryKey: ['dept-admin-departments'],
+    queryFn: () => listDepartments(),
   });
 
-  // Mock data for development
-  const mockDocumentTypes = [
-    { id: '1', name: 'Memorandum', departmentId: currentDepartment?.id || '', templateCount: 3 },
-    { id: '2', name: 'Opinion Letter', departmentId: currentDepartment?.id || '', templateCount: 2 },
-    { id: '3', name: 'Pleadings', departmentId: currentDepartment?.id || '', templateCount: 5 },
-  ];
+  const currentDepartment = departments[0]; // Use first administered department
 
-  const { data: documentTypes = mockDocumentTypes, isLoading: typesLoading } = useQuery({
+  const { data: documentTypes = [], isLoading: typesLoading } = useQuery({
     queryKey: ['dept-admin-document-types', currentDepartment?.id],
-    queryFn: () => departmentAdminApi.getDocumentTypes(currentDepartment!.id),
+    queryFn: () => currentDepartment?.id ? listDocumentTypes(currentDepartment.id) : Promise.resolve([]),
     enabled: !!currentDepartment?.id,
   });
 
