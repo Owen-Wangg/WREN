@@ -132,6 +132,17 @@ export async function listDocumentTypes(
   return rows.map(toDocumentType);
 }
 
+/** List all Document Types across all Departments, ordered by name. */
+export async function listAllDocumentTypes(
+  db: QueryExecutor,
+): Promise<DocumentType[]> {
+  const rows = await db.query<DocumentTypeRow>(
+    `SELECT ${RETURNING} FROM document_type ORDER BY name ASC`,
+    [],
+  );
+  return rows.map(toDocumentType);
+}
+
 /**
  * Update a Document Type's mutable catalog fields (name and/or size limit).
  * Access state is intentionally NOT updatable here — use

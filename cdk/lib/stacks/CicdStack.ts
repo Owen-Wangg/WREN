@@ -172,7 +172,7 @@ export class CicdStack extends Stack {
               owner: props.repositoryOwner,
               repo: props.repositoryName,
               branch: props.branch,
-              oauthToken: SecretValue.secretsManager(`/${config.stackPrefix}/cicd/github-pat`),
+              oauthToken: SecretValue.secretsManager(`${config.stackPrefix}/cicd/github-pat`),
               output: sourceOutput,
               trigger: codepipelineActions.GitHubTrigger.WEBHOOK,
             }),

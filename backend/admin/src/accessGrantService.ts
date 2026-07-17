@@ -200,3 +200,17 @@ export async function approveAccessRequest(
   const { userId, documentTypeId } = accessRequestApprovalInputSchema.parse(input);
   return createAccessGrant(actor, { userId, documentTypeId }, db);
 }
+
+/** List active (non-revoked) Access Grants for the calling user. */
+export async function listMyAccessGrants(
+  actor: AuthContext,
+  db: QueryExecutor,
+): Promise<AccessGrant[]> {
+  const rows = await db.query<AccessGrantRow>(
+    `SELECT ${RETURNING} FROM access_grant
+     WHERE user_id = $1 AND revoked_at IS NULL
+     ORDER BY granted_at ASC`,
+    [actor.userId],
+  );
+  return rows.map(toAccessGrant);
+}

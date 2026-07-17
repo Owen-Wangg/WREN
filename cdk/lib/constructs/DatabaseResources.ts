@@ -9,6 +9,7 @@ import {
   SubnetType,
   type IVpc,
 } from "aws-cdk-lib/aws-ec2";
+import * as iam from "aws-cdk-lib/aws-iam";
 import {
   Credentials,
   DatabaseInstance,
@@ -99,6 +100,13 @@ export class DatabaseResources extends Construct {
   }
 
   protected createInstance(): DatabaseInstance {
+    const monitoringRole = new iam.Role(this, "MonitoringRole", {
+      assumedBy: new iam.ServicePrincipal("monitoring.rds.amazonaws.com"),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName("service-role/AmazonRDSEnhancedMonitoringRole"),
+      ],
+    });
+
     return new DatabaseInstance(this, "Instance", {
       engine: DatabaseInstanceEngine.postgres({
         version: PostgresEngineVersion.VER_16_13,
@@ -122,6 +130,8 @@ export class DatabaseResources extends Construct {
       deletionProtection: true,
       backupRetention: Duration.days(7),
       removalPolicy: RemovalPolicy.RETAIN,
+      monitoringInterval: Duration.seconds(60),
+      monitoringRole,
     });
   }
 
