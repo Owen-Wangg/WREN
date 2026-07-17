@@ -33,54 +33,61 @@ function renderWithClient(routes: MockRoutes) {
 }
 
 const populatedRoutes: MockRoutes = {
-  'GET /documents': [
+  'GET /v1/documents': {
+    items: [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        ownerUserId: '22222222-2222-2222-2222-222222222222',
+        documentTypeId: '33333333-3333-3333-3333-333333333333',
+        contentTypeId: '44444444-4444-4444-4444-444444444444',
+        name: 'Charter s.8 analysis',
+        metadata: { 'Writing Topic': 'Search and seizure' },
+        status: 'Still Drafting',
+        createdAt: '2024-01-01T00:00:00.000Z',
+      },
+      {
+        id: '55555555-5555-5555-5555-555555555555',
+        ownerUserId: '22222222-2222-2222-2222-222222222222',
+        documentTypeId: '33333333-3333-3333-3333-333333333333',
+        contentTypeId: '44444444-4444-4444-4444-444444444444',
+        name: 'Contract formation notes',
+        metadata: { 'Writing Topic': 'Offer and acceptance' },
+        status: 'Polishing',
+        createdAt: '2024-01-02T00:00:00.000Z',
+      },
+    ],
+    total: 2,
+  },
+  'GET /v1/document-types': [
     {
-      id: 'doc-1',
-      ownerUserId: 'user-1',
-      documentTypeId: 'wt-legal-memo',
-      contentTypeId: 'ct-1',
-      name: 'Charter s.8 analysis',
-      metadata: { 'Writing Topic': 'Search and seizure' },
-      status: 'Still Drafting',
-      createdAt: '2024-01-01T00:00:00.000Z',
-    },
-    {
-      id: 'doc-2',
-      ownerUserId: 'user-1',
-      documentTypeId: 'wt-legal-memo',
-      contentTypeId: 'ct-1',
-      name: 'Contract formation notes',
-      metadata: { 'Writing Topic': 'Offer and acceptance' },
-      status: 'Polishing',
-      createdAt: '2024-01-02T00:00:00.000Z',
-    },
-  ],
-  'GET /writing-types': [
-    {
-      id: 'wt-legal-memo',
-      organizationId: 'org-1',
+      id: '33333333-3333-3333-3333-333333333333',
+      departmentId: '550e8400-e29b-41d4-a716-446655440000',
       name: 'Legal Memo',
       accessState: 'OPEN',
       sizeLimitWords: null,
     },
   ],
-  'GET /organizations': [{ id: 'org-1', name: 'Allard Law', accessState: 'OPEN' }],
-  'GET /access-grants': [],
+  'GET /v1/departments': [
+    { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Allard Law' },
+  ],
+  'GET /v1/access-grants': [],
 };
 
 const lockedRoutes: MockRoutes = {
-  'GET /documents': [],
-  'GET /writing-types': [
+  'GET /v1/documents': { items: [], total: 0 },
+  'GET /v1/document-types': [
     {
-      id: 'wt-locked',
-      organizationId: 'org-1',
+      id: '66666666-6666-6666-6666-666666666666',
+      departmentId: '550e8400-e29b-41d4-a716-446655440000',
       name: 'Locked Brief',
       accessState: 'LOCKED',
       sizeLimitWords: null,
     },
   ],
-  'GET /organizations': [{ id: 'org-1', name: 'Allard Law', accessState: 'OPEN' }],
-  'GET /access-grants': [],
+  'GET /v1/departments': [
+    { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Allard Law' },
+  ],
+  'GET /v1/access-grants': [],
 };
 
 describe('WriterDashboard', () => {
