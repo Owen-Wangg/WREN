@@ -105,7 +105,7 @@ export class ApiStack extends Stack {
     const corsResponseParams = {
       "method.response.header.Access-Control-Allow-Origin": `'${allowedOrigins}'`,
       "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
-      "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+      "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
       "method.response.header.Access-Control-Max-Age": "'86400'",
     };
 
@@ -181,7 +181,7 @@ export class ApiStack extends Stack {
     const gatewayCorsHeaders = {
       "Access-Control-Allow-Origin": `'${allowedOrigins}'`,
       "Access-Control-Allow-Headers":
-        "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+        "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
       "Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
     };
     this.api.addGatewayResponse("Default4xx", {

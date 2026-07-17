@@ -5,12 +5,13 @@
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
 import { listDepartments, getDepartment } from './departmentService';
-import { listDocumentTypes } from './documentTypeService';
+import { listDocumentTypes, listAllDocumentTypes } from './documentTypeService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { searchUsers } from './userService';
 import { assignRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
 import { grantOverride } from './overrideService';
+import { listMyAccessGrants } from './accessGrantService';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
 
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
@@ -47,6 +48,9 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     }
     if (resource === '/v1/overrides' && httpMethod === 'POST') {
       return await wrapHandler(() => handleGrantOverride(event));
+    }
+    if (resource === '/v1/access-grants' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListMyAccessGrants(event));
     }
 
     return withCors({
@@ -102,10 +106,22 @@ async function handleGetDepartment(event: any): Promise<APIGatewayProxyResult> {
 async function handleListDocumentTypes(event: any): Promise<APIGatewayProxyResult> {
   const db = await getDataAccess();
   const { departmentId } = event.queryStringParameters || {};
-  const types = await listDocumentTypes(departmentId, db);
+  const types = departmentId
+    ? await listDocumentTypes(departmentId, db)
+    : await listAllDocumentTypes(db);
   return {
     statusCode: 200,
     body: JSON.stringify(types),
+  };
+}
+
+async function handleListMyAccessGrants(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const grants = await listMyAccessGrants(actor, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(grants),
   };
 }
 
