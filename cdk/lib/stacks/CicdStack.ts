@@ -1,8 +1,9 @@
-import { Stack, type StackProps, RemovalPolicy } from "aws-cdk-lib";
+import { Stack, type StackProps, RemovalPolicy, SecretValue } from "aws-cdk-lib";
 import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
 import * as codepipelineActions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as ecr from "aws-cdk-lib/aws-ecr";
+import * as iam from "aws-cdk-lib/aws-iam";
 import type { Construct } from "constructs";
 
 import type { AppConfig } from "../config";
@@ -18,22 +19,22 @@ export interface CicdStackProps extends StackProps {
   readonly repositoryName: string;
   /** Branch to deploy from. */
   readonly branch: string;
-  /** GitHub connection ARN (CodeStar Connections). */
-  readonly connectionArn: string;
 }
 
 /**
  * `${StackPrefix}-CICD` — CodePipeline + CodeBuild + ECR.
  *
- * - ECR repository for the Feedback Engine container image, with
- *   `imageScanOnPush: true` for vulnerability scanning.
- * - CodePipeline with Source → Build → Deploy stages.
- * - CodeBuild project that runs tests, builds the container image, and
- *   synthesizes CDK for deployment.
- * - Image tag immutability enabled on ECR to prevent overwriting.
+ * Pipeline stages:
+ *   1. Source       — pull from GitHub via PAT webhook
+ *   2. Build        — run tests, build + push container image to ECR (tagged with commit SHA),
+ *                     and synth CDK for infra changes
+ *   3. UpdateLambda — `lambda update-function-code` with the new image URI; fast path that
+ *                     bypasses CloudFormation for pure code changes
+ *   4. Deploy       — `cdk deploy` only for infra changes; runs every push but is a no-op
+ *                     when only application code changed
  *
- * The pipeline is self-mutating (CDK Pipelines pattern) — changes to the
- * pipeline definition are applied on the next pipeline run.
+ * Separating UpdateLambda from Deploy means a Python-only commit takes seconds
+ * (Lambda image swap) rather than minutes (full CloudFormation diff).
  */
 export class CicdStack extends Stack {
   public readonly ecrRepository: ecr.Repository;
@@ -43,6 +44,8 @@ export class CicdStack extends Stack {
     super(scope, id, props);
 
     const { config } = props;
+
+    const functionName = `${config.stackPrefix}-feedback-engine`;
 
     // -------------------------------------------------------------------
     // ECR Repository (Feedback Engine container image)
@@ -62,23 +65,20 @@ export class CicdStack extends Stack {
     });
 
     // -------------------------------------------------------------------
-    // CodeBuild Project — test, build container, synth CDK
+    // Stage 2: Build — test, build + push image, synth CDK
     // -------------------------------------------------------------------
     const buildProject = new codebuild.PipelineProject(this, "BuildProject", {
       projectName: `${config.stackPrefix}-build`,
       environment: {
         buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
         computeType: codebuild.ComputeType.MEDIUM,
-        privileged: true, // Required for Docker builds
+        privileged: true,
       },
       buildSpec: codebuild.BuildSpec.fromObject({
         version: "0.2",
         phases: {
           install: {
-            "runtime-versions": {
-              nodejs: "22",
-              python: "3.12",
-            },
+            "runtime-versions": { nodejs: "22", python: "3.12" },
             commands: [
               "npm ci",
               "cd cdk && npm ci && cd ..",
@@ -87,41 +87,78 @@ export class CicdStack extends Stack {
           },
           pre_build: {
             commands: [
-              // Run TypeScript tests
               "npx jest --config jest.config.ts --passWithNoTests --ci",
-              // Run Python tests
               "uv run pytest -m 'not integration and not slow' --tb=short",
-              // Lint / type check
               "npx tsc --noEmit",
+              // ECR login before build so the push step is ready
+              `aws ecr get-login-password --region ${config.env.region} | docker login --username AWS --password-stdin ${this.ecrRepository.repositoryUri}`,
             ],
           },
           build: {
             commands: [
-              // Build the Feedback Engine container image
               `docker build -t ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION backend/engine/python/`,
-              // Login to ECR and push
-              `aws ecr get-login-password --region ${config.env.region} | docker login --username AWS --password-stdin ${this.ecrRepository.repositoryUri}`,
               `docker push ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION`,
-              // CDK synth
               "cd cdk && npx cdk synth",
+            ],
+          },
+          post_build: {
+            commands: [
+              // Write the image URI to a file so the UpdateLambda stage can read it
+              `echo "${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION" > image-uri.txt`,
             ],
           },
         },
         artifacts: {
-          "base-directory": "cdk/cdk.out",
-          files: ["**/*"],
+          "secondary-artifacts": {
+            CdkOutput: {
+              "base-directory": "cdk/cdk.out",
+              files: ["**/*"],
+            },
+            ImageUri: {
+              files: ["image-uri.txt"],
+            },
+          },
         },
       }),
     });
 
-    // Grant CodeBuild permission to push to ECR.
     this.ecrRepository.grantPullPush(buildProject);
+
+    // -------------------------------------------------------------------
+    // Stage 3: UpdateLambda — swap the image without touching CloudFormation
+    // -------------------------------------------------------------------
+    const updateLambdaProject = new codebuild.PipelineProject(this, "UpdateLambdaProject", {
+      projectName: `${config.stackPrefix}-update-lambda`,
+      environment: {
+        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+        computeType: codebuild.ComputeType.SMALL,
+      },
+      buildSpec: codebuild.BuildSpec.fromObject({
+        version: "0.2",
+        phases: {
+          build: {
+            commands: [
+              "IMAGE_URI=$(cat image-uri.txt)",
+              `aws lambda update-function-code --function-name ${functionName} --image-uri $IMAGE_URI`,
+              // Wait for the update to finish before the pipeline proceeds
+              `aws lambda wait function-updated --function-name ${functionName}`,
+            ],
+          },
+        },
+      }),
+    });
+
+    updateLambdaProject.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["lambda:UpdateFunctionCode", "lambda:GetFunction"],
+      resources: [`arn:aws:lambda:${config.env.region}:*:function:${functionName}`],
+    }));
 
     // -------------------------------------------------------------------
     // CodePipeline
     // -------------------------------------------------------------------
     const sourceOutput = new codepipeline.Artifact("SourceOutput");
-    const buildOutput = new codepipeline.Artifact("BuildOutput");
+    const cdkOutput = new codepipeline.Artifact("CdkOutput");
+    const imageUriOutput = new codepipeline.Artifact("ImageUri");
 
     this.pipeline = new codepipeline.Pipeline(this, "Pipeline", {
       pipelineName: `${config.stackPrefix}-pipeline`,
@@ -130,13 +167,14 @@ export class CicdStack extends Stack {
         {
           stageName: "Source",
           actions: [
-            new codepipelineActions.CodeStarConnectionsSourceAction({
+            new codepipelineActions.GitHubSourceAction({
               actionName: "GitHub_Source",
               owner: props.repositoryOwner,
               repo: props.repositoryName,
               branch: props.branch,
-              connectionArn: props.connectionArn,
+              oauthToken: SecretValue.secretsManager(`/${config.stackPrefix}/cicd/github-pat`),
               output: sourceOutput,
+              trigger: codepipelineActions.GitHubTrigger.WEBHOOK,
             }),
           ],
         },
@@ -147,7 +185,17 @@ export class CicdStack extends Stack {
               actionName: "Build_And_Test",
               project: buildProject,
               input: sourceOutput,
-              outputs: [buildOutput],
+              outputs: [cdkOutput, imageUriOutput],
+            }),
+          ],
+        },
+        {
+          stageName: "UpdateLambda",
+          actions: [
+            new codepipelineActions.CodeBuildAction({
+              actionName: "Update_Feedback_Engine",
+              project: updateLambdaProject,
+              input: imageUriOutput,
             }),
           ],
         },
@@ -157,8 +205,8 @@ export class CicdStack extends Stack {
             new codepipelineActions.CloudFormationCreateUpdateStackAction({
               actionName: "Deploy_CDK",
               stackName: `${config.stackPrefix}-Compute`,
-              templatePath: buildOutput.atPath(`${config.stackPrefix}-Compute.template.json`),
-              adminPermissions: false, // Replaced adminPermissions=true with least-privilege approach
+              templatePath: cdkOutput.atPath(`${config.stackPrefix}-Compute.template.json`),
+              adminPermissions: false,
             }),
           ],
         },
