@@ -7,7 +7,24 @@ import { getDataAccess } from '@wren/db-node';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
-// Shared utilities (parseAuthContext, wrapHandler)
+// Shared utilities (parseAuthContext, wrapHandler, CORS)
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers':
+    'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+};
+
+function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
+  return {
+    ...result,
+    headers: {
+      ...CORS_HEADERS,
+      ...(result.headers as Record<string, string> | undefined),
+    },
+  };
+}
+
 function parseAuthContext(event: any) {
   const ctx = event.requestContext?.authorizer || {};
   return {
@@ -22,16 +39,16 @@ function parseAuthContext(event: any) {
 
 async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<APIGatewayProxyResult> {
   try {
-    return await fn();
+    return withCors(await fn());
   } catch (error: any) {
     console.error('Error:', error);
-    return {
+    return withCors({
       statusCode: error.statusCode || 500,
       body: JSON.stringify({
         code: error.statusCode === 403 ? 'PERMISSION_DENIED' : error.statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR',
         message: error.message || 'Internal server error',
       }),
-    };
+    });
   }
 }
 
@@ -60,16 +77,16 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       return await wrapHandler(() => handlePresignUpload(event));
     }
 
-    return {
+    return withCors({
       statusCode: 404,
       body: JSON.stringify({ code: 'NOT_FOUND', message: 'Route not found' }),
-    };
+    });
   } catch (error) {
     console.error('Unhandled error in Document Lambda:', error);
-    return {
+    return withCors({
       statusCode: 500,
       body: JSON.stringify({ code: 'INTERNAL_ERROR', message: 'Internal server error' }),
-    };
+    });
   }
 };
 
@@ -123,11 +140,11 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   const document = rows[0];
 
   const draftQuery = `
-    INSERT INTO draft (document_id, revision_number, segments, created_at)
-    VALUES ($1, $2, $3, NOW())
+    INSERT INTO draft (document_id, version_number, s3_key, segments, word_count, created_at)
+    VALUES ($1, $2, $3, $4, $5, NOW())
     RETURNING id
   `;
-  await db.query(draftQuery, [document.id, 1, JSON.stringify([])]);
+  await db.query(draftQuery, [document.id, 1, '', JSON.stringify([]), 0]);
 
   return {
     statusCode: 201,
@@ -221,20 +238,22 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   }
 
   const revisionQuery = `
-    SELECT COALESCE(MAX(revision_number), 0) as max_revision FROM draft WHERE document_id = $1
+    SELECT COALESCE(MAX(version_number), 0) as max_revision FROM draft WHERE document_id = $1
   `;
   const revisionRows = await db.query(revisionQuery, [documentId]);
   const nextRevision = ((revisionRows[0] as any)?.max_revision ?? 0) + 1;
 
   const draftQuery = `
-    INSERT INTO draft (document_id, revision_number, segments, created_at)
-    VALUES ($1, $2, $3, NOW())
-    RETURNING id, document_id, revision_number, segments, created_at
+    INSERT INTO draft (document_id, version_number, s3_key, segments, word_count, created_at)
+    VALUES ($1, $2, $3, $4, $5, NOW())
+    RETURNING id, document_id, version_number, segments, created_at
   `;
   const draftRows = await db.query(draftQuery, [
     documentId,
     nextRevision,
+    '',
     JSON.stringify(segments || []),
+    0,
   ]);
 
   return {

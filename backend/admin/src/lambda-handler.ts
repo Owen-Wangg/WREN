@@ -11,13 +11,16 @@ import { searchUsers } from './userService';
 import { assignRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
 import { grantOverride } from './overrideService';
-import { parseAuthContext, wrapHandler } from './lambda-utils';
+import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
 
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
   try {
     const { httpMethod, resource } = event;
 
     // Route by HTTP method + resource path
+    if (resource === '/v1/auth/me' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetMe(event));
+    }
     if (resource === '/v1/departments' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDepartments());
     }
@@ -46,18 +49,33 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       return await wrapHandler(() => handleGrantOverride(event));
     }
 
-    return {
+    return withCors({
       statusCode: 404,
       body: JSON.stringify({ code: 'NOT_FOUND', message: 'Route not found' }),
-    };
+    });
   } catch (error) {
     console.error('Unhandled error in Admin Lambda:', error);
-    return {
+    return withCors({
       statusCode: 500,
       body: JSON.stringify({ code: 'INTERNAL_ERROR', message: 'Internal server error' }),
-    };
+    });
   }
 };
+
+async function handleGetMe(event: any): Promise<APIGatewayProxyResult> {
+  // The authorizer already resolved the user's identity and placed it in the
+  // request context. We just parse it out and return it to the frontend.
+  const actor = parseAuthContext(event);
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      userId: actor.userId,
+      email: actor.email,
+      roles: actor.roles,
+      administeredDepartmentIds: actor.administeredDepartmentIds,
+    }),
+  };
+}
 
 async function handleListDepartments(): Promise<APIGatewayProxyResult> {
   const db = await getDataAccess();

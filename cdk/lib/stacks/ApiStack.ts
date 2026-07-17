@@ -96,45 +96,49 @@ export class ApiStack extends Stack {
     const resolvedSpec = resolveSpec(specObject);
 
     // -----------------------------------------------------------------------
-    // Inject CORS OPTIONS mock integration on every path.
-    // This bypasses the Lambda authorizer for preflight requests (security: [])
-    // and returns CORS headers via a MOCK integration (no Lambda invocation).
+    // Always overwrite CORS OPTIONS on every path (do not skip when OpenAPI
+    // already defines options — handwritten MOCK blocks often omit
+    // requestTemplates and cause API Gateway 500 on preflight).
+    // security: [] bypasses the Lambda authorizer for OPTIONS.
     // -----------------------------------------------------------------------
     const allowedOrigins = "*"; // Tighten to Amplify domain in prod
     const corsResponseParams = {
       "method.response.header.Access-Control-Allow-Origin": `'${allowedOrigins}'`,
       "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
       "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+      "method.response.header.Access-Control-Max-Age": "'86400'",
     };
 
     if (resolvedSpec.paths) {
       for (const pathValue of Object.values(resolvedSpec.paths as Record<string, any>)) {
-        if (!pathValue.options) {
-          pathValue.options = {
-            summary: "CORS preflight",
-            security: [],
+        pathValue.options = {
+          summary: "CORS preflight",
+          security: [],
+          responses: {
+            "200": {
+              description: "CORS preflight response",
+              headers: {
+                "Access-Control-Allow-Origin": { schema: { type: "string" } },
+                "Access-Control-Allow-Methods": { schema: { type: "string" } },
+                "Access-Control-Allow-Headers": { schema: { type: "string" } },
+                "Access-Control-Max-Age": { schema: { type: "string" } },
+              },
+            },
+          },
+          "x-amazon-apigateway-integration": {
+            type: "mock",
+            // Required for MOCK integrations — without this, OPTIONS returns 500
+            // and no Access-Control-* headers (browser reports a CORS failure).
+            requestTemplates: { "application/json": '{"statusCode": 200}' },
+            passthroughBehavior: "when_no_match",
             responses: {
-              "200": {
-                description: "CORS preflight response",
-                headers: {
-                  "Access-Control-Allow-Origin": { schema: { type: "string" } },
-                  "Access-Control-Allow-Methods": { schema: { type: "string" } },
-                  "Access-Control-Allow-Headers": { schema: { type: "string" } },
-                },
+              default: {
+                statusCode: "200",
+                responseParameters: corsResponseParams,
               },
             },
-            "x-amazon-apigateway-integration": {
-              type: "mock",
-              requestTemplates: { "application/json": '{"statusCode": 200}' },
-              responses: {
-                default: {
-                  statusCode: "200",
-                  responseParameters: corsResponseParams,
-                },
-              },
-            },
-          };
-        }
+          },
+        };
       }
     }
 
@@ -172,20 +176,49 @@ export class ApiStack extends Stack {
       cloudWatchRole: true,
     });
 
+    // CORS on Gateway-generated errors (authorizer 401/403, missing token, 5xx).
+    // Without these, browsers report failures as CORS errors instead of the real status.
+    const gatewayCorsHeaders = {
+      "Access-Control-Allow-Origin": `'${allowedOrigins}'`,
+      "Access-Control-Allow-Headers":
+        "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+      "Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+    };
+    this.api.addGatewayResponse("Default4xx", {
+      type: apigateway.ResponseType.DEFAULT_4XX,
+      responseHeaders: gatewayCorsHeaders,
+    });
+    this.api.addGatewayResponse("Default5xx", {
+      type: apigateway.ResponseType.DEFAULT_5XX,
+      responseHeaders: gatewayCorsHeaders,
+    });
+
     // Grant API Gateway permission to invoke each Lambda. The functions live in
     // the Compute stack, so they are imported by ARN here — but with
     // `sameEnvironment: true` so CDK knows they share this stack's account/region
     // and actually emits the `AWS::Lambda::Permission` (a bare `fromFunctionArn`
     // silently no-ops `addPermission()` across token-ARN boundaries).
-    const invokableFunctions = [
-      { id: "AuthorizerFn", arn: props.authorizerFunctionArn },
+    //
+    // Authorizer invocations use SourceArn …/authorizers/*, NOT …/stage/METHOD/path.
+    // Using arnForExecuteApi() alone causes "Invalid permissions on Lambda function"
+    // and a 500 on every authenticated request.
+    const authorizerFn = lambda.Function.fromFunctionAttributes(this, "AuthorizerFn", {
+      functionArn: props.authorizerFunctionArn,
+      sameEnvironment: true,
+    });
+    authorizerFn.addPermission("AuthorizerFn-ApiGatewayInvoke", {
+      principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
+      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${this.api.restApiId}/authorizers/*`,
+    });
+
+    const integrationFunctions = [
       { id: "DocumentFn", arn: props.documentFunctionArn },
       { id: "FeedbackFn", arn: props.feedbackFunctionArn },
       { id: "AdminFn", arn: props.adminFunctionArn },
       { id: "AuditFn", arn: props.auditFunctionArn },
     ];
 
-    for (const svc of invokableFunctions) {
+    for (const svc of integrationFunctions) {
       const fn = lambda.Function.fromFunctionAttributes(this, svc.id, {
         functionArn: svc.arn,
         sameEnvironment: true,
@@ -196,11 +229,17 @@ export class ApiStack extends Stack {
       });
     }
 
-    this.apiEndpoint = this.api.url;
+    // Build the URL from restApiId + stage name — NOT this.api.url.
+    // this.api.url references the Deployment Stage resource; every OpenAPI
+    // change replaces that Stage and tries to delete its CloudFormation
+    // export, which fails while Amplify/CloudFront still import it.
+    // restApiId is stable across API definition updates.
+    this.apiEndpoint = `https://${this.api.restApiId}.execute-api.${this.region}.amazonaws.com/${config.environmentName}/`;
 
     new CfnOutput(this, "ApiEndpoint", {
-      value: this.api.url,
+      value: this.apiEndpoint,
       description: "WREN REST API endpoint URL",
+      exportName: `${config.stackPrefix}-api-endpoint`,
     });
 
     new CfnOutput(this, "ApiId", {

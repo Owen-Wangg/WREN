@@ -12,14 +12,7 @@
 
 BEGIN;
 
--- Seed one test department
-INSERT INTO department (name)
-VALUES ('Test Department')
-ON CONFLICT (name) DO NOTHING;
-
--- Get the test department ID (either from insert or existing)
--- For seed, we'll use a deterministic ID for repeatability
-DELETE FROM department WHERE name = 'Test Department' AND id != '550e8400-e29b-41d4-a716-446655440000'::uuid;
+-- Seed one test department with deterministic ID for repeatability
 INSERT INTO department (id, name)
 VALUES ('550e8400-e29b-41d4-a716-446655440000'::uuid, 'Test Department')
 ON CONFLICT (id) DO NOTHING;

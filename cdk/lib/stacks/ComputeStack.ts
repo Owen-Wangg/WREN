@@ -283,6 +283,14 @@ export class ComputeStack extends Stack {
       this.diffAnchorProgressFunction,
     ], props.databaseSecretArn);
 
+    // Authorizer: look up Cognito email/name when auto-provisioning app_user on first login.
+    this.authorizerFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["cognito-idp:AdminGetUser"],
+      resources: [
+        `arn:aws:cognito-idp:${this.region}:${this.account}:userpool/${props.userPoolId}`,
+      ],
+    }));
+
     // Document Lambda: S3 read/write for document uploads + presigned URLs.
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],

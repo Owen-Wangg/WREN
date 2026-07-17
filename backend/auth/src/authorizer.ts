@@ -6,7 +6,9 @@
  *   1. Verify the Cognito JWT (signature / issuer / expiry) — authentication only.
  *   2. Map the verified subject to an application identity + roles + Department
  *      scopes + Access Grants by querying Postgres (the authz source of truth).
- *   3. Emit an IAM policy plus an authorization context (roles, administered
+ *   3. If no app_user exists yet, provision one (default Student role) using
+ *      Cognito profile attributes for email/name — still never using IdP groups.
+ *   4. Emit an IAM policy plus an authorization context (roles, administered
  *      Departments, grants) that downstream services consume and
  *      RE-CHECK against the specific operation (dual enforcement).
  *
@@ -28,13 +30,20 @@ import type {
 import type { AuthContext } from '@wren/types';
 
 import { resolveCognitoVerifierConfig } from './config';
+import {
+  createCognitoProfileLookup,
+  type CognitoProfileLookup,
+} from './cognitoProfile';
 import { mapSubjectToAuthContext, type QueryExecutor } from './identityMapping';
+import { ensureAppUser } from './provisionUser';
 import type { TokenVerifier } from './tokenVerifier';
 
 /** Collaborators the authorizer needs; injectable for testing. */
 export interface AuthorizerDeps {
   readonly verifier: TokenVerifier;
   readonly db: QueryExecutor;
+  /** Resolves email/name from Cognito for first-login provisioning. */
+  readonly lookupProfile: CognitoProfileLookup;
 }
 
 /** Async provider so real deps can be built lazily (and cached) at runtime. */
@@ -108,8 +117,8 @@ export function serializeAuthContext(context: AuthContext): Record<string, strin
  *
  * - Verification failure (bad signature / wrong issuer / expired / missing
  *   token) throws {@link UNAUTHORIZED} → API Gateway returns 401.
- * - A verified subject with NO application identity yields an explicit Deny
- *   policy → 403 (authenticated, but not provisioned).
+ * - A verified subject with no application identity is auto-provisioned as a
+ *   Student (Cognito profile supplies email/name only).
  * - Otherwise an Allow policy plus the serialized authorization context.
  */
 export function createAuthorizerHandler(depsProvider: DepsProvider) {
@@ -121,7 +130,7 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
       throw new Error(UNAUTHORIZED);
     }
 
-    const { verifier, db } = await depsProvider();
+    const { verifier, db, lookupProfile } = await depsProvider();
 
     let subject: string;
     try {
@@ -134,19 +143,29 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
 
     // Authorization is resolved ENTIRELY from the app DB using only the verified
     // subject — never from token claims (Requirement 37.2, 37.3).
-    const context = await mapSubjectToAuthContext(subject, db);
-    const resource = stageWildcardResource(event.methodArn);
-
+    let context = await mapSubjectToAuthContext(subject, db);
     if (!context) {
-      return {
-        principalId: subject,
-        policyDocument: policy('Deny', resource),
-      };
+      const profile = await lookupProfile(subject);
+      await ensureAppUser(db, {
+        idpSubject: subject,
+        email: profile.email,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+      });
+      context = await mapSubjectToAuthContext(subject, db);
+      if (!context) {
+        // Provisioning failed unexpectedly — deny rather than allow without identity.
+        const resource = stageWildcardResource(event.methodArn);
+        return {
+          principalId: subject,
+          policyDocument: policy('Deny', resource),
+        };
+      }
     }
 
     return {
       principalId: context.userId,
-      policyDocument: policy('Allow', resource),
+      policyDocument: policy('Allow', stageWildcardResource(event.methodArn)),
       context: serializeAuthContext(context),
     };
   };
@@ -167,8 +186,10 @@ async function defaultDepsProvider(): Promise<AuthorizerDeps> {
     import('./tokenVerifier.js'),
   ]);
   const db = await getDataAccess();
-  const verifier = new CognitoTokenVerifier(resolveCognitoVerifierConfig());
-  cachedDeps = { verifier, db };
+  const cognitoConfig = resolveCognitoVerifierConfig();
+  const verifier = new CognitoTokenVerifier(cognitoConfig);
+  const lookupProfile = createCognitoProfileLookup(cognitoConfig.userPoolId);
+  cachedDeps = { verifier, db, lookupProfile };
   return cachedDeps;
 }
 

@@ -4,7 +4,7 @@
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
 import { getAnalytics } from './analyticsService';
-import { parseAuthContext, wrapHandler } from './lambda-utils';
+import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
 
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
   try {
@@ -14,16 +14,16 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       return await wrapHandler(() => handleGetAnalytics(event));
     }
 
-    return {
+    return withCors({
       statusCode: 404,
       body: JSON.stringify({ code: 'NOT_FOUND', message: 'Route not found' }),
-    };
+    });
   } catch (error) {
     console.error('Unhandled error in Audit Lambda:', error);
-    return {
+    return withCors({
       statusCode: 500,
       body: JSON.stringify({ code: 'INTERNAL_ERROR', message: 'Internal server error' }),
-    };
+    });
   }
 };
 

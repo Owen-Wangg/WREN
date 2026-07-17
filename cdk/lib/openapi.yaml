@@ -66,7 +66,9 @@ components:
         type: token
         authorizerUri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunctionArn}/invocations"
-        authorizerResultTtlInSeconds: 300
+        # Keep TTL low so a cached Deny from before first-login provisioning
+        # does not block the newly provisioned Allow for several minutes.
+        authorizerResultTtlInSeconds: 30
         identitySource: method.request.header.Authorization
 
   schemas:

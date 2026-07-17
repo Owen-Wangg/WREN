@@ -6,7 +6,24 @@ import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
-// Shared utilities (parseAuthContext, wrapHandler)
+// Shared utilities (parseAuthContext, wrapHandler, CORS)
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers':
+    'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+};
+
+function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
+  return {
+    ...result,
+    headers: {
+      ...CORS_HEADERS,
+      ...(result.headers as Record<string, string> | undefined),
+    },
+  };
+}
+
 function parseAuthContext(event: any) {
   const ctx = event.requestContext?.authorizer || {};
   return {
@@ -21,16 +38,16 @@ function parseAuthContext(event: any) {
 
 async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<APIGatewayProxyResult> {
   try {
-    return await fn();
+    return withCors(await fn());
   } catch (error: any) {
     console.error('Error:', error);
-    return {
+    return withCors({
       statusCode: error.statusCode || 500,
       body: JSON.stringify({
         code: error.statusCode === 403 ? 'PERMISSION_DENIED' : error.statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR',
         message: error.message || 'Internal server error',
       }),
-    };
+    });
   }
 }
 
@@ -50,16 +67,16 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       return await wrapHandler(() => handleGetFeedbackStatus(event));
     }
 
-    return {
+    return withCors({
       statusCode: 404,
       body: JSON.stringify({ code: 'NOT_FOUND', message: 'Route not found' }),
-    };
+    });
   } catch (error) {
     console.error('Unhandled error in Feedback Lambda:', error);
-    return {
+    return withCors({
       statusCode: 500,
       body: JSON.stringify({ code: 'INTERNAL_ERROR', message: 'Internal server error' }),
-    };
+    });
   }
 };
 
@@ -104,7 +121,7 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
   const body = event.body ? JSON.parse(event.body) : {};
 
   const docQuery = `
-    SELECT owner_user_id, writing_type_id FROM document WHERE id = $1
+    SELECT owner_user_id, document_type_id FROM document WHERE id = $1
   `;
   const docRows = await db.query(docQuery, [documentId]);
 
@@ -116,7 +133,7 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
   }
 
   const draftQuery = `
-    SELECT id, revision_number FROM draft WHERE document_id = $1 ORDER BY revision_number DESC LIMIT 1
+    SELECT id, version_number FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1
   `;
   const draftRows = await db.query(draftQuery, [documentId]);
 
@@ -137,7 +154,7 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
       documentId,
       draftId: draft.id,
       userId: actor.userId,
-      writingTypeId: docRows[0].writing_type_id,
+      writingTypeId: docRows[0].document_type_id,
       enqueuedAt: new Date().toISOString(),
     }),
   }));
@@ -166,7 +183,7 @@ async function handleGetFeedbackStatus(event: any): Promise<APIGatewayProxyResul
   }
 
   const draftQuery = `
-    SELECT id FROM draft WHERE document_id = $1 ORDER BY revision_number DESC LIMIT 1
+    SELECT id FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1
   `;
   const draftRows = await db.query(draftQuery, [documentId]);
 

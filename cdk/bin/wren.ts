@@ -153,6 +153,14 @@ new CloudFrontWafStack(app, stackName(config, "CloudFrontWaf"), {
 // configured. This keeps the core app (Vpc/Database/Storage/Compute/Api/
 // Observability/CloudFrontWaf) deployable without a GitHub connection, instead
 // of shipping placeholder owner/repo/connection values that fail at deploy.
+//
+// apiEndpoint may be overridden via `-c apiEndpoint=…` (or API_ENDPOINT) so
+// Amplify can be redeployed without a CloudFormation import of the API Gateway
+// Stage — required when updating the Api stack's OpenAPI definition while
+// Amplify still holds the old Stage export.
+const amplifyApiEndpoint =
+  ctxOrEnv("apiEndpoint", "API_ENDPOINT") ?? apiStack.apiEndpoint;
+
 if (github.owner && github.repo) {
   new AmplifyStack(app, stackName(config, "Amplify"), {
     env: config.env,
@@ -160,7 +168,7 @@ if (github.owner && github.repo) {
     repositoryOwner: github.owner,
     repositoryName: github.repo,
     githubTokenSecretName: `/${config.stackPrefix}/github/token`,
-    apiEndpoint: apiStack.apiEndpoint,
+    apiEndpoint: amplifyApiEndpoint,
     cognitoUserPoolId: cognitoStack.userPoolId,
     cognitoClientId: cognitoStack.userPoolClientId,
   });

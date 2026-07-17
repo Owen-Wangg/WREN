@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1089.0",
     "@wren/db-node": "*",
     "@wren/types": "*",
     "aws-jwt-verify": "^4.0.1",
