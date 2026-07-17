@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Clock, RotateCcw } from 'lucide-react';
 
 interface PromptVersion {
@@ -9,6 +10,7 @@ interface PromptVersion {
 
 interface ManagePromptSectionProps {
   documentTypeName: string;
+  documentTypeId: string;
 }
 
 const promptSections = [
@@ -52,6 +54,7 @@ const promptSections = [
 
 export function ManagePromptSection({
   documentTypeName,
+  documentTypeId,
 }: ManagePromptSectionProps) {
   const [promptData, setPromptData] = useState<Record<string, string>>({
     purpose: '',
@@ -61,6 +64,27 @@ export function ManagePromptSection({
     restrictions: '',
     notes: '',
   });
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: Record<string, string>) => {
+      // Map frontend fields to backend schema fields
+      const response = await fetch(`/v1/document-types/${documentTypeId}/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          typePromptText: data.purpose,
+          toneDescription: data.tone,
+          densityDescription: data.criteria,
+        }),
+      });
+      if (!response.ok) throw new Error(`Failed to save: ${response.statusText}`);
+      return response.json();
+    },
+  });
+
+  const handleSavePrompt = async () => {
+    await saveMutation.mutateAsync(promptData);
+  };
 
   const [showVersionHistory, setShowVersionHistory] = useState(false);
 
@@ -158,9 +182,19 @@ export function ManagePromptSection({
       </div>
 
       <div className="mt-8 flex gap-3">
-        <button className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800">
-          Save Prompt
+        <button
+          onClick={handleSavePrompt}
+          disabled={saveMutation.isPending}
+          className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saveMutation.isPending ? 'Saving...' : 'Save Prompt'}
         </button>
+        {saveMutation.isSuccess && (
+          <span className="text-green-600 font-semibold">Saved successfully!</span>
+        )}
+        {saveMutation.isError && (
+          <span className="text-red-600 font-semibold">Error saving prompt</span>
+        )}
       </div>
     </div>
   );

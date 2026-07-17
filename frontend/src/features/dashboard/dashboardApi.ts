@@ -9,7 +9,6 @@ import { z } from 'zod';
 import {
   accessGrantSchema,
   documentSchema,
-  writingTypeSchema,
 } from '@wren/types';
 
 import {
@@ -17,13 +16,15 @@ import {
   accessRequestInputSchema,
   contentTypeSchema,
   organizationAccessSchema,
+  writingTypeSchema,
   type AccessRequestAck,
   type AccessRequestInput,
   type ContentType,
   type OrganizationAccess,
+  type WritingType,
 } from './dashboardTypes';
 
-import type { AccessGrant, Document, WritingType } from '@wren/types';
+import type { AccessGrant, Document } from '@wren/types';
 import type { HttpClient } from '@/services';
 
 export const DOCUMENTS_PATH = '/documents';

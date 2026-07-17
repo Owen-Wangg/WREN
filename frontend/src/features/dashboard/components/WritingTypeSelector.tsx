@@ -15,7 +15,7 @@
  */
 import type { ResolvedWritingType, WritingTypeAccessStatus } from '../writingTypeAccess';
 
-import type { WritingType } from '@wren/types';
+import type { WritingType } from '../dashboardTypes';
 
 /** Writer-facing, qualitative hint per access status (never numeric). */
 const ACCESS_STATUS_LABEL: Record<WritingTypeAccessStatus, string> = {

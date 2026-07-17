@@ -20,6 +20,7 @@ import { useState } from 'react';
 import { StatusFilter } from './StatusFilter';
 import { WritingEnvironmentCard } from './WritingEnvironmentCard';
 import { WritingEnvironmentSearch } from './WritingEnvironmentSearch';
+import { WritingTypeSelector } from './WritingTypeSelector';
 
 import {
   ALL_STATUSES,
@@ -28,7 +29,12 @@ import {
 } from '../documentFilters';
 import {
   useDocuments,
+  useWritingTypes,
+  useOrganizations,
+  useAccessGrants,
+  useRequestAccess,
 } from '../useDashboard';
+import { resolveWritingTypeCatalog } from '../writingTypeAccess';
 
 import { AiDisclaimerNotice } from '@/components/ui';
 import { apiClient, type HttpClient } from '@/services';
@@ -48,11 +54,37 @@ export function WriterDashboard({
 }: WriterDashboardProps) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilterValue>(ALL_STATUSES);
+  const [requestedWritingTypeIds, setRequestedWritingTypeIds] = useState<string[]>([]);
 
   const documentsQuery = useDocuments(client);
+  const writingTypesQuery = useWritingTypes(client);
+  const organizationsQuery = useOrganizations(client);
+  const accessGrantsQuery = useAccessGrants(client);
+  const requestAccessMutation = useRequestAccess(client);
 
   const documents = documentsQuery.data ?? [];
   const filteredDocuments = filterDocuments(documents, { search, status });
+
+  // Resolve writing type catalog once all queries are ready
+  const writingTypes = writingTypesQuery.data ?? [];
+  const organizations = organizationsQuery.data ?? [];
+  const accessGrants = accessGrantsQuery.data ?? [];
+  const resolvedWritingTypes = resolveWritingTypeCatalog(
+    writingTypes,
+    organizations,
+    accessGrants,
+  );
+
+  const handleSelectWritingType = (_writingType: typeof writingTypes[0]) => {
+    // Placeholder: page/route composition wires the actual navigation here
+  };
+
+  const handleRequestAccess = (writingType: typeof writingTypes[0]) => {
+    setRequestedWritingTypeIds((prev) => [...prev, writingType.id]);
+    requestAccessMutation.mutate({
+      writingTypeId: writingType.id,
+    });
+  };
 
   return (
     <div className="flex flex-col gap-xl px-4xl">
@@ -61,6 +93,30 @@ export function WriterDashboard({
       <h1 className="text-title-page font-sans font-bold text-text-primary">
         Writing Environments
       </h1>
+
+      <section
+        aria-labelledby="writer-dashboard-types-heading"
+        className="flex flex-col gap-lg"
+      >
+        <h2
+          id="writer-dashboard-types-heading"
+          className="text-heading3 font-sans font-semibold text-text-primary underline"
+        >
+          Start a Document
+        </h2>
+
+        <WritingTypeSelector
+          resolvedWritingTypes={resolvedWritingTypes}
+          onSelect={handleSelectWritingType}
+          onRequestAccess={handleRequestAccess}
+          requestingWritingTypeId={
+            requestAccessMutation.isPending
+              ? requestAccessMutation.variables?.writingTypeId
+              : undefined
+          }
+          requestedWritingTypeIds={requestedWritingTypeIds}
+        />
+      </section>
 
       <section
         aria-labelledby="writer-dashboard-documents-heading"

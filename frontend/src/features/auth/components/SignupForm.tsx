@@ -8,12 +8,14 @@ import { useState } from 'react';
 import { AuthError } from '../authService';
 import { authService } from '../defaultAuthService';
 import { signupSchema, type SignupFormValues } from '../authSchemas';
+import { PasswordCriteriaDisplay } from './PasswordCriteriaDisplay';
 
 import { useZodForm } from '@/forms/useZodForm';
+import { useWatch } from 'react-hook-form';
 
 export interface SignupFormProps {
   /** Called after a successful sign-up (the account may still require IdP confirmation). */
-  readonly onSuccess?: (result: { readonly confirmationRequired: boolean }) => void;
+  readonly onSuccess?: (result: { readonly confirmationRequired: boolean; readonly email: string; readonly password?: string }) => void;
 }
 
 export function SignupForm({ onSuccess }: SignupFormProps) {
@@ -22,13 +24,16 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
+    control,
   } = useZodForm(signupSchema);
+
+  const password = useWatch({ control, name: 'password' });
 
   const onSubmit = async (values: SignupFormValues) => {
     setSubmitError(null);
     try {
       const result = await authService.signUp(values);
-      onSuccess?.(result);
+      onSuccess?.({ ...result, email: values.email, password: values.password });
     } catch (cause) {
       setSubmitError(
         cause instanceof AuthError
@@ -125,32 +130,35 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
         )}
       </div>
 
-      <div className="flex flex-col gap-xs">
-        <label
-          htmlFor="signup-password"
-          className="text-bodySmall font-sans font-medium text-text-secondary"
-        >
-          Password
-        </label>
-        <input
-          id="signup-password"
-          type="password"
-          autoComplete="new-password"
-          aria-invalid={errors.password ? 'true' : undefined}
-          aria-describedby={
-            errors.password ? 'signup-password-error' : undefined
-          }
-          className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary placeholder:text-text-muted/60"
-          {...register('password')}
-        />
-        {errors.password && (
-          <p
-            id="signup-password-error"
-            className="text-bodySmall text-signal-critical"
+      <div className="flex flex-col gap-md">
+        <div className="flex flex-col gap-xs">
+          <label
+            htmlFor="signup-password"
+            className="text-bodySmall font-sans font-medium text-text-secondary"
           >
-            {errors.password.message}
-          </p>
-        )}
+            Password
+          </label>
+          <input
+            id="signup-password"
+            type="password"
+            autoComplete="new-password"
+            aria-invalid={errors.password ? 'true' : undefined}
+            aria-describedby={
+              errors.password ? 'signup-password-error' : undefined
+            }
+            className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary placeholder:text-text-muted/60"
+            {...register('password')}
+          />
+          {errors.password && (
+            <p
+              id="signup-password-error"
+              className="text-bodySmall text-signal-critical"
+            >
+              {errors.password.message}
+            </p>
+          )}
+        </div>
+        {password && <PasswordCriteriaDisplay password={password} />}
       </div>
 
       <div className="flex flex-col gap-xs">

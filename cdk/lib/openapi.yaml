@@ -31,6 +31,27 @@ x-amazon-apigateway-request-validators:
 
 x-amazon-apigateway-request-validator: params-only
 
+x-amazon-apigateway-cors:
+  allowedOrigins:
+    - "*"
+  allowedMethods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+  allowedHeaders:
+    - Content-Type
+    - X-Amz-Date
+    - Authorization
+    - X-Api-Key
+    - X-Amz-Security-Token
+    - X-Amz-User-Agent
+  exposeHeaders:
+    - X-Amzn-RequestId
+    - x-amzn-ErrorType
+  maxAge: 86400
+
 # --------------------------------------------------------------------------
 # Security schemes
 # --------------------------------------------------------------------------
@@ -45,7 +66,9 @@ components:
         type: token
         authorizerUri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunctionArn}/invocations"
-        authorizerResultTtlInSeconds: 300
+        # Keep TTL low so a cached Deny from before first-login provisioning
+        # does not block the newly provisioned Allow for several minutes.
+        authorizerResultTtlInSeconds: 30
         identitySource: method.request.header.Authorization
 
   schemas:
@@ -55,54 +78,400 @@ components:
       properties:
         code:
           type: string
+          description: Error code (e.g., ValidationError, PermissionDenied, UsageLimitReached)
         message:
           type: string
+          description: Human-readable error message
+
+    # ==================== Core Domain Schemas ====================
+
+    Department:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: Unique department identifier
+        name:
+          type: string
+          description: Department name (mutable)
+          minLength: 1
+
+    DocumentType:
+      type: object
+      required: [id, departmentId, name, accessState]
+      properties:
+        id:
+          type: string
+          description: Unique document type identifier
+        departmentId:
+          type: string
+          description: Foreign key to Department (immutable)
+        name:
+          type: string
+          description: Document type name
+          minLength: 1
+        accessState:
+          type: string
+          enum: [OPEN, LOCKED]
+          description: |
+            OPEN - any authenticated student may self-select and submit
+            LOCKED - submission requires an Access Grant scoped to this DocumentType
+        sizeLimitWords:
+          type: integer
+          nullable: true
+          description: Word count limit for documents (null → inherit platform default)
+          minimum: 1
+
+    ContentType:
+      type: object
+      required: [id, documentTypeId, label]
+      properties:
+        id:
+          type: string
+          description: Unique content type identifier
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        label:
+          type: string
+          description: DepartmentAdmin-defined category label (e.g., "case brief", "memo")
+          minLength: 1
+
+    Topic:
+      type: object
+      required: [id, departmentId, name]
+      properties:
+        id:
+          type: string
+          description: Unique topic identifier
+        departmentId:
+          type: string
+          description: Foreign key to Department (scoped to one department)
+        name:
+          type: string
+          description: Business label for organizing work
+          minLength: 1
+
+    CustomMetadataField:
+      type: object
+      required: [id, documentTypeId, label, required]
+      properties:
+        id:
+          type: string
+          description: Unique field identifier
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        label:
+          type: string
+          description: Field label (e.g., "Writing Topic")
+          minLength: 1
+        required:
+          type: boolean
+          description: Whether this field must be populated at document submission
+
+    ErrorCategory:
+      type: object
+      required: [id, documentTypeId, name]
+      properties:
+        id:
+          type: string
+          description: Unique error category identifier
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        name:
+          type: string
+          description: Category name for feedback classification (e.g., "Clarity", "Citation Format")
+          minLength: 1
+        internalGuidance:
+          type: string
+          nullable: true
+          description: Internal guidance (never shown to students)
+
+    AccessGrant:
+      type: object
+      required: [id, userId, documentTypeId, grantedBy, grantedAt]
+      properties:
+        id:
+          type: string
+          description: Unique access grant identifier
+        userId:
+          type: string
+          description: Global user identifier (never department-owned)
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        grantedBy:
+          type: string
+          description: User ID of the administrator who granted access
+        grantedAt:
+          type: string
+          format: date-time
+          description: Timestamp when the grant was created
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the grant was revoked (null → still active)
+
+    Override:
+      type: object
+      required: [id, userId, documentTypeId, bounds, reason, grantedBy, expiresAt]
+      properties:
+        id:
+          type: string
+          description: Unique override identifier
+        userId:
+          type: string
+          description: Global user identifier
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        bounds:
+          type: object
+          required: [additionalActions]
+          properties:
+            additionalActions:
+              type: integer
+              description: Number of additional feedback requests allowed
+        reason:
+          type: string
+          description: Reason for granting the override
+        grantedBy:
+          type: string
+          description: User ID of the administrator who granted the override
+        expiresAt:
+          type: string
+          format: date-time
+          description: Timestamp when the override expires
+
+    Segment:
+      type: object
+      required: [index, text]
+      properties:
+        index:
+          type: integer
+          description: Zero-based paragraph index
+          minimum: 0
+        text:
+          type: string
+          description: Full text of the paragraph
 
     Document:
       type: object
+      required: [id, ownerUserId, documentTypeId, contentTypeId, name, metadata, status, createdAt]
       properties:
         id:
           type: string
-        name:
+          description: Unique document identifier
+        ownerUserId:
           type: string
+          description: Global user ID of the document owner
         documentTypeId:
           type: string
+          description: Foreign key to DocumentType
+        contentTypeId:
+          type: string
+          description: Foreign key to ContentType (e.g., "case brief", "memo")
+        name:
+          type: string
+          description: Document name
+          minLength: 1
+        metadata:
+          type: object
+          description: >-
+            DepartmentAdmin-defined custom metadata field values
+            (e.g., {"Writing Topic": "Contracts"})
+          additionalProperties:
+            type: string
         status:
           type: string
           enum: [Still Drafting, Polishing]
+          description: Current document status
         createdAt:
           type: string
           format: date-time
+          description: Timestamp when document was created
 
     Draft:
       type: object
+      required: [id, documentId, versionNumber, s3Key, segments, wordCount, createdAt]
       properties:
         id:
           type: string
+          description: Unique draft identifier
         documentId:
           type: string
+          description: Foreign key to Document
         versionNumber:
           type: integer
+          description: Monotonically increasing version number (starting at 1)
+          minimum: 1
+        s3Key:
+          type: string
+          description: S3 object key where full draft content is stored
+          minLength: 1
+        segments:
+          type: array
+          description: Ordered paragraph segments for anchoring and diffing
+          items:
+            $ref: "#/components/schemas/Segment"
         wordCount:
           type: integer
+          description: Total word count in the draft
+          minimum: 0
         createdAt:
           type: string
           format: date-time
+          description: Timestamp when draft was created
 
-    FeedbackItem:
+    AnchorState:
+      type: string
+      enum: [active, removed]
+      description: |
+        active - anchor is valid and rendered to user
+        removed - anchor text no longer found in document
+
+    Anchor:
       type: object
+      required: [id, feedbackItemId, draftId, paragraphIndex, startOffset, endOffset, contentFingerprint, state]
       properties:
         id:
           type: string
+          description: Unique anchor identifier
+        feedbackItemId:
+          type: string
+          description: Foreign key to FeedbackItem
+        draftId:
+          type: string
+          description: Foreign key to Draft (which version this anchor is for)
+        paragraphIndex:
+          type: integer
+          description: Zero-based index of the paragraph containing the anchor
+          minimum: 0
+        startOffset:
+          type: integer
+          description: Start character offset within the paragraph
+          minimum: 0
+        endOffset:
+          type: integer
+          description: End character offset within the paragraph
+          minimum: 0
+        contentFingerprint:
+          type: string
+          description: Normalized text hash + bounded surrounding context for remapping
+          minLength: 1
+        state:
+          $ref: "#/components/schemas/AnchorState"
+
+    ResolutionStatus:
+      type: string
+      enum: [resolved, partially_resolved, still_unresolved, removed, unchanged]
+      description: |
+        resolved - user has addressed this feedback item
+        partially_resolved - user has partially addressed it
+        still_unresolved - feedback item remains unaddressed
+        removed - anchor text no longer found in document
+        unchanged - no progress on addressing the feedback
+
+    FeedbackItem:
+      type: object
+      required: [id, documentId, errorCategoryId, kind, questionText, sourceDraftId, createdAt]
+      properties:
+        id:
+          type: string
+          description: Unique feedback item identifier
         documentId:
           type: string
+          description: Foreign key to Document
+        errorCategoryId:
+          type: string
+          description: Foreign key to ErrorCategory (feedback classification)
         kind:
           type: string
           enum: [inline, structural]
+          description: |
+            inline - feedback anchored to specific text span
+            structural - feedback applies to the entire document
         questionText:
           type: string
-        errorCategoryId:
+          description: Socratic question presented to the user
+        quotedText:
           type: string
+          nullable: true
+          description: Optional exact quote from the document that triggered this feedback
+        currentAnchorId:
+          type: string
+          nullable: true
+          description: Foreign key to current Anchor (for inline feedback) or null for structural
+        sourceDraftId:
+          type: string
+          description: Foreign key to Draft (which version generated this feedback)
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when feedback was generated
+
+    DocumentTypeConfig:
+      type: object
+      required: [documentTypeId]
+      properties:
+        documentTypeId:
+          type: string
+          description: Foreign key to DocumentType
+        tone:
+          type: string
+          nullable: true
+          description: Preferred tone for feedback (e.g., "formal", "conversational")
+        density:
+          type: string
+          nullable: true
+          description: Density of feedback (e.g., "comprehensive", "minimal")
+        categoryPriority:
+          type: array
+          items:
+            type: string
+          description: Ordered list of error category IDs by priority
+        promptText:
+          type: string
+          nullable: true
+          description: Custom system prompt text for feedback generation
+
+    User:
+      type: object
+      required: [id, email]
+      properties:
+        id:
+          type: string
+          description: Unique global user identifier
+        email:
+          type: string
+          description: User email address
+          format: email
+
+    # ==================== Analytics Schemas ====================
+
+    AggregateCounter:
+      type: object
+      properties:
+        scopeKind:
+          type: string
+          enum: [platform, documentType]
+          description: |
+            platform - counter aggregated across entire platform
+            documentType - counter scoped to a specific document type
+        scopeId:
+          type: string
+          nullable: true
+          description: DocumentType ID if scopeKind is 'documentType', null if 'platform'
+        metric:
+          type: string
+          description: Metric name (e.g., "documents_created", "feedback_generated")
+        value:
+          type: number
+          description: Numeric value of the metric
 
     AnalyticsResult:
       type: object
@@ -111,19 +480,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AggregateCounter"
-
-    AggregateCounter:
-      type: object
-      properties:
-        scopeKind:
-          type: string
-          enum: [platform, documentType]
-        scopeId:
-          type: string
-        metric:
-          type: string
-        value:
-          type: number
+          description: Array of aggregate counters
 
   responses:
     Unauthorized:
@@ -155,6 +512,75 @@ security:
 # Paths
 # --------------------------------------------------------------------------
 paths:
+  # ==================== Auth ====================
+  /v1/auth/me:
+    get:
+      summary: Get the authenticated user's identity and DB-backed roles
+      tags: [Auth]
+      operationId: getMe
+      responses:
+        "200":
+          description: Current user with roles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [userId, email, roles, administeredDepartmentIds]
+                properties:
+                  userId:
+                    type: string
+                    description: Global user identifier (from app database)
+                  email:
+                    type: string
+                    format: email
+                    description: User email address
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                      enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                    description: Array of roles assigned to this user
+                  administeredDepartmentIds:
+                    type: array
+                    items:
+                      type: string
+                    description: Department IDs administered by this user (if DepartmentAdmin)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   # ==================== Documents & Drafts ====================
   /v1/documents:
     get:
@@ -254,6 +680,34 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
   /v1/documents/{documentId}:
     get:
@@ -282,91 +736,35 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
-
-    delete:
-      summary: Delete a document (cascades to drafts/feedback; retains activity log)
-      tags: [Documents]
-      operationId: deleteDocument
-      parameters:
-        - name: documentId
-          in: path
-          required: true
-          schema:
-            type: string
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
       responses:
         "200":
-          description: Deletion receipt
-          content:
-            application/json:
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
               schema:
-                type: object
-                properties:
-                  documentId:
-                    type: string
-                  deletedDrafts:
-                    type: integer
-                  deletedFeedbackItems:
-                    type: integer
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
-  /v1/documents/{documentId}/drafts:
-    post:
-      summary: Submit a new draft (resubmission)
-      tags: [Documents]
-      operationId: submitDraft
-      parameters:
-        - name: documentId
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                source:
-                  type: object
-                  properties:
-                    kind:
-                      type: string
-                      enum: [file, paste]
-                    text:
-                      type: string
-                    key:
-                      type: string
-      responses:
-        "201":
-          description: Draft created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Draft"
-        "400":
-          description: Oversize or extraction failure
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
-
-  # ==================== Feedback ====================
   /v1/documents/{documentId}/feedback:
     get:
       summary: Get feedback items for the current draft
@@ -380,18 +778,13 @@ paths:
             type: string
       responses:
         "200":
-          description: Feedback items and progress summary
+          description: Feedback items
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/FeedbackItem"
-                  progressSummary:
-                    type: object
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeedbackItem"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -401,75 +794,34 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
-
-    post:
-      summary: Request feedback generation (async — returns job id)
-      tags: [Feedback]
-      operationId: requestFeedback
-      parameters:
-        - name: documentId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "202":
-          description: Feedback generation enqueued
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  jobId:
-                    type: string
-                  status:
-                    type: string
-                    enum: [queued, processing]
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          description: Usage limit reached
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+    options:
+      summary: CORS preflight
       x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
-
-  /v1/documents/{documentId}/feedback/status:
-    get:
-      summary: Poll feedback generation status
-      tags: [Feedback]
-      operationId: getFeedbackStatus
-      parameters:
-        - name: documentId
-          in: path
-          required: true
-          schema:
-            type: string
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
       responses:
         "200":
-          description: Current job status
-          content:
-            application/json:
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    enum: [queued, processing, completed, failed]
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
-
-  # ==================== Config (DeptAdmin) ====================
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
   /v1/document-types/{documentTypeId}/config:
     get:
       summary: Get Document Type configuration (taxonomy, conventions, prompt)
@@ -484,6 +836,10 @@ paths:
       responses:
         "200":
           description: Full Document Type configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentTypeConfig"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -493,112 +849,50 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
-
-    put:
-      summary: Update Document Type configuration
-      tags: [Config]
-      operationId: updateDocumentTypeConfig
-      parameters:
-        - name: documentTypeId
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                tone:
-                  type: string
-                density:
-                  type: string
-                typePromptText:
-                  type: string
-                categoryPriority:
-                  type: array
-                  items:
-                    type: string
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
       responses:
         "200":
-          description: Updated configuration
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
-  # ==================== Admin ====================
-  /v1/departments:
-    get:
-      summary: List departments (scoped by role)
-      tags: [Admin]
-      operationId: listDepartments
-      responses:
-        "200":
-          description: Departments visible to the actor
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
-
-  /v1/document-types:
-    get:
-      summary: List document types (filterable by department)
-      tags: [Admin]
-      operationId: listDocumentTypes
-      parameters:
-        - name: departmentId
-          in: query
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Document types
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
 
   /v1/users:
     get:
-      summary: Search users (TechAdmin system-wide, DeptAdmin scoped)
-      tags: [Admin]
+      summary: Search users (DeptAdmin/TechAdmin)
+      tags: [Users]
       operationId: searchUsers
-      parameters:
-        - name: q
-          in: query
-          schema:
-            type: string
-        - name: role
-          in: query
-          schema:
-            type: string
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
       responses:
         "200":
-          description: Paginated user list
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -608,32 +902,53 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
   /v1/roles:
     post:
-      summary: Assign a role (TechAdmin only)
-      tags: [Admin]
+      summary: Assign role to user (TechAdmin)
+      tags: [Roles]
       operationId: assignRole
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [userId, role]
-              properties:
-                userId:
-                  type: string
-                role:
-                  type: string
-                  enum: [Student, DepartmentAdmin, TechnicalAdmin]
-                administeredDepartmentIds:
-                  type: array
-                  items:
-                    type: string
       responses:
         "200":
           description: Role assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [userId, role]
+                properties:
+                  userId:
+                    type: string
+                  role:
+                    type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -643,35 +958,34 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
-
-  # ==================== Usage & Overrides ====================
-  /v1/usage:
-    get:
-      summary: Get usage limits and current consumption
-      tags: [Usage]
-      operationId: getUsage
-      parameters:
-        - name: scope
-          in: query
-          schema:
-            type: string
-            enum: [platform, documentType]
-        - name: scopeId
-          in: query
-          schema:
-            type: string
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
       responses:
         "200":
-          description: Usage information
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-      x-amazon-apigateway-integration:
-        type: aws_proxy
-        httpMethod: POST
-        uri:
-          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
   /v1/overrides:
     post:
@@ -688,21 +1002,31 @@ paths:
               properties:
                 userId:
                   type: string
+                  description: Global user ID
                 documentTypeId:
                   type: string
+                  description: Document type to grant override for
                 bounds:
                   type: object
+                  required: [additionalActions]
                   properties:
                     additionalActions:
                       type: integer
+                      description: Number of additional feedback requests allowed
                 reason:
                   type: string
+                  description: Reason for granting the override
                 expiresAt:
                   type: string
                   format: date-time
+                  description: Timestamp when the override expires
       responses:
         "201":
-          description: Override granted
+          description: Override created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Override"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -712,8 +1036,35 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
-  # ==================== Analytics ====================
   /v1/analytics:
     get:
       summary: Get aggregate analytics (scoped by role)
@@ -740,6 +1091,35 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuditFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
 
   # ==================== Upload (presigned URL) ====================
   /v1/uploads/presign:
@@ -778,3 +1158,33 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+

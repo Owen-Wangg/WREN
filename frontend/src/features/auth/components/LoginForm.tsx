@@ -18,8 +18,8 @@ import { loginSchema, type LoginFormValues } from '../authSchemas';
 import { useZodForm } from '@/forms/useZodForm';
 
 export interface LoginFormProps {
-  /** Called with the resulting session after a successful sign-in. */
-  readonly onSuccess?: (session: { readonly idToken: string }) => void;
+  /** Called after a successful sign-in with email and password for auth context to fetch roles. */
+  readonly onSuccess?: (email: string, password: string) => void | Promise<void>;
 }
 
 export function LoginForm({ onSuccess }: LoginFormProps) {
@@ -33,8 +33,9 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const onSubmit = async (values: LoginFormValues) => {
     setSubmitError(null);
     try {
-      const session = await authService.signIn(values);
-      onSuccess?.(session);
+      await authService.signIn(values);
+      // Call onSuccess with credentials so auth context can sign in and fetch roles
+      await onSuccess?.(values.email, values.password);
     } catch (cause) {
       setSubmitError(
         cause instanceof AuthError

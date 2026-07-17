@@ -271,6 +271,17 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
             "IpProtocol": "-1",
           },
         ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": {
+              "Fn::ImportValue": "wren-test-Vpc:ExportsOutputFnGetAttNetworkVpc7FB7348FCidrBlock4A3584D8",
+            },
+            "Description": "Allow in-VPC Lambdas to reach the RDS Proxy",
+            "FromPort": 5432,
+            "IpProtocol": "tcp",
+            "ToPort": 5432,
+          },
+        ],
         "VpcId": {
           "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
         },

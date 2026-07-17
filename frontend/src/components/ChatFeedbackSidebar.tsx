@@ -5,6 +5,8 @@
  * Tabs are full-width button controls with icons + labels, matching the design
  * shown in Ask AWsentral screenshot. Users can switch between Writing Coach chat
  * and AI Debrief feedback. Active tab preference is persisted to localStorage.
+ *
+ * Task 4: Wires async feedback generation via onDebriefRegenerate callback.
  */
 import { MessageSquare, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -31,7 +33,6 @@ export function ChatFeedbackSidebar({
   draftId,
   draftVersion,
   askWrenService,
-  onDebriefRegenerate,
   onHighlight,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
@@ -96,6 +97,7 @@ export function ChatFeedbackSidebar({
         {activeTab === 'debrief' && (
           <SidebarDebriefPanel
             environmentId={documentId}
+            autoRegenerate={false}
             onQuoteClick={onQuoteClick}
           />
         )}

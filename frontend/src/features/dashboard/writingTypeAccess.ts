@@ -20,9 +20,9 @@
  * This module is pure (no I/O, no React) so the branching is unit-testable in
  * isolation from the query/render layers.
  */
-import type { AccessGrant, AccessState, WritingType } from '@wren/types';
+import type { AccessGrant } from '@wren/types';
 
-import type { OrganizationAccess } from './dashboardTypes';
+import type { AccessState, OrganizationAccess, WritingType } from './dashboardTypes';
 
 /** Writer-facing access status for a Writing Type. */
 export type WritingTypeAccessStatus = 'open' | 'granted' | 'locked';
@@ -57,10 +57,9 @@ function grantAppliesTo(grant: AccessGrant, writingType: WritingType): boolean {
   if (grant.revokedAt !== undefined) {
     return false;
   }
-  if ('writingTypeId' in grant.scope) {
-    return grant.scope.writingTypeId === writingType.id;
-  }
-  return grant.scope.organizationId === writingType.organizationId;
+  // The canonical AccessGrant is scoped directly to a Document Type id, which
+  // maps 1:1 onto the dashboard's Writing Type id.
+  return grant.documentTypeId === writingType.id;
 }
 
 /** Resolves the writer-facing access status for a single Writing Type. */
@@ -97,7 +96,9 @@ export function resolveWritingTypeCatalog(
   organizations: readonly OrganizationAccess[],
   grants: readonly AccessGrant[],
 ): ResolvedWritingType[] {
-  const organizationsById = new Map(organizations.map((org) => [org.id, org]));
+  const organizationsById = new Map<string, OrganizationAccess>(
+    organizations.map((org) => [org.id, org]),
+  );
   return writingTypes.map((writingType) =>
     resolveWritingTypeAccess(writingType, organizationsById, grants),
   );

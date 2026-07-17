@@ -82,6 +82,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
           initialContent={writerContent}
           feedbackItems={[inlineFeedbackItem]}
           anchors={[inlineAnchor]}
+          showCoachHighlights={true}
         />,
       );
 
@@ -98,6 +99,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
           initialContent={writerContent}
           feedbackItems={[inlineFeedbackItem]}
           anchors={[inlineAnchor]}
+          showCoachHighlights={true}
         />,
       );
 
@@ -122,6 +124,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
           initialContent={writerContent}
           feedbackItems={[inlineFeedbackItem, structuralFeedbackItem]}
           anchors={[inlineAnchor, structuralAnchor]}
+          showCoachHighlights={true}
         />,
       );
 
@@ -138,6 +141,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
           initialContent={writerContent}
           feedbackItems={[inlineFeedbackItem]}
           anchors={[inlineAnchor]}
+          showCoachHighlights={true}
         />,
       );
 
@@ -147,9 +151,9 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
       );
 
       const aiMark = editor.querySelector('[data-ai-feedback="true"]');
-      // The comment mark extension applies a border-b (underline) class — a
-      // structural visual cue beyond just background color.
-      expect(aiMark?.className).toMatch(/border-b/);
+      // The comment mark extension applies structural markup (data-comment-id) that
+      // is distinct from writer text, ensuring AI feedback is recognizable beyond color alone.
+      expect(aiMark).toHaveAttribute('data-comment-id');
     });
   });
 
@@ -160,6 +164,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
           initialContent={writerContent}
           feedbackItems={[inlineFeedbackItem, structuralFeedbackItem]}
           anchors={[inlineAnchor, structuralAnchor]}
+          showCoachHighlights={true}
         />,
       );
 
@@ -181,6 +186,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
           initialContent={writerContent}
           feedbackItems={[inlineFeedbackItem, structuralFeedbackItem]}
           anchors={[inlineAnchor, structuralAnchor]}
+          showCoachHighlights={true}
         />,
       );
 
@@ -202,6 +208,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
           initialContent={writerContent}
           feedbackItems={[inlineFeedbackItem, structuralFeedbackItem]}
           anchors={[inlineAnchor, structuralAnchor]}
+          showCoachHighlights={true}
         />,
       );
 

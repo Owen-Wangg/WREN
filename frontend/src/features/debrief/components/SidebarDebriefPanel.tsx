@@ -12,6 +12,7 @@ import { ArrowUp, Minus, Star, TrendingUp } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
+import { CitationDisplay } from './CitationDisplay';
 
 import { useAiDebrief, useRegenerateDebrief } from '../useDebrief';
 
@@ -268,6 +269,7 @@ export function SidebarDebriefPanel({
                                     &quot;{item.quotedText}&quot;
                                   </blockquote>
                                 )}
+                                <CitationDisplay citationReferenceId={item.citationReferenceId} />
                               </li>
                             ))}
                           </ul>
@@ -304,6 +306,7 @@ export function SidebarDebriefPanel({
                                     &quot;{item.quotedText}&quot;
                                   </blockquote>
                                 )}
+                                <CitationDisplay citationReferenceId={item.citationReferenceId} />
                               </li>
                             ))}
                           </ul>

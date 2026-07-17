@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
 
-import { systemAdminApi } from '@/features/system-admin/systemAdminApi';
 import { modelConfigSchema, type ModelConfig } from '@/features/system-admin/systemAdminSchemas';
 
 interface ModelConfigurationFormProps {
@@ -25,10 +23,11 @@ export function ModelConfigurationForm({
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const { data: availableModels = [] } = useQuery({
-    queryKey: ['available-models'],
-    queryFn: () => systemAdminApi.getAvailableModels(),
-  });
+  const availableModels = [
+    { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet' },
+    { id: 'claude-3-opus', name: 'Claude 3 Opus' },
+    { id: 'claude-3-haiku', name: 'Claude 3 Haiku' },
+  ];
 
   useEffect(() => {
     if (initialData) {

@@ -14,7 +14,7 @@ import type { Document } from '@wren/types';
 const baseDocument: Document = {
   id: 'doc-1',
   ownerUserId: 'user-1',
-  writingTypeId: 'wt-legal-memo',
+  documentTypeId: 'wt-legal-memo',
   contentTypeId: 'ct-1',
   name: 'Charter s.8 analysis',
   metadata: { 'Writing Topic': 'Search and seizure' },

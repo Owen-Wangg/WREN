@@ -1,4 +1,4 @@
-import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, SecretValue } from "aws-cdk-lib";
 import * as amplify from "@aws-cdk/aws-amplify-alpha";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import type { Construct } from "constructs";
@@ -18,6 +18,10 @@ export interface AmplifyStackProps extends StackProps {
   readonly githubTokenSecretName: string;
   /** The API endpoint URL for the frontend to connect to. */
   readonly apiEndpoint: string;
+  /** Cognito User Pool ID. */
+  readonly cognitoUserPoolId: string;
+  /** Cognito User Pool Client ID. */
+  readonly cognitoClientId: string;
 }
 
 /**
@@ -49,8 +53,7 @@ export class AmplifyStack extends Stack {
       sourceCodeProvider: new amplify.GitHubSourceCodeProvider({
         owner: props.repositoryOwner,
         repository: props.repositoryName,
-        oauthToken: codebuild.BuildSpec.fromObject({}).toString() as unknown as import("aws-cdk-lib").SecretValue,
-        // Note: In production, use SecretValue.secretsManager(props.githubTokenSecretName)
+        oauthToken: SecretValue.secretsManager(props.githubTokenSecretName),
       }),
       buildSpec: codebuild.BuildSpec.fromObjectToYaml({
         version: "1.0",
@@ -60,7 +63,12 @@ export class AmplifyStack extends Stack {
             frontend: {
               phases: {
                 preBuild: {
-                  commands: ["npm ci"],
+                  commands: [
+                    // Install at monorepo root first so workspace packages
+                    // (types, etc.) can resolve their dependencies (e.g. zod)
+                    "cd .. && npm ci && cd frontend",
+                    "npm ci",
+                  ],
                 },
                 build: {
                   commands: ["npm run build"],
@@ -78,8 +86,15 @@ export class AmplifyStack extends Stack {
         ],
       }),
       environmentVariables: {
-        VITE_API_ENDPOINT: props.apiEndpoint,
+        // Frontend config (frontend/src/config/env.ts reads these)
+        VITE_API_BASE_URL: props.apiEndpoint,
         VITE_APP_NAME: config.appName,
+        VITE_ENVIRONMENT: config.environmentName,
+        VITE_USE_LIVE_API: "true",
+        VITE_COGNITO_USER_POOL_ID: props.cognitoUserPoolId,
+        VITE_COGNITO_CLIENT_ID: props.cognitoClientId,
+        VITE_AWS_REGION: config.env.region || "ca-central-1",
+        // Build config
         NODE_VERSION: "22",
       },
     });

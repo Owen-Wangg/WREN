@@ -27,7 +27,7 @@
     "forceConsistentCasingInFileNames": true,
 
     /* Path aliases: `@` -> ./src, shared domain contract from task 1.2 */
-    "baseUrl": ".",
+    /* Note: baseUrl is deprecated in TS 7.0, using paths with moduleResolution: bundler */
     "paths": {
       "@/*": ["./src/*"],
       "@wren/types": ["../types/src/index.ts"]

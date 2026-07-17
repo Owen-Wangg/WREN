@@ -8,17 +8,17 @@ import { RoleGate } from './RoleGate';
 describe('RoleGate', () => {
   it('renders children when the explicit role is in the allow list', () => {
     render(
-      <RoleGate allow={['Field Expert', 'Admin']} role="Field Expert">
-        <p>Field Expert only content</p>
+      <RoleGate allow={['DepartmentAdmin', 'TechnicalAdmin']} role="DepartmentAdmin">
+        <p>Admin only content</p>
       </RoleGate>,
     );
 
-    expect(screen.getByText('Field Expert only content')).toBeInTheDocument();
+    expect(screen.getByText('Admin only content')).toBeInTheDocument();
   });
 
   it('renders nothing (no fallback) when the role is not permitted', () => {
     render(
-      <RoleGate allow={['Admin']} role="User">
+      <RoleGate allow={['TechnicalAdmin']} role="Student">
         <p>Admin only content</p>
       </RoleGate>,
     );
@@ -28,7 +28,7 @@ describe('RoleGate', () => {
 
   it('renders the provided fallback when the role check fails', () => {
     render(
-      <RoleGate allow={['Admin']} role="User" fallback={<p>No access</p>}>
+      <RoleGate allow={['TechnicalAdmin']} role="Student" fallback={<p>No access</p>}>
         <p>Admin only content</p>
       </RoleGate>,
     );
@@ -39,7 +39,7 @@ describe('RoleGate', () => {
 
   it('renders nothing when the role is unknown (null)', () => {
     render(
-      <RoleGate allow={['User', 'Field Expert', 'Org Owner', 'Admin']} role={null}>
+      <RoleGate allow={['Student', 'DepartmentAdmin', 'TechnicalAdmin']} role={null}>
         <p>Any role content</p>
       </RoleGate>,
     );
@@ -48,7 +48,7 @@ describe('RoleGate', () => {
   });
 
   it('supports every persona role without hardcoding a student-only assumption (steering §2)', () => {
-    const roles = ['User', 'Field Expert', 'Org Owner', 'Admin'] as const;
+    const roles = ['Student', 'DepartmentAdmin', 'TechnicalAdmin'] as const;
     for (const role of roles) {
       render(
         <RoleGate allow={roles} role={role}>
@@ -61,8 +61,8 @@ describe('RoleGate', () => {
 
   it('falls back to RoleContext when no explicit role prop is given', () => {
     render(
-      <RoleProvider role="Org Owner">
-        <RoleGate allow={['Org Owner']}>
+      <RoleProvider role="DepartmentAdmin">
+        <RoleGate allow={['DepartmentAdmin']}>
           <p>From context</p>
         </RoleGate>
       </RoleProvider>,

@@ -1,8 +1,11 @@
-/**
- * Barrel for the editor feature: the Tiptap-based `.docx` editor (task 18.1)
- * and its anchored inline-feedback comments layer (task 18.2).
- */
-export { DocumentEditor, type DocumentEditorHandle, type DocumentEditorProps } from './components/DocumentEditor';
+// Task 18: Anchored feedback editor (the routed document-editing surface)
+
+// Components
+export {
+  DocumentEditor,
+  type DocumentEditorProps,
+  type DocumentEditorHandle,
+} from './components/DocumentEditor';
 export {
   AnchoredFeedbackEditor,
   type AnchoredFeedbackEditorProps,
@@ -11,31 +14,13 @@ export {
   AnchoredFeedbackEditorContainer,
   type AnchoredFeedbackEditorContainerProps,
 } from './components/AnchoredFeedbackEditorContainer';
-export { MarginCommentCard, type MarginCommentCardProps } from './components/MarginCommentCard';
 
+// Utilities
 export {
-  docxBytesToTiptapContent,
-  tiptapContentToDocxBlob,
-  tiptapContentToDocxParagraphs,
-  countParagraphBlocks,
-} from './docxContentMapper';
-
-export {
-  resolveAnchorRange,
-  findCommentMarkRange,
-  collectCommentIds,
-  type AnchorSpan,
-  type DocumentRange,
-} from './anchorRange';
-
-export {
-  buildAnchoredFeedbackItems,
-  partitionAnchoredFeedbackItems,
-  hasActiveAnchor,
-  resolveCategoryLabel,
-  type AnchoredFeedbackItem,
-  type PartitionedFeedbackItems,
-} from './feedbackAnchoring';
-
-export { fetchFeedbackItems, fetchAnchors, feedbackItemsPath, anchorsPath } from './anchoredFeedbackApi';
-export { useFeedbackItems, useAnchors } from './useAnchoredFeedback';
+  segmentText,
+  reconstructText,
+  draftToTiptapJSON,
+  tiptapJSONToDraft,
+  countWords,
+  validateWordCount,
+} from './utils/documentParser';

@@ -16,6 +16,12 @@ import {
 
 import { systemAdminApi } from '@/features/system-admin/systemAdminApi';
 
+interface Department {
+  id: string;
+  name: string;
+  accessState?: string;
+}
+
 export function DepartmentDetailPage() {
   const { departmentId } = useParams();
   const navigate = useNavigate();
@@ -23,10 +29,10 @@ export function DepartmentDetailPage() {
 
   const { data: departments = [] } = useQuery({
     queryKey: ['system-departments'],
-    queryFn: () => systemAdminApi.getDepartments(),
+    queryFn: () => systemAdminApi.listDepartments(),
   });
 
-  const department = departments.find((d) => d.id === departmentId);
+  const department = (departments as Department[]).find((d: Department) => d.id === departmentId);
   const isLocked = department?.accessState === 'LOCKED';
 
   const { data: analyticsData } = useQuery({
@@ -278,45 +284,45 @@ export function DepartmentDetailPage() {
               {/* Key Metrics */}
               <div className="mb-8 grid grid-cols-3 gap-6">
                 <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <p className="text-sm text-gray-600">Total Documents</p>
-                  <p className="text-4xl font-bold">{analyticsData.totalDocuments}</p>
+                  <p className="text-sm text-gray-600">Total Analytics Points</p>
+                  <p className="text-4xl font-bold">{analyticsData?.totals?.length || 0}</p>
                 </div>
                 <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <p className="text-sm text-gray-600">Total Drafts</p>
-                  <p className="text-4xl font-bold">95</p>
+                  <p className="text-sm text-gray-600">Platform Scope</p>
+                  <p className="text-4xl font-bold">{analyticsData?.totals?.filter((t: any) => t.scopeKind === 'platform').length || 0}</p>
                 </div>
                 <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <p className="text-sm text-gray-600">Active Users</p>
-                  <p className="text-4xl font-bold">30</p>
+                  <p className="text-sm text-gray-600">Document Type Metrics</p>
+                  <p className="text-4xl font-bold">{analyticsData?.totals?.filter((t: any) => t.scopeKind === 'documentType').length || 0}</p>
                 </div>
               </div>
 
               {/* Charts */}
               <div className="grid grid-cols-2 gap-8">
                 <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <h3 className="mb-6 text-lg font-semibold text-gray-900">Breakdown by Document Type</h3>
+                  <h3 className="mb-6 text-lg font-semibold text-gray-900">Metrics by Scope</h3>
                   <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={analyticsData.documentsByDepartment}>
+                    <BarChart data={(analyticsData?.totals || []).map((t: any) => ({ name: t.scopeKind, value: t.value }))}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis dataKey="name" />
                       <YAxis />
                       <Tooltip />
-                      <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                      <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
 
                 <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <h3 className="mb-6 text-lg font-semibold text-gray-900">Platform Usage with time</h3>
+                  <h3 className="mb-6 text-lg font-semibold text-gray-900">All Metrics</h3>
                   <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={analyticsData.usageOverTime}>
+                    <LineChart data={(analyticsData?.totals || []).map((t: any, i: number) => ({ index: i, metric: t.metric, value: t.value }))}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="date" />
+                      <XAxis dataKey="index" />
                       <YAxis />
                       <Tooltip />
                       <Line
                         type="monotone"
-                        dataKey="activeUsers"
+                        dataKey="value"
                         stroke="#3b82f6"
                         dot={false}
                         strokeWidth={2}

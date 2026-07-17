@@ -17,7 +17,35 @@
  */
 import { z } from 'zod';
 
-import { accessStateSchema, idSchema } from '@wren/types';
+import { idSchema } from '@wren/types';
+
+/**
+ * Dashboard-local access state. Unlike the canonical
+ * `documentTypeAccessStateSchema` (strictly `OPEN`/`LOCKED`), the writer
+ * dashboard also models `INHERIT`, where a Writing Type defers to its owning
+ * Organization's effective state (Requirement 4.1). This is a display concept
+ * local to the dashboard and intentionally not part of the shared contract.
+ */
+export const accessStateSchema = z.enum(['OPEN', 'LOCKED', 'INHERIT']);
+export type AccessState = z.infer<typeof accessStateSchema>;
+
+/**
+ * Dashboard-local Writing Type projection (the self-selectable catalog entry as
+ * the writer sees it). The canonical catalog entity is
+ * `@wren/types` `DocumentType`; this local shape carries the dashboard-only
+ * `INHERIT` access state and Organization linkage used for effective-access
+ * resolution.
+ */
+export const writingTypeSchema = z
+  .object({
+    id: idSchema,
+    organizationId: idSchema,
+    name: z.string().min(1),
+    accessState: accessStateSchema,
+    sizeLimitWords: z.number().int().positive().nullable(),
+  })
+  .strict();
+export type WritingType = z.infer<typeof writingTypeSchema>;
 
 /**
  * The minimal Organization projection the dashboard consumes: its id, a display

@@ -1,4 +1,6 @@
+import * as fs from "fs";
 import * as path from "path";
+import YAML from "js-yaml";
 import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -49,16 +51,118 @@ export class ApiStack extends Stack {
 
     const { config } = props;
 
-    // The OpenAPI spec references these Lambda ARNs via Fn::Sub variables.
-    // SpecRestApi passes them through as CloudFormation parameters that get
-    // substituted into the spec at deploy time.
+    // Read the OpenAPI spec and load it as an object. The spec contains
+    // Fn::Sub references (CloudFormation intrinsics) which SpecRestApi will
+    // handle correctly via JSON representation.
+    const specPath = path.join(__dirname, "..", "openapi.yaml");
+    const rawSpec = fs.readFileSync(specPath, "utf8");
+
+    // Parse YAML to JSON object.
+    const specObject = YAML.load(rawSpec) as Record<string, any>;
+
+    // Resolve all Fn::Sub intrinsics and Lambda ARN placeholders into plain
+    // strings. Since we know all values at synth time (region + Lambda ARNs),
+    // we don't need CloudFormation to resolve them at deploy time.
+    const substitutions: Record<string, string> = {
+      "AWS::Region": config.env.region,
+      AuthorizerFunctionArn: String(props.authorizerFunctionArn),
+      DocumentFunctionArn: String(props.documentFunctionArn),
+      FeedbackFunctionArn: String(props.feedbackFunctionArn),
+      AdminFunctionArn: String(props.adminFunctionArn),
+      AuditFunctionArn: String(props.auditFunctionArn),
+    };
+
+    function resolveSpec(obj: any): any {
+      if (typeof obj !== "object" || obj === null) return obj;
+      if (Array.isArray(obj)) return obj.map(resolveSpec);
+
+      // If this object is a Fn::Sub intrinsic, resolve it to a plain string.
+      if ("Fn::Sub" in obj && typeof obj["Fn::Sub"] === "string") {
+        let resolved = obj["Fn::Sub"] as string;
+        for (const [key, value] of Object.entries(substitutions)) {
+          resolved = resolved.replace(new RegExp(`\\$\\{${key}\\}`, "g"), value);
+        }
+        return resolved;
+      }
+
+      // Otherwise recurse into all keys.
+      const result: Record<string, any> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        result[key] = resolveSpec(value);
+      }
+      return result;
+    }
+
+    const resolvedSpec = resolveSpec(specObject);
+
+    // -----------------------------------------------------------------------
+    // Always overwrite CORS OPTIONS on every path (do not skip when OpenAPI
+    // already defines options — handwritten MOCK blocks often omit
+    // requestTemplates and cause API Gateway 500 on preflight).
+    // security: [] bypasses the Lambda authorizer for OPTIONS.
+    // -----------------------------------------------------------------------
+    const allowedOrigins = "*"; // Tighten to Amplify domain in prod
+    const corsResponseParams = {
+      "method.response.header.Access-Control-Allow-Origin": `'${allowedOrigins}'`,
+      "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+      "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+      "method.response.header.Access-Control-Max-Age": "'86400'",
+    };
+
+    if (resolvedSpec.paths) {
+      for (const pathValue of Object.values(resolvedSpec.paths as Record<string, any>)) {
+        pathValue.options = {
+          summary: "CORS preflight",
+          security: [],
+          responses: {
+            "200": {
+              description: "CORS preflight response",
+              headers: {
+                "Access-Control-Allow-Origin": { schema: { type: "string" } },
+                "Access-Control-Allow-Methods": { schema: { type: "string" } },
+                "Access-Control-Allow-Headers": { schema: { type: "string" } },
+                "Access-Control-Max-Age": { schema: { type: "string" } },
+              },
+            },
+          },
+          "x-amazon-apigateway-integration": {
+            type: "mock",
+            // Required for MOCK integrations — without this, OPTIONS returns 500
+            // and no Access-Control-* headers (browser reports a CORS failure).
+            requestTemplates: { "application/json": '{"statusCode": 200}' },
+            passthroughBehavior: "when_no_match",
+            responses: {
+              default: {
+                statusCode: "200",
+                responseParameters: corsResponseParams,
+              },
+            },
+          },
+        };
+      }
+    }
+
+    // Remove the global security requirement from the spec — we'll rely on
+    // per-method security instead. This prevents API Gateway from applying
+    // the authorizer to OPTIONS methods that have security: [].
+    delete resolvedSpec.security;
+
+    // Add per-method security to all non-OPTIONS methods so the authorizer
+    // still applies to them.
+    if (resolvedSpec.paths) {
+      for (const pathValue of Object.values(resolvedSpec.paths as Record<string, any>)) {
+        for (const [method, methodValue] of Object.entries(pathValue)) {
+          if (method === "options" || typeof methodValue !== "object" || methodValue === null) continue;
+          // Only add security if the method doesn't already have it explicitly set
+          if (!("security" in methodValue)) {
+            methodValue.security = [{ CognitoAuthorizer: [] }];
+          }
+        }
+      }
+    }
+
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
-      apiDefinition: apigateway.ApiDefinition.fromAsset(
-        path.join(__dirname, "openapi.yaml"),
-        // {
-        //   // Variables are injected via Fn::Sub in the spec
-        // },
-      ),
+      apiDefinition: apigateway.ApiDefinition.fromInline(resolvedSpec),
       restApiName: `${config.stackPrefix}-api`,
       endpointTypes: [apigateway.EndpointType.REGIONAL],
       deployOptions: {
@@ -72,38 +176,70 @@ export class ApiStack extends Stack {
       cloudWatchRole: true,
     });
 
-    // Grant API Gateway permission to invoke the authorizer Lambda.
-    const authorizerFunction = lambda.Function.fromFunctionArn(
-      this,
-      "AuthorizerFn",
-      props.authorizerFunctionArn,
-    );
-    authorizerFunction.addPermission("ApiGatewayInvoke", {
-      principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
-      sourceArn: this.api.arnForExecuteApi(),
+    // CORS on Gateway-generated errors (authorizer 401/403, missing token, 5xx).
+    // Without these, browsers report failures as CORS errors instead of the real status.
+    const gatewayCorsHeaders = {
+      "Access-Control-Allow-Origin": `'${allowedOrigins}'`,
+      "Access-Control-Allow-Headers":
+        "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+      "Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+    };
+    this.api.addGatewayResponse("Default4xx", {
+      type: apigateway.ResponseType.DEFAULT_4XX,
+      responseHeaders: gatewayCorsHeaders,
+    });
+    this.api.addGatewayResponse("Default5xx", {
+      type: apigateway.ResponseType.DEFAULT_5XX,
+      responseHeaders: gatewayCorsHeaders,
     });
 
-    // Grant API Gateway permission to invoke each service Lambda.
-    const serviceFunctions = [
+    // Grant API Gateway permission to invoke each Lambda. The functions live in
+    // the Compute stack, so they are imported by ARN here — but with
+    // `sameEnvironment: true` so CDK knows they share this stack's account/region
+    // and actually emits the `AWS::Lambda::Permission` (a bare `fromFunctionArn`
+    // silently no-ops `addPermission()` across token-ARN boundaries).
+    //
+    // Authorizer invocations use SourceArn …/authorizers/*, NOT …/stage/METHOD/path.
+    // Using arnForExecuteApi() alone causes "Invalid permissions on Lambda function"
+    // and a 500 on every authenticated request.
+    const authorizerFn = lambda.Function.fromFunctionAttributes(this, "AuthorizerFn", {
+      functionArn: props.authorizerFunctionArn,
+      sameEnvironment: true,
+    });
+    authorizerFn.addPermission("AuthorizerFn-ApiGatewayInvoke", {
+      principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
+      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${this.api.restApiId}/authorizers/*`,
+    });
+
+    const integrationFunctions = [
       { id: "DocumentFn", arn: props.documentFunctionArn },
       { id: "FeedbackFn", arn: props.feedbackFunctionArn },
       { id: "AdminFn", arn: props.adminFunctionArn },
       { id: "AuditFn", arn: props.auditFunctionArn },
     ];
 
-    for (const svc of serviceFunctions) {
-      const fn = lambda.Function.fromFunctionArn(this, svc.id, svc.arn);
+    for (const svc of integrationFunctions) {
+      const fn = lambda.Function.fromFunctionAttributes(this, svc.id, {
+        functionArn: svc.arn,
+        sameEnvironment: true,
+      });
       fn.addPermission(`${svc.id}-ApiGatewayInvoke`, {
         principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
         sourceArn: this.api.arnForExecuteApi(),
       });
     }
 
-    this.apiEndpoint = this.api.url;
+    // Build the URL from restApiId + stage name — NOT this.api.url.
+    // this.api.url references the Deployment Stage resource; every OpenAPI
+    // change replaces that Stage and tries to delete its CloudFormation
+    // export, which fails while Amplify/CloudFront still import it.
+    // restApiId is stable across API definition updates.
+    this.apiEndpoint = `https://${this.api.restApiId}.execute-api.${this.region}.amazonaws.com/${config.environmentName}/`;
 
     new CfnOutput(this, "ApiEndpoint", {
-      value: this.api.url,
+      value: this.apiEndpoint,
       description: "WREN REST API endpoint URL",
+      exportName: `${config.stackPrefix}-api-endpoint`,
     });
 
     new CfnOutput(this, "ApiId", {

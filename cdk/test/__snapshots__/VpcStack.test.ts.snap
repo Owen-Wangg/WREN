@@ -3,6 +3,17 @@
 exports[`VpcStack matches the synthesized template snapshot 1`] = `
 {
   "Outputs": {
+    "ExportsOutputFnGetAttNetworkVpc7FB7348FCidrBlock4A3584D8": {
+      "Export": {
+        "Name": "wren-test-Vpc:ExportsOutputFnGetAttNetworkVpc7FB7348FCidrBlock4A3584D8",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "NetworkVpc7FB7348F",
+          "CidrBlock",
+        ],
+      },
+    },
     "ExportsOutputRefNetworkVpc7FB7348F649FC110": {
       "Export": {
         "Name": "wren-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",

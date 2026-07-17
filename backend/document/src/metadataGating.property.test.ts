@@ -42,7 +42,7 @@ import { wrenProperty } from '../../../testing/typescript/property';
 type ValueKind = 'absent' | 'empty' | 'whitespace' | 'nonblank' | 'padded';
 
 /** The absent/empty/whitespace kinds all count as BLANK for the gate. */
-const BLANK_KINDS: ReadonlySet<ValueKind> = new Set<ValueKind>([
+void new Set<ValueKind>([
   'absent',
   'empty',
   'whitespace',
