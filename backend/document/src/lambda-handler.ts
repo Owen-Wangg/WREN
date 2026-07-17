@@ -11,7 +11,7 @@ import { v4 as uuid } from 'uuid';
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
-    'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+    'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
   'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
 };
 
@@ -104,9 +104,24 @@ async function handleListDocuments(event: any): Promise<APIGatewayProxyResult> {
   `;
   const rows = await db.query(query, [actor.userId, parseInt(limit, 10), parseInt(offset, 10)]);
 
+  const items = rows.map((row: any) => ({
+    id: row.id,
+    ownerUserId: row.owner_user_id,
+    documentTypeId: row.document_type_id,
+    contentTypeId: row.content_type_id,
+    name: row.name,
+    metadata:
+      typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata ?? {},
+    status: row.status,
+    createdAt:
+      row.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : row.created_at,
+  }));
+
   return {
     statusCode: 200,
-    body: JSON.stringify(rows),
+    body: JSON.stringify({ items, total: items.length }),
   };
 }
 
