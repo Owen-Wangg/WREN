@@ -100,10 +100,13 @@ export class DatabaseResources extends Construct {
   }
 
   protected createInstance(): DatabaseInstance {
+    // Control Tower CT.RDS.PR.2 requires Enhanced Monitoring on RDS instances.
     const monitoringRole = new iam.Role(this, "MonitoringRole", {
       assumedBy: new iam.ServicePrincipal("monitoring.rds.amazonaws.com"),
       managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName("service-role/AmazonRDSEnhancedMonitoringRole"),
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+          "service-role/AmazonRDSEnhancedMonitoringRole",
+        ),
       ],
     });
 

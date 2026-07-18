@@ -122,6 +122,23 @@ export async function getAccessGrant(
 }
 
 /**
+ * List the caller's own active Access Grants (no admin capability required).
+ * Used by the Student dashboard to resolve LOCKED Document Type access.
+ */
+export async function listMyAccessGrants(
+  actor: AuthContext,
+  db: QueryExecutor,
+): Promise<AccessGrant[]> {
+  const rows = await db.query<AccessGrantRow>(
+    `SELECT ${RETURNING} FROM access_grant
+     WHERE user_id = $1 AND revoked_at IS NULL
+     ORDER BY granted_at ASC`,
+    [actor.userId],
+  );
+  return rows.map(toAccessGrant);
+}
+
+/**
  * List active (non-revoked) Access Grants for a Document Type
  * (`DepartmentAdmin` within an administered Department) — gated by the same
  * `accessGrant.create` capability used for creation, since viewing a Document
@@ -199,18 +216,4 @@ export async function approveAccessRequest(
 ): Promise<AccessGrant> {
   const { userId, documentTypeId } = accessRequestApprovalInputSchema.parse(input);
   return createAccessGrant(actor, { userId, documentTypeId }, db);
-}
-
-/** List active (non-revoked) Access Grants for the calling user. */
-export async function listMyAccessGrants(
-  actor: AuthContext,
-  db: QueryExecutor,
-): Promise<AccessGrant[]> {
-  const rows = await db.query<AccessGrantRow>(
-    `SELECT ${RETURNING} FROM access_grant
-     WHERE user_id = $1 AND revoked_at IS NULL
-     ORDER BY granted_at ASC`,
-    [actor.userId],
-  );
-  return rows.map(toAccessGrant);
 }
