@@ -27,33 +27,54 @@ const feedbackStatusSchema = z.object({
 
 export type FeedbackStatus = z.infer<typeof feedbackStatusSchema>;
 
-const feedbackItemsResponseSchema = z.array(feedbackItemSchema);
-const anchorsResponseSchema = z.array(anchorSchema);
+const feedbackListResponseSchema = z.object({
+  items: z.array(feedbackItemSchema),
+  anchors: z.array(anchorSchema).optional(),
+  progressSummary: z.unknown().optional(),
+});
 
-export function feedbackItemsPath(environmentId: string): string {
-  return `/documents/${environmentId}/feedback-items`;
+export type DocumentFeedback = {
+  items: FeedbackItem[];
+  anchors: Anchor[];
+};
+
+export function feedbackPath(documentId: string): string {
+  return `/v1/documents/${documentId}/feedback`;
 }
 
-export function anchorsPath(environmentId: string): string {
-  return `/documents/${environmentId}/anchors`;
-}
-
-/** Fetches all Feedback Items (inline + structural) for a writing environment's current draft. */
-export function fetchFeedbackItems(
+/** Fetches Feedback Items + Anchors via GET /v1/documents/{id}/feedback. */
+export async function fetchDocumentFeedback(
   client: HttpClient,
-  environmentId: string,
-): Promise<FeedbackItem[]> {
-  return client.request(feedbackItemsPath(environmentId), {
-    schema: feedbackItemsResponseSchema,
+  documentId: string,
+): Promise<DocumentFeedback> {
+  const result = await client.request(feedbackPath(documentId), {
+    schema: feedbackListResponseSchema,
   });
+  return {
+    items: result.items,
+    anchors: result.anchors ?? [],
+  };
 }
 
-/** Fetches Anchors for a writing environment's current draft. */
-export function fetchAnchors(
+/** Fetches Feedback Items for a document via GET /v1/documents/{id}/feedback. */
+export async function fetchFeedbackItems(
   client: HttpClient,
-  environmentId: string,
+  documentId: string,
+): Promise<FeedbackItem[]> {
+  const result = await fetchDocumentFeedback(client, documentId);
+  return result.items;
+}
+
+/**
+ * Fetches Anchors for a document from the GET feedback response
+ * (`anchors` field) so the editor does not depend on a separate anchors route.
+ */
+export async function fetchAnchors(
+  client: HttpClient,
+  documentId: string,
 ): Promise<Anchor[]> {
-  return client.request(anchorsPath(environmentId), { schema: anchorsResponseSchema });
+  const result = await fetchDocumentFeedback(client, documentId);
+  return result.anchors;
 }
 
 /** Enqueues a feedback generation job for the document's latest draft. */
@@ -61,7 +82,7 @@ export function generateFeedback(
   client: HttpClient,
   documentId: string,
 ): Promise<z.infer<typeof feedbackJobSchema>> {
-  return client.request(`/v1/documents/${documentId}/feedback`, {
+  return client.request(feedbackPath(documentId), {
     method: 'POST',
     schema: feedbackJobSchema,
   });

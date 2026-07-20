@@ -1027,6 +1027,32 @@ paths:
                 type: string
 
   /v1/documents/{documentId}/drafts:
+    get:
+      summary: Get the latest draft for a document
+      tags: [Documents]
+      operationId: getLatestDraft
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
     post:
       summary: Create a new draft version for a document
       tags: [Documents]
@@ -1118,13 +1144,24 @@ paths:
             type: string
       responses:
         "200":
-          description: Feedback items
+          description: Feedback items and anchors for the document
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/FeedbackItem"
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FeedbackItem"
+                  anchors:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Anchor"
+                  progressSummary:
+                    type: array
+                    items: {}
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

@@ -1139,10 +1139,34 @@ const v1MockRoutes: MockRoutes = {
     sampleContentTypesByDocumentType['dt-uuid-criminal-000000000001'],
   'GET /v1/document-types/dt-uuid-tort-0000-000000000001/content-types':
     sampleContentTypesByDocumentType['dt-uuid-tort-0000-000000000001'],
+  // Latest drafts
+  'GET /v1/documents/doc-1/drafts': {
+    id: 'draft-1',
+    documentId: 'doc-1',
+    versionNumber: 1,
+    s3Key: 'inline',
+    segments: [
+      { index: 0, text: 'Tort Claim Proposal' },
+      { index: 1, text: 'This is sample draft content loaded from the mock API.' },
+    ],
+    wordCount: 12,
+    createdAt: new Date().toISOString(),
+  },
+  'GET /v1/documents/doc-2/drafts': {
+    id: 'draft-2',
+    documentId: 'doc-2',
+    versionNumber: 1,
+    s3Key: 'inline',
+    segments: [{ index: 0, text: 'Second document draft.' }],
+    wordCount: 3,
+    createdAt: new Date().toISOString(),
+  },
   // Feedback generation (matches feedback Lambda routes)
   'POST /v1/documents/doc-1/feedback': { jobId: 'job-mock-1', status: 'queued' },
+  'GET /v1/documents/doc-1/feedback': { items: [], anchors: [], progressSummary: [] },
   'GET /v1/documents/doc-1/feedback/status': { status: 'completed', itemCount: 3, latestDraftId: 'draft-1' },
   'POST /v1/documents/doc-2/feedback': { jobId: 'job-mock-2', status: 'queued' },
+  'GET /v1/documents/doc-2/feedback': { items: [], anchors: [], progressSummary: [] },
   'GET /v1/documents/doc-2/feedback/status': { status: 'queued', itemCount: 0, latestDraftId: 'draft-2' },
   // Model config (matches features/system-admin/systemAdminApi.ts)
   'GET /v1/admin/config/model': { modelId: 'us.anthropic.claude-sonnet-4-6' },
@@ -1235,7 +1259,7 @@ export class MockApiClient implements HttpClient {
         createdAt: new Date().toISOString(),
       };
       // Register draft route for the new document so subsequent POST works
-      this.routes[`POST /v1/documents/${newDocId}/drafts`] = {
+      const draftFixture = {
         id: `draft-${newDocId}-1`,
         documentId: newDocId,
         versionNumber: 1,
@@ -1244,9 +1268,14 @@ export class MockApiClient implements HttpClient {
         wordCount: 0,
         createdAt: new Date().toISOString(),
       };
+      this.routes[`POST /v1/documents/${newDocId}/drafts`] = draftFixture;
+      this.routes[`GET /v1/documents/${newDocId}/drafts`] = draftFixture;
       // Also register feedback/anchors/debrief routes for the new doc
-      this.routes[`GET /documents/${newDocId}/feedback-items`] = [];
-      this.routes[`GET /documents/${newDocId}/anchors`] = [];
+      this.routes[`GET /v1/documents/${newDocId}/feedback`] = {
+        items: [],
+        anchors: [],
+        progressSummary: [],
+      };
       this.routes[`POST /v1/documents/${newDocId}/feedback`] = {
         jobId: `job-${newDocId}`,
         status: 'queued',

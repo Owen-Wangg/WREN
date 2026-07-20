@@ -185,6 +185,13 @@ export function createDocument(
 
 export type { Draft };
 
+/** Fetches the latest draft for a document. */
+export function fetchLatestDraft(client: HttpClient, documentId: string): Promise<Draft> {
+  return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
+    schema: draftSchema,
+  });
+}
+
 /** Submits parsed document segments as a new draft version. */
 export function createDraft(
   client: HttpClient,

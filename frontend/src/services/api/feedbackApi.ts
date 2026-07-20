@@ -23,7 +23,8 @@ const FEEDBACK_BASE_PATH = '/v1/documents';
 
 const feedbackListSchema = z.object({
   items: z.array(feedbackItemSchema),
-  progressSummary: z.object({}).passthrough(),
+  anchors: z.array(z.unknown()).optional(),
+  progressSummary: z.union([z.array(z.unknown()), z.object({}).passthrough()]).optional(),
 });
 
 const feedbackStatusSchema = z.object({

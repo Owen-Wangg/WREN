@@ -144,6 +144,9 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     if (resource === '/v1/documents/{documentId}' && httpMethod === 'DELETE') {
       return await wrapHandler(() => handleDeleteDocument(event));
     }
+    if (resource === '/v1/documents/{documentId}/drafts' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetLatestDraft(event));
+    }
     if (resource === '/v1/documents/{documentId}/drafts' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDraft(event));
     }
@@ -283,6 +286,45 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
   return {
     statusCode: 204,
     body: '',
+  };
+}
+
+async function handleGetLatestDraft(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+
+  const docQuery = `
+    SELECT owner_user_id FROM document WHERE id = $1
+  `;
+  const docRows = await db.query(docQuery, [documentId]);
+
+  if (docRows.length === 0 || docRows[0].owner_user_id !== actor.userId) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  const draftQuery = `
+    SELECT id, document_id, version_number, s3_key, segments, word_count, created_at
+    FROM draft
+    WHERE document_id = $1
+    ORDER BY version_number DESC
+    LIMIT 1
+  `;
+  const draftRows = await db.query(draftQuery, [documentId]);
+
+  if (draftRows.length === 0) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'No draft found' }),
+    };
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify(toDraftDto(draftRows[0])),
   };
 }
 
