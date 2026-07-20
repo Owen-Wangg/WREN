@@ -1169,14 +1169,30 @@ const v1MockRoutes: MockRoutes = {
   'GET /v1/documents/doc-2/feedback': { items: [], anchors: [], progressSummary: [] },
   'GET /v1/documents/doc-2/feedback/status': { status: 'queued', itemCount: 0, latestDraftId: 'draft-2' },
   // Model config (matches features/system-admin/systemAdminApi.ts)
-  'GET /v1/admin/config/model': { modelId: 'us.anthropic.claude-sonnet-4-6' },
-  'PUT /v1/admin/config/model': { modelId: 'us.anthropic.claude-sonnet-4-6' },
+  'GET /v1/admin/config/model': {
+    modelId: 'us.anthropic.claude-sonnet-4-6',
+    writable: false,
+    note: 'Model ID is set by BEDROCK_MODEL_ID at deploy time; runtime updates are not supported.',
+  },
   // Analytics
   'GET /v1/analytics': { totals: [] },
   // Users
   'GET /v1/users': { users: [], total: 0, page: 1, pageSize: 20 },
-  // Usage
-  'GET /v1/usage': { limit: 100000, consumed: 0, remaining: 100000 },
+  // Usage — matches usageReportSchema
+  'GET /v1/usage': {
+    scope: { kind: 'platform' },
+    limitValue: 100000,
+    consumed: 0,
+    remaining: 100000,
+    periodStart: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString(),
+  },
+  'GET /v1/usage?scope=platform': {
+    scope: { kind: 'platform' },
+    limitValue: 100000,
+    consumed: 0,
+    remaining: 100000,
+    periodStart: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString(),
+  },
 };
 
 export const defaultMockRoutes: MockRoutes = {
@@ -1242,6 +1258,15 @@ export class MockApiClient implements HttpClient {
       const r = options.schema.safeParse(newType);
       if (!r.success) throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, r.error.issues);
       return r.data;
+    }
+
+    // Dynamic: PUT /v1/admin/config/model — runtime updates are not implemented
+    if (key === 'PUT /v1/admin/config/model') {
+      throw new ApiError(
+        'Model configuration cannot be changed at runtime. Update BEDROCK_MODEL_ID and redeploy.',
+        'http',
+        501,
+      );
     }
 
     // Dynamic: POST /v1/documents — create a new doc with a unique mock ID

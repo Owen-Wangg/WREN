@@ -3,8 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Trash2, ChevronDown } from 'lucide-react';
 
-import { listDepartments, getAnalytics, getModelConfig, updateModelConfig, createDepartment } from '@/features/system-admin/systemAdminApi';
-import { ModelConfigurationForm } from '@/features/system-admin/components/ModelConfigurationForm';
+import { listDepartments, getAnalytics, getModelConfig, getUsageReport, createDepartment } from '@/features/system-admin/systemAdminApi';
 
 export function SystemAdminDashboard() {
   const navigate = useNavigate();
@@ -30,16 +29,7 @@ export function SystemAdminDashboard() {
     queryFn: () => getModelConfig(),
   });
 
-  // Map backend modelId to the form's modelIdentifier shape
-  const modelConfig = modelConfigData
-    ? { modelIdentifier: modelConfigData.modelId, temperature: 0.7, maxTokens: 4096 }
-    : undefined;
-
   const queryClient = useQueryClient();
-
-  const updateModelMutation = useMutation({
-    mutationFn: (data: { modelIdentifier: string }) => updateModelConfig(data.modelIdentifier),
-  });
 
   const createDeptMutation = useMutation({
     mutationFn: (name: string) => createDepartment(name),
@@ -50,9 +40,9 @@ export function SystemAdminDashboard() {
     },
   });
 
-  const { data: usageLimits, isLoading: usageLimitsLoading } = useQuery({
+  const { data: usageReport, isLoading: usageLimitsLoading } = useQuery({
     queryKey: ['system-usage-limits'],
-    queryFn: () => ({ platform: { used: 0, limit: 0 } }),
+    queryFn: () => getUsageReport('platform'),
   });
 
   if (isLoading) {
@@ -94,7 +84,7 @@ export function SystemAdminDashboard() {
       <div className="mb-12">
         <h1 className="mb-6 text-3xl font-bold text-gray-900">System Configuration</h1>
         <div className={`gap-6 ${expandedSection ? 'space-y-6' : 'grid grid-cols-1 md:grid-cols-2'}`}>
-          {/* Model Configuration Card */}
+          {/* Model Configuration Card — read-only deploy-time value */}
           {(expandedSection === null || expandedSection === 'model') && (
             <div
               className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
@@ -105,7 +95,7 @@ export function SystemAdminDashboard() {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Model Configuration</h3>
-                <p className="text-sm text-gray-600 mt-1">System-wide settings applied to all departments</p>
+                <p className="text-sm text-gray-600 mt-1">Deploy-time Bedrock model (read-only)</p>
               </div>
               <ChevronDown
                 size={20}
@@ -115,46 +105,49 @@ export function SystemAdminDashboard() {
               />
             </div>
 
-            {modelConfig && !modelLoading && expandedSection !== 'model' && (
+            {modelConfigData && !modelLoading && expandedSection !== 'model' && (
               <div className="mb-4 space-y-2 text-sm">
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <span className="text-gray-600">Model:</span>
-                  <span className="font-semibold text-gray-900">{modelConfig.modelIdentifier}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Temperature:</span>
-                  <span className="font-semibold text-gray-900">{modelConfig.temperature}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Max Tokens:</span>
-                  <span className="font-semibold text-gray-900">{modelConfig.maxTokens}</span>
+                  <span className="font-semibold text-gray-900 text-right break-all">
+                    {modelConfigData.modelId}
+                  </span>
                 </div>
               </div>
             )}
 
             {expandedSection === 'model' && (
-              <div className="border-t border-gray-200 pt-6">
+              <div className="border-t border-gray-200 pt-6 space-y-3">
                 {modelLoading ? (
                   <div>Loading...</div>
+                ) : modelConfigData ? (
+                  <>
+                    <div className="flex justify-between gap-4 text-sm">
+                      <span className="text-gray-600">Active model ID</span>
+                      <span className="font-semibold text-gray-900 text-right break-all">
+                        {modelConfigData.modelId}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 rounded-lg bg-gray-50 p-3">
+                      {modelConfigData.note ??
+                        'This value comes from BEDROCK_MODEL_ID at deploy time. Runtime changes are not supported.'}
+                    </p>
+                  </>
                 ) : (
-                  <ModelConfigurationForm
-                    initialData={modelConfig}
-                    onSubmit={(data) => updateModelMutation.mutate({ modelIdentifier: data.modelIdentifier })}
-                    isLoading={updateModelMutation.isPending}
-                  />
+                  <p className="text-sm text-red-600">Could not load model configuration.</p>
                 )}
               </div>
             )}
 
-            {expandedSection === null && modelConfig && (
+            {expandedSection === null && modelConfigData && (
               <button className="w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition">
-                Edit Configuration
+                View Details
               </button>
             )}
             </div>
           )}
 
-          {/* Usage Limits Card */}
+          {/* Usage Limits Card — read-only report */}
           {(expandedSection === null || expandedSection === 'limits') && (
             <div
               className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
@@ -165,7 +158,7 @@ export function SystemAdminDashboard() {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Usage Limits</h3>
-                <p className="text-sm text-gray-600 mt-1">System-wide settings applied to all departments</p>
+                <p className="text-sm text-gray-600 mt-1">Platform usage for the current period</p>
               </div>
               <ChevronDown
                 size={20}
@@ -175,11 +168,15 @@ export function SystemAdminDashboard() {
               />
             </div>
 
-            {usageLimits && !usageLimitsLoading && expandedSection !== 'limits' && (
+            {!usageLimitsLoading && expandedSection !== 'limits' && (
               <div className="mb-4 space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Platform Usage:</span>
-                  <span className="font-semibold text-gray-900">{usageLimits.platform.used} / {usageLimits.platform.limit}</span>
+                  <span className="font-semibold text-gray-900">
+                    {usageReport
+                      ? `${usageReport.consumed} / ${usageReport.limitValue}`
+                      : 'No limit configured'}
+                  </span>
                 </div>
               </div>
             )}
@@ -188,26 +185,41 @@ export function SystemAdminDashboard() {
               <div className="border-t border-gray-200 pt-6">
                 {usageLimitsLoading ? (
                   <div>Loading...</div>
-                ) : (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-900">Platform Usage</label>
-                      <p className="mt-1 text-gray-600">{usageLimits?.platform?.used || 0} / {usageLimits?.platform?.limit || 0}</p>
+                ) : usageReport ? (
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Consumed</span>
+                      <span className="font-semibold text-gray-900">{usageReport.consumed}</span>
                     </div>
-                    <button
-                      className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800"
-                      onClick={() => console.log('Update usage limits')}
-                    >
-                      Save Changes
-                    </button>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Limit</span>
+                      <span className="font-semibold text-gray-900">{usageReport.limitValue}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Remaining</span>
+                      <span className="font-semibold text-gray-900">{usageReport.remaining}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Period start</span>
+                      <span className="font-semibold text-gray-900">
+                        {new Date(usageReport.periodStart).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 rounded-lg bg-gray-50 p-3">
+                      Usage limits are configured in the database. This view is read-only.
+                    </p>
                   </div>
+                ) : (
+                  <p className="text-sm text-gray-600 rounded-lg bg-gray-50 p-3">
+                    No platform usage limit is configured for the current period.
+                  </p>
                 )}
               </div>
             )}
 
-            {expandedSection === null && usageLimits && (
+            {expandedSection === null && (
               <button className="w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition">
-                Edit Limits
+                View Usage
               </button>
             )}
             </div>

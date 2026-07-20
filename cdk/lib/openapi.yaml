@@ -1716,13 +1716,28 @@ paths:
             type: string
       responses:
         "200":
-          description: Usage report
+          description: Usage report (null when no limit is configured for the scope/period)
           content:
             application/json:
               schema:
+                nullable: true
                 type: object
+                properties:
+                  scope:
+                    type: object
+                  limitValue:
+                    type: integer
+                  consumed:
+                    type: integer
+                  remaining:
+                    type: integer
+                  periodStart:
+                    type: string
+                    format: date-time
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
       x-amazon-apigateway-integration:
         type: aws_proxy
         httpMethod: POST
@@ -1765,13 +1780,18 @@ paths:
       operationId: getModelConfig
       responses:
         "200":
-          description: Active model configuration
+          description: Active model configuration (deploy-time, read-only)
           content:
             application/json:
               schema:
                 type: object
+                required: [modelId]
                 properties:
                   modelId:
+                    type: string
+                  writable:
+                    type: boolean
+                  note:
                     type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1783,7 +1803,7 @@ paths:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     put:
-      summary: Update active Bedrock model ID (TechnicalAdmin only)
+      summary: Update active Bedrock model ID (not implemented)
       tags: [AdminConfig]
       operationId: updateModelConfig
       requestBody:
@@ -1797,15 +1817,12 @@ paths:
                 modelId:
                   type: string
       responses:
-        "200":
-          description: Updated model configuration
+        "501":
+          description: Runtime model updates are not supported
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  modelId:
-                    type: string
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
