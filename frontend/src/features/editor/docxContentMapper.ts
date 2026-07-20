@@ -191,3 +191,23 @@ export function countParagraphBlocks(content: JSONContent): number {
     (node) => node.type === 'paragraph' || node.type === 'heading',
   ).length;
 }
+
+/**
+ * Maps ordered draft segments (`{ index, text }`) into a TipTap document.
+ * Used when loading a persisted draft into the editor.
+ */
+export function segmentsToTiptapContent(
+  segments: ReadonlyArray<{ index: number; text: string }>,
+): JSONContent {
+  const sorted = [...segments].sort((a, b) => a.index - b.index);
+  if (sorted.length === 0) {
+    return { type: 'doc', content: [{ type: 'paragraph' }] };
+  }
+  return {
+    type: 'doc',
+    content: sorted.map((segment) => ({
+      type: 'paragraph' as const,
+      content: segment.text.length > 0 ? [{ type: 'text' as const, text: segment.text }] : undefined,
+    })),
+  };
+}

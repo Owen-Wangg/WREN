@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 
-import { useContentTypes, useOrganizations } from '@/features/dashboard/useDashboard';
+import {
+  useContentTypes,
+  useDocumentTypes,
+  useOrganizations,
+} from '@/features/dashboard/useDashboard';
 import { createDocument, createDraft } from '@/features/dashboard/dashboardApi';
 import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
 import { apiClient } from '@/services';
@@ -15,28 +19,43 @@ export function NewDocumentPage() {
 
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedDocumentType, setSelectedDocumentType] = useState('');
+  const [selectedContentType, setSelectedContentType] = useState('');
   const [documentName, setDocumentName] = useState('');
   const [referenceFile, setReferenceFile] = useState<File | undefined>(undefined);
 
-  const contentTypesQuery = useContentTypes(selectedDepartment);
+  const documentTypesQuery = useDocumentTypes(selectedDepartment);
+  const documentTypes = documentTypesQuery.data ?? [];
+
+  const contentTypesQuery = useContentTypes(selectedDocumentType, selectedDepartment);
   const contentTypes = contentTypesQuery.data ?? [];
 
-  const canActivate = selectedDepartment && selectedDocumentType && documentName.trim();
+  const canActivate =
+    selectedDepartment &&
+    selectedDocumentType &&
+    selectedContentType &&
+    documentName.trim();
 
   const handleDepartmentChange = (value: string) => {
     setSelectedDepartment(value);
     setSelectedDocumentType('');
+    setSelectedContentType('');
+  };
+
+  const handleDocumentTypeChange = (value: string) => {
+    setSelectedDocumentType(value);
+    setSelectedContentType('');
   };
 
   const activateMutation = useMutation({
     mutationFn: async () => {
       const org = organizations.find((o) => o.id === selectedDepartment);
-      const docType = contentTypes.find((ct) => ct.id === selectedDocumentType);
+      const docType = documentTypes.find((dt) => dt.id === selectedDocumentType);
+      const contentType = contentTypes.find((ct) => ct.id === selectedContentType);
 
-      // 1. Create the document record
+      // 1. Create the document record with real document-type + content-type FKs
       const doc = await createDocument(apiClient, {
-        documentTypeId: selectedDepartment,
-        contentTypeId: selectedDocumentType,
+        documentTypeId: selectedDocumentType,
+        contentTypeId: selectedContentType,
         name: documentName.trim(),
       });
 
@@ -46,7 +65,7 @@ export function NewDocumentPage() {
         const bytes = new Uint8Array(await referenceFile.arrayBuffer());
         tiptapContent = await docxBytesToTiptapContent(bytes);
         const segments = (tiptapContent.content ?? []).map((block, idx) => ({
-          paragraphIndex: idx,
+          index: idx,
           text: (block.content ?? [])
             .filter((n) => n.type === 'text')
             .map((n) => n.text ?? '')
@@ -55,13 +74,13 @@ export function NewDocumentPage() {
         await createDraft(apiClient, doc.id, segments);
       }
 
-      return { doc, org, docType, tiptapContent };
+      return { doc, org, docType, contentType, tiptapContent };
     },
-    onSuccess: ({ doc, org, docType, tiptapContent }) => {
+    onSuccess: ({ doc, org, docType, contentType, tiptapContent }) => {
       navigate(`/dashboard/document/${doc.id}`, {
         state: {
           organizationName: org?.name,
-          contentType: docType?.name,
+          contentType: contentType?.name ?? docType?.name,
           documentName: doc.name,
           initialContent: tiptapContent,
         },
@@ -83,13 +102,13 @@ export function NewDocumentPage() {
           handleActivate();
         }}
       >
-        {/* Step 1: Writing Type (Department) */}
+        {/* Step 1: Department */}
         <div className="flex flex-col gap-sm">
           <label
             htmlFor="department-select"
             className="text-body font-sans font-semibold text-text-primary"
           >
-            Writing Type
+            Department
           </label>
           {organizationsQuery.isLoading && (
             <p role="status" className="text-bodySmall text-text-secondary">
@@ -120,7 +139,7 @@ export function NewDocumentPage() {
           )}
         </div>
 
-        {/* Step 2: Document Type (Content Type dropdown) */}
+        {/* Step 2: Document Type */}
         {selectedDepartment && (
           <div className="flex flex-col gap-sm">
             <label
@@ -129,25 +148,64 @@ export function NewDocumentPage() {
             >
               Document Type
             </label>
-            {contentTypesQuery.isLoading && (
+            {documentTypesQuery.isLoading && (
               <p role="status" className="text-bodySmall text-text-secondary">
                 Loading document types…
               </p>
             )}
-            {!contentTypesQuery.isLoading && contentTypes.length === 0 && (
+            {!documentTypesQuery.isLoading && documentTypes.length === 0 && (
               <p className="text-bodySmall text-text-secondary">
                 No document types available for this department.
               </p>
             )}
-            {!contentTypesQuery.isLoading && contentTypes.length > 0 && (
+            {!documentTypesQuery.isLoading && documentTypes.length > 0 && (
               <select
                 id="document-type-select"
                 value={selectedDocumentType}
                 className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary"
-                onChange={(e) => setSelectedDocumentType(e.target.value)}
+                onChange={(e) => handleDocumentTypeChange(e.target.value)}
               >
                 <option value="" disabled>
                   Select document type
+                </option>
+                {documentTypes.map((dt) => (
+                  <option key={dt.id} value={dt.id}>
+                    {dt.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        {/* Step 3: Content Type */}
+        {selectedDocumentType && (
+          <div className="flex flex-col gap-sm">
+            <label
+              htmlFor="content-type-select"
+              className="text-body font-sans font-semibold text-text-primary"
+            >
+              Content Type
+            </label>
+            {contentTypesQuery.isLoading && (
+              <p role="status" className="text-bodySmall text-text-secondary">
+                Loading content types…
+              </p>
+            )}
+            {!contentTypesQuery.isLoading && contentTypes.length === 0 && (
+              <p className="text-bodySmall text-text-secondary">
+                No content types available for this document type.
+              </p>
+            )}
+            {!contentTypesQuery.isLoading && contentTypes.length > 0 && (
+              <select
+                id="content-type-select"
+                value={selectedContentType}
+                className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary"
+                onChange={(e) => setSelectedContentType(e.target.value)}
+              >
+                <option value="" disabled>
+                  Select content type
                 </option>
                 {contentTypes.map((ct) => (
                   <option key={ct.id} value={ct.id}>
@@ -159,8 +217,8 @@ export function NewDocumentPage() {
           </div>
         )}
 
-        {/* Step 3: Document Name */}
-        {selectedDocumentType && (
+        {/* Step 4: Document Name */}
+        {selectedContentType && (
           <div className="flex flex-col gap-sm">
             <label
               htmlFor="document-name-input"
@@ -179,7 +237,7 @@ export function NewDocumentPage() {
           </div>
         )}
 
-        {/* Step 4: File Upload */}
+        {/* Step 5: File Upload */}
         {documentName.trim() && (
           <div className="flex flex-col gap-sm">
             <label

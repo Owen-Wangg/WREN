@@ -1027,6 +1027,32 @@ paths:
                 type: string
 
   /v1/documents/{documentId}/drafts:
+    get:
+      summary: Get the latest draft for a document
+      tags: [Documents]
+      operationId: getLatestDraft
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
     post:
       summary: Create a new draft version for a document
       tags: [Documents]
@@ -1054,7 +1080,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: "#/components/schemas/Draft"
         "400":
           description: Validation error
           content:
@@ -1118,13 +1144,24 @@ paths:
             type: string
       responses:
         "200":
-          description: Feedback items
+          description: Feedback items and anchors for the document
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/FeedbackItem"
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FeedbackItem"
+                  anchors:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Anchor"
+                  progressSummary:
+                    type: array
+                    items: {}
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1238,6 +1275,66 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
+  /v1/document-types/{documentTypeId}/content-types:
+    get:
+      summary: List Content Types for a Document Type
+      tags: [DocumentTypes]
+      operationId: listContentTypes
+      parameters:
+        - name: documentTypeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Content types for the document type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContentType"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     options:
       summary: CORS preflight
       security: []
@@ -1619,13 +1716,28 @@ paths:
             type: string
       responses:
         "200":
-          description: Usage report
+          description: Usage report (null when no limit is configured for the scope/period)
           content:
             application/json:
               schema:
+                nullable: true
                 type: object
+                properties:
+                  scope:
+                    type: object
+                  limitValue:
+                    type: integer
+                  consumed:
+                    type: integer
+                  remaining:
+                    type: integer
+                  periodStart:
+                    type: string
+                    format: date-time
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
       x-amazon-apigateway-integration:
         type: aws_proxy
         httpMethod: POST
@@ -1668,13 +1780,18 @@ paths:
       operationId: getModelConfig
       responses:
         "200":
-          description: Active model configuration
+          description: Active model configuration (deploy-time, read-only)
           content:
             application/json:
               schema:
                 type: object
+                required: [modelId]
                 properties:
                   modelId:
+                    type: string
+                  writable:
+                    type: boolean
+                  note:
                     type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1686,7 +1803,7 @@ paths:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     put:
-      summary: Update active Bedrock model ID (TechnicalAdmin only)
+      summary: Update active Bedrock model ID (not implemented)
       tags: [AdminConfig]
       operationId: updateModelConfig
       requestBody:
@@ -1700,15 +1817,12 @@ paths:
                 modelId:
                   type: string
       responses:
-        "200":
-          description: Updated model configuration
+        "501":
+          description: Runtime model updates are not supported
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  modelId:
-                    type: string
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

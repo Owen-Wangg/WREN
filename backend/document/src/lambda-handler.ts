@@ -54,6 +54,80 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
 
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ca-central-1' });
 
+/** Format a DB timestamp as an ISO-8601 string with offset (matches `@wren/types`). */
+function toIsoDateTime(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string' && value.length > 0) {
+    return /[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`;
+  }
+  return new Date().toISOString();
+}
+
+/**
+ * Normalize draft segments to the shared `{ index, text }` DTO.
+ * Accepts legacy `{ paragraphIndex, text }` from older clients.
+ */
+function normalizeSegments(segments: unknown): Array<{ index: number; text: string }> {
+  if (!Array.isArray(segments)) return [];
+  return segments.map((raw, i) => {
+    const seg = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const index =
+      typeof seg.index === 'number'
+        ? seg.index
+        : typeof seg.paragraphIndex === 'number'
+          ? seg.paragraphIndex
+          : i;
+    return {
+      index,
+      text: typeof seg.text === 'string' ? seg.text : '',
+    };
+  });
+}
+
+function wordCountFromSegments(segments: Array<{ text: string }>): number {
+  return segments.reduce(
+    (total, seg) => total + seg.text.split(/\s+/).filter(Boolean).length,
+    0,
+  );
+}
+
+/** Map a `document` row to the shared camelCase Document DTO. */
+function toDocumentDto(row: any) {
+  const metadata =
+    typeof row.metadata === 'string'
+      ? JSON.parse(row.metadata)
+      : (row.metadata ?? {});
+  return {
+    id: row.id,
+    ownerUserId: row.owner_user_id,
+    documentTypeId: row.document_type_id,
+    contentTypeId: row.content_type_id,
+    name: row.name,
+    metadata,
+    status: row.status,
+    createdAt: toIsoDateTime(row.created_at),
+  };
+}
+
+/** Map a `draft` row to the shared camelCase Draft DTO. */
+function toDraftDto(row: any) {
+  const segmentsRaw =
+    typeof row.segments === 'string' ? JSON.parse(row.segments) : (row.segments ?? []);
+  const segments = normalizeSegments(segmentsRaw);
+  const s3Key =
+    typeof row.s3_key === 'string' && row.s3_key.length > 0 ? row.s3_key : 'inline';
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    versionNumber: row.version_number,
+    s3Key,
+    segments,
+    wordCount:
+      typeof row.word_count === 'number' ? row.word_count : wordCountFromSegments(segments),
+    createdAt: toIsoDateTime(row.created_at),
+  };
+}
+
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
   try {
     const { httpMethod, resource } = event;
@@ -69,6 +143,9 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     }
     if (resource === '/v1/documents/{documentId}' && httpMethod === 'DELETE') {
       return await wrapHandler(() => handleDeleteDocument(event));
+    }
+    if (resource === '/v1/documents/{documentId}/drafts' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetLatestDraft(event));
     }
     if (resource === '/v1/documents/{documentId}/drafts' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDraft(event));
@@ -103,21 +180,7 @@ async function handleListDocuments(event: any): Promise<APIGatewayProxyResult> {
     LIMIT $2 OFFSET $3
   `;
   const rows = await db.query(query, [actor.userId, parseInt(limit, 10), parseInt(offset, 10)]);
-
-  const items = rows.map((row: any) => ({
-    id: row.id,
-    ownerUserId: row.owner_user_id,
-    documentTypeId: row.document_type_id,
-    contentTypeId: row.content_type_id,
-    name: row.name,
-    metadata:
-      typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata ?? {},
-    status: row.status,
-    createdAt:
-      row.created_at instanceof Date
-        ? row.created_at.toISOString()
-        : row.created_at,
-  }));
+  const items = rows.map((row: any) => toDocumentDto(row));
 
   return {
     statusCode: 200,
@@ -159,11 +222,11 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     VALUES ($1, $2, $3, $4, $5, NOW())
     RETURNING id
   `;
-  await db.query(draftQuery, [document.id, 1, '', JSON.stringify([]), 0]);
+  await db.query(draftQuery, [document.id, 1, 'inline', JSON.stringify([]), 0]);
 
   return {
     statusCode: 201,
-    body: JSON.stringify(document),
+    body: JSON.stringify(toDocumentDto(document)),
   };
 }
 
@@ -188,7 +251,7 @@ async function handleGetDocument(event: any): Promise<APIGatewayProxyResult> {
 
   return {
     statusCode: 200,
-    body: JSON.stringify(rows[0]),
+    body: JSON.stringify(toDocumentDto(rows[0])),
   };
 }
 
@@ -226,6 +289,45 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
   };
 }
 
+async function handleGetLatestDraft(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+
+  const docQuery = `
+    SELECT owner_user_id FROM document WHERE id = $1
+  `;
+  const docRows = await db.query(docQuery, [documentId]);
+
+  if (docRows.length === 0 || docRows[0].owner_user_id !== actor.userId) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  const draftQuery = `
+    SELECT id, document_id, version_number, s3_key, segments, word_count, created_at
+    FROM draft
+    WHERE document_id = $1
+    ORDER BY version_number DESC
+    LIMIT 1
+  `;
+  const draftRows = await db.query(draftQuery, [documentId]);
+
+  if (draftRows.length === 0) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'No draft found' }),
+    };
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify(toDraftDto(draftRows[0])),
+  };
+}
+
 async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
@@ -258,22 +360,25 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   const revisionRows = await db.query(revisionQuery, [documentId]);
   const nextRevision = ((revisionRows[0] as any)?.max_revision ?? 0) + 1;
 
+  const normalizedSegments = normalizeSegments(segments);
+  const wordCount = wordCountFromSegments(normalizedSegments);
+
   const draftQuery = `
     INSERT INTO draft (document_id, version_number, s3_key, segments, word_count, created_at)
     VALUES ($1, $2, $3, $4, $5, NOW())
-    RETURNING id, document_id, version_number, segments, created_at
+    RETURNING id, document_id, version_number, s3_key, segments, word_count, created_at
   `;
   const draftRows = await db.query(draftQuery, [
     documentId,
     nextRevision,
-    '',
-    JSON.stringify(segments || []),
-    0,
+    'inline',
+    JSON.stringify(normalizedSegments),
+    wordCount,
   ]);
 
   return {
     statusCode: 201,
-    body: JSON.stringify(draftRows[0]),
+    body: JSON.stringify(toDraftDto(draftRows[0])),
   };
 }
 
