@@ -9,6 +9,7 @@ import { z } from 'zod';
 import {
   accessGrantSchema,
   documentSchema,
+  draftSchema,
 } from '@wren/types';
 
 import {
@@ -24,7 +25,7 @@ import {
   type WritingType,
 } from './dashboardTypes';
 
-import type { AccessGrant, Document } from '@wren/types';
+import type { AccessGrant, Document, Draft } from '@wren/types';
 import type { HttpClient } from '@/services';
 
 export const DOCUMENTS_PATH = '/v1/documents';
@@ -101,17 +102,49 @@ export function fetchAccessGrants(client: HttpClient): Promise<AccessGrant[]> {
   return client.request(ACCESS_GRANTS_PATH, { schema: accessGrantsSchema });
 }
 
-/** Content Types available for the given Department — backed by GET /v1/document-types?departmentId=... */
-export async function fetchContentTypes(client: HttpClient, organizationId: string): Promise<ContentType[]> {
-  const raw = await client.request(`${WRITING_TYPES_PATH}?departmentId=${organizationId}`, {
+/** Document Types for a Department — GET /v1/document-types?departmentId=... */
+export async function fetchDocumentTypesForDepartment(
+  client: HttpClient,
+  departmentId: string,
+): Promise<WritingType[]> {
+  const raw = await client.request(`${WRITING_TYPES_PATH}?departmentId=${departmentId}`, {
     schema: z.array(documentTypeDtoSchema),
   });
+  return writingTypesSchema.parse(
+    raw.map((t) => ({
+      id: t.id,
+      organizationId: t.departmentId,
+      name: t.name,
+      accessState: t.accessState,
+      sizeLimitWords: t.sizeLimitWords ?? null,
+    })),
+  );
+}
+
+/**
+ * Content Types for a Document Type — GET /v1/document-types/{id}/content-types.
+ * Mapped into the dashboard ContentType shape (`label` → `name`).
+ */
+export async function fetchContentTypes(
+  client: HttpClient,
+  documentTypeId: string,
+  organizationId: string,
+): Promise<ContentType[]> {
+  const raw = await client.request(`${WRITING_TYPES_PATH}/${documentTypeId}/content-types`, {
+    schema: z.array(
+      z.object({
+        id: z.string().min(1),
+        documentTypeId: z.string().min(1),
+        label: z.string().min(1),
+      }),
+    ),
+  });
   return contentTypesSchema.parse(
-    raw.map((dt) => ({
-      id: dt.id,
+    raw.map((ct) => ({
+      id: ct.id,
       organizationId,
-      writingTypeId: dt.id,
-      name: dt.name,
+      writingTypeId: ct.documentTypeId,
+      name: ct.label,
     })),
   );
 }
@@ -150,21 +183,20 @@ export function createDocument(
   });
 }
 
-const draftSchema = z.object({
-  id: z.string(),
-  documentId: z.string(),
-  versionNumber: z.number().int().positive(),
-  segments: z.array(z.unknown()),
-  createdAt: z.string(),
-});
+export type { Draft };
 
-export type Draft = z.infer<typeof draftSchema>;
+/** Fetches the latest draft for a document. */
+export function fetchLatestDraft(client: HttpClient, documentId: string): Promise<Draft> {
+  return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
+    schema: draftSchema,
+  });
+}
 
 /** Submits parsed document segments as a new draft version. */
 export function createDraft(
   client: HttpClient,
   documentId: string,
-  segments: unknown[],
+  segments: Array<{ index: number; text: string }>,
 ): Promise<Draft> {
   return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
     method: 'POST',

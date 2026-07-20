@@ -51,6 +51,43 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
   }
 }
 
+function toIsoDateTime(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string' && value.length > 0) {
+    return /[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`;
+  }
+  return new Date().toISOString();
+}
+
+/** Map a `feedback_item` row to the shared camelCase FeedbackItem DTO. */
+function toFeedbackItemDto(row: any) {
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    errorCategoryId: row.error_category_id,
+    kind: row.kind,
+    questionText: row.question_text,
+    ...(row.current_anchor_id ? { currentAnchorId: row.current_anchor_id } : {}),
+    ...(row.citation_reference_id ? { citationReferenceId: row.citation_reference_id } : {}),
+    sourceDraftId: row.source_draft_id,
+    createdAt: toIsoDateTime(row.created_at),
+  };
+}
+
+/** Map an `anchor` row to the shared camelCase Anchor DTO. */
+function toAnchorDto(row: any) {
+  return {
+    id: row.id,
+    feedbackItemId: row.feedback_item_id,
+    draftId: row.draft_id,
+    paragraphIndex: row.paragraph_index,
+    startOffset: row.start_offset,
+    endOffset: row.end_offset,
+    contentFingerprint: row.content_fingerprint,
+    state: row.state,
+  };
+}
+
 const sqsClient = new SQSClient({ region: process.env.AWS_REGION || 'ca-central-1' });
 
 export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
@@ -98,17 +135,29 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   }
 
   const feedbackQuery = `
-    SELECT id, document_id, error_category_id, kind, question_text, current_anchor_id, source_draft_id, created_at
+    SELECT id, document_id, error_category_id, kind, question_text, current_anchor_id,
+           citation_reference_id, source_draft_id, created_at
     FROM feedback_item
     WHERE document_id = $1
     ORDER BY created_at DESC
   `;
   const feedbackRows = await db.query(feedbackQuery, [documentId]);
 
+  const anchorsQuery = `
+    SELECT a.id, a.feedback_item_id, a.draft_id, a.paragraph_index, a.start_offset,
+           a.end_offset, a.content_fingerprint, a.state
+    FROM anchor a
+    INNER JOIN feedback_item f ON f.id = a.feedback_item_id
+    WHERE f.document_id = $1
+    ORDER BY a.created_at ASC
+  `;
+  const anchorRows = await db.query(anchorsQuery, [documentId]);
+
   return {
     statusCode: 200,
     body: JSON.stringify({
-      items: feedbackRows,
+      items: feedbackRows.map((row: any) => toFeedbackItemDto(row)),
+      anchors: anchorRows.map((row: any) => toAnchorDto(row)),
       progressSummary: [],
     }),
   };
@@ -118,7 +167,6 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { documentId } = event.pathParameters || {};
-  const body = event.body ? JSON.parse(event.body) : {};
 
   const docQuery = `
     SELECT owner_user_id, document_type_id FROM document WHERE id = $1
@@ -205,6 +253,7 @@ async function handleGetFeedbackStatus(event: any): Promise<APIGatewayProxyResul
     body: JSON.stringify({
       status: count > 0 ? 'completed' : 'queued',
       itemCount: count,
+      latestDraftId: draftRows[0].id,
     }),
   };
 }

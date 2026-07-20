@@ -1,14 +1,13 @@
 /**
  * `<AnchoredFeedbackEditorContainer>` — data-fetching wrapper around
  * `<AnchoredFeedbackEditor>` (task 18.2). Fetches Feedback Items + Anchors for
- * a writing environment via `useFeedbackItems`/`useAnchors` and passes them
- * through as props, keeping `<AnchoredFeedbackEditor>` itself a plain,
- * easily-testable presentational component (no React Query dependency in its
- * render tests).
+ * a writing environment via `useDocumentFeedback` and passes them through as
+ * props, keeping `<AnchoredFeedbackEditor>` itself a plain, easily-testable
+ * presentational component (no React Query dependency in its render tests).
  */
 import { AnchoredFeedbackEditor, type AnchoredFeedbackEditorProps } from './AnchoredFeedbackEditor';
 
-import { useAnchors, useFeedbackItems } from '../useAnchoredFeedback';
+import { useDocumentFeedback } from '../useAnchoredFeedback';
 
 export interface AnchoredFeedbackEditorContainerProps
   extends Omit<AnchoredFeedbackEditorProps, 'feedbackItems' | 'anchors'> {
@@ -19,10 +18,9 @@ export function AnchoredFeedbackEditorContainer({
   environmentId,
   ...editorProps
 }: AnchoredFeedbackEditorContainerProps) {
-  const feedbackItemsQuery = useFeedbackItems(environmentId);
-  const anchorsQuery = useAnchors(environmentId);
+  const feedbackQuery = useDocumentFeedback(environmentId);
 
-  if (feedbackItemsQuery.isLoading || anchorsQuery.isLoading) {
+  if (feedbackQuery.isLoading) {
     return (
       <p role="status" className="text-bodySmall text-text-secondary">
         Loading feedback…
@@ -30,7 +28,7 @@ export function AnchoredFeedbackEditorContainer({
     );
   }
 
-  if (feedbackItemsQuery.isError || anchorsQuery.isError) {
+  if (feedbackQuery.isError) {
     return (
       <p role="alert" className="text-bodySmall text-signal-critical">
         Couldn't load feedback for this draft.
@@ -41,8 +39,8 @@ export function AnchoredFeedbackEditorContainer({
   return (
     <AnchoredFeedbackEditor
       {...editorProps}
-      feedbackItems={feedbackItemsQuery.data ?? []}
-      anchors={anchorsQuery.data ?? []}
+      feedbackItems={feedbackQuery.data?.items ?? []}
+      anchors={feedbackQuery.data?.anchors ?? []}
     />
   );
 }

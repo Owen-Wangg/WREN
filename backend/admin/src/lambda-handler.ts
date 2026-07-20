@@ -7,6 +7,7 @@ import { getDataAccess } from '@wren/db-node';
 import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt } from './departmentService';
 import { listDocumentTypes, listAllDocumentTypes, createDocumentType } from './documentTypeService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
+import { listContentTypes } from './contentTypeService';
 import { searchUsers } from './userService';
 import { assignRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
@@ -14,8 +15,23 @@ import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
 import { getAnalytics } from './analyticsService';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
+import { AuthorizationError } from './errors';
+import { requireCapability } from './capabilityGuard';
 import { handler as syncCognitoAdminsHandler } from './scripts/sync-cognito-admins';
+import type { AuthContext } from '@wren/types';
 
+/** TechnicalAdmin-only gate for endpoints without a dedicated capability. */
+function requireTechnicalAdmin(actor: AuthContext): void {
+  if (!actor.roles.includes('TechnicalAdmin')) {
+    throw new AuthorizationError('TechnicalAdmin role required');
+  }
+}
+
+/** UTC start of the current calendar month — matches how usage counters are keyed. */
+function currentUtcMonthStart(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
 export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGatewayProxyResult> => {
   // One-shot admin scripts invoked directly via `aws lambda invoke --payload '{"_script":"..."}'`
   if (event['_script'] === 'sync-cognito-admins') {
@@ -47,6 +63,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     if (resource === '/v1/document-types' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDocumentType(event));
     }
+    if (resource === '/v1/document-types/{documentTypeId}/content-types' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListContentTypes(event));
+    }
     if (resource === '/v1/document-types/{documentTypeId}/config' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetDocumentTypeConfig(event));
     }
@@ -72,7 +91,7 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
       return await wrapHandler(() => handleGetAnalytics(event));
     }
     if (resource === '/v1/admin/config/model' && httpMethod === 'GET') {
-      return await wrapHandler(() => handleGetModelConfig());
+      return await wrapHandler(() => handleGetModelConfig(event));
     }
     if (resource === '/v1/admin/config/model' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateModelConfig(event));
@@ -150,6 +169,16 @@ async function handleListMyAccessGrants(event: any): Promise<APIGatewayProxyResu
   };
 }
 
+async function handleListContentTypes(event: any): Promise<APIGatewayProxyResult> {
+  const db = await getDataAccess();
+  const { documentTypeId } = event.pathParameters || {};
+  const contentTypes = await listContentTypes(documentTypeId, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(contentTypes),
+  };
+}
+
 async function handleGetDocumentTypeConfig(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
@@ -206,15 +235,39 @@ async function handleAssignRole(event: any): Promise<APIGatewayProxyResult> {
 }
 
 async function handleGetUsage(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  requireCapability(actor, {
+    capability: 'usageLimit.configure',
+    scope: { kind: 'platform' },
+  });
+
   const db = await getDataAccess();
   const { scope, periodStart } = event.queryStringParameters || {};
 
-  // Parse scope into the expected { kind: 'platform' | 'documentType'; documentTypeId?: string }
-  const scopeObj = scope === 'platform'
-    ? { kind: 'platform' as const }
-    : { kind: 'documentType' as const, documentTypeId: scope };
+  const scopeParam = scope ?? 'platform';
+  const scopeObj =
+    scopeParam === 'platform'
+      ? { kind: 'platform' as const }
+      : { kind: 'documentType' as const, documentTypeId: scopeParam };
 
-  const periodStartDate = periodStart ? new Date(periodStart) : new Date();
+  if (scopeObj.kind === 'documentType' && !scopeObj.documentTypeId) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'documentType scope requires a document type id',
+      }),
+    };
+  }
+
+  const periodStartDate = periodStart ? new Date(periodStart) : currentUtcMonthStart();
+  if (Number.isNaN(periodStartDate.getTime())) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ code: 'BAD_REQUEST', message: 'Invalid periodStart' }),
+    };
+  }
+
   const report = await getUsageReport(scopeObj, periodStartDate, db);
 
   return {
@@ -268,37 +321,32 @@ async function handleCreateDocumentType(event: any): Promise<APIGatewayProxyResu
   };
 }
 
-async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxyResult> {
+async function handleGetModelConfig(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
-  const db = await getDataAccess();
-  const { departmentId } = event.pathParameters || {};
-  const body = event.body ? JSON.parse(event.body) : {};
-  const department = await updateDepartmentPrompt(actor, departmentId, body, db);
-  return {
-    statusCode: 200,
-    body: JSON.stringify(department),
-  };
-}
+  requireTechnicalAdmin(actor);
 
-async function handleGetModelConfig(): Promise<APIGatewayProxyResult> {
   const modelId = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
   return {
     statusCode: 200,
-    body: JSON.stringify({ modelId }),
+    body: JSON.stringify({
+      modelId,
+      writable: false,
+      note: 'Model ID is set by BEDROCK_MODEL_ID at deploy time; runtime updates are not supported.',
+    }),
   };
 }
 
 async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResult> {
-  const { modelId } = event.body ? JSON.parse(event.body) : {};
-  if (!modelId || typeof modelId !== 'string') {
-    return withCors({
-      statusCode: 400,
-      body: JSON.stringify({ code: 'INVALID_INPUT', message: 'modelId is required' }),
-    });
-  }
-  // In a future iteration this would write to SSM. For now, acknowledge the request.
+  const actor = parseAuthContext(event);
+  requireTechnicalAdmin(actor);
+
+  // Do not acknowledge a write that never persists — return 501 explicitly.
   return {
-    statusCode: 200,
-    body: JSON.stringify({ modelId }),
+    statusCode: 501,
+    body: JSON.stringify({
+      code: 'NOT_IMPLEMENTED',
+      message:
+        'Model configuration cannot be changed at runtime. Update BEDROCK_MODEL_ID and redeploy the compute stack.',
+    }),
   };
 }

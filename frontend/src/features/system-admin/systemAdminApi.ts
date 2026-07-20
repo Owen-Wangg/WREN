@@ -87,16 +87,23 @@ export async function searchAllUsers(options?: {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Usage & Overrides — platform-wide limits */
+/* Usage — platform-wide report (read-only; configure via dedicated APIs later) */
 /* -------------------------------------------------------------------------- */
 
-const usageReportSchema = z.object({
-  limit: z.number().int().nonnegative(),
-  consumed: z.number().int().nonnegative(),
-  remaining: z.number().int().nonnegative(),
-});
+const usageReportSchema = z
+  .object({
+    scope: z.union([
+      z.object({ kind: z.literal('platform') }),
+      z.object({ kind: z.literal('documentType'), documentTypeId: z.string() }),
+    ]),
+    limitValue: z.number().int().nonnegative(),
+    consumed: z.number().int().nonnegative(),
+    remaining: z.number().int().nonnegative(),
+    periodStart: z.string(),
+  })
+  .nullable();
 
-export async function getUsageReport(scope: 'platform' | string, periodStart?: string) {
+export async function getUsageReport(scope: 'platform' | string = 'platform', periodStart?: string) {
   const params = new URLSearchParams();
   params.append('scope', scope);
   if (periodStart) params.append('periodStart', periodStart);
@@ -152,15 +159,23 @@ export async function assignRole(input: {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Model Configuration */
+/* Model Configuration — read-only deploy-time value */
 /* -------------------------------------------------------------------------- */
 
-const modelConfigSchema = z.object({ modelId: z.string() });
+const modelConfigSchema = z.object({
+  modelId: z.string(),
+  writable: z.boolean().optional(),
+  note: z.string().optional(),
+});
 
 export async function getModelConfig() {
   return apiClient.request('/v1/admin/config/model', { schema: modelConfigSchema });
 }
 
+/**
+ * Runtime model updates are not implemented (API returns 501).
+ * Kept for callers that need to surface the not-implemented response.
+ */
 export async function updateModelConfig(modelId: string) {
   return apiClient.request('/v1/admin/config/model', {
     method: 'PUT',

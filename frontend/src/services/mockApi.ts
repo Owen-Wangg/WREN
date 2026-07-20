@@ -1087,12 +1087,18 @@ const sampleDocumentTypes = [
   { id: 'dt-uuid-property-000000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'Property Law', accessState: 'LOCKED', sizeLimitWords: null },
 ];
 
-/** Content types keyed by documentTypeId for /v1/departments/{id}/content-types lookups. */
-const sampleContentTypesByDept: Record<string, Array<{ id: string; documentTypeId: string; label: string }>> = {
-  'org-law-uuid-0001-000000000001': [
+/** Content types keyed by documentTypeId for /v1/document-types/{id}/content-types. */
+const sampleContentTypesByDocumentType: Record<
+  string,
+  Array<{ id: string; documentTypeId: string; label: string }>
+> = {
+  'dt-uuid-criminal-000000000001': [
     { id: 'ct-uuid-memo-000000000001', documentTypeId: 'dt-uuid-criminal-000000000001', label: 'Legal Memorandum' },
     { id: 'ct-uuid-opinion-00000000001', documentTypeId: 'dt-uuid-criminal-000000000001', label: 'Opinion Letter' },
     { id: 'ct-uuid-factum-000000000001', documentTypeId: 'dt-uuid-criminal-000000000001', label: 'Factum' },
+  ],
+  'dt-uuid-tort-0000-000000000001': [
+    { id: 'ct-uuid-tort-brief-000000001', documentTypeId: 'dt-uuid-tort-0000-000000000001', label: 'Tort Claim Proposal' },
   ],
 };
 
@@ -1116,7 +1122,9 @@ const v1MockRoutes: MockRoutes = {
     id: 'draft-new-mock',
     documentId: 'doc-new-mock',
     versionNumber: 1,
+    s3Key: 'inline',
     segments: [],
+    wordCount: 0,
     createdAt: new Date().toISOString(),
   },
   'GET /v1/departments': sampleDepartments,
@@ -1126,22 +1134,65 @@ const v1MockRoutes: MockRoutes = {
   'POST /v1/document-types': { id: 'dt-new-mock-uuid-0000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'New Document Type', accessState: 'LOCKED', sizeLimitWords: null },
   'GET /v1/access-grants': sampleAccessGrants,
   'POST /v1/access-requests': { requested: true },
-  // Content types by department (matches fetchContentTypes path)
-  'GET /v1/departments/org-law-uuid-0001-000000000001/content-types': sampleContentTypesByDept['org-law-uuid-0001-000000000001'],
+  // Content types by document type (matches fetchContentTypes path)
+  'GET /v1/document-types/dt-uuid-criminal-000000000001/content-types':
+    sampleContentTypesByDocumentType['dt-uuid-criminal-000000000001'],
+  'GET /v1/document-types/dt-uuid-tort-0000-000000000001/content-types':
+    sampleContentTypesByDocumentType['dt-uuid-tort-0000-000000000001'],
+  // Latest drafts
+  'GET /v1/documents/doc-1/drafts': {
+    id: 'draft-1',
+    documentId: 'doc-1',
+    versionNumber: 1,
+    s3Key: 'inline',
+    segments: [
+      { index: 0, text: 'Tort Claim Proposal' },
+      { index: 1, text: 'This is sample draft content loaded from the mock API.' },
+    ],
+    wordCount: 12,
+    createdAt: new Date().toISOString(),
+  },
+  'GET /v1/documents/doc-2/drafts': {
+    id: 'draft-2',
+    documentId: 'doc-2',
+    versionNumber: 1,
+    s3Key: 'inline',
+    segments: [{ index: 0, text: 'Second document draft.' }],
+    wordCount: 3,
+    createdAt: new Date().toISOString(),
+  },
   // Feedback generation (matches feedback Lambda routes)
   'POST /v1/documents/doc-1/feedback': { jobId: 'job-mock-1', status: 'queued' },
-  'GET /v1/documents/doc-1/feedback/status': { count: 3, latestDraftId: 'draft-1' },
+  'GET /v1/documents/doc-1/feedback': { items: [], anchors: [], progressSummary: [] },
+  'GET /v1/documents/doc-1/feedback/status': { status: 'completed', itemCount: 3, latestDraftId: 'draft-1' },
   'POST /v1/documents/doc-2/feedback': { jobId: 'job-mock-2', status: 'queued' },
-  'GET /v1/documents/doc-2/feedback/status': { count: 0, latestDraftId: 'draft-2' },
+  'GET /v1/documents/doc-2/feedback': { items: [], anchors: [], progressSummary: [] },
+  'GET /v1/documents/doc-2/feedback/status': { status: 'queued', itemCount: 0, latestDraftId: 'draft-2' },
   // Model config (matches features/system-admin/systemAdminApi.ts)
-  'GET /v1/admin/config/model': { modelId: 'us.anthropic.claude-sonnet-4-6' },
-  'PUT /v1/admin/config/model': { modelId: 'us.anthropic.claude-sonnet-4-6' },
+  'GET /v1/admin/config/model': {
+    modelId: 'us.anthropic.claude-sonnet-4-6',
+    writable: false,
+    note: 'Model ID is set by BEDROCK_MODEL_ID at deploy time; runtime updates are not supported.',
+  },
   // Analytics
   'GET /v1/analytics': { totals: [] },
   // Users
   'GET /v1/users': { users: [], total: 0, page: 1, pageSize: 20 },
-  // Usage
-  'GET /v1/usage': { limit: 100000, consumed: 0, remaining: 100000 },
+  // Usage — matches usageReportSchema
+  'GET /v1/usage': {
+    scope: { kind: 'platform' },
+    limitValue: 100000,
+    consumed: 0,
+    remaining: 100000,
+    periodStart: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString(),
+  },
+  'GET /v1/usage?scope=platform': {
+    scope: { kind: 'platform' },
+    limitValue: 100000,
+    consumed: 0,
+    remaining: 100000,
+    periodStart: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString(),
+  },
 };
 
 export const defaultMockRoutes: MockRoutes = {
@@ -1209,6 +1260,15 @@ export class MockApiClient implements HttpClient {
       return r.data;
     }
 
+    // Dynamic: PUT /v1/admin/config/model — runtime updates are not implemented
+    if (key === 'PUT /v1/admin/config/model') {
+      throw new ApiError(
+        'Model configuration cannot be changed at runtime. Update BEDROCK_MODEL_ID and redeploy.',
+        'http',
+        501,
+      );
+    }
+
     // Dynamic: POST /v1/documents — create a new doc with a unique mock ID
     if (key === 'POST /v1/documents') {
       const body = options.body as Record<string, unknown> | undefined;
@@ -1224,16 +1284,32 @@ export class MockApiClient implements HttpClient {
         createdAt: new Date().toISOString(),
       };
       // Register draft route for the new document so subsequent POST works
-      this.routes[`POST /v1/documents/${newDocId}/drafts`] = {
+      const draftFixture = {
         id: `draft-${newDocId}-1`,
         documentId: newDocId,
         versionNumber: 1,
+        s3Key: 'inline',
         segments: [],
+        wordCount: 0,
         createdAt: new Date().toISOString(),
       };
+      this.routes[`POST /v1/documents/${newDocId}/drafts`] = draftFixture;
+      this.routes[`GET /v1/documents/${newDocId}/drafts`] = draftFixture;
       // Also register feedback/anchors/debrief routes for the new doc
-      this.routes[`GET /documents/${newDocId}/feedback-items`] = [];
-      this.routes[`GET /documents/${newDocId}/anchors`] = [];
+      this.routes[`GET /v1/documents/${newDocId}/feedback`] = {
+        items: [],
+        anchors: [],
+        progressSummary: [],
+      };
+      this.routes[`POST /v1/documents/${newDocId}/feedback`] = {
+        jobId: `job-${newDocId}`,
+        status: 'queued',
+      };
+      this.routes[`GET /v1/documents/${newDocId}/feedback/status`] = {
+        status: 'completed',
+        itemCount: 0,
+        latestDraftId: `draft-${newDocId}-1`,
+      };
       this.routes[`GET /documents/${newDocId}/debrief`] = {
         documentId: newDocId,
         draftId: `draft-${newDocId}-1`,

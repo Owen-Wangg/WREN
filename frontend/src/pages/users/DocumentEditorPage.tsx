@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
@@ -7,9 +7,12 @@ import { AnchoredFeedbackEditorContainer } from '@/features/editor';
 import { MockAskWrenService } from '@/features/ask-wren';
 import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
-import { fetchDocument } from '@/features/dashboard/dashboardApi';
+import { fetchDocument, fetchLatestDraft } from '@/features/dashboard/dashboardApi';
 import { generateFeedback, fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
-import { tiptapContentToDocxBlob } from '@/features/editor/docxContentMapper';
+import {
+  segmentsToTiptapContent,
+  tiptapContentToDocxBlob,
+} from '@/features/editor/docxContentMapper';
 import { apiClient } from '@/services';
 import { queryKeys } from '@/hooks/queryKeys';
 
@@ -17,109 +20,9 @@ import type { JSONContent } from '@tiptap/react';
 
 const askWrenService = new MockAskWrenService();
 
-const previewEditorContent: JSONContent = {
+const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
-  content: [
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'Tort Claim Proposal',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'Person 1 and Person 2',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'This is about a negligence claim maybe and happened in Kelowna sometime in January. Person 1 was walking near a building and there was ice. It was cold for awhile before and snow happened and then Person 1 slipped really bad and hit their shoulder and head onto the ground which caused injuries and also stress because they couldn\'t work properly for some time and headaches happened too.',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'Damages',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'Person 1 had pain and suffering and also had to miss work. It is believed maybe around $25,000 could be awarded but also maybe more because injuries can sometimes last long periods. Expenses happened too from medications and travel although receipts are not all available currently. Future treatment could happen depending if symptoms stay.',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'Evidence',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'There are witnesses who saw something happen and there was weather reports available. Medical papers exist from the hospital visit but not all of them were obtained yet. Cameras may have recorded the accident but this has not been looked into. Person 1 also remembers taking pictures but it is uncertain where they are now.',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'Legal Issues',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'Duty of care exists because property owners usually should keep places safe. Person 2 owns the place probably and should have put salt down although it is not completely known who was responsible because there might have been another company doing maintenance. This should be investigated later perhaps.',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'Recommendation',
-        },
-      ],
-    },
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: 'A lawsuit should maybe be started because it seems unfair what happened and Person 1 suffered injuries. Before doing that maybe sending a letter first would help because settlements save money and time and courts can be complicated. More records should be gathered and doctors asked questions.',
-        },
-      ],
-    },
-  ],
+  content: [{ type: 'paragraph' }],
 };
 
 const previewCategoryLabels: Readonly<Record<string, string>> = {
@@ -142,8 +45,18 @@ export function DocumentEditorPage() {
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
   const [isPollingFeedback, setIsPollingFeedback] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  const state = location.state as {
+    documentName?: string;
+    organizationName?: string;
+    contentType?: string;
+    initialContent?: JSONContent;
+  } | null;
+
+  const routerInitialContent = state?.initialContent;
   const [currentContent, setCurrentContent] = useState<JSONContent>(
-    (location.state as { initialContent?: JSONContent } | null)?.initialContent ?? previewEditorContent
+    routerInitialContent ?? EMPTY_EDITOR_CONTENT,
   );
 
   const resizeRef = useRef<{ startX: number; startWidth: number; isDragging: boolean } | null>(null);
@@ -183,13 +96,6 @@ export function DocumentEditorPage() {
 
   const envId = documentId ?? 'doc-1';
 
-  const state = location.state as {
-    documentName?: string;
-    organizationName?: string;
-    contentType?: string;
-    initialContent?: JSONContent;
-  } | null;
-
   // Fetch real document metadata (name, etc.) from the backend
   const { data: documentData } = useQuery({
     queryKey: ['document', envId],
@@ -197,39 +103,100 @@ export function DocumentEditorPage() {
     enabled: !!documentId,
   });
 
-  const documentName = documentData?.name ?? state?.documentName ?? 'Tort Claim Proposal';
+  // Load the latest draft body when opening from the dashboard (no router state).
+  const draftQuery = useQuery({
+    queryKey: ['document-draft', envId],
+    queryFn: () => fetchLatestDraft(apiClient, envId),
+    enabled: !!documentId,
+  });
+
+  const draftContent = useMemo(
+    () => (draftQuery.data ? segmentsToTiptapContent(draftQuery.data.segments) : null),
+    [draftQuery.data],
+  );
+
+  const editorInitialContent = routerInitialContent ?? draftContent ?? EMPTY_EDITOR_CONTENT;
+  const editorReady = Boolean(routerInitialContent) || draftQuery.isSuccess || draftQuery.isError;
+  const editorMountKey = routerInitialContent
+    ? `router-${envId}`
+    : `draft-${draftQuery.data?.id ?? envId}`;
+
+  useEffect(() => {
+    if (routerInitialContent) {
+      setCurrentContent(routerInitialContent);
+      return;
+    }
+    if (draftContent) {
+      setCurrentContent(draftContent);
+    }
+  }, [routerInitialContent, draftContent]);
+
+  const documentName = documentData?.name ?? state?.documentName ?? 'Untitled document';
 
   const breadcrumb = [state?.organizationName, state?.contentType]
     .filter(Boolean)
-    .join(' > ') || 'Law > Factum';
+    .join(' > ') || 'Document';
+
+  const draftId = draftQuery.data?.id ?? 'draft-pending';
+  const draftVersion = draftQuery.data?.versionNumber ?? 1;
 
   // Generate feedback mutation + polling
   const generateFeedbackMutation = useMutation({
     mutationFn: () => generateFeedback(apiClient, envId),
+    onMutate: () => {
+      setFeedbackError(null);
+    },
     onSuccess: () => {
       setIsPollingFeedback(true);
+    },
+    onError: (error) => {
+      setFeedbackError(
+        error instanceof Error ? error.message : 'Failed to queue feedback generation.',
+      );
     },
   });
 
   // Poll feedback status after generation is queued
   useEffect(() => {
     if (!isPollingFeedback) return;
-    const interval = setInterval(async () => {
-      try {
-        const status = await fetchFeedbackStatus(apiClient, envId);
-        if (status.count > 0) {
+
+    let cancelled = false;
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          const status = await fetchFeedbackStatus(apiClient, envId);
+          if (cancelled) return;
+
+          if (status.status === 'completed') {
+            setIsPollingFeedback(false);
+            clearInterval(interval);
+            setFeedbackError(null);
+            void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
+            return;
+          }
+
+          if (status.status === 'failed') {
+            setIsPollingFeedback(false);
+            clearInterval(interval);
+            setFeedbackError('Feedback generation failed. Please try again.');
+          }
+        } catch (error) {
+          if (cancelled) return;
           setIsPollingFeedback(false);
           clearInterval(interval);
-          // Invalidate editor feedback queries so the sidebar refreshes
-          void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
-          void queryClient.invalidateQueries({ queryKey: queryKeys.anchors(envId) });
+          setFeedbackError(
+            error instanceof Error
+              ? error.message
+              : 'Could not check feedback status. Please try again.',
+          );
         }
-      } catch {
-        setIsPollingFeedback(false);
-        clearInterval(interval);
-      }
+      })();
     }, 2500);
-    return () => clearInterval(interval);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [isPollingFeedback, envId, queryClient]);
 
   // Download current editor content as .docx
@@ -314,6 +281,11 @@ export function DocumentEditorPage() {
               >
                 {isPollingFeedback ? 'Generating…' : generateFeedbackMutation.isPending ? 'Queuing…' : 'Generate Feedback'}
               </button>
+              {feedbackError && (
+                <p role="alert" className="text-bodySmall text-signal-critical">
+                  {feedbackError}
+                </p>
+              )}
             </nav>
           </div>
 
@@ -337,15 +309,22 @@ export function DocumentEditorPage() {
         <main className="flex min-h-0 flex-1 justify-center overflow-y-auto p-2xl">
           <div className="w-full max-w-[960px]">
             <div className="min-h-full rounded-lg border border-border-subtle/50 bg-surface-primary p-2xl shadow-sm">
-              <AnchoredFeedbackEditorContainer
-                environmentId={envId}
-                ariaLabel="Draft editor"
-                initialContent={state?.initialContent ?? previewEditorContent}
-                categoryLabels={previewCategoryLabels}
-                highlightedAnchorId={highlightedAnchorId}
-                showCoachHighlights={showCoachHighlights}
-                onContentChange={(content) => setCurrentContent(content)}
-              />
+              {!editorReady ? (
+                <p role="status" className="text-bodySmall text-text-secondary">
+                  Loading document…
+                </p>
+              ) : (
+                <AnchoredFeedbackEditorContainer
+                  key={editorMountKey}
+                  environmentId={envId}
+                  ariaLabel="Draft editor"
+                  initialContent={editorInitialContent}
+                  categoryLabels={previewCategoryLabels}
+                  highlightedAnchorId={highlightedAnchorId}
+                  showCoachHighlights={showCoachHighlights}
+                  onContentChange={(content) => setCurrentContent(content)}
+                />
+              )}
             </div>
           </div>
         </main>
@@ -389,15 +368,14 @@ export function DocumentEditorPage() {
           >
             <ChatFeedbackSidebar
               documentId={envId}
-              draftId="draft-1"
-              draftVersion={1}
+              draftId={draftId}
+              draftVersion={draftVersion}
               askWrenService={askWrenService}
               onHighlight={(anchorId) => {
                 setHighlightedAnchorId(anchorId);
                 setShowCoachHighlights(true);
               }}
               onQuoteClick={(anchorId) => {
-                console.log('Quote clicked, anchor ID:', anchorId);
                 setHighlightedAnchorId(anchorId);
               }}
             />

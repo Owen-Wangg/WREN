@@ -23,12 +23,15 @@ const FEEDBACK_BASE_PATH = '/v1/documents';
 
 const feedbackListSchema = z.object({
   items: z.array(feedbackItemSchema),
-  progressSummary: z.object({}).passthrough(),
+  anchors: z.array(z.unknown()).optional(),
+  progressSummary: z.union([z.array(z.unknown()), z.object({}).passthrough()]).optional(),
 });
 
 const feedbackStatusSchema = z.object({
-  status: z.enum(['queued', 'processing', 'completed', 'failed']),
+  status: z.enum(['pending', 'queued', 'processing', 'completed', 'failed']),
+  itemCount: z.number().int().nonnegative().optional(),
   jobId: z.string().optional(),
+  latestDraftId: z.string().optional(),
 });
 
 /* -------------------------------------------------------------------------- */
@@ -45,9 +48,19 @@ export async function getFeedback(
   items: FeedbackItem[];
   progressSummary: Record<string, unknown>;
 }> {
-  return client.request(`${FEEDBACK_BASE_PATH}/${documentId}/feedback`, {
+  const result = await client.request(`${FEEDBACK_BASE_PATH}/${documentId}/feedback`, {
     schema: feedbackListSchema,
   });
+  const progressSummary =
+    result.progressSummary &&
+    typeof result.progressSummary === 'object' &&
+    !Array.isArray(result.progressSummary)
+      ? (result.progressSummary as Record<string, unknown>)
+      : {};
+  return {
+    items: result.items,
+    progressSummary,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -78,14 +91,16 @@ export async function requestFeedback(
 
 /**
  * Poll feedback generation status for a document.
- * Status values: queued, processing, completed, failed
+ * Status values: pending, queued, processing, completed, failed
  */
 export async function getFeedbackStatus(
   client: HttpClient,
   documentId: string,
 ): Promise<{
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'queued' | 'processing' | 'completed' | 'failed';
+  itemCount?: number;
   jobId?: string;
+  latestDraftId?: string;
 }> {
   return client.request(`${FEEDBACK_BASE_PATH}/${documentId}/feedback/status`, {
     schema: feedbackStatusSchema,
