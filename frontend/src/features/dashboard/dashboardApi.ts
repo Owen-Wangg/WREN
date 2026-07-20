@@ -9,6 +9,7 @@ import { z } from 'zod';
 import {
   accessGrantSchema,
   documentSchema,
+  draftSchema,
 } from '@wren/types';
 
 import {
@@ -24,7 +25,7 @@ import {
   type WritingType,
 } from './dashboardTypes';
 
-import type { AccessGrant, Document } from '@wren/types';
+import type { AccessGrant, Document, Draft } from '@wren/types';
 import type { HttpClient } from '@/services';
 
 export const DOCUMENTS_PATH = '/v1/documents';
@@ -165,85 +166,30 @@ export function requestAccess(
   });
 }
 
-/** Map a Document Lambda row (snake_case or camelCase) into the shared Document DTO. */
-function mapDocumentDto(raw: Record<string, unknown>): Document {
-  const metadataRaw = raw.metadata ?? raw.Metadata;
-  let metadata: Record<string, string> = {};
-  if (typeof metadataRaw === 'string') {
-    try {
-      metadata = JSON.parse(metadataRaw) as Record<string, string>;
-    } catch {
-      metadata = {};
-    }
-  } else if (metadataRaw && typeof metadataRaw === 'object') {
-    metadata = metadataRaw as Record<string, string>;
-  }
-
-  const createdAtRaw = raw.createdAt ?? raw.created_at;
-  let createdAt =
-    createdAtRaw instanceof Date
-      ? createdAtRaw.toISOString()
-      : typeof createdAtRaw === 'string'
-        ? createdAtRaw
-        : new Date().toISOString();
-  // isoDateTimeSchema requires an offset; pg sometimes returns bare local timestamps.
-  if (
-    typeof createdAt === 'string' &&
-    !/[zZ]|[+-]\d{2}:\d{2}$/.test(createdAt)
-  ) {
-    createdAt = `${createdAt}Z`;
-  }
-
-  return documentSchema.parse({
-    id: raw.id,
-    ownerUserId: raw.ownerUserId ?? raw.owner_user_id,
-    documentTypeId: raw.documentTypeId ?? raw.document_type_id,
-    contentTypeId: raw.contentTypeId ?? raw.content_type_id,
-    name: raw.name,
-    metadata,
-    status: raw.status,
-    createdAt,
-  });
-}
-
-const rawDocumentSchema = z.record(z.string(), z.unknown());
-
 /** Fetches a single Document by ID. */
-export async function fetchDocument(client: HttpClient, documentId: string): Promise<Document> {
-  const raw = await client.request(`${DOCUMENTS_PATH}/${documentId}`, {
-    schema: rawDocumentSchema,
-  });
-  return mapDocumentDto(raw);
+export function fetchDocument(client: HttpClient, documentId: string): Promise<Document> {
+  return client.request(`${DOCUMENTS_PATH}/${documentId}`, { schema: documentSchema });
 }
 
 /** Creates a new Document record in the backend. Returns the created Document. */
-export async function createDocument(
+export function createDocument(
   client: HttpClient,
   input: { documentTypeId: string; contentTypeId: string; name: string },
 ): Promise<Document> {
-  const raw = await client.request(DOCUMENTS_PATH, {
+  return client.request(DOCUMENTS_PATH, {
     method: 'POST',
     body: input,
-    schema: rawDocumentSchema,
+    schema: documentSchema,
   });
-  return mapDocumentDto(raw);
 }
 
-const draftSchema = z.object({
-  id: z.string(),
-  documentId: z.string(),
-  versionNumber: z.number().int().positive(),
-  segments: z.array(z.unknown()),
-  createdAt: z.string(),
-});
-
-export type Draft = z.infer<typeof draftSchema>;
+export type { Draft };
 
 /** Submits parsed document segments as a new draft version. */
 export function createDraft(
   client: HttpClient,
   documentId: string,
-  segments: unknown[],
+  segments: Array<{ index: number; text: string }>,
 ): Promise<Draft> {
   return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
     method: 'POST',

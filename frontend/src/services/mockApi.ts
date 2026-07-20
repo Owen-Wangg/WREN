@@ -1122,7 +1122,9 @@ const v1MockRoutes: MockRoutes = {
     id: 'draft-new-mock',
     documentId: 'doc-new-mock',
     versionNumber: 1,
+    s3Key: 'inline',
     segments: [],
+    wordCount: 0,
     createdAt: new Date().toISOString(),
   },
   'GET /v1/departments': sampleDepartments,
@@ -1237,7 +1239,9 @@ export class MockApiClient implements HttpClient {
         id: `draft-${newDocId}-1`,
         documentId: newDocId,
         versionNumber: 1,
+        s3Key: 'inline',
         segments: [],
+        wordCount: 0,
         createdAt: new Date().toISOString(),
       };
       // Also register feedback/anchors/debrief routes for the new doc

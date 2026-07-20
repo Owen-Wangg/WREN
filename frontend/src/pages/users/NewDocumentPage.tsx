@@ -65,7 +65,7 @@ export function NewDocumentPage() {
         const bytes = new Uint8Array(await referenceFile.arrayBuffer());
         tiptapContent = await docxBytesToTiptapContent(bytes);
         const segments = (tiptapContent.content ?? []).map((block, idx) => ({
-          paragraphIndex: idx,
+          index: idx,
           text: (block.content ?? [])
             .filter((n) => n.type === 'text')
             .map((n) => n.text ?? '')
