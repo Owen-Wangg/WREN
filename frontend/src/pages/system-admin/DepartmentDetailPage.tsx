@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
-import { searchAllUsers, assignRole } from '@/features/system-admin/systemAdminApi';
+import { searchAllUsers, assignRole, updateDepartmentPrompt } from '@/features/system-admin/systemAdminApi';
 import {
   BarChart,
   Bar,
@@ -73,6 +73,19 @@ export function DepartmentDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['department-users', departmentId] });
       setEditingUser(null);
       setSelectedRole('');
+    },
+  });
+
+  const [promptText, setPromptText] = useState('');
+  useEffect(() => {
+    setPromptText((department as any)?.prompt ?? '');
+  }, [(department as any)?.prompt]);
+
+  const promptMutation = useMutation({
+    mutationFn: (text: string) =>
+      updateDepartmentPrompt(departmentId!, text || null),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
     },
   });
 
@@ -279,34 +292,32 @@ export function DepartmentDetailPage() {
                 </p>
 
                 <textarea
+                  value={promptText}
+                  onChange={(e) => setPromptText(e.target.value)}
                   placeholder="Prompt goes here..."
                   className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 mb-4 font-mono text-sm"
-                  defaultValue="System instructions applicable across all document types for this department..."
                 />
 
-                <div className="flex gap-3">
-                  <button className="rounded-lg bg-gray-900 px-6 py-2 font-semibold text-white hover:bg-gray-800">
-                    Save Prompt
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => promptMutation.mutate(promptText)}
+                    disabled={promptMutation.isPending}
+                    className="rounded-lg bg-gray-900 px-6 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {promptMutation.isPending ? 'Saving...' : 'Save Prompt'}
                   </button>
-                  <button className="rounded-lg border border-gray-300 px-6 py-2 font-semibold text-gray-900 hover:bg-gray-50">
+                  <button
+                    onClick={() => setPromptText('')}
+                    className="rounded-lg border border-gray-300 px-6 py-2 font-semibold text-gray-900 hover:bg-gray-50"
+                  >
                     Clear Prompt
                   </button>
-                </div>
-
-                {/* Prompt History */}
-                <div className="mt-8 border-t border-gray-200 pt-8">
-                  <h3 className="mb-4 text-2xl font-semibold text-gray-900">Department Prompt History</h3>
-                  <div className="flex items-center justify-center mb-4">
-                    <span className="text-sm text-gray-600">Version 1 of 1</span>
-                  </div>
-
-                  <div className="rounded-lg border border-gray-200 p-4 bg-gray-50 mb-4">
-                    <p className="text-sm text-gray-700">Previous Prompt goes here...</p>
-                  </div>
-
-                  <button className="rounded-lg border border-gray-300 px-6 py-2 font-semibold text-gray-900 hover:bg-gray-50">
-                    Restore Prompt Version
-                  </button>
+                  {promptMutation.isSuccess && (
+                    <span className="text-green-600 font-semibold text-sm">Saved successfully!</span>
+                  )}
+                  {promptMutation.isError && (
+                    <span className="text-red-600 font-semibold text-sm">Error saving prompt</span>
+                  )}
                 </div>
               </div>
             </div>

@@ -4,7 +4,7 @@
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { listDepartments, getDepartment, createDepartment } from './departmentService';
+import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt } from './departmentService';
 import { listDocumentTypes, listAllDocumentTypes, createDocumentType } from './documentTypeService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { searchUsers } from './userService';
@@ -37,6 +37,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/departments/{departmentId}' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetDepartment(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/prompt' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleUpdateDepartmentPrompt(event));
     }
     if (resource === '/v1/document-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocumentTypes(event));
@@ -262,6 +265,18 @@ async function handleCreateDocumentType(event: any): Promise<APIGatewayProxyResu
   return {
     statusCode: 201,
     body: JSON.stringify(documentType),
+  };
+}
+
+async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const department = await updateDepartmentPrompt(actor, departmentId, body, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(department),
   };
 }
 

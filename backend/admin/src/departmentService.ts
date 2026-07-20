@@ -24,10 +24,12 @@ import {
   createDepartmentInputSchema,
   departmentSchema,
   updateDepartmentInputSchema,
+  updateDepartmentPromptInputSchema,
   type AuthContext,
   type CreateDepartmentInput,
   type Department,
   type UpdateDepartmentInput,
+  type UpdateDepartmentPromptInput,
 } from '@wren/types';
 
 import { requireCapability } from './capabilityGuard';
@@ -38,16 +40,18 @@ import { NotFoundError } from './errors';
 interface DepartmentRow {
   readonly id: string;
   readonly name: string;
+  readonly prompt: string | null;
 }
 
 /** The columns every read/write returns, in the shared DTO's field order. */
-const RETURNING = 'id, name';
+const RETURNING = 'id, name, prompt';
 
 /** Map a raw row to the validated shared {@link Department} DTO. */
 function toDepartment(row: DepartmentRow): Department {
   return departmentSchema.parse({
     id: row.id,
     name: row.name,
+    prompt: row.prompt,
   });
 }
 
@@ -116,6 +120,36 @@ export async function renameDepartment(
   const rows = await db.query<DepartmentRow>(
     `UPDATE department SET name = $2 WHERE id = $1 RETURNING ${RETURNING}`,
     [id, name],
+  );
+
+  const row = rows[0];
+  if (!row) {
+    throw new NotFoundError(`Department '${id}' not found`);
+  }
+  return toDepartment(row);
+}
+
+/**
+ * Update a Department's department-level prompt text. Scoped to TechnicalAdmin
+ * or DepartmentAdmin who administers this department (`department.manage`).
+ * Throws {@link NotFoundError} when the Department does not exist.
+ */
+export async function updateDepartmentPrompt(
+  actor: AuthContext,
+  id: string,
+  input: UpdateDepartmentPromptInput,
+  db: QueryExecutor,
+): Promise<Department> {
+  requireCapability(actor, {
+    capability: 'department.manage',
+    scope: { kind: 'department', departmentId: id },
+  });
+
+  const { prompt } = updateDepartmentPromptInputSchema.parse(input);
+
+  const rows = await db.query<DepartmentRow>(
+    `UPDATE department SET prompt = $2 WHERE id = $1 RETURNING ${RETURNING}`,
+    [id, prompt],
   );
 
   const row = rows[0];

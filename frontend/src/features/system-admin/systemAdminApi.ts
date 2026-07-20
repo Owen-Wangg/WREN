@@ -47,6 +47,14 @@ export async function getDepartment(departmentId: string) {
   return apiClient.request(`/v1/departments/${departmentId}`, { schema: departmentSchema });
 }
 
+export async function updateDepartmentPrompt(departmentId: string, prompt: string | null) {
+  return apiClient.request(`/v1/departments/${departmentId}/prompt`, {
+    method: 'PUT',
+    body: { prompt },
+    schema: departmentSchema,
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Users — platform-wide search (TechAdmin only) */
 /* -------------------------------------------------------------------------- */
@@ -166,6 +174,7 @@ export const systemAdminApi = {
   getAnalytics,
   listDepartments,
   getDepartment,
+  updateDepartmentPrompt,
   searchAllUsers,
   getUsageReport,
   grantUsageOverride,

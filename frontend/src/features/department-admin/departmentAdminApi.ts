@@ -65,6 +65,9 @@ const documentTypeConfigSchema = z.object({
   typePromptText: z.string().nullable().optional(),
   toneDescription: z.string().nullable().optional(),
   densityDescription: z.string().nullable().optional(),
+  structureDescription: z.string().nullable().optional(),
+  restrictionsDescription: z.string().nullable().optional(),
+  notesDescription: z.string().nullable().optional(),
 });
 
 export type DocumentTypeConfig = z.infer<typeof documentTypeConfigSchema>;
@@ -83,6 +86,9 @@ export async function updateDocumentTypeConfig(
     typePromptText?: string | null;
     toneDescription?: string | null;
     densityDescription?: string | null;
+    structureDescription?: string | null;
+    restrictionsDescription?: string | null;
+    notesDescription?: string | null;
     categoryPriority?: string[];
   },
 ) {

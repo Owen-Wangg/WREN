@@ -70,6 +70,7 @@ export const departmentSchema = z
   .object({
     id: idSchema,
     name: z.string().min(1),
+    prompt: z.string().nullable().optional(),
   })
   .strict();
 export type Department = z.infer<typeof departmentSchema>;
@@ -91,6 +92,14 @@ export const updateDepartmentInputSchema = z
   })
   .strict();
 export type UpdateDepartmentInput = z.infer<typeof updateDepartmentInputSchema>;
+
+/** Input to update a Department's department-level prompt text. */
+export const updateDepartmentPromptInputSchema = z
+  .object({
+    prompt: z.string().nullable(),
+  })
+  .strict();
+export type UpdateDepartmentPromptInput = z.infer<typeof updateDepartmentPromptInputSchema>;
 
 /* -------------------------------------------------------------------------- */
 /* DocumentType (configurable, self-selectable — design "Document Type")        */
@@ -788,6 +797,12 @@ export const documentTypeConfigSchema = z
     toneDescription: z.string().nullable().optional(),
     /** Density guidance for feedback generation (e.g., "Provide comprehensive feedback"). */
     densityDescription: z.string().nullable().optional(),
+    /** Structure & organization guidance for the document type. */
+    structureDescription: z.string().nullable().optional(),
+    /** Restrictions and don'ts for the document type. */
+    restrictionsDescription: z.string().nullable().optional(),
+    /** Additional notes / miscellaneous guidance. */
+    notesDescription: z.string().nullable().optional(),
     updatedAt: isoDateTimeSchema,
   })
   .strict();
@@ -802,6 +817,9 @@ export const updateDocumentTypeConfigInputSchema = z
     typePromptText: z.string().nullable().optional(),
     toneDescription: z.string().nullable().optional(),
     densityDescription: z.string().nullable().optional(),
+    structureDescription: z.string().nullable().optional(),
+    restrictionsDescription: z.string().nullable().optional(),
+    notesDescription: z.string().nullable().optional(),
   })
   .strict();
 export type UpdateDocumentTypeConfigInput = z.infer<

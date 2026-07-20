@@ -52,11 +52,14 @@ interface DocumentTypeConfigRow {
   readonly type_prompt_text: string | null;
   readonly tone_description: string | null;
   readonly density_description: string | null;
+  readonly structure_description: string | null;
+  readonly restrictions_description: string | null;
+  readonly notes_description: string | null;
   readonly updated_at: string | Date;
 }
 
 const RETURNING =
-  'document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, updated_at';
+  'document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at';
 
 function toIsoString(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
@@ -72,6 +75,9 @@ function toDocumentTypeConfig(row: DocumentTypeConfigRow): DocumentTypeConfig {
     typePromptText: row.type_prompt_text,
     toneDescription: row.tone_description,
     densityDescription: row.density_description,
+    structureDescription: row.structure_description,
+    restrictionsDescription: row.restrictions_description,
+    notesDescription: row.notes_description,
     updatedAt: toIsoString(row.updated_at),
   });
 }
@@ -154,8 +160,8 @@ export async function upsertDocumentTypeConfig(
   }
 
   const rows = await db.query<DocumentTypeConfigRow>(
-    `INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+    `INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $9, $10, $11, now())
      ON CONFLICT (document_type_id) DO UPDATE SET
        tone = COALESCE($2, document_type_config.tone),
        density = COALESCE($3, document_type_config.density),
@@ -163,6 +169,9 @@ export async function upsertDocumentTypeConfig(
        type_prompt_text = CASE WHEN $8 THEN $5 ELSE document_type_config.type_prompt_text END,
        tone_description = COALESCE($6, document_type_config.tone_description),
        density_description = COALESCE($7, document_type_config.density_description),
+       structure_description = COALESCE($9, document_type_config.structure_description),
+       restrictions_description = COALESCE($10, document_type_config.restrictions_description),
+       notes_description = COALESCE($11, document_type_config.notes_description),
        updated_at = now()
      RETURNING ${RETURNING}`,
     [
@@ -174,6 +183,9 @@ export async function upsertDocumentTypeConfig(
       patch.toneDescription ?? null,
       patch.densityDescription ?? null,
       patch.typePromptText !== undefined,
+      patch.structureDescription ?? null,
+      patch.restrictionsDescription ?? null,
+      patch.notesDescription ?? null,
     ],
   );
 

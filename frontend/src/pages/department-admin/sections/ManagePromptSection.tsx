@@ -78,6 +78,9 @@ export function ManagePromptSection({
         purpose: existingConfig.typePromptText ?? '',
         tone: existingConfig.toneDescription ?? '',
         criteria: existingConfig.densityDescription ?? '',
+        structure: existingConfig.structureDescription ?? '',
+        restrictions: existingConfig.restrictionsDescription ?? '',
+        notes: existingConfig.notesDescription ?? '',
       }));
     }
   }, [existingConfig]);
@@ -88,6 +91,9 @@ export function ManagePromptSection({
         typePromptText: data.purpose,
         toneDescription: data.tone,
         densityDescription: data.criteria,
+        structureDescription: data.structure,
+        restrictionsDescription: data.restrictions,
+        notesDescription: data.notes,
       }),
   });
 
