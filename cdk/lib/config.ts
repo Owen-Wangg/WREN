@@ -42,7 +42,7 @@ export const DEFAULT_ENVIRONMENT_NAME = "dev";
  * code hardcodes a model id - it is resolved from configuration. Changing the
  * model is therefore a configuration edit, not a code change.
  */
-export const DEFAULT_BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0";
+export const DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-6";
 
 /**
  * Data residency: all persistent stores live in ca-central-1 (design:

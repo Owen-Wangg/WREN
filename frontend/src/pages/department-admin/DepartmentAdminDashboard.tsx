@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Trash2 } from 'lucide-react';
 
-import { listDepartments, listDocumentTypes } from '@/features/department-admin/departmentAdminApi';
+import { listDepartments, listDocumentTypes, createDocumentType } from '@/features/department-admin/departmentAdminApi';
 import { ManageFeedbackCategoriesModal, type FeedbackCategory } from './ManageFeedbackCategoriesModal';
 
 export function DepartmentAdminDashboard() {
@@ -25,7 +25,19 @@ export function DepartmentAdminDashboard() {
     queryFn: () => listDepartments(),
   });
 
-  const currentDepartment = departments[0]; // Use first administered department
+  const currentDepartment = departments[0];
+  const [showCreateDocType, setShowCreateDocType] = useState(false);
+  const [newDocTypeName, setNewDocTypeName] = useState('');
+  const queryClient = useQueryClient();
+
+  const createDocTypeMutation = useMutation({
+    mutationFn: (name: string) => createDocumentType(currentDepartment!.id, { name }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['dept-admin-document-types', currentDepartment?.id] });
+      setNewDocTypeName('');
+      setShowCreateDocType(false);
+    },
+  });
 
   const { data: documentTypes = [], isLoading: typesLoading } = useQuery({
     queryKey: ['dept-admin-document-types', currentDepartment?.id],
@@ -77,7 +89,10 @@ export function DepartmentAdminDashboard() {
             >
               Manage Feedback Categories
             </button>
-            <button className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800">
+            <button
+              onClick={() => setShowCreateDocType(true)}
+              className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800"
+            >
               Create new Document Type
             </button>
           </div>
@@ -135,7 +150,10 @@ export function DepartmentAdminDashboard() {
         {filteredDocumentTypes.length === 0 && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center">
             <p className="text-gray-600">No document types found.</p>
-            <button className="mt-4 rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800">
+            <button
+              onClick={() => setShowCreateDocType(true)}
+              className="mt-4 rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800"
+            >
               Create your first Document Type
             </button>
           </div>
@@ -150,6 +168,48 @@ export function DepartmentAdminDashboard() {
         onUpdateCategory={handleUpdateCategory}
         onDeleteCategory={handleDeleteCategory}
       />
+
+      {/* Create Document Type Dialog */}
+      {showCreateDocType && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h2 className="mb-4 text-xl font-bold text-gray-900">Create New Document Type</h2>
+            <p className="mb-4 text-sm text-gray-600">
+              Adding to <span className="font-semibold">{currentDepartment?.name}</span>
+            </p>
+            <label className="mb-1 block text-sm font-semibold text-gray-900">Document Type Name</label>
+            <input
+              type="text"
+              value={newDocTypeName}
+              onChange={(e) => setNewDocTypeName(e.target.value)}
+              placeholder="e.g. Legal Memorandum, Factum, Case Brief"
+              className="mb-4 w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newDocTypeName.trim()) createDocTypeMutation.mutate(newDocTypeName.trim());
+              }}
+              autoFocus
+            />
+            {createDocTypeMutation.isError && (
+              <p className="mb-3 text-sm text-red-600">Failed to create document type. Please try again.</p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowCreateDocType(false); setNewDocTypeName(''); }}
+                className="rounded-lg border border-gray-300 px-4 py-2 font-semibold text-gray-900 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { if (newDocTypeName.trim()) createDocTypeMutation.mutate(newDocTypeName.trim()); }}
+                disabled={!newDocTypeName.trim() || createDocTypeMutation.isPending}
+                className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {createDocTypeMutation.isPending ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

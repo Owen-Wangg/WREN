@@ -14,10 +14,16 @@
  */
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
 
-/** The only authentication fact allowed to cross into authorization. */
+/** The only authentication facts allowed to cross into authorization. */
 export interface VerifiedIdentity {
   /** The verified IdP subject (Cognito `sub`). */
   readonly subject: string;
+  /**
+   * Cognito group names from the `cognito:groups` claim. Consumed ONLY during
+   * first-login provisioning to bootstrap roles — never used on subsequent
+   * requests (the DB is the source of truth after provisioning).
+   */
+  readonly groups: readonly string[];
 }
 
 /**
@@ -52,9 +58,10 @@ export class CognitoTokenVerifier implements TokenVerifier {
   }
 
   public async verify(token: string): Promise<VerifiedIdentity> {
-    // Throws on bad signature / issuer / expiry. We intentionally read ONLY
-    // `sub` from the verified payload and discard every other claim.
     const payload = await this.verifier.verify(token);
-    return { subject: payload.sub };
+    const groups = Array.isArray(payload['cognito:groups'])
+      ? (payload['cognito:groups'] as string[])
+      : [];
+    return { subject: payload.sub, groups };
   }
 }

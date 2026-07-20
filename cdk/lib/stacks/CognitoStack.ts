@@ -65,6 +65,18 @@ export class CognitoStack extends Stack {
     this.userPoolClientId = this.userPoolClient.userPoolClientId;
 
     // -----------------------------------------------------------------------
+    // Cognito Groups
+    // -----------------------------------------------------------------------
+    // SystemAdmin group: adding an existing user here before their first login
+    // seeds them as TechnicalAdmin in the DB. After that the DB is the
+    // sole source of truth — Cognito group membership is never re-consulted.
+    new cognito.CfnUserPoolGroup(this, 'SystemAdminGroup', {
+      userPoolId: this.userPool.userPoolId,
+      groupName: 'SystemAdmin',
+      description: 'Bootstrap group: members are provisioned as TechnicalAdmin on first login.',
+    });
+
+    // -----------------------------------------------------------------------
     // Publish to SSM
     // -----------------------------------------------------------------------
     new StringParameter(this, "UserPoolIdParameter", {

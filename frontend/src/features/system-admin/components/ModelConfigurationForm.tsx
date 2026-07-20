@@ -24,9 +24,9 @@ export function ModelConfigurationForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const availableModels = [
-    { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet' },
-    { id: 'claude-3-opus', name: 'Claude 3 Opus' },
-    { id: 'claude-3-haiku', name: 'Claude 3 Haiku' },
+    { id: 'us.anthropic.claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (cross-region)' },
+    { id: 'us.anthropic.claude-haiku-4-5', name: 'Claude Haiku 4.5 (cross-region)' },
+    { id: 'us.anthropic.claude-opus-4-8', name: 'Claude Opus 4.8 (cross-region)' },
   ];
 
   useEffect(() => {

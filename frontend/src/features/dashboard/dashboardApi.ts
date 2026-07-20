@@ -45,14 +45,14 @@ const contentTypesSchema = z.array(contentTypeSchema);
 
 /** Backend Department DTO (V4) — no accessState; dashboard treats groupings as OPEN. */
 const departmentDtoSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().min(1),
   name: z.string().min(1),
 });
 
 /** Backend DocumentType DTO mapped into the dashboard Writing Type shape. */
 const documentTypeDtoSchema = z.object({
-  id: z.string().uuid(),
-  departmentId: z.string().uuid(),
+  id: z.string().min(1),
+  departmentId: z.string().min(1),
   name: z.string().min(1),
   accessState: z.enum(['OPEN', 'LOCKED']),
   sizeLimitWords: z.number().int().positive().nullable().optional(),
@@ -101,11 +101,19 @@ export function fetchAccessGrants(client: HttpClient): Promise<AccessGrant[]> {
   return client.request(ACCESS_GRANTS_PATH, { schema: accessGrantsSchema });
 }
 
-/** Content Types available for the given Department (scoped dropdown options). */
-export function fetchContentTypes(client: HttpClient, organizationId: string): Promise<ContentType[]> {
-  return client.request(`${ORGANIZATIONS_PATH}/${organizationId}/content-types`, {
-    schema: contentTypesSchema,
+/** Content Types available for the given Department — backed by GET /v1/document-types?departmentId=... */
+export async function fetchContentTypes(client: HttpClient, organizationId: string): Promise<ContentType[]> {
+  const raw = await client.request(`${WRITING_TYPES_PATH}?departmentId=${organizationId}`, {
+    schema: z.array(documentTypeDtoSchema),
   });
+  return contentTypesSchema.parse(
+    raw.map((dt) => ({
+      id: dt.id,
+      organizationId,
+      writingTypeId: dt.id,
+      name: dt.name,
+    })),
+  );
 }
 
 /**
@@ -122,5 +130,45 @@ export function requestAccess(
     method: 'POST',
     body,
     schema: accessRequestAckSchema,
+  });
+}
+
+/** Fetches a single Document by ID. */
+export function fetchDocument(client: HttpClient, documentId: string): Promise<Document> {
+  return client.request(`${DOCUMENTS_PATH}/${documentId}`, { schema: documentSchema });
+}
+
+/** Creates a new Document record in the backend. Returns the created Document. */
+export function createDocument(
+  client: HttpClient,
+  input: { documentTypeId: string; contentTypeId: string; name: string },
+): Promise<Document> {
+  return client.request(DOCUMENTS_PATH, {
+    method: 'POST',
+    body: input,
+    schema: documentSchema,
+  });
+}
+
+const draftSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  versionNumber: z.number().int().positive(),
+  segments: z.array(z.unknown()),
+  createdAt: z.string(),
+});
+
+export type Draft = z.infer<typeof draftSchema>;
+
+/** Submits parsed document segments as a new draft version. */
+export function createDraft(
+  client: HttpClient,
+  documentId: string,
+  segments: unknown[],
+): Promise<Draft> {
+  return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
+    method: 'POST',
+    body: { segments },
+    schema: draftSchema,
   });
 }

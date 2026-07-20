@@ -152,6 +152,8 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
+        BEDROCK_MODEL_ID: config.bedrockModelId,
+        COGNITO_USER_POOL_ID: props.userPoolId,
       },
       bundling: sharedBundling,
     });
@@ -301,6 +303,12 @@ export class ComputeStack extends Stack {
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       resources: [`arn:aws:s3:::${props.referenceBucketName}/*`],
+    }));
+
+    // Admin Lambda: Cognito ListUsersInGroup for the sync-cognito-admins script.
+    this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["cognito-idp:ListUsersInGroup"],
+      resources: [`arn:aws:cognito-idp:${this.region}:${this.account}:userpool/${props.userPoolId}`],
     }));
 
     // Feedback Engine: Bedrock invoke (scoped to account, model-agnostic for cross-region inference).

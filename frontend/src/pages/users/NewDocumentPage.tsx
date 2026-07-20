@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useMutation } from '@tanstack/react-query';
 
 import { useContentTypes, useOrganizations } from '@/features/dashboard/useDashboard';
+import { createDocument, createDraft } from '@/features/dashboard/dashboardApi';
+import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
+import { apiClient } from '@/services';
 
 export function NewDocumentPage() {
   const navigate = useNavigate();
@@ -24,17 +28,49 @@ export function NewDocumentPage() {
     setSelectedDocumentType('');
   };
 
+  const activateMutation = useMutation({
+    mutationFn: async () => {
+      const org = organizations.find((o) => o.id === selectedDepartment);
+      const docType = contentTypes.find((ct) => ct.id === selectedDocumentType);
+
+      // 1. Create the document record
+      const doc = await createDocument(apiClient, {
+        documentTypeId: selectedDepartment,
+        contentTypeId: selectedDocumentType,
+        name: documentName.trim(),
+      });
+
+      // 2. If a .docx was uploaded, parse it and submit as initial draft
+      let tiptapContent: import('@tiptap/react').JSONContent | undefined;
+      if (referenceFile) {
+        const bytes = new Uint8Array(await referenceFile.arrayBuffer());
+        tiptapContent = await docxBytesToTiptapContent(bytes);
+        const segments = (tiptapContent.content ?? []).map((block, idx) => ({
+          paragraphIndex: idx,
+          text: (block.content ?? [])
+            .filter((n) => n.type === 'text')
+            .map((n) => n.text ?? '')
+            .join(''),
+        }));
+        await createDraft(apiClient, doc.id, segments);
+      }
+
+      return { doc, org, docType, tiptapContent };
+    },
+    onSuccess: ({ doc, org, docType, tiptapContent }) => {
+      navigate(`/dashboard/document/${doc.id}`, {
+        state: {
+          organizationName: org?.name,
+          contentType: docType?.name,
+          documentName: doc.name,
+          initialContent: tiptapContent,
+        },
+      });
+    },
+  });
+
   const handleActivate = () => {
-    const org = organizations.find((o) => o.id === selectedDepartment);
-    const docType = contentTypes.find((ct) => ct.id === selectedDocumentType);
-    navigate('/dashboard/document/new-draft', {
-      state: {
-        organizationName: org?.name,
-        contentType: docType?.name,
-        documentName,
-        referenceFile: referenceFile?.name,
-      },
-    });
+    activateMutation.mutate();
   };
 
   return (
@@ -166,12 +202,18 @@ export function NewDocumentPage() {
           </div>
         )}
 
+        {activateMutation.isError && (
+          <p role="alert" className="text-bodySmall text-signal-critical">
+            Failed to create document. Please try again.
+          </p>
+        )}
+
         <button
           type="submit"
-          disabled={!canActivate}
+          disabled={!canActivate || activateMutation.isPending}
           className="w-full rounded-lg bg-accent-primary px-lg py-sm text-body font-sans font-semibold text-text-on-accent shadow-md disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Activate Editor
+          {activateMutation.isPending ? 'Creating…' : 'Activate Editor'}
         </button>
       </form>
     </div>

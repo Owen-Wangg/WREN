@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, Edit2, Trash2 } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
+import { searchAllUsers, assignRole } from '@/features/system-admin/systemAdminApi';
 import {
   BarChart,
   Bar,
@@ -22,10 +23,23 @@ interface Department {
   accessState?: string;
 }
 
+interface EditingUser {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  roles: string[];
+}
+
+const ASSIGNABLE_ROLES = ['Student', 'DepartmentAdmin', 'TechnicalAdmin'] as const;
+
 export function DepartmentDetailPage() {
   const { departmentId } = useParams();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'users' | 'prompt' | 'analytics'>('users');
+  const [editingUser, setEditingUser] = useState<EditingUser | null>(null);
+  const [selectedRole, setSelectedRole] = useState<string>('');
+  const queryClient = useQueryClient();
 
   const { data: departments = [] } = useQuery({
     queryKey: ['system-departments'],
@@ -39,6 +53,35 @@ export function DepartmentDetailPage() {
     queryKey: ['department-analytics', departmentId],
     queryFn: () => systemAdminApi.getAnalytics(),
   });
+
+  const [userSearch, setUserSearch] = useState('');
+
+  const { data: usersData, isLoading: usersLoading } = useQuery({
+    queryKey: ['department-users', departmentId, userSearch],
+    queryFn: () => searchAllUsers({ q: userSearch || undefined }),
+    enabled: activeTab === 'users',
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: string }) =>
+      assignRole({
+        userId,
+        role: role as 'Student' | 'DepartmentAdmin' | 'TechnicalAdmin',
+        ...(role === 'DepartmentAdmin' ? { departmentId: departmentId! } : {}),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['department-users', departmentId] });
+      setEditingUser(null);
+      setSelectedRole('');
+    },
+  });
+
+  function openEditModal(user: EditingUser) {
+    setEditingUser(user);
+    // Pre-select the highest-privilege current role
+    const priority = ['TechnicalAdmin', 'DepartmentAdmin', 'Student'];
+    setSelectedRole(priority.find((r) => user.roles.includes(r)) ?? 'Student');
+  }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -111,13 +154,17 @@ export function DepartmentDetailPage() {
           {/* Manage Users Tab */}
           {activeTab === 'users' && (
             <div>
-              <h2 className="mb-6 text-3xl font-bold text-gray-900">Manage Users</h2>
+              <div className="mb-6 flex items-center justify-between">
+                <h2 className="text-3xl font-bold text-gray-900">Manage Users</h2>
+              </div>
 
               {/* Search and Filter */}
               <div className="mb-6 flex gap-4">
                 <input
                   type="text"
                   placeholder="Search by First Name, Last Name, or Email"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
                   className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
                 />
                 <select className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900">
@@ -127,57 +174,46 @@ export function DepartmentDetailPage() {
 
               {/* Users Table */}
               <div className="rounded-lg border border-gray-200 bg-white overflow-hidden mb-8">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                        First Name
-                      </th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                        Last Name
-                      </th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                        Email
-                      </th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                        Role
-                      </th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-gray-200 hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm text-gray-900">Jovan</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">S</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">JovanS@example.com</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">Department Admin</td>
-                      <td className="px-6 py-4 text-sm flex gap-2">
-                        <button className="p-1 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded">
-                          <Edit2 size={16} />
-                        </button>
-                        <button className="p-1 text-red-600 hover:text-red-900 hover:bg-red-50 rounded">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                    <tr className="border-b border-gray-200 hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm text-gray-900">John</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">Doe</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">JohnDoe@example.com</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">Student</td>
-                      <td className="px-6 py-4 text-sm flex gap-2">
-                        <button className="p-1 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded">
-                          <Edit2 size={16} />
-                        </button>
-                        <button className="p-1 text-red-600 hover:text-red-900 hover:bg-red-50 rounded">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                {usersLoading ? (
+                  <div className="px-6 py-4 text-sm text-gray-600">Loading users...</div>
+                ) : (
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Name</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Email</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Role</th>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(usersData?.items ?? []).map((user) => (
+                        <tr key={user.id} className="border-b border-gray-200 hover:bg-gray-50">
+                          <td className="px-6 py-4 text-sm text-gray-900">{user.firstName} {user.lastName}</td>
+                          <td className="px-6 py-4 text-sm text-gray-600">{user.email}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{user.roles.join(', ')}</td>
+                          <td className="px-6 py-4 text-sm flex gap-2">
+                            <button
+                              onClick={() => openEditModal(user)}
+                              title="Edit role"
+                              className="p-1 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
+                            >
+                              <Edit2 size={16} />
+                            </button>
+                            <button className="p-1 text-red-600 hover:text-red-900 hover:bg-red-50 rounded">
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {usersData?.items.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-4 text-sm text-gray-500 text-center">No users found</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                )}
               </div>
 
               {/* Access Requests - only show if department is LOCKED */}
@@ -335,6 +371,88 @@ export function DepartmentDetailPage() {
           )}
         </div>
       </div>
+      {/* Edit Role Dialog */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <h2 className="text-lg font-semibold text-gray-900">Edit Role</h2>
+              <button
+                onClick={() => { setEditingUser(null); setSelectedRole(''); }}
+                className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* User info */}
+            <div className="px-6 pt-5 pb-2">
+              <p className="text-sm font-medium text-gray-900">
+                {editingUser.firstName} {editingUser.lastName}
+              </p>
+              <p className="text-sm text-gray-500">{editingUser.email}</p>
+            </div>
+
+            {/* Role selector */}
+            <div className="px-6 pb-5">
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                Role
+              </label>
+              <div className="flex flex-col gap-2">
+                {ASSIGNABLE_ROLES.map((role) => (
+                  <label
+                    key={role}
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition ${
+                      selectedRole === role
+                        ? 'border-gray-900 bg-gray-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="role"
+                      value={role}
+                      checked={selectedRole === role}
+                      onChange={() => setSelectedRole(role)}
+                      className="mt-0.5 accent-gray-900"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{role}</p>
+                      <p className="text-xs text-gray-500">
+                        {role === 'TechnicalAdmin' && 'Full platform access — manage all departments and system settings'}
+                        {role === 'DepartmentAdmin' && `Admin for ${department?.name ?? 'this department'} — manage document types and prompts`}
+                        {role === 'Student' && 'Can submit documents and receive feedback'}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              {assignMutation.isError && (
+                <p className="mt-3 text-sm text-red-600">Failed to update role. Please try again.</p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3 border-t border-gray-100 px-6 py-4">
+              <button
+                onClick={() => { setEditingUser(null); setSelectedRole(''); }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => assignMutation.mutate({ userId: editingUser.id, role: selectedRole })}
+                disabled={!selectedRole || assignMutation.isPending}
+                className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {assignMutation.isPending ? 'Saving…' : 'Save Role'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { getDocumentTypeConfig, updateDocumentTypeConfig } from '@/features/department-admin/departmentAdminApi';
 
 export interface FeedbackCategory {
   id: string;
@@ -16,21 +17,25 @@ export function FeedbackTypeSection({
   feedbackCategories,
   documentTypeId,
 }: FeedbackTypeSectionProps) {
-  // Mock: selected categories for this document type
-  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(
-    new Set(['1', '2', '3', '4', '5', '6', '7'])
-  );
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+
+  const { data: existingConfig } = useQuery({
+    queryKey: ['document-type-config', documentTypeId],
+    queryFn: () => getDocumentTypeConfig(documentTypeId),
+  });
+
+  useEffect(() => {
+    if (existingConfig?.categoryPriority && existingConfig.categoryPriority.length > 0) {
+      setSelectedCategories(new Set(existingConfig.categoryPriority));
+    } else if (existingConfig !== undefined) {
+      // Config loaded but no priority set — default all categories selected
+      setSelectedCategories(new Set(feedbackCategories.map((c) => c.id)));
+    }
+  }, [existingConfig, feedbackCategories]);
 
   const saveMutation = useMutation({
-    mutationFn: async (categoryIds: string[]) => {
-      const response = await fetch(`/v1/document-types/${documentTypeId}/config`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ categoryPriority: categoryIds }),
-      });
-      if (!response.ok) throw new Error(`Failed to save: ${response.statusText}`);
-      return response.json();
-    },
+    mutationFn: (categoryIds: string[]) =>
+      updateDocumentTypeConfig(documentTypeId, { categoryPriority: categoryIds }),
   });
 
   const toggleCategory = (categoryId: string) => {

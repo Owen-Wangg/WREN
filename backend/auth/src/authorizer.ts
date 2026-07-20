@@ -133,9 +133,11 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
     const { verifier, db, lookupProfile } = await depsProvider();
 
     let subject: string;
+    let groups: readonly string[];
     try {
       const identity = await verifier.verify(token);
       subject = identity.subject;
+      groups = identity.groups;
     } catch {
       // Any verification error (signature, issuer, expiry) is a 401.
       throw new Error(UNAUTHORIZED);
@@ -143,6 +145,8 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
 
     // Authorization is resolved ENTIRELY from the app DB using only the verified
     // subject — never from token claims (Requirement 37.2, 37.3).
+    // Exception: `groups` is passed to ensureAppUser ONCE on first login so the
+    // SystemAdmin Cognito group can seed TechnicalAdmin. Never consulted again.
     let context = await mapSubjectToAuthContext(subject, db);
     if (!context) {
       const profile = await lookupProfile(subject);
@@ -151,6 +155,7 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         email: profile.email,
         firstName: profile.firstName,
         lastName: profile.lastName,
+        groups,
       });
       context = await mapSubjectToAuthContext(subject, db);
       if (!context) {

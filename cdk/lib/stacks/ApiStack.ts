@@ -153,9 +153,10 @@ export class ApiStack extends Stack {
       for (const pathValue of Object.values(resolvedSpec.paths as Record<string, any>)) {
         for (const [method, methodValue] of Object.entries(pathValue)) {
           if (method === "options" || typeof methodValue !== "object" || methodValue === null) continue;
+          const mv = methodValue as Record<string, unknown>;
           // Only add security if the method doesn't already have it explicitly set
-          if (!("security" in methodValue)) {
-            methodValue.security = [{ CognitoAuthorizer: [] }];
+          if (!("security" in mv)) {
+            mv.security = [{ CognitoAuthorizer: [] }];
           }
         }
       }

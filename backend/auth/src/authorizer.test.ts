@@ -40,7 +40,7 @@ const fakeVerifier: TokenVerifier = {
     if (payload.invalid || !payload.sub) {
       throw new Error('invalid token: bad signature / issuer / expiry');
     }
-    return { subject: payload.sub };
+    return { subject: payload.sub, groups: [] };
   },
 };
 

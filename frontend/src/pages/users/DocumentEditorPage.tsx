@@ -1,11 +1,17 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 
 import { AnchoredFeedbackEditorContainer } from '@/features/editor';
 import { MockAskWrenService } from '@/features/ask-wren';
 import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
+import { fetchDocument } from '@/features/dashboard/dashboardApi';
+import { generateFeedback, fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
+import { tiptapContentToDocxBlob } from '@/features/editor/docxContentMapper';
+import { apiClient } from '@/services';
+import { queryKeys } from '@/hooks/queryKeys';
 
 import type { JSONContent } from '@tiptap/react';
 
@@ -128,12 +134,17 @@ export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(420);
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
+  const [isPollingFeedback, setIsPollingFeedback] = useState(false);
+  const [currentContent, setCurrentContent] = useState<JSONContent>(
+    (location.state as { initialContent?: JSONContent } | null)?.initialContent ?? previewEditorContent
+  );
 
   const resizeRef = useRef<{ startX: number; startWidth: number; isDragging: boolean } | null>(null);
   const sidebarDivRef = useRef<HTMLDivElement | null>(null);
@@ -176,13 +187,61 @@ export function DocumentEditorPage() {
     documentName?: string;
     organizationName?: string;
     contentType?: string;
+    initialContent?: JSONContent;
   } | null;
 
-  const documentName = state?.documentName ?? 'Tort Claim Proposal';
+  // Fetch real document metadata (name, etc.) from the backend
+  const { data: documentData } = useQuery({
+    queryKey: ['document', envId],
+    queryFn: () => fetchDocument(apiClient, envId),
+    enabled: !!documentId,
+  });
+
+  const documentName = documentData?.name ?? state?.documentName ?? 'Tort Claim Proposal';
 
   const breadcrumb = [state?.organizationName, state?.contentType]
     .filter(Boolean)
     .join(' > ') || 'Law > Factum';
+
+  // Generate feedback mutation + polling
+  const generateFeedbackMutation = useMutation({
+    mutationFn: () => generateFeedback(apiClient, envId),
+    onSuccess: () => {
+      setIsPollingFeedback(true);
+    },
+  });
+
+  // Poll feedback status after generation is queued
+  useEffect(() => {
+    if (!isPollingFeedback) return;
+    const interval = setInterval(async () => {
+      try {
+        const status = await fetchFeedbackStatus(apiClient, envId);
+        if (status.count > 0) {
+          setIsPollingFeedback(false);
+          clearInterval(interval);
+          // Invalidate editor feedback queries so the sidebar refreshes
+          void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.anchors(envId) });
+        }
+      } catch {
+        setIsPollingFeedback(false);
+        clearInterval(interval);
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [isPollingFeedback, envId, queryClient]);
+
+  // Download current editor content as .docx
+  const handleDownload = async () => {
+    const blob = await tiptapContentToDocxBlob(currentContent);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${documentName}.docx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
 
   return (
@@ -242,15 +301,18 @@ export function DocumentEditorPage() {
               {/* File actions */}
               <button
                 type="button"
+                onClick={handleDownload}
                 className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted"
               >
                 Download Document
               </button>
               <button
                 type="button"
-                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted"
+                onClick={() => generateFeedbackMutation.mutate()}
+                disabled={generateFeedbackMutation.isPending || isPollingFeedback}
+                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Re-Upload Document
+                {isPollingFeedback ? 'Generating…' : generateFeedbackMutation.isPending ? 'Queuing…' : 'Generate Feedback'}
               </button>
             </nav>
           </div>
@@ -278,10 +340,11 @@ export function DocumentEditorPage() {
               <AnchoredFeedbackEditorContainer
                 environmentId={envId}
                 ariaLabel="Draft editor"
-                initialContent={previewEditorContent}
+                initialContent={state?.initialContent ?? previewEditorContent}
                 categoryLabels={previewCategoryLabels}
                 highlightedAnchorId={highlightedAnchorId}
                 showCoachHighlights={showCoachHighlights}
+                onContentChange={(content) => setCurrentContent(content)}
               />
             </div>
           </div>

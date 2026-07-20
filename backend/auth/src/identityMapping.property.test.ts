@@ -78,7 +78,7 @@ function makeVerifier(subject: string, _claims: Record<string, unknown>): TokenV
   return {
     async verify(): Promise<VerifiedIdentity> {
       // Intentionally ignore `_claims`: the boundary narrows to the subject only.
-      return { subject };
+      return { subject, groups: [] };
     },
   };
 }

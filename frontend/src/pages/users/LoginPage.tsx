@@ -23,10 +23,9 @@ export function LoginPage() {
   useEffect(() => {
     // Redirect once user is populated from auth context
     if (isWaitingForRedirect && !isLoading && user) {
-      const primaryRole = user.roles[0];
-      if (primaryRole === 'TechnicalAdmin') {
+      if (user.roles.includes('TechnicalAdmin')) {
         navigate('/system-admin', { replace: true });
-      } else if (primaryRole === 'DepartmentAdmin') {
+      } else if (user.roles.includes('DepartmentAdmin')) {
         navigate('/dept-admin', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });

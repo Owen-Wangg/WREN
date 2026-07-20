@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Trash2, ChevronDown } from 'lucide-react';
 
-import { listDepartments, getAnalytics } from '@/features/system-admin/systemAdminApi';
+import { listDepartments, getAnalytics, getModelConfig, updateModelConfig, createDepartment } from '@/features/system-admin/systemAdminApi';
 import { ModelConfigurationForm } from '@/features/system-admin/components/ModelConfigurationForm';
 
 export function SystemAdminDashboard() {
@@ -11,6 +11,8 @@ export function SystemAdminDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterState, setFilterState] = useState('All');
   const [expandedSection, setExpandedSection] = useState<'model' | 'limits' | null>(null);
+  const [showCreateDept, setShowCreateDept] = useState(false);
+  const [newDeptName, setNewDeptName] = useState('');
 
   const { data: departments = [], isLoading } = useQuery({
     queryKey: ['system-departments'],
@@ -23,14 +25,34 @@ export function SystemAdminDashboard() {
     queryFn: () => getAnalytics(),
   });
 
-  const { data: modelConfig, isLoading: modelLoading } = useQuery({
+  const { data: modelConfigData, isLoading: modelLoading } = useQuery({
     queryKey: ['system-model-config'],
-    queryFn: () => ({ modelIdentifier: 'claude-3-5-sonnet', temperature: 0.7, maxTokens: 4096 }),
+    queryFn: () => getModelConfig(),
+  });
+
+  // Map backend modelId to the form's modelIdentifier shape
+  const modelConfig = modelConfigData
+    ? { modelIdentifier: modelConfigData.modelId, temperature: 0.7, maxTokens: 4096 }
+    : undefined;
+
+  const queryClient = useQueryClient();
+
+  const updateModelMutation = useMutation({
+    mutationFn: (data: { modelIdentifier: string }) => updateModelConfig(data.modelIdentifier),
+  });
+
+  const createDeptMutation = useMutation({
+    mutationFn: (name: string) => createDepartment(name),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+      setNewDeptName('');
+      setShowCreateDept(false);
+    },
   });
 
   const { data: usageLimits, isLoading: usageLimitsLoading } = useQuery({
     queryKey: ['system-usage-limits'],
-    queryFn: () => ({ platform: { used: 45000, limit: 100000 } }),
+    queryFn: () => ({ platform: { used: 0, limit: 0 } }),
   });
 
   if (isLoading) {
@@ -117,8 +139,8 @@ export function SystemAdminDashboard() {
                 ) : (
                   <ModelConfigurationForm
                     initialData={modelConfig}
-                    onSubmit={(data) => console.log('Update model config:', data)}
-                    isLoading={false}
+                    onSubmit={(data) => updateModelMutation.mutate({ modelIdentifier: data.modelIdentifier })}
+                    isLoading={updateModelMutation.isPending}
                   />
                 )}
               </div>
@@ -197,7 +219,10 @@ export function SystemAdminDashboard() {
       <div className="mb-12">
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-gray-900">Departments</h1>
-          <button className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800">
+          <button
+            onClick={() => setShowCreateDept(true)}
+            className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800"
+          >
             Create new Department
           </button>
         </div>
@@ -267,6 +292,45 @@ export function SystemAdminDashboard() {
           ))}
         </div>
       </div>
+
+      {/* Create Department Dialog */}
+      {showCreateDept && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h2 className="mb-4 text-xl font-bold text-gray-900">Create New Department</h2>
+            <label className="mb-1 block text-sm font-semibold text-gray-900">Department Name</label>
+            <input
+              type="text"
+              value={newDeptName}
+              onChange={(e) => setNewDeptName(e.target.value)}
+              placeholder="e.g. Law, Arts, Engineering"
+              className="mb-4 w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newDeptName.trim()) createDeptMutation.mutate(newDeptName.trim());
+              }}
+              autoFocus
+            />
+            {createDeptMutation.isError && (
+              <p className="mb-3 text-sm text-red-600">Failed to create department. Please try again.</p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowCreateDept(false); setNewDeptName(''); }}
+                className="rounded-lg border border-gray-300 px-4 py-2 font-semibold text-gray-900 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { if (newDeptName.trim()) createDeptMutation.mutate(newDeptName.trim()); }}
+                disabled={!newDeptName.trim() || createDeptMutation.isPending}
+                className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {createDeptMutation.isPending ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

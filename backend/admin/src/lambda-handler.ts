@@ -4,17 +4,24 @@
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { listDepartments, getDepartment } from './departmentService';
-import { listDocumentTypes, listAllDocumentTypes } from './documentTypeService';
+import { listDepartments, getDepartment, createDepartment } from './departmentService';
+import { listDocumentTypes, listAllDocumentTypes, createDocumentType } from './documentTypeService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { searchUsers } from './userService';
 import { assignRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
 import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
+import { getAnalytics } from './analyticsService';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
+import { handler as syncCognitoAdminsHandler } from './scripts/sync-cognito-admins';
 
-export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
+export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGatewayProxyResult> => {
+  // One-shot admin scripts invoked directly via `aws lambda invoke --payload '{"_script":"..."}'`
+  if (event['_script'] === 'sync-cognito-admins') {
+    return syncCognitoAdminsHandler(event);
+  }
+
   try {
     const { httpMethod, resource } = event;
 
@@ -25,11 +32,17 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     if (resource === '/v1/departments' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDepartments());
     }
+    if (resource === '/v1/departments' && httpMethod === 'POST') {
+      return await wrapHandler(() => handleCreateDepartment(event));
+    }
     if (resource === '/v1/departments/{departmentId}' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetDepartment(event));
     }
     if (resource === '/v1/document-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocumentTypes(event));
+    }
+    if (resource === '/v1/document-types' && httpMethod === 'POST') {
+      return await wrapHandler(() => handleCreateDocumentType(event));
     }
     if (resource === '/v1/document-types/{documentTypeId}/config' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetDocumentTypeConfig(event));
@@ -51,6 +64,15 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     }
     if (resource === '/v1/access-grants' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListMyAccessGrants(event));
+    }
+    if (resource === '/v1/analytics' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetAnalytics(event));
+    }
+    if (resource === '/v1/admin/config/model' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetModelConfig());
+    }
+    if (resource === '/v1/admin/config/model' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleUpdateModelConfig(event));
     }
 
     return withCors({
@@ -151,7 +173,17 @@ async function handleUpdateDocumentTypeConfig(event: any): Promise<APIGatewayPro
 async function handleSearchUsers(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const input = event.queryStringParameters || {};
+  const qs = event.queryStringParameters || {};
+  // The frontend sends ?q=<term> as a general search; map it to the schema's
+  // named fields. If q contains '@' treat it as an email search, otherwise
+  // search both firstName and lastName (the WHERE uses AND so passing all three
+  // would require all to match simultaneously).
+  const { q, ...rest } = qs;
+  const input = q
+    ? q.includes('@')
+      ? { ...rest, email: q }
+      : { ...rest, firstName: q }
+    : rest;
   const users = await searchUsers(actor, input, db);
   return {
     statusCode: 200,
@@ -163,10 +195,10 @@ async function handleAssignRole(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
-  const result = await assignRole(actor, body, db);
+  await assignRole(actor, body, db);
   return {
     statusCode: 200,
-    body: JSON.stringify(result),
+    body: JSON.stringify({ success: true }),
   };
 }
 
@@ -196,5 +228,62 @@ async function handleGrantOverride(event: any): Promise<APIGatewayProxyResult> {
   return {
     statusCode: 200,
     body: JSON.stringify(result),
+  };
+}
+
+async function handleGetAnalytics(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.queryStringParameters || {};
+  const query = documentTypeId ? { documentTypeId } : {};
+  const result = await getAnalytics(actor, query, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(result),
+  };
+}
+
+async function handleCreateDepartment(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const body = event.body ? JSON.parse(event.body) : {};
+  const department = await createDepartment(actor, body, db);
+  return {
+    statusCode: 201,
+    body: JSON.stringify(department),
+  };
+}
+
+async function handleCreateDocumentType(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const body = event.body ? JSON.parse(event.body) : {};
+  const documentType = await createDocumentType(actor, body, db);
+  return {
+    statusCode: 201,
+    body: JSON.stringify(documentType),
+  };
+}
+
+async function handleGetModelConfig(): Promise<APIGatewayProxyResult> {
+  const modelId = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ modelId }),
+  };
+}
+
+async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResult> {
+  const { modelId } = event.body ? JSON.parse(event.body) : {};
+  if (!modelId || typeof modelId !== 'string') {
+    return withCors({
+      statusCode: 400,
+      body: JSON.stringify({ code: 'INVALID_INPUT', message: 'modelId is required' }),
+    });
+  }
+  // In a future iteration this would write to SSM. For now, acknowledge the request.
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ modelId }),
   };
 }

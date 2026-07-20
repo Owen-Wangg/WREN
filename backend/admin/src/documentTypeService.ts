@@ -99,8 +99,8 @@ export async function createDocumentType(
   });
 
   const rows = await db.query<DocumentTypeRow>(
-    `INSERT INTO document_type (department_id, name, size_limit_words)
-     VALUES ($1, $2, $3) RETURNING ${RETURNING}`,
+    `INSERT INTO document_type (department_id, name, access_state, size_limit_words)
+     VALUES ($1, $2, 'LOCKED', $3) RETURNING ${RETURNING}`,
     [departmentId, name, sizeLimitWords ?? null],
   );
 

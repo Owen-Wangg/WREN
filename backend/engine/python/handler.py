@@ -182,7 +182,7 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
     """Invoke Bedrock Claude model."""
     try:
         bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
-        model_id = os.getenv('BEDROCK_MODEL_ID', 'anthropic.claude-3-5-sonnet-20241022-v2:0')
+        model_id = os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
 
         response = bedrock_client.invoke_model(
             modelId=model_id,

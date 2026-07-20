@@ -40,9 +40,9 @@ export async function listDocumentTypes(departmentId?: string) {
 }
 
 export async function createDocumentType(departmentId: string, input: { name: string }) {
-  return apiClient.request(`/v1/departments/${departmentId}/document-types`, {
+  return apiClient.request('/v1/document-types', {
     method: 'POST',
-    body: input,
+    body: { departmentId, name: input.name },
     schema: documentTypeSchema,
   });
 }
@@ -63,7 +63,11 @@ const documentTypeConfigSchema = z.object({
   density: z.string().nullable().optional(),
   categoryPriority: z.array(z.string()).optional(),
   typePromptText: z.string().nullable().optional(),
+  toneDescription: z.string().nullable().optional(),
+  densityDescription: z.string().nullable().optional(),
 });
+
+export type DocumentTypeConfig = z.infer<typeof documentTypeConfigSchema>;
 
 export async function getDocumentTypeConfig(documentTypeId: string) {
   return apiClient.request(`/v1/document-types/${documentTypeId}/config`, {
@@ -77,6 +81,8 @@ export async function updateDocumentTypeConfig(
     tone?: string | null;
     density?: string | null;
     typePromptText?: string | null;
+    toneDescription?: string | null;
+    densityDescription?: string | null;
     categoryPriority?: string[];
   },
 ) {

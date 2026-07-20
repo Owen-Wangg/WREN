@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Settings, LineChart, CheckCircle2 } from 'lucide-react';
 
+import { listDocumentTypes } from '@/features/department-admin/departmentAdminApi';
 import { FeedbackTypeSection } from './sections/FeedbackTypeSection';
 import { ManagePromptSection } from './sections/ManagePromptSection';
 import { AnalyticsSection } from './sections/AnalyticsSection';
@@ -13,11 +15,15 @@ export function DocumentTypeDetailPage() {
   const { documentTypeId } = useParams<{ documentTypeId: string }>();
   const [activeTab, setActiveTab] = useState<SidebarTab>('feedback-types');
 
-  // Mock data
-  const documentType = {
-    id: documentTypeId || '1',
-    name: 'Memorandum',
-    departmentId: 'dept-1',
+  const { data: documentTypes } = useQuery({
+    queryKey: ['document-types'],
+    queryFn: () => listDocumentTypes(),
+  });
+
+  const documentType = documentTypes?.find((dt) => dt.id === documentTypeId) ?? {
+    id: documentTypeId ?? '',
+    name: documentTypeId ?? 'Loading...',
+    departmentId: '',
   };
 
   const feedbackCategories = [

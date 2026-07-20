@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Clock, RotateCcw } from 'lucide-react';
+import { getDocumentTypeConfig, updateDocumentTypeConfig } from '@/features/department-admin/departmentAdminApi';
 
 interface PromptVersion {
   id: string;
@@ -65,21 +66,29 @@ export function ManagePromptSection({
     notes: '',
   });
 
+  const { data: existingConfig } = useQuery({
+    queryKey: ['document-type-config', documentTypeId],
+    queryFn: () => getDocumentTypeConfig(documentTypeId),
+  });
+
+  useEffect(() => {
+    if (existingConfig) {
+      setPromptData((prev) => ({
+        ...prev,
+        purpose: existingConfig.typePromptText ?? '',
+        tone: existingConfig.toneDescription ?? '',
+        criteria: existingConfig.densityDescription ?? '',
+      }));
+    }
+  }, [existingConfig]);
+
   const saveMutation = useMutation({
-    mutationFn: async (data: Record<string, string>) => {
-      // Map frontend fields to backend schema fields
-      const response = await fetch(`/v1/document-types/${documentTypeId}/config`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          typePromptText: data.purpose,
-          toneDescription: data.tone,
-          densityDescription: data.criteria,
-        }),
-      });
-      if (!response.ok) throw new Error(`Failed to save: ${response.statusText}`);
-      return response.json();
-    },
+    mutationFn: (data: Record<string, string>) =>
+      updateDocumentTypeConfig(documentTypeId, {
+        typePromptText: data.purpose,
+        toneDescription: data.tone,
+        densityDescription: data.criteria,
+      }),
   });
 
   const handleSavePrompt = async () => {

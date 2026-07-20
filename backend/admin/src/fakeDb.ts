@@ -62,6 +62,8 @@ interface DocumentTypeConfigRow {
   density: string | null;
   category_priority: string[];
   type_prompt_text: string | null;
+  tone_description: string | null;
+  density_description: string | null;
   updated_at: Date;
 }
 
@@ -420,6 +422,8 @@ export class FakeDb implements QueryExecutor {
       density: row.density ?? null,
       category_priority: row.category_priority ?? [],
       type_prompt_text: row.type_prompt_text ?? null,
+      tone_description: row.tone_description ?? null,
+      density_description: row.density_description ?? null,
       updated_at: row.updated_at ?? new Date(),
     };
     this.documentTypeConfigs.set(full.document_type_id, full);
@@ -1056,6 +1060,8 @@ export class FakeDb implements QueryExecutor {
             density: null,
             category_priority: [],
             type_prompt_text: null,
+            tone_description: null,
+            density_description: null,
             updated_at: new Date(),
           };
       this.documentTypeConfigs.set(documentTypeId, row);
@@ -1064,17 +1070,17 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        'SELECT document_type_id, tone, density, category_priority, type_prompt_text, updated_at FROM document_type_config WHERE document_type_id = $1',
+        'SELECT document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, updated_at FROM document_type_config WHERE document_type_id = $1',
       )
     ) {
       const row = this.documentTypeConfigs.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, updated_at)')) {
+    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, updated_at)')) {
       this.mutationCount += 1;
-      const [documentTypeId, tone, density, categoryPriorityJson, typePromptText, shouldSetPrompt] =
-        params as [string, string | null, string | null, string | null, string | null, boolean];
+      const [documentTypeId, tone, density, categoryPriorityJson, typePromptText, toneDescription, densityDescription, shouldSetPrompt] =
+        params as [string, string | null, string | null, string | null, string | null, string | null, string | null, boolean];
       const existing = this.documentTypeConfigs.get(documentTypeId);
       const categoryPriority = categoryPriorityJson
         ? (JSON.parse(categoryPriorityJson) as string[])
@@ -1085,6 +1091,8 @@ export class FakeDb implements QueryExecutor {
         density: density ?? existing?.density ?? null,
         category_priority: categoryPriority,
         type_prompt_text: shouldSetPrompt ? typePromptText : existing?.type_prompt_text ?? null,
+        tone_description: toneDescription ?? existing?.tone_description ?? null,
+        density_description: densityDescription ?? existing?.density_description ?? null,
         updated_at: new Date(),
       };
       this.documentTypeConfigs.set(documentTypeId, row);

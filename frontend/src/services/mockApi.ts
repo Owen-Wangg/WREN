@@ -1075,6 +1075,75 @@ const systemAdminMockRoutes: MockRoutes = {
   ],
 };
 
+/** Mock departments shaped as the real backend returns them (for /v1/departments). */
+const sampleDepartments = [
+  { id: 'org-law-uuid-0001-000000000001', name: 'Law', accessState: 'OPEN' },
+];
+
+/** Mock document types shaped as the real backend returns them (for /v1/document-types). */
+const sampleDocumentTypes = [
+  { id: 'dt-uuid-criminal-000000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'Criminal Law', accessState: 'OPEN', sizeLimitWords: null },
+  { id: 'dt-uuid-tort-0000-000000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'Tort Law', accessState: 'OPEN', sizeLimitWords: null },
+  { id: 'dt-uuid-property-000000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'Property Law', accessState: 'LOCKED', sizeLimitWords: null },
+];
+
+/** Content types keyed by documentTypeId for /v1/departments/{id}/content-types lookups. */
+const sampleContentTypesByDept: Record<string, Array<{ id: string; documentTypeId: string; label: string }>> = {
+  'org-law-uuid-0001-000000000001': [
+    { id: 'ct-uuid-memo-000000000001', documentTypeId: 'dt-uuid-criminal-000000000001', label: 'Legal Memorandum' },
+    { id: 'ct-uuid-opinion-00000000001', documentTypeId: 'dt-uuid-criminal-000000000001', label: 'Opinion Letter' },
+    { id: 'ct-uuid-factum-000000000001', documentTypeId: 'dt-uuid-criminal-000000000001', label: 'Factum' },
+  ],
+};
+
+/** v1 routes that match the real backend paths used by dashboardApi.ts */
+const v1MockRoutes: MockRoutes = {
+  'GET /v1/documents': { items: sampleDocuments, total: sampleDocuments.length },
+  'GET /v1/documents/doc-1': sampleDocuments[0],
+  'GET /v1/documents/doc-2': sampleDocuments[1],
+  'GET /v1/documents/doc-3': sampleDocuments[2],
+  'POST /v1/documents': {
+    id: 'doc-new-mock',
+    ownerUserId: 'user-1',
+    documentTypeId: 'dt-uuid-criminal-000000000001',
+    contentTypeId: 'ct-uuid-memo-000000000001',
+    name: 'New Document',
+    metadata: {},
+    status: 'Still Drafting',
+    createdAt: new Date().toISOString(),
+  },
+  'POST /v1/documents/doc-new-mock/drafts': {
+    id: 'draft-new-mock',
+    documentId: 'doc-new-mock',
+    versionNumber: 1,
+    segments: [],
+    createdAt: new Date().toISOString(),
+  },
+  'GET /v1/departments': sampleDepartments,
+  'GET /v1/document-types': sampleDocumentTypes,
+  'GET /v1/document-types?departmentId=org-law-uuid-0001-000000000001': sampleDocumentTypes,
+  'POST /v1/departments': { id: 'org-new-mock-uuid-0000000001', name: 'New Department' },
+  'POST /v1/document-types': { id: 'dt-new-mock-uuid-0000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'New Document Type', accessState: 'LOCKED', sizeLimitWords: null },
+  'GET /v1/access-grants': sampleAccessGrants,
+  'POST /v1/access-requests': { requested: true },
+  // Content types by department (matches fetchContentTypes path)
+  'GET /v1/departments/org-law-uuid-0001-000000000001/content-types': sampleContentTypesByDept['org-law-uuid-0001-000000000001'],
+  // Feedback generation (matches feedback Lambda routes)
+  'POST /v1/documents/doc-1/feedback': { jobId: 'job-mock-1', status: 'queued' },
+  'GET /v1/documents/doc-1/feedback/status': { count: 3, latestDraftId: 'draft-1' },
+  'POST /v1/documents/doc-2/feedback': { jobId: 'job-mock-2', status: 'queued' },
+  'GET /v1/documents/doc-2/feedback/status': { count: 0, latestDraftId: 'draft-2' },
+  // Model config (matches features/system-admin/systemAdminApi.ts)
+  'GET /v1/admin/config/model': { modelId: 'us.anthropic.claude-sonnet-4-6' },
+  'PUT /v1/admin/config/model': { modelId: 'us.anthropic.claude-sonnet-4-6' },
+  // Analytics
+  'GET /v1/analytics': { totals: [] },
+  // Users
+  'GET /v1/users': { users: [], total: 0, page: 1, pageSize: 20 },
+  // Usage
+  'GET /v1/usage': { limit: 100000, consumed: 0, remaining: 100000 },
+};
+
 export const defaultMockRoutes: MockRoutes = {
   'GET /writing-types': sampleWritingTypes,
   'GET /documents': sampleDocuments,
@@ -1091,6 +1160,7 @@ export const defaultMockRoutes: MockRoutes = {
   ...orgOwnerMockRoutes,
   ...adminMockRoutes,
   ...systemAdminMockRoutes,
+  ...v1MockRoutes,
 };
 
 export class MockApiClient implements HttpClient {
@@ -1107,7 +1177,80 @@ export class MockApiClient implements HttpClient {
 
   async request<T>(path: string, options: RequestOptions<T>): Promise<T> {
     const method = options.method ?? 'GET';
-    const key = `${method} ${path.startsWith('/') ? path : `/${path}`}`;
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    const key = `${method} ${normalizedPath}`;
+
+    // Dynamic: POST /v1/departments
+    if (key === 'POST /v1/departments') {
+      const body = options.body as Record<string, unknown> | undefined;
+      const newDept = { id: `dept-mock-${Date.now()}`, name: body?.name ?? 'New Department' };
+      const deptList = this.routes['GET /v1/departments'] as unknown[];
+      deptList.push(newDept);
+      if (!options.schema) return newDept as T;
+      const r = options.schema.safeParse(newDept);
+      if (!r.success) throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, r.error.issues);
+      return r.data;
+    }
+
+    // Dynamic: POST /v1/document-types
+    if (key === 'POST /v1/document-types') {
+      const body = options.body as Record<string, unknown> | undefined;
+      const deptId = body?.departmentId as string ?? 'org-law-uuid-0001-000000000001';
+      const newType = { id: `dt-mock-${Date.now()}`, departmentId: deptId, name: body?.name ?? 'New Document Type', accessState: 'LOCKED', sizeLimitWords: null };
+      const typeList = this.routes['GET /v1/document-types'] as unknown[];
+      typeList.push(newType);
+      // Also append to the per-department query
+      const deptKey = `GET /v1/document-types?departmentId=${deptId}`;
+      if (!this.routes[deptKey]) this.routes[deptKey] = [];
+      (this.routes[deptKey] as unknown[]).push(newType);
+      if (!options.schema) return newType as T;
+      const r = options.schema.safeParse(newType);
+      if (!r.success) throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, r.error.issues);
+      return r.data;
+    }
+
+    // Dynamic: POST /v1/documents — create a new doc with a unique mock ID
+    if (key === 'POST /v1/documents') {
+      const body = options.body as Record<string, unknown> | undefined;
+      const newDocId = `doc-mock-${Date.now()}`;
+      const newDoc = {
+        id: newDocId,
+        ownerUserId: 'user-1',
+        documentTypeId: body?.documentTypeId ?? 'dt-uuid-criminal-000000000001',
+        contentTypeId: body?.contentTypeId ?? 'ct-uuid-memo-000000000001',
+        name: body?.name ?? 'New Document',
+        metadata: body?.metadata ?? {},
+        status: 'Still Drafting',
+        createdAt: new Date().toISOString(),
+      };
+      // Register draft route for the new document so subsequent POST works
+      this.routes[`POST /v1/documents/${newDocId}/drafts`] = {
+        id: `draft-${newDocId}-1`,
+        documentId: newDocId,
+        versionNumber: 1,
+        segments: [],
+        createdAt: new Date().toISOString(),
+      };
+      // Also register feedback/anchors/debrief routes for the new doc
+      this.routes[`GET /documents/${newDocId}/feedback-items`] = [];
+      this.routes[`GET /documents/${newDocId}/anchors`] = [];
+      this.routes[`GET /documents/${newDocId}/debrief`] = {
+        documentId: newDocId,
+        draftId: `draft-${newDocId}-1`,
+        generatedAt: new Date().toISOString(),
+        items: [],
+      };
+      // Add to the documents list
+      const docList = this.routes['GET /v1/documents'] as { items: unknown[]; total: number };
+      docList.items.push(newDoc);
+      docList.total = docList.items.length;
+      const fixture = newDoc;
+      if (!options.schema) return fixture as T;
+      const result = options.schema.safeParse(fixture);
+      if (!result.success) throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, result.error.issues);
+      return result.data;
+    }
+
     const fixture = this.routes[key];
 
     if (fixture === undefined) {

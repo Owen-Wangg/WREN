@@ -35,6 +35,14 @@ export async function listDepartments() {
   return apiClient.request('/v1/departments', { schema: z.array(departmentSchema) });
 }
 
+export async function createDepartment(name: string) {
+  return apiClient.request('/v1/departments', {
+    method: 'POST',
+    body: { name },
+    schema: departmentSchema,
+  });
+}
+
 export async function getDepartment(departmentId: string) {
   return apiClient.request(`/v1/departments/${departmentId}`, { schema: departmentSchema });
 }
@@ -44,8 +52,10 @@ export async function getDepartment(departmentId: string) {
 /* -------------------------------------------------------------------------- */
 
 const usersSearchSchema = z.object({
-  items: z.array(userSummarySchema),
+  users: z.array(userSummarySchema),
   total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
 });
 
 export async function searchAllUsers(options?: {
@@ -63,7 +73,9 @@ export async function searchAllUsers(options?: {
   const queryString = params.toString();
   const path = queryString ? `/v1/users?${queryString}` : '/v1/users';
 
-  return apiClient.request(path, { schema: usersSearchSchema });
+  const result = await apiClient.request(path, { schema: usersSearchSchema });
+  // Normalize to a consistent shape for consumers
+  return { items: result.users, total: result.total };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -113,21 +125,39 @@ export async function grantUsageOverride(input: {
 /* Roles — platform-wide role assignment (TechAdmin only) */
 /* -------------------------------------------------------------------------- */
 
-const roleAssignmentSchema = z.object({
-  userId: z.string(),
-  role: z.enum(['Student', 'DepartmentAdmin', 'TechnicalAdmin']),
-  administeredDepartmentIds: z.array(z.string()).optional(),
-});
-
 export async function assignRole(input: {
   userId: string;
   role: 'Student' | 'DepartmentAdmin' | 'TechnicalAdmin';
-  administeredDepartmentIds?: string[];
+  departmentId?: string;
 }) {
   return apiClient.request('/v1/roles', {
     method: 'POST',
-    body: input,
-    schema: roleAssignmentSchema,
+    body: {
+      userId: input.userId,
+      role: input.role,
+      scope: input.departmentId
+        ? { kind: 'department', departmentId: input.departmentId }
+        : { kind: 'platform' },
+      ...(input.departmentId ? { departmentId: input.departmentId } : {}),
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Model Configuration */
+/* -------------------------------------------------------------------------- */
+
+const modelConfigSchema = z.object({ modelId: z.string() });
+
+export async function getModelConfig() {
+  return apiClient.request('/v1/admin/config/model', { schema: modelConfigSchema });
+}
+
+export async function updateModelConfig(modelId: string) {
+  return apiClient.request('/v1/admin/config/model', {
+    method: 'PUT',
+    body: { modelId },
+    schema: modelConfigSchema,
   });
 }
 
@@ -140,4 +170,6 @@ export const systemAdminApi = {
   getUsageReport,
   grantUsageOverride,
   assignRole,
+  getModelConfig,
+  updateModelConfig,
 };

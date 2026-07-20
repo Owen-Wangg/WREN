@@ -21,9 +21,11 @@
  * no value is ever interpolated into SQL (Requirement 39.2).
  */
 import {
+  createDepartmentInputSchema,
   departmentSchema,
   updateDepartmentInputSchema,
   type AuthContext,
+  type CreateDepartmentInput,
   type Department,
   type UpdateDepartmentInput,
 } from '@wren/types';
@@ -60,6 +62,28 @@ export async function getDepartment(
   );
   const row = rows[0];
   return row ? toDepartment(row) : null;
+}
+
+/**
+ * Create a new Department (TechnicalAdmin only — platform-level operation).
+ */
+export async function createDepartment(
+  actor: AuthContext,
+  input: CreateDepartmentInput,
+  db: QueryExecutor,
+): Promise<Department> {
+  if (!actor.roles.includes('TechnicalAdmin')) {
+    throw Object.assign(new Error('Only TechnicalAdmin may create departments'), { statusCode: 403 });
+  }
+
+  const { name } = createDepartmentInputSchema.parse(input);
+
+  const rows = await db.query<DepartmentRow>(
+    `INSERT INTO department (name) VALUES ($1) RETURNING ${RETURNING}`,
+    [name],
+  );
+
+  return toDepartment(rows[0]!);
 }
 
 /** List all Department groupings, ordered by name. */
