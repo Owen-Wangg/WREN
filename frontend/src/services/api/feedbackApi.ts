@@ -48,9 +48,19 @@ export async function getFeedback(
   items: FeedbackItem[];
   progressSummary: Record<string, unknown>;
 }> {
-  return client.request(`${FEEDBACK_BASE_PATH}/${documentId}/feedback`, {
+  const result = await client.request(`${FEEDBACK_BASE_PATH}/${documentId}/feedback`, {
     schema: feedbackListSchema,
   });
+  const progressSummary =
+    result.progressSummary &&
+    typeof result.progressSummary === 'object' &&
+    !Array.isArray(result.progressSummary)
+      ? (result.progressSummary as Record<string, unknown>)
+      : {};
+  return {
+    items: result.items,
+    progressSummary,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
