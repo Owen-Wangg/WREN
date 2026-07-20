@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchAccessGrants,
   fetchContentTypes,
+  fetchDocumentTypesForDepartment,
   fetchDocuments,
   fetchOrganizations,
   fetchWritingTypes,
@@ -45,15 +46,28 @@ export function useWritingTypes(
   });
 }
 
-/** Content Types for a given Organization (Document Type dropdown options). */
+/** Document Types for a given Department (New Document wizard step 2). */
+export function useDocumentTypes(
+  departmentId: string,
+  client: HttpClient = apiClient,
+): UseQueryResult<WritingType[]> {
+  return useQuery({
+    queryKey: [...queryKeys.writingTypes(), 'department', departmentId] as const,
+    queryFn: () => fetchDocumentTypesForDepartment(client, departmentId),
+    enabled: !!departmentId,
+  });
+}
+
+/** Content Types for a given Document Type (New Document wizard step 3). */
 export function useContentTypes(
+  documentTypeId: string,
   organizationId: string,
   client: HttpClient = apiClient,
 ): UseQueryResult<ContentType[]> {
   return useQuery({
-    queryKey: queryKeys.contentTypes(organizationId),
-    queryFn: () => fetchContentTypes(client, organizationId),
-    enabled: !!organizationId,
+    queryKey: queryKeys.contentTypes(documentTypeId),
+    queryFn: () => fetchContentTypes(client, documentTypeId, organizationId),
+    enabled: !!documentTypeId && !!organizationId,
   });
 }
 

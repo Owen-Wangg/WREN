@@ -7,6 +7,7 @@ import { getDataAccess } from '@wren/db-node';
 import { listDepartments, getDepartment, createDepartment } from './departmentService';
 import { listDocumentTypes, listAllDocumentTypes, createDocumentType } from './documentTypeService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
+import { listContentTypes } from './contentTypeService';
 import { searchUsers } from './userService';
 import { assignRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
@@ -43,6 +44,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/document-types' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDocumentType(event));
+    }
+    if (resource === '/v1/document-types/{documentTypeId}/content-types' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListContentTypes(event));
     }
     if (resource === '/v1/document-types/{documentTypeId}/config' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetDocumentTypeConfig(event));
@@ -144,6 +148,16 @@ async function handleListMyAccessGrants(event: any): Promise<APIGatewayProxyResu
   return {
     statusCode: 200,
     body: JSON.stringify(grants),
+  };
+}
+
+async function handleListContentTypes(event: any): Promise<APIGatewayProxyResult> {
+  const db = await getDataAccess();
+  const { documentTypeId } = event.pathParameters || {};
+  const contentTypes = await listContentTypes(documentTypeId, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(contentTypes),
   };
 }
 

@@ -30,6 +30,7 @@ export {
 export {
   useDocuments,
   useWritingTypes,
+  useDocumentTypes,
   useContentTypes,
   useOrganizations,
   useAccessGrants,
@@ -71,6 +72,7 @@ export {
 export {
   fetchDocuments,
   fetchWritingTypes,
+  fetchDocumentTypesForDepartment,
   fetchContentTypes,
   fetchOrganizations,
   fetchAccessGrants,

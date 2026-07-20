@@ -1087,12 +1087,18 @@ const sampleDocumentTypes = [
   { id: 'dt-uuid-property-000000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'Property Law', accessState: 'LOCKED', sizeLimitWords: null },
 ];
 
-/** Content types keyed by documentTypeId for /v1/departments/{id}/content-types lookups. */
-const sampleContentTypesByDept: Record<string, Array<{ id: string; documentTypeId: string; label: string }>> = {
-  'org-law-uuid-0001-000000000001': [
+/** Content types keyed by documentTypeId for /v1/document-types/{id}/content-types. */
+const sampleContentTypesByDocumentType: Record<
+  string,
+  Array<{ id: string; documentTypeId: string; label: string }>
+> = {
+  'dt-uuid-criminal-000000000001': [
     { id: 'ct-uuid-memo-000000000001', documentTypeId: 'dt-uuid-criminal-000000000001', label: 'Legal Memorandum' },
     { id: 'ct-uuid-opinion-00000000001', documentTypeId: 'dt-uuid-criminal-000000000001', label: 'Opinion Letter' },
     { id: 'ct-uuid-factum-000000000001', documentTypeId: 'dt-uuid-criminal-000000000001', label: 'Factum' },
+  ],
+  'dt-uuid-tort-0000-000000000001': [
+    { id: 'ct-uuid-tort-brief-000000001', documentTypeId: 'dt-uuid-tort-0000-000000000001', label: 'Tort Claim Proposal' },
   ],
 };
 
@@ -1126,8 +1132,11 @@ const v1MockRoutes: MockRoutes = {
   'POST /v1/document-types': { id: 'dt-new-mock-uuid-0000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'New Document Type', accessState: 'LOCKED', sizeLimitWords: null },
   'GET /v1/access-grants': sampleAccessGrants,
   'POST /v1/access-requests': { requested: true },
-  // Content types by department (matches fetchContentTypes path)
-  'GET /v1/departments/org-law-uuid-0001-000000000001/content-types': sampleContentTypesByDept['org-law-uuid-0001-000000000001'],
+  // Content types by document type (matches fetchContentTypes path)
+  'GET /v1/document-types/dt-uuid-criminal-000000000001/content-types':
+    sampleContentTypesByDocumentType['dt-uuid-criminal-000000000001'],
+  'GET /v1/document-types/dt-uuid-tort-0000-000000000001/content-types':
+    sampleContentTypesByDocumentType['dt-uuid-tort-0000-000000000001'],
   // Feedback generation (matches feedback Lambda routes)
   'POST /v1/documents/doc-1/feedback': { jobId: 'job-mock-1', status: 'queued' },
   'GET /v1/documents/doc-1/feedback/status': { count: 3, latestDraftId: 'draft-1' },
