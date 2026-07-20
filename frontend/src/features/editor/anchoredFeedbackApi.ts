@@ -17,10 +17,15 @@ const feedbackJobSchema = z.object({
   status: z.string().optional(),
 }).passthrough();
 
+/** Matches Feedback Lambda GET /v1/documents/{id}/feedback/status. */
 const feedbackStatusSchema = z.object({
-  count: z.number().int().nonnegative(),
+  status: z.enum(['pending', 'queued', 'processing', 'completed', 'failed']),
+  itemCount: z.number().int().nonnegative().optional(),
+  jobId: z.string().optional(),
   latestDraftId: z.string().optional(),
-}).passthrough();
+});
+
+export type FeedbackStatus = z.infer<typeof feedbackStatusSchema>;
 
 const feedbackItemsResponseSchema = z.array(feedbackItemSchema);
 const anchorsResponseSchema = z.array(anchorSchema);
@@ -62,11 +67,11 @@ export function generateFeedback(
   });
 }
 
-/** Polls the feedback generation status. Resolves the item count when ready. */
+/** Polls the feedback generation status (`status` + optional `itemCount`). */
 export function fetchFeedbackStatus(
   client: HttpClient,
   documentId: string,
-): Promise<z.infer<typeof feedbackStatusSchema>> {
+): Promise<FeedbackStatus> {
   return client.request(`/v1/documents/${documentId}/feedback/status`, {
     schema: feedbackStatusSchema,
   });

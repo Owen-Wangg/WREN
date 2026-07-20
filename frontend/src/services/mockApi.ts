@@ -1141,9 +1141,9 @@ const v1MockRoutes: MockRoutes = {
     sampleContentTypesByDocumentType['dt-uuid-tort-0000-000000000001'],
   // Feedback generation (matches feedback Lambda routes)
   'POST /v1/documents/doc-1/feedback': { jobId: 'job-mock-1', status: 'queued' },
-  'GET /v1/documents/doc-1/feedback/status': { count: 3, latestDraftId: 'draft-1' },
+  'GET /v1/documents/doc-1/feedback/status': { status: 'completed', itemCount: 3, latestDraftId: 'draft-1' },
   'POST /v1/documents/doc-2/feedback': { jobId: 'job-mock-2', status: 'queued' },
-  'GET /v1/documents/doc-2/feedback/status': { count: 0, latestDraftId: 'draft-2' },
+  'GET /v1/documents/doc-2/feedback/status': { status: 'queued', itemCount: 0, latestDraftId: 'draft-2' },
   // Model config (matches features/system-admin/systemAdminApi.ts)
   'GET /v1/admin/config/model': { modelId: 'us.anthropic.claude-sonnet-4-6' },
   'PUT /v1/admin/config/model': { modelId: 'us.anthropic.claude-sonnet-4-6' },
@@ -1247,6 +1247,15 @@ export class MockApiClient implements HttpClient {
       // Also register feedback/anchors/debrief routes for the new doc
       this.routes[`GET /documents/${newDocId}/feedback-items`] = [];
       this.routes[`GET /documents/${newDocId}/anchors`] = [];
+      this.routes[`POST /v1/documents/${newDocId}/feedback`] = {
+        jobId: `job-${newDocId}`,
+        status: 'queued',
+      };
+      this.routes[`GET /v1/documents/${newDocId}/feedback/status`] = {
+        status: 'completed',
+        itemCount: 0,
+        latestDraftId: `draft-${newDocId}-1`,
+      };
       this.routes[`GET /documents/${newDocId}/debrief`] = {
         documentId: newDocId,
         draftId: `draft-${newDocId}-1`,

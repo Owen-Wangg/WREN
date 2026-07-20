@@ -142,6 +142,7 @@ export function DocumentEditorPage() {
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
   const [isPollingFeedback, setIsPollingFeedback] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [currentContent, setCurrentContent] = useState<JSONContent>(
     (location.state as { initialContent?: JSONContent } | null)?.initialContent ?? previewEditorContent
   );
@@ -206,30 +207,61 @@ export function DocumentEditorPage() {
   // Generate feedback mutation + polling
   const generateFeedbackMutation = useMutation({
     mutationFn: () => generateFeedback(apiClient, envId),
+    onMutate: () => {
+      setFeedbackError(null);
+    },
     onSuccess: () => {
       setIsPollingFeedback(true);
+    },
+    onError: (error) => {
+      setFeedbackError(
+        error instanceof Error ? error.message : 'Failed to queue feedback generation.',
+      );
     },
   });
 
   // Poll feedback status after generation is queued
   useEffect(() => {
     if (!isPollingFeedback) return;
-    const interval = setInterval(async () => {
-      try {
-        const status = await fetchFeedbackStatus(apiClient, envId);
-        if (status.count > 0) {
+
+    let cancelled = false;
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          const status = await fetchFeedbackStatus(apiClient, envId);
+          if (cancelled) return;
+
+          if (status.status === 'completed') {
+            setIsPollingFeedback(false);
+            clearInterval(interval);
+            setFeedbackError(null);
+            void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.anchors(envId) });
+            return;
+          }
+
+          if (status.status === 'failed') {
+            setIsPollingFeedback(false);
+            clearInterval(interval);
+            setFeedbackError('Feedback generation failed. Please try again.');
+          }
+        } catch (error) {
+          if (cancelled) return;
           setIsPollingFeedback(false);
           clearInterval(interval);
-          // Invalidate editor feedback queries so the sidebar refreshes
-          void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
-          void queryClient.invalidateQueries({ queryKey: queryKeys.anchors(envId) });
+          setFeedbackError(
+            error instanceof Error
+              ? error.message
+              : 'Could not check feedback status. Please try again.',
+          );
         }
-      } catch {
-        setIsPollingFeedback(false);
-        clearInterval(interval);
-      }
+      })();
     }, 2500);
-    return () => clearInterval(interval);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [isPollingFeedback, envId, queryClient]);
 
   // Download current editor content as .docx
@@ -314,6 +346,11 @@ export function DocumentEditorPage() {
               >
                 {isPollingFeedback ? 'Generating…' : generateFeedbackMutation.isPending ? 'Queuing…' : 'Generate Feedback'}
               </button>
+              {feedbackError && (
+                <p role="alert" className="text-bodySmall text-signal-critical">
+                  {feedbackError}
+                </p>
+              )}
             </nav>
           </div>
 
