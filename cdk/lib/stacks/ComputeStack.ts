@@ -317,7 +317,11 @@ export class ComputeStack extends Stack {
         "bedrock:InvokeModel",
         "bedrock:InvokeModelWithResponseStream",
       ],
-      resources: [`arn:aws:bedrock:*:${this.account}:model/*`],
+      resources: [
+        `arn:aws:bedrock:*:${this.account}:model/*`,
+        `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
+        `arn:aws:bedrock:*::foundation-model/*`,
+      ],
     }));
 
     // Feedback Engine: S3 read for documents + reference materials.
@@ -326,6 +330,12 @@ export class ComputeStack extends Stack {
       resources: [
         `arn:aws:s3:::${props.documentsBucketName}/*`,
         `arn:aws:s3:::${props.referenceBucketName}/*`,
+      ],
+    }));
+    this.feedbackEngineFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:ListBucket"],
+      resources: [
+        `arn:aws:s3:::${props.referenceBucketName}`,
       ],
     }));
 

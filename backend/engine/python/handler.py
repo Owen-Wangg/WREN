@@ -320,7 +320,7 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
             user_text = prompt
 
         body: dict[str, Any] = {
-            'anthropic_version': 'bedrock-2023-06-01',
+            'anthropic_version': 'bedrock-2023-05-31',
             'max_tokens': 4096,
             'messages': [{'role': 'user', 'content': user_text}],
             'temperature': float(config.get('temperature', 0.7)),
