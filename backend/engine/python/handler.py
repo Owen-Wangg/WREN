@@ -62,8 +62,9 @@ def get_db_connection():
         secret_response = secrets_client.get_secret_value(SecretId=secret_arn)
         secret = json.loads(secret_response['SecretString'])
 
+        host = os.getenv('DB_PROXY_HOST') or secret['host']
         conn = psycopg.connect(
-            host=secret['host'],
+            host=host,
             port=secret['port'],
             dbname=secret['dbname'],
             user=secret['username'],
