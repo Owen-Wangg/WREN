@@ -279,13 +279,19 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  await db.query('DELETE FROM draft WHERE document_id = $1', [documentId]);
-  await db.query('DELETE FROM feedback_item WHERE document_id = $1', [documentId]);
+  const [draftResult, feedbackResult] = await Promise.all([
+    db.query<{ id: string }>('DELETE FROM draft WHERE document_id = $1 RETURNING id', [documentId]),
+    db.query<{ id: string }>('DELETE FROM feedback_item WHERE document_id = $1 RETURNING id', [documentId]),
+  ]);
   await db.query('DELETE FROM document WHERE id = $1', [documentId]);
 
   return {
-    statusCode: 204,
-    body: '',
+    statusCode: 200,
+    body: JSON.stringify({
+      documentId,
+      deletedDrafts: draftResult.length,
+      deletedFeedbackItems: feedbackResult.length,
+    }),
   };
 }
 

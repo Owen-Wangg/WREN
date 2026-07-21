@@ -10,6 +10,7 @@ import {
   type StatusFilterValue,
 } from '@/features/dashboard/documentFilters';
 import { useDocuments, useOrganizations } from '@/features/dashboard/useDashboard';
+import { useDeleteDocument } from '@/hooks/useDocument';
 import { AiDisclaimerNotice } from '@/components/ui';
 import { apiClient } from '@/services';
 
@@ -34,8 +35,14 @@ export function DashboardPage() {
 
   const filteredDocuments = filterDocuments(filteredByType, { search, status });
 
+  const deleteDocument = useDeleteDocument();
+
   const handleOpenDocument = (document: Document) => {
     navigate(`/dashboard/document/${document.id}`);
+  };
+
+  const handleDeleteDocument = (document: Document) => {
+    deleteDocument.mutate(document.id);
   };
 
   return (
@@ -112,6 +119,7 @@ export function DashboardPage() {
                     key={document.id}
                     document={document}
                     onOpen={handleOpenDocument}
+                    onDelete={handleDeleteDocument}
                   />
                 ))}
               </div>

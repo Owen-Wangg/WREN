@@ -34,7 +34,6 @@ const analyticsSummarySchema = z.object({
   breakdownByDocumentType: z.array(z.object({
     id: z.string(),
     name: z.string(),
-    departmentName: z.string(),
     feedbackGenerated: z.number(),
   })),
   platformUsageOverTime: z.array(z.object({

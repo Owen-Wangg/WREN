@@ -9,6 +9,7 @@ import {
 import { createDocument, createDraft } from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
+import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient } from '@/services';
 
 export function NewDocumentPage() {
@@ -48,7 +49,10 @@ export function NewDocumentPage() {
       let tiptapContent: import('@tiptap/react').JSONContent | undefined;
       if (referenceFile) {
         const bytes = new Uint8Array(await referenceFile.arrayBuffer());
-        tiptapContent = await docxBytesToTiptapContent(bytes);
+        const isPdf = referenceFile.name.toLowerCase().endsWith('.pdf');
+        tiptapContent = isPdf
+          ? await pdfBytesToTiptapContent(bytes)
+          : await docxBytesToTiptapContent(bytes);
         const segments = (tiptapContent.content ?? []).map((block, idx) => ({
           index: idx,
           text: (block.content ?? [])
@@ -200,6 +204,7 @@ export function NewDocumentPage() {
             <input
               id="reference-file-input"
               type="file"
+              accept=".docx,.pdf"
               className="rounded-md border border-border-subtle bg-surface-muted px-lg py-sm text-bodySmall text-text-primary file:mr-md file:rounded-md file:border-0 file:bg-surface-primary file:px-md file:py-xs file:text-bodySmall file:font-sans file:text-text-secondary"
               onChange={(e) => setReferenceFile(e.target.files?.[0])}
             />

@@ -997,8 +997,20 @@ paths:
           schema:
             type: string
       responses:
-        "204":
+        "200":
           description: Document deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documentId, deletedDrafts, deletedFeedbackItems]
+                properties:
+                  documentId:
+                    type: string
+                  deletedDrafts:
+                    type: integer
+                  deletedFeedbackItems:
+                    type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
