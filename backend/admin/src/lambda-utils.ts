@@ -57,6 +57,20 @@ export async function wrapHandler(
         body: JSON.stringify({ code: 'BAD_REQUEST', message: (e as Error).message }),
       });
     }
+    // Plain errors thrown with a numeric statusCode (e.g. Object.assign(new Error(...), { statusCode: 404 }))
+    const statusCode = typeof (e as any)?.statusCode === 'number' ? (e as any).statusCode : null;
+    if (statusCode === 403) {
+      return withCors({
+        statusCode: 403,
+        body: JSON.stringify({ code: 'PERMISSION_DENIED', message: (e as Error).message }),
+      });
+    }
+    if (statusCode === 404) {
+      return withCors({
+        statusCode: 404,
+        body: JSON.stringify({ code: 'NOT_FOUND', message: (e as Error).message }),
+      });
+    }
     console.error('Unhandled error:', e);
     return withCors({
       statusCode: 500,

@@ -192,9 +192,9 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
-  const { documentTypeId, contentTypeId, name, metadata } = body;
+  const { documentTypeId, contentTypeId = null, name, metadata } = body;
 
-  if (!documentTypeId || !contentTypeId || !name) {
+  if (!documentTypeId || !name) {
     return {
       statusCode: 400,
       body: JSON.stringify({ code: 'BAD_REQUEST', message: 'Missing required fields' }),

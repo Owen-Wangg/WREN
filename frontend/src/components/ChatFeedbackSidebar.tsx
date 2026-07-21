@@ -19,7 +19,7 @@ export interface ChatFeedbackSidebarProps {
   readonly draftId: string;
   readonly draftVersion: number;
   readonly askWrenService: AskWrenService;
-  readonly onDebriefRegenerate?: (autoReegen: boolean) => void;
+  readonly isGeneratingFeedback?: boolean;
   readonly onHighlight?: (anchorId: string) => void;
   readonly onQuoteClick?: (anchorId: string | undefined) => void;
 }
@@ -33,6 +33,7 @@ export function ChatFeedbackSidebar({
   draftId,
   draftVersion,
   askWrenService,
+  isGeneratingFeedback = false,
   onHighlight,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
@@ -98,6 +99,7 @@ export function ChatFeedbackSidebar({
           <SidebarDebriefPanel
             environmentId={documentId}
             autoRegenerate={false}
+            isGenerating={isGeneratingFeedback}
             onQuoteClick={onQuoteClick}
           />
         )}

@@ -1,53 +1,110 @@
-/**
- * AI Debrief API calls — thin wrappers over the shared {@link HttpClient}
- * (frontend steering §11: never bypass the shared API client wrapper).
- *
- * These are plain functions (not a class), consistent with how the rest of the
- * app is expected to call the client directly with a Zod schema at the
- * boundary (`src/services/apiClient.ts`). `recordFeedbackHelpfulness` is the
- * call site the design/steering describe as "emits an audit event" — the real
- * Audit_Service (task 14) is not built yet, so today this is a stubbed mock API
- * method with the eventual event shape already in place (Requirements 16.1–16.5).
- */
-import { debriefSchema, feedbackHelpfulnessInputSchema, helpfulnessAckSchema } from './debriefTypes';
+import { z } from 'zod';
+
+import { feedbackHelpfulnessInputSchema, helpfulnessAckSchema } from './debriefTypes';
 
 import type { Debrief, FeedbackHelpfulnessInput, HelpfulnessAck } from './debriefTypes';
 import type { HttpClient } from '@/services';
 
+// Paths — all real /v1 routes
+export function feedbackPath(documentId: string): string {
+  return `/v1/documents/${documentId}/feedback`;
+}
+
+/** @deprecated kept for any callers that reference the old name */
 export function debriefPath(environmentId: string): string {
-  return `/documents/${environmentId}/debrief`;
+  return feedbackPath(environmentId);
 }
 
 export function regenerateDebriefPath(environmentId: string): string {
-  return `/documents/${environmentId}/debrief/regenerate`;
+  return feedbackPath(environmentId);
 }
 
-export const FEEDBACK_HELPFULNESS_PATH = '/feedback-helpfulness';
+export const FEEDBACK_HELPFULNESS_PATH = '/v1/feedback-helpfulness';
 
-/** Fetches the current AI Debrief for a writing environment (Requirement 16.1, 16.5). */
-export function fetchDebrief(
+const feedbackResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string(),
+    documentId: z.string().optional(),
+    errorCategoryId: z.string(),
+    kind: z.string(),
+    questionText: z.string(),
+    quotedText: z.string().optional(),
+    currentAnchorId: z.string().optional(),
+    citationReferenceId: z.string().optional(),
+    sourceDraftId: z.string().optional(),
+    createdAt: z.string().optional(),
+  }).passthrough()),
+  anchors: z.array(z.object({}).passthrough()).optional(),
+  categoryNames: z.record(z.string(), z.string()).optional(),
+  progressSummary: z.array(
+    z.object({
+      category: z.string(),
+      tendency: z.enum(['improving', 'persistent', 'emerging']),
+      description: z.string(),
+    }),
+  ).optional(),
+});
+
+/**
+ * Fetches the current AI Debrief by reading feedback items from the real
+ * backend endpoint and mapping them into the Debrief shape.
+ */
+export async function fetchDebrief(
   client: HttpClient,
   environmentId: string,
 ): Promise<Debrief> {
-  return client.request(debriefPath(environmentId), { schema: debriefSchema });
-}
-
-/** Triggers an engine re-run and returns the freshly generated Debrief (Requirement 16.2). */
-export function regenerateDebrief(
-  client: HttpClient,
-  environmentId: string,
-): Promise<Debrief> {
-  return client.request(regenerateDebriefPath(environmentId), {
-    method: 'POST',
-    schema: debriefSchema,
+  const raw = await client.request(feedbackPath(environmentId), {
+    schema: feedbackResponseSchema,
   });
+
+  // Derive a synthetic draftId from the most-recent feedback item's sourceDraftId,
+  // falling back to 'none' when there are no items yet.
+  const draftId = raw.items[0]?.sourceDraftId ?? 'none';
+
+  return {
+    documentId: environmentId,
+    draftId,
+    generatedAt: raw.items[0]?.createdAt ?? new Date().toISOString(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    items: raw.items as any,
+    progressSummary: raw.progressSummary ?? [],
+    categoryNames: raw.categoryNames ?? {},
+  };
 }
 
 /**
- * Records a helpfulness rating. Validated against
- * `feedbackHelpfulnessInputSchema` before it leaves this module, and the
- * response validated against `helpfulnessAckSchema` at the boundary — the same
- * pattern every other API call in this codebase follows.
+ * Triggers a new feedback generation job, waits briefly, then re-fetches.
+ * The caller (useRegenerateDebrief) invalidates the cache on success.
+ */
+export async function regenerateDebrief(
+  client: HttpClient,
+  environmentId: string,
+): Promise<Debrief> {
+  // Enqueue a new generation job
+  await client.request(feedbackPath(environmentId), {
+    method: 'POST',
+    schema: z.object({ jobId: z.string().optional(), status: z.string().optional() }).passthrough(),
+  });
+
+  // Poll until completed (max 60s)
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 60_000) {
+    await new Promise((r) => setTimeout(r, 2500));
+    const status = await client.request(`/v1/documents/${environmentId}/feedback/status`, {
+      schema: z.object({
+        status: z.string(),
+        itemCount: z.number().optional(),
+      }).passthrough(),
+    });
+    if (status.status === 'completed' || (status.itemCount ?? 0) > 0) break;
+    if (status.status === 'failed') throw new Error('Feedback generation failed');
+  }
+
+  return fetchDebrief(client, environmentId);
+}
+
+/**
+ * Records a helpfulness rating.
  */
 export function recordFeedbackHelpfulness(
   client: HttpClient,

@@ -312,6 +312,7 @@ export function AiDebriefModal({
                       const items = groupedByCategory[category];
                       const doneWell = items.filter((i) => i.kind === 'structural');
                       const improvements = items.filter((i) => i.kind === 'inline');
+                      const categoryLabel = debrief.categoryNames?.[category] ?? category;
 
                       return (
                         <section
@@ -323,7 +324,7 @@ export function AiDebriefModal({
                             className="mb-md flex items-center gap-sm text-heading3 font-sans font-bold text-text-primary"
                           >
                             <Star size={18} className="text-text-muted" aria-hidden="true" />
-                            {category}
+                            {categoryLabel}
                           </h3>
 
                           {doneWell.length > 0 && (

@@ -36,6 +36,8 @@ export const debriefSchema = z
     items: z.array(feedbackItemSchema),
     /** Pattern-level progress summary (REQ-PROGRESS-ACK-01); present only when >= 2 drafts exist. */
     progressSummary: z.array(progressPatternSchema).optional(),
+    /** Map of errorCategoryId → human-readable name for display in the debrief UI. */
+    categoryNames: z.record(z.string(), z.string()).optional(),
   })
   .strict();
 export type Debrief = z.infer<typeof debriefSchema>;

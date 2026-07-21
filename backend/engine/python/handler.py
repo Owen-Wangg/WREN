@@ -15,8 +15,42 @@ import psycopg3
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from wren_engine.prompt_assembly import (
+    PromptAssembler,
+    SystemScaffolding,
+    DocumentTypePromptConfig,
+    UntrustedContent,
+)
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+_SYSTEM_CORE = (
+    "You are WREN, a Socratic writing coach. Your sole task is to generate "
+    "structured feedback on the submitted document using the taxonomy provided. "
+    "Ask probing questions that guide the writer toward improvement without "
+    "providing replacement prose or rewriting their work."
+)
+_OUTPUT_SCHEMA = """\
+Return a JSON array. Each element must have exactly these keys:
+  error_category_id: string  — must be the exact UUID from the taxonomy list below, not the name
+  kind: "inline" | "structural"
+  question_text: string  — a Socratic question, never a correction or rewrite
+  anchor: { paragraphIndex: int, startOffset: int, endOffset: int } | null  — required for inline, null for structural
+Only output valid JSON. No markdown fences, no extra keys, no prose outside the array.
+inline items MUST have a valid anchor. structural items MUST have anchor: null."""
+_GUARDRAIL = (
+    "NEVER provide replacement prose, rewrites, corrections, or any text the writer "
+    "could paste directly into their document. Every piece of feedback must be a "
+    "Socratic question or observation, never a suggested revision."
+)
+
+_SCAFFOLDING = SystemScaffolding(
+    core_instructions=_SYSTEM_CORE,
+    output_schema_text=_OUTPUT_SCHEMA,
+    guardrail_text=_GUARDRAIL,
+)
+_ASSEMBLER = PromptAssembler()
 
 
 def get_db_connection():
@@ -42,7 +76,7 @@ def get_db_connection():
         raise
 
 
-def load_prompt_config(writing_type_id: str, conn: psycopg3.Connection) -> dict[str, Any]:
+def load_prompt_config(document_type_id: str, conn: psycopg3.Connection) -> dict[str, Any]:
     """Load prompt configuration from database."""
     try:
         with conn.cursor() as cur:
@@ -53,10 +87,13 @@ def load_prompt_config(writing_type_id: str, conn: psycopg3.Connection) -> dict[
                     COALESCE(density, 'moderate'),
                     COALESCE(tone_description, 'Be supportive and encouraging while maintaining high expectations.'),
                     COALESCE(density_description, 'Provide feedback across multiple dimensions of writing quality, focusing on the most impactful improvements.'),
-                    COALESCE(category_priority, '[]'::jsonb)
-                FROM writing_type_config
-                WHERE writing_type_id = %s
-            """, (writing_type_id,))
+                    COALESCE(category_priority, '[]'::jsonb),
+                    structure_description,
+                    restrictions_description,
+                    notes_description
+                FROM document_type_config
+                WHERE document_type_id = %s
+            """, (document_type_id,))
 
             result = cur.fetchone()
             if result:
@@ -67,10 +104,13 @@ def load_prompt_config(writing_type_id: str, conn: psycopg3.Connection) -> dict[
                     'tone_description': result[3],
                     'density_description': result[4],
                     'category_priority': json.loads(result[5]) if isinstance(result[5], str) else result[5],
+                    'structure_description': result[6],
+                    'restrictions_description': result[7],
+                    'notes_description': result[8],
                     'temperature': 0.7,
                 }
 
-            # Return default config if not found
+            # Return default config if no row exists yet for this document type
             return {
                 'type_prompt_text': 'You are WREN, a Socratic writing coach. Your role is to guide writers toward excellence through thoughtful questions rather than direct answers.',
                 'tone': 'supportive',
@@ -78,6 +118,9 @@ def load_prompt_config(writing_type_id: str, conn: psycopg3.Connection) -> dict[
                 'tone_description': 'Be supportive and encouraging while maintaining high expectations.',
                 'density_description': 'Provide feedback across multiple dimensions of writing quality, focusing on the most impactful improvements.',
                 'category_priority': [],
+                'structure_description': None,
+                'restrictions_description': None,
+                'notes_description': None,
                 'temperature': 0.7,
             }
     except Exception as e:
@@ -101,6 +144,52 @@ def load_draft_segments(draft_id: str, conn: psycopg3.Connection) -> list[dict[s
     except Exception as e:
         logger.error(f"Error loading draft segments: {str(e)}")
         raise
+
+
+def load_document_type_meta(document_type_id: str, conn: psycopg3.Connection) -> dict[str, Any]:
+    """Return { name, category_names: list[str], category_ids: list[str] } for a document type."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT name FROM document_type WHERE id = %s",
+                (document_type_id,),
+            )
+            row = cur.fetchone()
+            doc_type_name = row[0] if row else "Unknown Document Type"
+
+            cur.execute(
+                "SELECT id, name FROM error_category WHERE document_type_id = %s ORDER BY name ASC",
+                (document_type_id,),
+            )
+            cat_rows = cur.fetchall()
+            category_ids = [r[0] for r in cat_rows]
+            category_names = [r[1] for r in cat_rows]
+
+        return {
+            "name": doc_type_name,
+            "category_ids": category_ids,
+            "category_names": category_names,
+        }
+    except Exception as e:
+        logger.error(f"Error loading document type meta: {str(e)}")
+        return {"name": "Unknown Document Type", "category_ids": [], "category_names": []}
+
+
+def load_department_prompt(document_type_id: str, conn: psycopg3.Connection) -> str:
+    """Return the department-level prompt for the given document type, or empty string."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT d.prompt
+                FROM document_type dt
+                JOIN department d ON d.id = dt.department_id
+                WHERE dt.id = %s
+            """, (document_type_id,))
+            row = cur.fetchone()
+            return (row[0] or '') if row else ''
+    except Exception as e:
+        logger.error(f"Error loading department prompt: {str(e)}")
+        return ''
 
 
 def load_reference_material(writing_type_id: str) -> list[dict[str, Any]]:
@@ -132,71 +221,115 @@ def load_reference_material(writing_type_id: str) -> list[dict[str, Any]]:
 
 def assemble_prompt(
     config: dict[str, Any],
+    doc_type_meta: dict[str, Any],
+    department_prompt: str,
     segments: list[dict[str, Any]],
-    reference_materials: list[dict[str, Any]]
+    reference_materials: list[dict[str, Any]],
 ) -> str:
-    """Assemble the full prompt for Bedrock."""
+    """Assemble the layered prompt for Bedrock using PromptAssembler."""
     doc_text = '\n'.join([seg.get('text', '') for seg in segments if 'text' in seg])
-    ref_text = '\n'.join([f"## {m['title']}\n{m['content']}" for m in reference_materials])
 
-    system_scaffold = config.get('type_prompt_text', 'You are WREN, a Socratic writing coach.')
-    tone_guidance = config.get('tone_description', '')
-    density_guidance = config.get('density_description', '')
+    # Build type instructions: department-level prompt first, then doc-type fields
+    type_instruction_parts = []
+    if department_prompt.strip():
+        type_instruction_parts.append(f"Department Instructions:\n{department_prompt.strip()}")
+    base_instructions = config.get('type_prompt_text', '')
+    if base_instructions:
+        type_instruction_parts.append(base_instructions)
+    for field_label, field_key in [
+        ('Structure & Organization', 'structure_description'),
+        ("Restrictions & Don'ts", 'restrictions_description'),
+        ('Additional Notes', 'notes_description'),
+    ]:
+        value = config.get(field_key) or ''
+        if value.strip():
+            type_instruction_parts.append(f"{field_label}: {value.strip()}")
 
-    prompt = f"""{system_scaffold}
+    type_instructions = '\n\n'.join(type_instruction_parts)
 
-## Tone Guidance
-{tone_guidance}
+    # Tone/density become free-text fields in the grounding note
+    tone_desc = config.get('tone_description', '')
+    density_desc = config.get('density_description', '')
+    grounding_parts = []
+    if tone_desc:
+        grounding_parts.append(f"Tone: {tone_desc}")
+    if density_desc:
+        grounding_parts.append(f"Density: {density_desc}")
+    grounding_note = '\n'.join(grounding_parts)
 
-## Feedback Density
-{density_guidance}
+    # Build an explicit id→name taxonomy the model must use for error_category_id.
+    # The output schema requires UUIDs; giving the model both id and name means it
+    # can classify semantically by name but output the correct UUID.
+    category_ids = doc_type_meta.get('category_ids', [])
+    category_names_list = doc_type_meta.get('category_names', [])
+    taxonomy_lines = [
+        f"  {cid}: {cname}"
+        for cid, cname in zip(category_ids, category_names_list)
+        if cid and cname
+    ]
+    if taxonomy_lines:
+        taxonomy_block = "Feedback taxonomy (use the UUID as error_category_id):\n" + "\n".join(taxonomy_lines)
+        type_instructions = taxonomy_block + ("\n\n" + type_instructions if type_instructions else "")
 
-## Reference Materials
-{ref_text if ref_text else '(No reference materials)'}
+    doc_type_config = DocumentTypePromptConfig(
+        document_type_name=doc_type_meta.get('name', 'Unknown Document Type'),
+        category_names=tuple(category_names_list),
+        tone=config.get('tone', 'supportive'),
+        density=config.get('density', 'moderate'),
+        category_priority=tuple(config.get('category_priority', [])),
+        type_instructions=type_instructions,
+        reference_grounding_note=grounding_note,
+    )
 
-## Document to Review
-{doc_text}
+    untrusted: list[UntrustedContent] = []
+    for material in reference_materials:
+        untrusted.append(UntrustedContent(
+            label=f"REFERENCE MATERIAL: {material['title']}",
+            text=material['content'],
+        ))
+    untrusted.append(UntrustedContent(
+        label="SUBMITTED DOCUMENT",
+        text=doc_text,
+    ))
 
-## Output Format
-Provide feedback as a JSON array of objects with the following structure:
-[
-  {{
-    "error_category_id": "string",
-    "kind": "inline" | "structural",
-    "question_text": "string",
-    "quoted_text": "string (optional, for inline feedback)",
-    "anchor": {{
-      "startOffset": 0,
-      "endOffset": 42,
-      "paragraphIndex": 0
-    }}
-  }}
-]
+    assembled = _ASSEMBLER.assemble(_SCAFFOLDING, doc_type_config, untrusted)
 
-CRITICAL: Only output valid JSON. No additional text. Never provide replacement prose or rewriting suggestions."""
-
-    return prompt
+    # invoke_bedrock expects a single string; we pass system + user together
+    # separated by a clear marker so invoke_bedrock can split them if needed,
+    # or pass the full combined text as the user message for single-turn models.
+    return assembled.system_message + "\n\n---\n\n" + assembled.user_message
 
 
 def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
-    """Invoke Bedrock Claude model."""
+    """Invoke Bedrock Claude model.
+
+    `prompt` is produced by assemble_prompt as "system_message\\n\\n---\\n\\nuser_message".
+    We split on that sentinel so the system instructions stay in the system field
+    (where the model treats them as authoritative and non-overridable).
+    """
     try:
         bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
         model_id = os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
 
+        sentinel = "\n\n---\n\n"
+        if sentinel in prompt:
+            system_text, user_text = prompt.split(sentinel, 1)
+        else:
+            system_text = ""
+            user_text = prompt
+
+        body: dict[str, Any] = {
+            'anthropic_version': 'bedrock-2023-06-01',
+            'max_tokens': 4096,
+            'messages': [{'role': 'user', 'content': user_text}],
+            'temperature': float(config.get('temperature', 0.7)),
+        }
+        if system_text:
+            body['system'] = system_text
+
         response = bedrock_client.invoke_model(
             modelId=model_id,
-            body=json.dumps({
-                'anthropic_version': 'bedrock-2023-06-01',
-                'max_tokens': 4096,
-                'messages': [
-                    {
-                        'role': 'user',
-                        'content': prompt
-                    }
-                ],
-                'temperature': float(config.get('temperature', 0.7)),
-            })
+            body=json.dumps(body),
         )
 
         output = json.loads(response['body'].read())
@@ -254,18 +387,31 @@ def insert_feedback_items(
         with conn.cursor() as cur:
             for item in feedback_items:
                 try:
+                    # Extract quoted text from the segment using anchor offsets
+                    quoted_text = None
+                    if item.get('kind') == 'inline' and 'anchor' in item:
+                        anchor_data = item['anchor']
+                        para_index = anchor_data.get('paragraphIndex', 0)
+                        start_offset = anchor_data.get('startOffset', 0)
+                        end_offset = anchor_data.get('endOffset', 0)
+                        if para_index < len(segments):
+                            para_text = segments[para_index].get('text', '')
+                            if end_offset <= len(para_text) and end_offset > start_offset:
+                                quoted_text = para_text[start_offset:end_offset]
+
                     # Insert feedback item
                     feedback_id = str(uuid.uuid4())
                     cur.execute("""
                         INSERT INTO feedback_item
-                        (id, document_id, error_category_id, kind, question_text, source_draft_id, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                        (id, document_id, error_category_id, kind, question_text, quoted_text, source_draft_id, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
                     """, (
                         feedback_id,
                         document_id,
                         item.get('error_category_id', 'unknown'),
                         item.get('kind', 'inline'),
                         item.get('question_text', ''),
+                        quoted_text,
                         draft_id
                     ))
 
@@ -351,7 +497,15 @@ def process_feedback_request(
 
         # Step 2: Load prompt config (includes category_priority filter)
         logger.info("Loading prompt config...")
-        config = load_prompt_config(writing_type_id, conn)
+        config = load_prompt_config(writing_type_id, conn)  # writing_type_id == document_type_id
+
+        # Step 2b: Load document type name + error category taxonomy
+        logger.info("Loading document type meta...")
+        doc_type_meta = load_document_type_meta(writing_type_id, conn)
+
+        # Step 2c: Load department-level prompt
+        logger.info("Loading department prompt...")
+        department_prompt = load_department_prompt(writing_type_id, conn)
 
         # Step 3: Load draft segments
         logger.info("Loading draft segments...")
@@ -365,9 +519,9 @@ def process_feedback_request(
         logger.info("Loading reference material...")
         reference_materials = load_reference_material(writing_type_id)
 
-        # Step 5: Assemble prompt
+        # Step 5: Assemble prompt using the layered PromptAssembler
         logger.info("Assembling prompt...")
-        prompt = assemble_prompt(config, segments, reference_materials)
+        prompt = assemble_prompt(config, doc_type_meta, department_prompt, segments, reference_materials)
 
         # Step 6: Invoke Bedrock
         logger.info("Invoking Bedrock...")

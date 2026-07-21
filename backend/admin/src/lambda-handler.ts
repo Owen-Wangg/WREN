@@ -6,6 +6,7 @@ import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
 import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt } from './departmentService';
 import { listDocumentTypes, listAllDocumentTypes, createDocumentType } from './documentTypeService';
+import { listErrorCategories, createErrorCategory } from './errorCategoryService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { listContentTypes } from './contentTypeService';
 import { searchUsers } from './userService';
@@ -65,6 +66,12 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/document-types/{documentTypeId}/content-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListContentTypes(event));
+    }
+    if (resource === '/v1/document-types/{documentTypeId}/error-categories' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListErrorCategories(event));
+    }
+    if (resource === '/v1/document-types/{documentTypeId}/error-categories' && httpMethod === 'POST') {
+      return await wrapHandler(() => handleCreateErrorCategory(event));
     }
     if (resource === '/v1/document-types/{documentTypeId}/config' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetDocumentTypeConfig(event));
@@ -318,6 +325,40 @@ async function handleCreateDocumentType(event: any): Promise<APIGatewayProxyResu
   return {
     statusCode: 201,
     body: JSON.stringify(documentType),
+  };
+}
+
+async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const department = await updateDepartmentPrompt(actor, departmentId, body, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(department),
+  };
+}
+
+async function handleListErrorCategories(event: any): Promise<APIGatewayProxyResult> {
+  const db = await getDataAccess();
+  const { documentTypeId } = event.pathParameters || {};
+  const categories = await listErrorCategories(documentTypeId, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(categories),
+  };
+}
+
+async function handleCreateErrorCategory(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const category = await createErrorCategory(actor, { ...body, documentTypeId }, db);
+  return {
+    statusCode: 201,
+    body: JSON.stringify(category),
   };
 }
 

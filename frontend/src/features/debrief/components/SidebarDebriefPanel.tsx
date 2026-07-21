@@ -22,6 +22,8 @@ import type { FeedbackItem } from '@wren/types';
 export interface SidebarDebriefPanelProps {
   readonly environmentId: string;
   readonly autoRegenerate?: boolean;
+  /** True while DocumentEditorPage is polling for feedback generation. */
+  readonly isGenerating?: boolean;
   /** Called when student clicks a quoted text to highlight it in the document. */
   readonly onQuoteClick?: (anchorId: string | undefined) => void;
 }
@@ -29,6 +31,7 @@ export interface SidebarDebriefPanelProps {
 export function SidebarDebriefPanel({
   environmentId,
   autoRegenerate = false,
+  isGenerating = false,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
   const debriefQuery = useAiDebrief(environmentId);
@@ -99,10 +102,16 @@ export function SidebarDebriefPanel({
           The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.
         </div>
 
-        {debriefQuery.isLoading && (
-          <p role="status" className="text-body text-text-secondary">
-            Loading AI Debrief…
-          </p>
+        {(debriefQuery.isLoading || (isGenerating && !debrief)) && (
+          <div className="flex flex-col items-center gap-md py-xl text-center">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
+            <p role="status" className="text-body text-text-secondary">
+              {isGenerating ? 'Generating feedback…' : 'Loading AI Debrief…'}
+            </p>
+            {isGenerating && (
+              <p className="text-bodySmall text-text-muted">This usually takes 20–40 seconds.</p>
+            )}
+          </div>
         )}
 
         {debriefQuery.isError && (
@@ -129,9 +138,19 @@ export function SidebarDebriefPanel({
         {debrief && !debriefQuery.isLoading && !debriefQuery.isError && (
           <>
             {debrief.items.length === 0 ? (
-              <p className="text-body text-text-secondary">
-                Feedback hasn't been generated yet.
-              </p>
+              <div className="flex flex-col items-center gap-md py-xl text-center">
+                {isGenerating || regenerate.isPending ? (
+                  <>
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
+                    <p className="text-body text-text-secondary">Generating feedback…</p>
+                    <p className="text-bodySmall text-text-muted">This usually takes 20–40 seconds.</p>
+                  </>
+                ) : (
+                  <p className="text-body text-text-secondary">
+                    No feedback yet. Click <strong>Generate Feedback</strong> to get started.
+                  </p>
+                )}
+              </div>
             ) : (
               <div className="flex flex-col gap-lg">
                 {/* Progress Summary Card */}
@@ -225,6 +244,7 @@ export function SidebarDebriefPanel({
                   const items = groupedByCategory[category];
                   const doneWell = items.filter((i) => i.kind === 'structural');
                   const improvements = items.filter((i) => i.kind === 'inline');
+                  const categoryLabel = debrief.categoryNames?.[category] ?? category;
 
                   return (
                     <section
@@ -236,7 +256,7 @@ export function SidebarDebriefPanel({
                         className="mb-md flex items-center gap-xs text-heading4 font-sans font-bold text-text-primary"
                       >
                         <Star size={16} className="text-text-muted" aria-hidden="true" />
-                        {category}
+                        {categoryLabel}
                       </h4>
 
                       {doneWell.length > 0 && (

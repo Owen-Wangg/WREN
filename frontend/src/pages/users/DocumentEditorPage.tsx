@@ -44,7 +44,11 @@ export function DocumentEditorPage() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(420);
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
-  const [isPollingFeedback, setIsPollingFeedback] = useState(false);
+  // Start polling immediately if we arrived from a fresh upload (router state
+  // carries initialContent, meaning feedback was auto-queued on creation).
+  const [isPollingFeedback, setIsPollingFeedback] = useState(
+    () => !!(location.state as { initialContent?: unknown } | null)?.initialContent,
+  );
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const state = location.state as {
@@ -172,6 +176,7 @@ export function DocumentEditorPage() {
             clearInterval(interval);
             setFeedbackError(null);
             void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.debrief(envId) });
             return;
           }
 
@@ -371,6 +376,7 @@ export function DocumentEditorPage() {
               draftId={draftId}
               draftVersion={draftVersion}
               askWrenService={askWrenService}
+              isGeneratingFeedback={isPollingFeedback}
               onHighlight={(anchorId) => {
                 setHighlightedAnchorId(anchorId);
                 setShowCoachHighlights(true);

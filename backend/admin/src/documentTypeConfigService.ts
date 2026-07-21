@@ -48,7 +48,7 @@ interface DocumentTypeConfigRow {
   readonly document_type_id: string;
   readonly tone: string | null;
   readonly density: string | null;
-  readonly category_priority: string[];
+  readonly category_priority: string[] | string;
   readonly type_prompt_text: string | null;
   readonly tone_description: string | null;
   readonly density_description: string | null;
@@ -67,11 +67,15 @@ function toIsoString(value: string | Date): string {
 
 /** Map a raw row to the validated shared {@link DocumentTypeConfig} DTO. */
 function toDocumentTypeConfig(row: DocumentTypeConfigRow): DocumentTypeConfig {
+  const categoryPriority =
+    typeof row.category_priority === 'string'
+      ? (JSON.parse(row.category_priority) as string[])
+      : (row.category_priority ?? []);
   return documentTypeConfigSchema.parse({
     documentTypeId: row.document_type_id,
     tone: row.tone,
     density: row.density,
-    categoryPriority: row.category_priority ?? [],
+    categoryPriority,
     typePromptText: row.type_prompt_text,
     toneDescription: row.tone_description,
     densityDescription: row.density_description,
@@ -161,7 +165,7 @@ export async function upsertDocumentTypeConfig(
 
   const rows = await db.query<DocumentTypeConfigRow>(
     `INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $9, $10, $11, now())
+     VALUES ($1, $2, $3, COALESCE($4, '[]'::jsonb), $5, $6, $7, $9, $10, $11, now())
      ON CONFLICT (document_type_id) DO UPDATE SET
        tone = COALESCE($2, document_type_config.tone),
        density = COALESCE($3, document_type_config.density),

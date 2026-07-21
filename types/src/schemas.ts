@@ -320,7 +320,7 @@ export const documentSchema = z
     id: idSchema,
     ownerUserId: idSchema,
     documentTypeId: idSchema,
-    contentTypeId: idSchema,
+    contentTypeId: idSchema.nullable().optional(),
     name: z.string().min(1),
     /** DepartmentAdmin-defined custom metadata field values (e.g. "Writing Topic"). */
     metadata: z.record(z.string(), z.string()),

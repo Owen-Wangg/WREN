@@ -47,6 +47,32 @@ export async function createDocumentType(departmentId: string, input: { name: st
   });
 }
 
+/* -------------------------------------------------------------------------- */
+/* Error Categories — scoped to document type */
+/* -------------------------------------------------------------------------- */
+
+const errorCategorySchema = z.object({
+  id: z.string(),
+  documentTypeId: z.string(),
+  name: z.string(),
+});
+
+export type ErrorCategory = z.infer<typeof errorCategorySchema>;
+
+export async function listErrorCategories(documentTypeId: string) {
+  return apiClient.request(`/v1/document-types/${documentTypeId}/error-categories`, {
+    schema: z.array(errorCategorySchema),
+  });
+}
+
+export async function createErrorCategory(documentTypeId: string, name: string) {
+  return apiClient.request(`/v1/document-types/${documentTypeId}/error-categories`, {
+    method: 'POST',
+    body: { name },
+    schema: errorCategorySchema,
+  });
+}
+
 export async function deleteDocumentType(documentTypeId: string) {
   return apiClient.request(`/v1/document-types/${documentTypeId}`, {
     method: 'DELETE',

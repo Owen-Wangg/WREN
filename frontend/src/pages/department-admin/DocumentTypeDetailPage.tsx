@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Settings, LineChart, CheckCircle2 } from 'lucide-react';
 
-import { listDocumentTypes } from '@/features/department-admin/departmentAdminApi';
+import { listDocumentTypes, listErrorCategories } from '@/features/department-admin/departmentAdminApi';
 import { FeedbackTypeSection } from './sections/FeedbackTypeSection';
 import { ManagePromptSection } from './sections/ManagePromptSection';
 import { AnalyticsSection } from './sections/AnalyticsSection';
@@ -26,15 +26,17 @@ export function DocumentTypeDetailPage() {
     departmentId: '',
   };
 
-  const feedbackCategories = [
-    { id: '1', title: 'Spelling/Grammar', description: 'Spelling errors, grammatical mistakes, and punctuation issues' },
-    { id: '2', title: 'Tone', description: 'Formality, professionalism, and authority of language appropriate for legal writing' },
-    { id: '3', title: 'Clarity', description: 'How clear, precise, and understandable the writing is; avoiding ambiguity' },
-    { id: '4', title: 'Consistency/Coherence', description: 'Logical consistency, coherent arguments, and maintaining parallel structure' },
-    { id: '5', title: 'Persuasiveness', description: 'Strength of arguments, evidence support, and persuasive impact' },
-    { id: '6', title: 'Objectivity/Neutrality', description: 'Maintaining neutral language and avoiding bias in legal writing' },
-    { id: '7', title: 'Organization', description: 'Structure, logical flow, proper section organization, and document layout' },
-  ];
+  const { data: errorCategories = [] } = useQuery({
+    queryKey: ['error-categories', documentTypeId],
+    queryFn: () => listErrorCategories(documentTypeId!),
+    enabled: !!documentTypeId,
+  });
+
+  const feedbackCategories = errorCategories.map((c) => ({
+    id: c.id,
+    title: c.name,
+    description: '',
+  }));
 
   const sidebarItems = [
     { id: 'feedback-types' as const, label: 'Feedback Types', icon: CheckCircle2 },
@@ -82,7 +84,6 @@ export function DocumentTypeDetailPage() {
         <div className="p-8">
           {activeTab === 'feedback-types' && (
             <FeedbackTypeSection
-              feedbackCategories={feedbackCategories}
               documentTypeId={documentTypeId || ''}
             />
           )}

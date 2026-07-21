@@ -14,11 +14,7 @@ export function ModelConfigurationForm({
   isLoading,
 }: ModelConfigurationFormProps) {
   const [formData, setFormData] = useState<ModelConfig>(
-    initialData || {
-      modelIdentifier: '',
-      temperature: 0.7,
-      maxTokens: 2048,
-    }
+    initialData ?? { modelIdentifier: '' }
   );
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -35,7 +31,7 @@ export function ModelConfigurationForm({
     }
   }, [initialData]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrors({});
 
@@ -59,67 +55,23 @@ export function ModelConfigurationForm({
             Model Identifier
           </label>
           <p className="mb-3 text-sm text-gray-600">
-            This model configuration will be applied system-wide across all departments.
+            This model will be applied system-wide across all departments. The setting is applied at deploy time via the <code>BEDROCK_MODEL_ID</code> environment variable; contact your infrastructure team to apply a change.
           </p>
           <select
             value={formData.modelIdentifier}
-            onChange={(e) =>
-              setFormData({ ...formData, modelIdentifier: e.target.value })
-            }
+            onChange={(e) => setFormData({ modelIdentifier: e.target.value })}
             className="w-full rounded-lg border border-gray-300 px-4 py-2 text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
           >
             <option value="">Select a model</option>
-            {availableModels.map((model: any) => (
+            {availableModels.map((model) => (
               <option key={model.id} value={model.id}>
-                {model.name} ({model.id})
+                {model.name}
               </option>
             ))}
           </select>
           {errors.modelIdentifier && (
             <p className="mt-1 text-sm text-red-600">{errors.modelIdentifier}</p>
           )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold text-gray-900">Temperature</label>
-          <input
-            type="number"
-            min="0"
-            max="1"
-            step="0.1"
-            value={formData.temperature}
-            onChange={(e) =>
-              setFormData({ ...formData, temperature: parseFloat(e.target.value) })
-            }
-            className="w-full rounded-lg border border-gray-300 px-4 py-2 text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-          />
-          {errors.temperature && (
-            <p className="mt-1 text-sm text-red-600">{errors.temperature}</p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold text-gray-900">
-            Max Tokens per Output
-          </label>
-          <input
-            type="number"
-            min="1"
-            value={formData.maxTokens}
-            onChange={(e) =>
-              setFormData({ ...formData, maxTokens: parseInt(e.target.value) })
-            }
-            className="w-full rounded-lg border border-gray-300 px-4 py-2 text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-          />
-          {errors.maxTokens && (
-            <p className="mt-1 text-sm text-red-600">{errors.maxTokens}</p>
-          )}
-        </div>
-
-        <div className="flex items-start gap-2 rounded-lg bg-gray-50 p-3">
-          <p className="text-sm text-gray-700">
-            These model settings will be applied across all document types and departments in the system.
-          </p>
         </div>
 
         <button

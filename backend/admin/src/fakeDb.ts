@@ -634,7 +634,7 @@ export class FakeDb implements QueryExecutor {
 
     /* ----------------------------- document_type ----------------------------- */
 
-    if (sql.startsWith('INSERT INTO document_type (department_id, name, size_limit_words)')) {
+    if (sql.startsWith('INSERT INTO document_type (department_id, name, access_state, size_limit_words)')) {
       this.mutationCount += 1;
       const row: DocumentTypeRow = {
         id: this.nextId('dt'),

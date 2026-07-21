@@ -20,22 +20,9 @@ export function AnchoredFeedbackEditorContainer({
 }: AnchoredFeedbackEditorContainerProps) {
   const feedbackQuery = useDocumentFeedback(environmentId);
 
-  if (feedbackQuery.isLoading) {
-    return (
-      <p role="status" className="text-bodySmall text-text-secondary">
-        Loading feedback…
-      </p>
-    );
-  }
-
-  if (feedbackQuery.isError) {
-    return (
-      <p role="alert" className="text-bodySmall text-signal-critical">
-        Couldn't load feedback for this draft.
-      </p>
-    );
-  }
-
+  // Always render the editor — feedback overlays once data arrives.
+  // Never replace the editor with a loading/error message so the student
+  // can keep writing while feedback loads in the background.
   return (
     <AnchoredFeedbackEditor
       {...editorProps}

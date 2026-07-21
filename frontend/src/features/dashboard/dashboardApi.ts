@@ -174,7 +174,7 @@ export function fetchDocument(client: HttpClient, documentId: string): Promise<D
 /** Creates a new Document record in the backend. Returns the created Document. */
 export function createDocument(
   client: HttpClient,
-  input: { documentTypeId: string; contentTypeId: string; name: string },
+  input: { documentTypeId: string; contentTypeId?: string; name: string },
 ): Promise<Document> {
   return client.request(DOCUMENTS_PATH, {
     method: 'POST',

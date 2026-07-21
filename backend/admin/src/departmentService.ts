@@ -130,8 +130,8 @@ export async function renameDepartment(
 }
 
 /**
- * Update a Department's department-level prompt text. Scoped to TechnicalAdmin
- * or DepartmentAdmin who administers this department (`department.manage`).
+ * Update a Department's department-level prompt text (TechnicalAdmin only —
+ * this is a platform-level system prompt, not an educational content operation).
  * Throws {@link NotFoundError} when the Department does not exist.
  */
 export async function updateDepartmentPrompt(
@@ -140,10 +140,9 @@ export async function updateDepartmentPrompt(
   input: UpdateDepartmentPromptInput,
   db: QueryExecutor,
 ): Promise<Department> {
-  requireCapability(actor, {
-    capability: 'department.manage',
-    scope: { kind: 'department', departmentId: id },
-  });
+  if (!actor.roles.includes('TechnicalAdmin')) {
+    throw Object.assign(new Error('TechnicalAdmin role required'), { statusCode: 403 });
+  }
 
   const { prompt } = updateDepartmentPromptInputSchema.parse(input);
 

@@ -141,8 +141,15 @@ export function AnchoredFeedbackEditor({
     const editor = editorRef.current?.getEditor();
     if (!editor) return;
 
-    // Clear any previous highlights
-    editor.chain().unsetHighlight().run();
+    // Clear any previous debrief highlights from the entire document
+    const markType = editor.schema.marks.highlight;
+    if (markType) {
+      const { size } = editor.state.doc.content;
+      if (size > 0) {
+        const clearTr = editor.state.tr.removeMark(0, size, markType);
+        editor.view.dispatch(clearTr);
+      }
+    }
 
     if (!highlightedAnchorId) return;
 
@@ -161,7 +168,6 @@ export function AnchoredFeedbackEditor({
     const { from, to } = range;
 
     // Apply highlight mark without selection
-    const markType = editor.schema.marks.highlight;
     if (markType) {
       const tr = editor.state.tr.addMark(from, to, markType.create({ color: '#FFD700' }));
       editor.view.dispatch(tr);

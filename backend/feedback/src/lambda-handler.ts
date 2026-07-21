@@ -67,6 +67,7 @@ function toFeedbackItemDto(row: any) {
     errorCategoryId: row.error_category_id,
     kind: row.kind,
     questionText: row.question_text,
+    ...(row.quoted_text ? { quotedText: row.quoted_text } : {}),
     ...(row.current_anchor_id ? { currentAnchorId: row.current_anchor_id } : {}),
     ...(row.citation_reference_id ? { citationReferenceId: row.citation_reference_id } : {}),
     sourceDraftId: row.source_draft_id,
@@ -135,8 +136,8 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   }
 
   const feedbackQuery = `
-    SELECT id, document_id, error_category_id, kind, question_text, current_anchor_id,
-           citation_reference_id, source_draft_id, created_at
+    SELECT id, document_id, error_category_id, kind, question_text, quoted_text,
+           current_anchor_id, citation_reference_id, source_draft_id, created_at
     FROM feedback_item
     WHERE document_id = $1
     ORDER BY created_at DESC
@@ -153,11 +154,25 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   `;
   const anchorRows = await db.query(anchorsQuery, [documentId]);
 
+  // Build a categoryId → name map from the distinct category IDs present in the items
+  const categoryIds = [...new Set(feedbackRows.map((r: any) => r.error_category_id).filter(Boolean))];
+  const categoryNames: Record<string, string> = {};
+  if (categoryIds.length > 0) {
+    const catRows = await db.query(
+      `SELECT id, name FROM error_category WHERE id = ANY($1)`,
+      [categoryIds],
+    );
+    for (const row of catRows as any[]) {
+      categoryNames[row.id] = row.name;
+    }
+  }
+
   return {
     statusCode: 200,
     body: JSON.stringify({
       items: feedbackRows.map((row: any) => toFeedbackItemDto(row)),
       anchors: anchorRows.map((row: any) => toAnchorDto(row)),
+      categoryNames,
       progressSummary: [],
     }),
   };

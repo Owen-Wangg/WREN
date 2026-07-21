@@ -41,9 +41,8 @@ export function useRegenerateDebrief(
     mutationFn: () => regenerateDebrief(apiClient, environmentId),
     onSuccess: (debrief) => {
       queryClient.setQueryData(queryKeys.debrief(environmentId), debrief);
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.debrief(environmentId),
-      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.debrief(environmentId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(environmentId) });
     },
   });
 }
