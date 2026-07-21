@@ -24,7 +24,7 @@ describe('read Departments', () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Allard Law' });
 
-    expect(await getDepartment(DEPT, db)).toEqual({ id: DEPT, name: 'Allard Law' });
+    expect(await getDepartment(DEPT, db)).toEqual({ id: DEPT, name: 'Allard Law', prompt: null });
     expect(await getDepartment('missing', db)).toBeNull();
   });
 
@@ -133,6 +133,6 @@ describe('Department owns no Users (Requirement 28.1 / 28.2)', () => {
   it('the department row carries only grouping fields — no user/owner column', () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Allard' });
-    expect(Object.keys(db.departments.get(DEPT)!).sort()).toEqual(['id', 'name']);
+    expect(Object.keys(db.departments.get(DEPT)!).sort()).toEqual(['id', 'name', 'prompt']);
   });
 });

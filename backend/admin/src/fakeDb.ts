@@ -20,6 +20,7 @@ import type { QueryExecutor } from './db';
 interface DepartmentRow {
   id: string;
   name: string;
+  prompt: string | null;
 }
 
 interface DocumentTypeRow {
@@ -64,6 +65,9 @@ interface DocumentTypeConfigRow {
   type_prompt_text: string | null;
   tone_description: string | null;
   density_description: string | null;
+  structure_description: string | null;
+  restrictions_description: string | null;
+  notes_description: string | null;
   updated_at: Date;
 }
 
@@ -249,6 +253,7 @@ export class FakeDb implements QueryExecutor {
     const full: DepartmentRow = {
       id: row.id,
       name: row.name ?? 'Seed Dept',
+      prompt: row.prompt ?? null,
     };
     this.departments.set(full.id, full);
     return full;
@@ -424,6 +429,9 @@ export class FakeDb implements QueryExecutor {
       type_prompt_text: row.type_prompt_text ?? null,
       tone_description: row.tone_description ?? null,
       density_description: row.density_description ?? null,
+      structure_description: row.structure_description ?? null,
+      restrictions_description: row.restrictions_description ?? null,
+      notes_description: row.notes_description ?? null,
       updated_at: row.updated_at ?? new Date(),
     };
     this.documentTypeConfigs.set(full.document_type_id, full);
@@ -584,6 +592,7 @@ export class FakeDb implements QueryExecutor {
       const row: DepartmentRow = {
         id,
         name: params[1] as string,
+        prompt: null,
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -594,6 +603,7 @@ export class FakeDb implements QueryExecutor {
       const row: DepartmentRow = {
         id: params[0] as string,
         name: params[1] as string,
+        prompt: null,
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -604,12 +614,12 @@ export class FakeDb implements QueryExecutor {
       return (row ? [{ id: row.id }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT id, name FROM department WHERE id = $1')) {
+    if (sql.startsWith('SELECT id, name, prompt FROM department WHERE id = $1')) {
       const row = this.departments.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT id, name FROM department ORDER BY name ASC')) {
+    if (sql.startsWith('SELECT id, name, prompt FROM department ORDER BY name ASC')) {
       const rows = [...this.departments.values()]
         .map((r) => ({ ...r }))
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -1062,6 +1072,9 @@ export class FakeDb implements QueryExecutor {
             type_prompt_text: null,
             tone_description: null,
             density_description: null,
+            structure_description: null,
+            restrictions_description: null,
+            notes_description: null,
             updated_at: new Date(),
           };
       this.documentTypeConfigs.set(documentTypeId, row);
@@ -1070,17 +1083,17 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        'SELECT document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, updated_at FROM document_type_config WHERE document_type_id = $1',
+        'SELECT document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at FROM document_type_config WHERE document_type_id = $1',
       )
     ) {
       const row = this.documentTypeConfigs.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, updated_at)')) {
+    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at)')) {
       this.mutationCount += 1;
-      const [documentTypeId, tone, density, categoryPriorityJson, typePromptText, toneDescription, densityDescription, shouldSetPrompt] =
-        params as [string, string | null, string | null, string | null, string | null, string | null, string | null, boolean];
+      const [documentTypeId, tone, density, categoryPriorityJson, typePromptText, toneDescription, densityDescription, shouldSetPrompt, structureDescription, restrictionsDescription, notesDescription] =
+        params as [string, string | null, string | null, string | null, string | null, string | null, string | null, boolean, string | null, string | null, string | null];
       const existing = this.documentTypeConfigs.get(documentTypeId);
       const categoryPriority = categoryPriorityJson
         ? (JSON.parse(categoryPriorityJson) as string[])
@@ -1093,6 +1106,9 @@ export class FakeDb implements QueryExecutor {
         type_prompt_text: shouldSetPrompt ? typePromptText : existing?.type_prompt_text ?? null,
         tone_description: toneDescription ?? existing?.tone_description ?? null,
         density_description: densityDescription ?? existing?.density_description ?? null,
+        structure_description: structureDescription ?? existing?.structure_description ?? null,
+        restrictions_description: restrictionsDescription ?? existing?.restrictions_description ?? null,
+        notes_description: notesDescription ?? existing?.notes_description ?? null,
         updated_at: new Date(),
       };
       this.documentTypeConfigs.set(documentTypeId, row);

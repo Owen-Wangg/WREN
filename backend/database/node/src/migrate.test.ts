@@ -15,6 +15,8 @@ describe('listMigrationFiles — lexical ordering', () => {
       '0004_seed_reference_data.sql',
       '0005_identity_mapping.sql',
       '0006_writing_type_config_prompts.sql',
+      '0007_department_prompt_and_doctype_extra_fields.sql',
+      '0008_feedback_item_quoted_text.sql',
     ]);
   });
 
@@ -61,8 +63,10 @@ describe('runMigrations — idempotent forward-only application', () => {
       '0004_seed_reference_data.sql',
       '0005_identity_mapping.sql',
       '0006_writing_type_config_prompts.sql',
+      '0007_department_prompt_and_doctype_extra_fields.sql',
+      '0008_feedback_item_quoted_text.sql',
     ]);
-    expect(begin).toHaveBeenCalledTimes(6);
+    expect(begin).toHaveBeenCalledTimes(8);
   });
 
   it('skips migrations already recorded in schema_migrations', async () => {
@@ -76,8 +80,10 @@ describe('runMigrations — idempotent forward-only application', () => {
       '0004_seed_reference_data.sql',
       '0005_identity_mapping.sql',
       '0006_writing_type_config_prompts.sql',
+      '0007_department_prompt_and_doctype_extra_fields.sql',
+      '0008_feedback_item_quoted_text.sql',
     ]);
-    expect(begin).toHaveBeenCalledTimes(5);
+    expect(begin).toHaveBeenCalledTimes(7);
   });
 
   it('is a no-op when the database is already current', async () => {
@@ -88,6 +94,8 @@ describe('runMigrations — idempotent forward-only application', () => {
       '0004_seed_reference_data.sql',
       '0005_identity_mapping.sql',
       '0006_writing_type_config_prompts.sql',
+      '0007_department_prompt_and_doctype_extra_fields.sql',
+      '0008_feedback_item_quoted_text.sql',
     ]);
 
     const applied = await runMigrations(sql);
@@ -104,7 +112,7 @@ describe('runMigrations — idempotent forward-only application', () => {
     const insertCalls = unsafe.mock.calls.filter(([text]) =>
       /INSERT INTO schema_migrations/i.test(text as string),
     );
-    expect(insertCalls).toHaveLength(6);
+    expect(insertCalls).toHaveLength(8);
     for (const [text, params] of insertCalls) {
       expect(text).toContain('VALUES ($1)');
       expect(Array.isArray(params)).toBe(true);
