@@ -102,6 +102,7 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   databaseSecretArn: databaseStack.databaseSecretArn,
   documentsBucketName: storageStack.documentsBucketName,
   referenceBucketName: storageStack.referenceBucketName,
+  storageEncryptionKey: storageStack.storage.encryptionKey,
   conversationTableName: storageStack.conversationTableName,
   userPoolId: cognitoStack.userPoolId,
   userPoolClientId: cognitoStack.userPoolClientId,

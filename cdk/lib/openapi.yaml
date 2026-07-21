@@ -886,7 +886,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [documentTypeId, name]
+              required: [documentTypeId, name, source]
               properties:
                 documentTypeId:
                   type: string
@@ -900,6 +900,7 @@ paths:
                     type: string
                 source:
                   type: object
+                  required: [kind]
                   properties:
                     kind:
                       type: string
@@ -910,13 +911,13 @@ paths:
                       type: string
       responses:
         "201":
-          description: Document created
+          description: Document created (initial draft ingested server-side)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Document"
         "400":
-          description: Validation error (unsupported format, oversize, missing required fields)
+          description: Validation error (unsupported format, oversize, missing required fields, extraction failure)
           content:
             application/json:
               schema:
@@ -1291,6 +1292,164 @@ paths:
                     type: string
                   itemCount:
                     type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
+  /v1/documents/{documentId}/ask-wren:
+    get:
+      summary: Get Ask WREN conversation for a draft
+      tags: [Feedback]
+      operationId: getAskWrenSession
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: draftId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Conversation messages for the draft-anchored session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, documentId, draftId, messages]
+                properties:
+                  sessionId:
+                    type: string
+                  documentId:
+                    type: string
+                  draftId:
+                    type: string
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, role, text, createdAt]
+                      properties:
+                        id:
+                          type: string
+                        role:
+                          type: string
+                          enum: [user, wren]
+                        text:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+    post:
+      summary: Send a message to Ask WREN for a draft
+      tags: [Feedback]
+      operationId: postAskWrenMessage
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draftId, text]
+              properties:
+                draftId:
+                  type: string
+                text:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Socratic reply from Ask WREN
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, message]
+                properties:
+                  sessionId:
+                    type: string
+                  message:
+                    type: object
+                    required: [id, role, text, createdAt]
+                    properties:
+                      id:
+                        type: string
+                      role:
+                        type: string
+                        enum: [user, wren]
+                      text:
+                        type: string
+                      createdAt:
+                        type: string
+                        format: date-time
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

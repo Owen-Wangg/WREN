@@ -64,6 +64,7 @@ export class DatabaseStack extends Stack {
       databaseSecretArn: this.database.credentialsSecret.secretArn,
       vpc: props.vpc,
       vpcSubnets: privateSubnets,
+      stackPrefix: props.config.stackPrefix,
     });
 
     // The migration custom resource must wait for the proxy target group to be

@@ -7,6 +7,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
+import type { IKey } from "aws-cdk-lib/aws-kms";
 import type { Construct } from "constructs";
 
 import type { AppConfig } from "../config";
@@ -27,6 +28,8 @@ export interface ComputeStackProps extends StackProps {
   readonly documentsBucketName: string;
   /** S3 bucket name for reference materials. */
   readonly referenceBucketName: string;
+  /** KMS key encrypting the documents / reference buckets (SSE-KMS). */
+  readonly storageEncryptionKey: IKey;
   /** DynamoDB conversation table name. */
   readonly conversationTableName: string;
   /** Cognito User Pool ID (from Cognito stack). */
@@ -123,7 +126,7 @@ export class ComputeStack extends Stack {
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 512,
-      timeout: Duration.seconds(30),
+      timeout: Duration.seconds(60),
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,
@@ -132,7 +135,11 @@ export class ComputeStack extends Stack {
         ...dbEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
       },
-      bundling: sharedBundling,
+      bundling: {
+        ...sharedBundling,
+        // Native napi binaries for LiteParse must ship with the bundle.
+        nodeModules: ["@llamaindex/liteparse"],
+      },
     });
 
     // -----------------------------------------------------------------------
@@ -204,8 +211,9 @@ export class ComputeStack extends Stack {
       entry: path.join(monorepoRoot, "backend/feedback/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 256,
-      timeout: Duration.seconds(15),
+      memorySize: 512,
+      // Ask WREN invokes Bedrock synchronously on this Lambda.
+      timeout: Duration.seconds(60),
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,
@@ -213,6 +221,8 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv,
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
+        CONVERSATION_TABLE_NAME: props.conversationTableName,
+        BEDROCK_MODEL_ID: config.bedrockModelId,
       },
       bundling: sharedBundling,
     });
@@ -298,12 +308,14 @@ export class ComputeStack extends Stack {
       actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       resources: [`arn:aws:s3:::${props.documentsBucketName}/*`],
     }));
+    props.storageEncryptionKey.grantEncryptDecrypt(this.documentFunction);
 
     // Admin Lambda: S3 read/write for reference material uploads.
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       resources: [`arn:aws:s3:::${props.referenceBucketName}/*`],
     }));
+    props.storageEncryptionKey.grantEncryptDecrypt(this.adminFunction);
 
     // Admin Lambda: Cognito ListUsersInGroup for the sync-cognito-admins script.
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -321,6 +333,30 @@ export class ComputeStack extends Stack {
         `arn:aws:bedrock:*:${this.account}:model/*`,
         `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
         `arn:aws:bedrock:*::foundation-model/*`,
+      ],
+    }));
+
+    // Ask WREN (Feedback Orchestrator): Bedrock + ConversationHistory DynamoDB.
+    this.feedbackOrchestratorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
+      ],
+      resources: [
+        `arn:aws:bedrock:*:${this.account}:model/*`,
+        `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
+        `arn:aws:bedrock:*::foundation-model/*`,
+      ],
+    }));
+    this.feedbackOrchestratorFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query",
+      ],
+      resources: [
+        `arn:aws:dynamodb:${this.region}:${this.account}:table/${props.conversationTableName}`,
       ],
     }));
 

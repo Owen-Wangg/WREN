@@ -99,7 +99,10 @@ export class CicdStack extends Stack {
               `docker tag ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION ${this.ecrRepository.repositoryUri}:bootstrap`,
               `docker push ${this.ecrRepository.repositoryUri}:bootstrap`,
               `echo "${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION" > image-uri.txt`,
-              `cd cdk && npx cdk synth && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
+              // Synth with the same stackPrefix/environment as this pipeline so
+              // cdk.out/${stackPrefix}-Compute.assets.json actually exists
+              // (cdk.json defaults to environmentName=dev otherwise).
+              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c githubOwner=${props.repositoryOwner} -c githubRepo=${props.repositoryName} -c githubBranch=${props.branch} && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
             ],
           },
         },

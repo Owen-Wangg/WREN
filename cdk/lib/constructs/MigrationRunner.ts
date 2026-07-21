@@ -23,6 +23,11 @@ export interface MigrationRunnerProps {
   readonly vpc: ec2.IVpc;
   /** Private subnets for the migration Lambda. */
   readonly vpcSubnets: ec2.SubnetSelection;
+  /**
+   * Stack prefix used for the Lambda function name so multiple environments
+   * (e.g. wren-dev + wren-testing) can coexist in one account.
+   */
+  readonly stackPrefix: string;
 }
 
 /**
@@ -33,7 +38,7 @@ export class MigrationRunner extends CustomResource {
 
   constructor(scope: Construct, id: string, props: MigrationRunnerProps) {
     const migrationFunction = new lambdaNodejs.NodejsFunction(scope, `${id}Fn`, {
-      functionName: `${id}-migrate`,
+      functionName: `${props.stackPrefix}-migrate`,
       entry: path.join(__dirname, '../../lambda/migrations/handler.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_22_X,
