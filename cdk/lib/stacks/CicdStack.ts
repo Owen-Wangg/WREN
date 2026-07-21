@@ -95,13 +95,9 @@ export class CicdStack extends Stack {
             commands: [
               `docker build -t ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION backend/engine/python/`,
               `docker push ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION`,
-              "cd cdk && npx cdk synth",
-            ],
-          },
-          post_build: {
-            commands: [
-              // Write the image URI to a file so the UpdateLambda stage can read it
+              // Write before cd so the file lands in CODEBUILD_SRC_DIR, not cdk/
               `echo "${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION" > image-uri.txt`,
+              "cd cdk && npx cdk synth",
             ],
           },
         },
