@@ -21,3 +21,4 @@
 langchain-aws==1.0.0
 langchain-core==1.4.9
 boto3==1.40.63
+psycopg[binary]==3.3.4

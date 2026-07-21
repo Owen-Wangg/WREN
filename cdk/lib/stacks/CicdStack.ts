@@ -1,4 +1,4 @@
-import { Stack, type StackProps, RemovalPolicy, SecretValue } from "aws-cdk-lib";
+import { Stack, type StackProps, RemovalPolicy, SecretValue, CfnCapabilities } from "aws-cdk-lib";
 import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
 import * as codepipelineActions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
@@ -95,8 +95,11 @@ export class CicdStack extends Stack {
             commands: [
               `docker build -t ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION backend/engine/python/`,
               `docker push ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION`,
+              // Also keep bootstrap tag current so CloudFormation can always reference it
+              `docker tag ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION ${this.ecrRepository.repositoryUri}:bootstrap`,
+              `docker push ${this.ecrRepository.repositoryUri}:bootstrap`,
               `echo "${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION" > image-uri.txt`,
-              "cd cdk && npx cdk synth && cd ..",
+              `cd cdk && npx cdk synth && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
             ],
           },
         },
@@ -115,6 +118,31 @@ export class CicdStack extends Stack {
     });
 
     this.ecrRepository.grantPullPush(buildProject);
+
+    // Allow cdk-assets publish to upload Lambda bundles to the CDK bootstrap bucket
+    buildProject.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket', 's3:GetBucketLocation'],
+      resources: [
+        `arn:aws:s3:::cdk-*-assets-${this.account}-${config.env.region}`,
+        `arn:aws:s3:::cdk-*-assets-${this.account}-${config.env.region}/*`,
+      ],
+    }));
+
+    buildProject.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['sts:AssumeRole'],
+      resources: [`arn:aws:iam::${this.account}:role/cdk-*-file-publishing-role-${this.account}-${config.env.region}`],
+    }));
+
+    // Allow the Lambda service to pull images from this repo so
+    // update-function-code and cold starts can access the image.
+    this.ecrRepository.addToResourcePolicy(new iam.PolicyStatement({
+      principals: [new iam.ServicePrincipal('lambda.amazonaws.com')],
+      actions: [
+        'ecr:GetDownloadUrlForLayer',
+        'ecr:BatchGetImage',
+        'ecr:BatchCheckLayerAvailability',
+      ],
+    }));
 
     // -------------------------------------------------------------------
     // Stage 3: UpdateLambda — swap the image without touching CloudFormation
@@ -141,9 +169,16 @@ export class CicdStack extends Stack {
     });
 
     updateLambdaProject.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["lambda:UpdateFunctionCode", "lambda:GetFunction"],
+      actions: ["lambda:UpdateFunctionCode", "lambda:GetFunction", "lambda:GetFunctionConfiguration"],
       resources: [`arn:aws:lambda:${config.env.region}:*:function:${functionName}`],
     }));
+
+    updateLambdaProject.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ecr:GetAuthorizationToken"],
+      resources: ["*"],
+    }));
+
+    this.ecrRepository.grantPull(updateLambdaProject);
 
     // -------------------------------------------------------------------
     // CodePipeline
@@ -182,23 +217,27 @@ export class CicdStack extends Stack {
           ],
         },
         {
-          stageName: "UpdateLambda",
-          actions: [
-            new codepipelineActions.CodeBuildAction({
-              actionName: "Update_Feedback_Engine",
-              project: updateLambdaProject,
-              input: imageUriOutput,
-            }),
-          ],
-        },
-        {
           stageName: "Deploy",
           actions: [
             new codepipelineActions.CloudFormationCreateUpdateStackAction({
               actionName: "Deploy_CDK",
               stackName: `${config.stackPrefix}-Compute`,
               templatePath: cdkOutput.atPath(`${config.stackPrefix}-Compute.template.json`),
-              adminPermissions: false,
+              adminPermissions: true,
+              cfnCapabilities: [
+                CfnCapabilities.NAMED_IAM,
+                CfnCapabilities.AUTO_EXPAND,
+              ],
+            }),
+          ],
+        },
+        {
+          stageName: "UpdateLambda",
+          actions: [
+            new codepipelineActions.CodeBuildAction({
+              actionName: "Update_Feedback_Engine",
+              project: updateLambdaProject,
+              input: imageUriOutput,
             }),
           ],
         },

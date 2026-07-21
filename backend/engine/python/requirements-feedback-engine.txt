@@ -7,6 +7,7 @@ anyio==4.14.1
     #   httpx
     #   langsmith
 boto3==1.40.63
+psycopg[binary]==3.3.4
     # via
     #   -r requirements-feedback-engine.in
     #   langchain-aws

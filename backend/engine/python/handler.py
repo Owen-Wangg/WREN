@@ -11,7 +11,7 @@ from typing import Any
 import uuid
 import hashlib
 
-import psycopg3
+import psycopg
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -62,7 +62,7 @@ def get_db_connection():
         secret_response = secrets_client.get_secret_value(SecretId=secret_arn)
         secret = json.loads(secret_response['SecretString'])
 
-        conn = psycopg3.connect(
+        conn = psycopg.connect(
             host=secret['host'],
             port=secret['port'],
             dbname=secret['dbname'],
@@ -76,7 +76,7 @@ def get_db_connection():
         raise
 
 
-def load_prompt_config(document_type_id: str, conn: psycopg3.Connection) -> dict[str, Any]:
+def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[str, Any]:
     """Load prompt configuration from database."""
     try:
         with conn.cursor() as cur:
@@ -128,7 +128,7 @@ def load_prompt_config(document_type_id: str, conn: psycopg3.Connection) -> dict
         raise
 
 
-def load_draft_segments(draft_id: str, conn: psycopg3.Connection) -> list[dict[str, Any]]:
+def load_draft_segments(draft_id: str, conn: psycopg.Connection) -> list[dict[str, Any]]:
     """Load draft segments from database."""
     try:
         with conn.cursor() as cur:
@@ -146,7 +146,7 @@ def load_draft_segments(draft_id: str, conn: psycopg3.Connection) -> list[dict[s
         raise
 
 
-def load_document_type_meta(document_type_id: str, conn: psycopg3.Connection) -> dict[str, Any]:
+def load_document_type_meta(document_type_id: str, conn: psycopg.Connection) -> dict[str, Any]:
     """Return { name, category_names: list[str], category_ids: list[str] } for a document type."""
     try:
         with conn.cursor() as cur:
@@ -175,7 +175,7 @@ def load_document_type_meta(document_type_id: str, conn: psycopg3.Connection) ->
         return {"name": "Unknown Document Type", "category_ids": [], "category_names": []}
 
 
-def load_department_prompt(document_type_id: str, conn: psycopg3.Connection) -> str:
+def load_department_prompt(document_type_id: str, conn: psycopg.Connection) -> str:
     """Return the department-level prompt for the given document type, or empty string."""
     try:
         with conn.cursor() as cur:
@@ -379,7 +379,7 @@ def insert_feedback_items(
     user_id: str,
     feedback_items: list[dict[str, Any]],
     segments: list[dict[str, Any]],
-    conn: psycopg3.Connection
+    conn: psycopg.Connection
 ) -> int:
     """Insert feedback items and anchors into database."""
     try:
@@ -465,7 +465,7 @@ def insert_feedback_items(
         raise
 
 
-def update_aggregate_counters(document_type_id: str, feedback_count: int, conn: psycopg3.Connection) -> None:
+def update_aggregate_counters(document_type_id: str, feedback_count: int, conn: psycopg.Connection) -> None:
     """Update aggregate counters for analytics."""
     try:
         with conn.cursor() as cur:
