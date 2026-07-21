@@ -15,6 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@floating-ui/dom": "^1.8.0",
     "@hookform/resolvers": "^3.9.1",
     "@radix-ui/react-dialog": "^1.1.18",
     "@sereneinserenade/tiptap-comment-extension": "0.2.0",
