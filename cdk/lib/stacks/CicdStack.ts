@@ -53,7 +53,7 @@ export class CicdStack extends Stack {
     this.ecrRepository = new ecr.Repository(this, "FeedbackEngineRepo", {
       repositoryName: `${config.stackPrefix}-feedback-engine`,
       imageScanOnPush: true,
-      imageTagMutability: ecr.TagMutability.IMMUTABLE,
+      imageTagMutability: ecr.TagMutability.MUTABLE,
       removalPolicy: RemovalPolicy.RETAIN,
       lifecycleRules: [
         {
@@ -95,9 +95,8 @@ export class CicdStack extends Stack {
             commands: [
               `docker build -t ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION backend/engine/python/`,
               `docker push ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION`,
-              // Write before cd so the file lands in CODEBUILD_SRC_DIR, not cdk/
               `echo "${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION" > image-uri.txt`,
-              "cd cdk && npx cdk synth",
+              "cd cdk && npx cdk synth && cd ..",
             ],
           },
         },
