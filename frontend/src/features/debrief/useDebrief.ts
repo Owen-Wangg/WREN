@@ -48,10 +48,10 @@ export function useRegenerateDebrief(
 }
 
 /**
- * Records a Yes/No (+ optional comment) helpfulness rating. This is the audit
- * event call site described by the design/steering — the real Audit_Service
- * (task 14) doesn't exist yet, so `recordFeedbackHelpfulness` is a stubbed mock
- * API method with the eventual event shape already in place.
+ * Records a Yes/No (+ optional comment) helpfulness rating for the AI Debrief.
+ * POSTs to POST /v1/feedback-helpfulness — persisted anonymously in
+ * feedback_helpfulness_rating and surfaced to DepartmentAdmins via
+ * GET /v1/analytics/feedback-helpfulness.
  */
 export function useFeedbackHelpfulness(): UseMutationResult<
   HelpfulnessAck,

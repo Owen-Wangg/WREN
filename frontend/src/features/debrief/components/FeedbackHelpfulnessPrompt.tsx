@@ -46,9 +46,20 @@ export function FeedbackHelpfulnessPrompt({
 
   if (isSuccess) {
     return (
-      <p role="status" className={['text-bodySmall text-text-secondary', className].filter(Boolean).join(' ')}>
-        Thanks for letting us know.
-      </p>
+      <div
+        role="status"
+        className={['flex items-start gap-sm rounded-md border border-signal-positive/30 bg-signal-positive/5 px-md py-sm', className]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        <span className="mt-[2px] shrink-0 text-signal-positive" aria-hidden="true">✓</span>
+        <div className="flex flex-col gap-xs">
+          <p className="text-body font-sans font-semibold text-signal-positive">Thank you for your feedback!</p>
+          <p className="text-bodySmall text-text-secondary">
+            Your rating helps us improve the quality of AI feedback for everyone.
+          </p>
+        </div>
+      </div>
     );
   }
 

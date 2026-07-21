@@ -96,6 +96,7 @@ export function DocumentTypeDetailPage() {
           {activeTab === 'analytics' && (
             <AnalyticsSection
               feedbackCategories={feedbackCategories}
+              documentTypeId={documentTypeId || ''}
             />
           )}
         </div>

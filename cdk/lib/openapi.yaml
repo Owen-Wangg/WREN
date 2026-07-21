@@ -495,6 +495,43 @@ components:
             $ref: "#/components/schemas/AggregateCounter"
           description: Array of aggregate counters
 
+    HelpfulnessComment:
+      type: object
+      required: [helpful, comment, createdAt]
+      properties:
+        helpful:
+          type: boolean
+          description: Whether the student rated the feedback as helpful
+        comment:
+          type: string
+          description: Anonymous free-text comment submitted alongside the rating
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when the rating was submitted
+
+    HelpfulnessAnalyticsResult:
+      type: object
+      required: [helpful, notHelpful, total, comments]
+      properties:
+        helpful:
+          type: integer
+          minimum: 0
+          description: Count of ratings where helpful=true
+        notHelpful:
+          type: integer
+          minimum: 0
+          description: Count of ratings where helpful=false
+        total:
+          type: integer
+          minimum: 0
+          description: Total rating count (helpful + notHelpful)
+        comments:
+          type: array
+          description: Up to 20 most-recent anonymous comments (no student identity)
+          items:
+            $ref: "#/components/schemas/HelpfulnessComment"
+
   responses:
     Unauthorized:
       description: Missing or invalid authentication token
@@ -1870,6 +1907,176 @@ paths:
               schema:
                 type: string
 
+
+  # ==================== Feedback Helpfulness Rating ====================
+  /v1/feedback-helpfulness:
+    post:
+      summary: Record a student's helpfulness rating for their AI Debrief
+      description: |
+        Submitted by the owning Student after viewing their AI Debrief.
+        Persisted anonymously (no user_id stored) so ratings can be surfaced
+        as aggregate analytics to DepartmentAdmins without exposing per-Student
+        identity (Requirements 16.1–16.5, 43.2).
+      tags: [Feedback]
+      operationId: recordFeedbackHelpfulness
+      x-amazon-apigateway-request-validator: full
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [environmentId, helpful]
+              properties:
+                environmentId:
+                  type: string
+                  format: uuid
+                  description: Document ID (writing environment) the debrief belongs to
+                draftId:
+                  type: string
+                  format: uuid
+                  description: Draft version the debrief was generated against
+                helpful:
+                  type: boolean
+                  description: Whether the student found the AI feedback helpful
+                comment:
+                  type: string
+                  description: Optional anonymous free-text comment
+                  maxLength: 1000
+      responses:
+        "200":
+          description: Rating recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recorded]
+                properties:
+                  recorded:
+                    type: boolean
+        "400":
+          description: Validation error (missing required fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
+  /v1/analytics/feedback-helpfulness:
+    get:
+      summary: Get helpfulness-rating analytics for a document type
+      description: |
+        Returns aggregate helpful/not-helpful counts and up to 20 recent
+        anonymous comments. Accessible to DepartmentAdmins (scoped to
+        document types within administered departments) and TechnicalAdmins
+        (platform-wide). No per-Student identity is returned (Requirements
+        42.1, 42.2, 43.2).
+      tags: [Analytics]
+      operationId: getHelpfulnessAnalytics
+      parameters:
+        - name: documentTypeId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Document type to query ratings for
+      responses:
+        "200":
+          description: Helpfulness analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HelpfulnessAnalyticsResult"
+        "400":
+          description: documentTypeId query parameter is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
 
   # ==================== Usage ====================
   /v1/usage:

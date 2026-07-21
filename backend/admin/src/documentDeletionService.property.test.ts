@@ -32,9 +32,6 @@ const smallCountArb = fc.integer({ min: 1, max: 10 });
 /** Arbitrary non-empty string id. */
 const idArb = fc.string({ minLength: 3, maxLength: 12 }).filter((s) => /^[a-z0-9-]+$/.test(s));
 
-/** Arbitrary verb for activity events. */
-const verbArb = fc.constantFrom('uploaded', 'requested', 'regenerated', 'deleted');
-
 /** Arbitrary aggregate counter value. */
 const counterValueArb = fc.integer({ min: 1, max: 10000 });
 

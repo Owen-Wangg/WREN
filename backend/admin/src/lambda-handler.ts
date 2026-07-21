@@ -15,6 +15,7 @@ import { getUsageReport } from './usageLimitService';
 import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
 import { getAnalytics } from './analyticsService';
+import { getHelpfulnessAnalytics } from './helpfulnessAnalyticsService';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
 import { AuthorizationError } from './errors';
 import { requireCapability } from './capabilityGuard';
@@ -96,6 +97,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/analytics' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetAnalytics(event));
+    }
+    if (resource === '/v1/analytics/feedback-helpfulness' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetHelpfulnessAnalytics(event));
     }
     if (resource === '/v1/analytics/summary' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetAnalyticsSummary(event));
@@ -324,9 +328,6 @@ async function handleGetAnalyticsSummary(event: any): Promise<APIGatewayProxyRes
   );
   const docTypeIds = docTypeRows.map((r) => r.id);
 
-  const docTypeFilter = docTypeIds.length > 0
-    ? `AND document_type_id = ANY($1)`
-    : `AND FALSE`;
   const docTypeFilterAgg = docTypeIds.length > 0
     ? `AND scope_id = ANY($1)`
     : `AND FALSE`;
@@ -461,6 +462,20 @@ async function handleGetModelConfig(event: any): Promise<APIGatewayProxyResult> 
       note: 'Model ID is set by BEDROCK_MODEL_ID at deploy time; runtime updates are not supported.',
     }),
   };
+}
+
+async function handleGetHelpfulnessAnalytics(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.queryStringParameters || {};
+  if (!documentTypeId) {
+    return withCors({
+      statusCode: 400,
+      body: JSON.stringify({ code: 'BAD_REQUEST', message: 'documentTypeId query parameter is required' }),
+    });
+  }
+  const result = await getHelpfulnessAnalytics(actor, documentTypeId, db);
+  return withCors({ statusCode: 200, body: JSON.stringify(result) });
 }
 
 async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResult> {
