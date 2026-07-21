@@ -4,7 +4,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 
 import { AnchoredFeedbackEditorContainer } from '@/features/editor';
-import { MockAskWrenService } from '@/features/ask-wren';
+import { createAskWrenService } from '@/features/ask-wren';
 import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
 import { fetchDocument, fetchLatestDraft, createDraft } from '@/features/dashboard/dashboardApi';
@@ -18,7 +18,7 @@ import { queryKeys } from '@/hooks/queryKeys';
 
 import type { JSONContent } from '@tiptap/react';
 
-const askWrenService = new MockAskWrenService();
+const askWrenService = createAskWrenService(apiClient);
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -45,16 +45,18 @@ export function DocumentEditorPage() {
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
   // Start polling immediately if we arrived from a fresh upload (router state
-  // carries initialContent, meaning feedback was auto-queued on creation).
-  const [isPollingFeedback, setIsPollingFeedback] = useState(
-    () => !!(location.state as { initialContent?: unknown } | null)?.initialContent,
-  );
+  // carries feedbackQueued / legacy initialContent when feedback was auto-queued).
+  const [isPollingFeedback, setIsPollingFeedback] = useState(() => {
+    const s = location.state as { feedbackQueued?: boolean; initialContent?: unknown } | null;
+    return !!(s?.feedbackQueued || s?.initialContent);
+  });
 
   const state = location.state as {
     documentName?: string;
     organizationName?: string;
     contentType?: string;
     initialContent?: JSONContent;
+    feedbackQueued?: boolean;
   } | null;
 
   const routerInitialContent = state?.initialContent;

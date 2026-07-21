@@ -6,11 +6,28 @@ import {
   useDocumentTypes,
   useOrganizations,
 } from '@/features/dashboard/useDashboard';
-import { createDocument, createDraft } from '@/features/dashboard/dashboardApi';
+import { createDocument, getPresignedUrl } from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
-import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
-import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
-import { apiClient } from '@/services';
+import { apiClient, ApiError } from '@/services';
+
+function contentTypeForFile(file: File): string {
+  if (file.type) return file.type;
+  if (file.name.toLowerCase().endsWith('.pdf')) return 'application/pdf';
+  return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+}
+
+function errorMessageFromUnknown(error: unknown): string {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+    return error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return 'Failed to create document. Please try again.';
+}
 
 export function NewDocumentPage() {
   const navigate = useNavigate();
@@ -29,7 +46,8 @@ export function NewDocumentPage() {
   const canActivate =
     selectedDepartment &&
     selectedDocumentType &&
-    documentName.trim();
+    documentName.trim() &&
+    referenceFile;
 
   const handleDepartmentChange = (value: string) => {
     setSelectedDepartment(value);
@@ -40,43 +58,46 @@ export function NewDocumentPage() {
     mutationFn: async () => {
       const org = organizations.find((o) => o.id === selectedDepartment);
       const docType = documentTypes.find((dt) => dt.id === selectedDocumentType);
+      if (!referenceFile) {
+        throw new Error('A .docx or .pdf file is required');
+      }
+
+      const { uploadUrl, key } = await getPresignedUrl(
+        apiClient,
+        referenceFile.name,
+        contentTypeForFile(referenceFile),
+      );
+
+      const putResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: referenceFile,
+        headers: { 'Content-Type': contentTypeForFile(referenceFile) },
+      });
+      if (!putResponse.ok) {
+        throw new Error('File upload to storage failed');
+      }
 
       const doc = await createDocument(apiClient, {
         documentTypeId: selectedDocumentType,
         name: documentName.trim(),
+        source: { kind: 'file', key },
       });
 
-      let tiptapContent: import('@tiptap/react').JSONContent | undefined;
-      if (referenceFile) {
-        const bytes = new Uint8Array(await referenceFile.arrayBuffer());
-        const isPdf = referenceFile.name.toLowerCase().endsWith('.pdf');
-        tiptapContent = isPdf
-          ? await pdfBytesToTiptapContent(bytes)
-          : await docxBytesToTiptapContent(bytes);
-        const segments = (tiptapContent.content ?? []).map((block, idx) => ({
-          index: idx,
-          text: (block.content ?? [])
-            .filter((n) => n.type === 'text')
-            .map((n) => n.text ?? '')
-            .join(''),
-        }));
-        await createDraft(apiClient, doc.id, segments);
-        // Auto-trigger feedback generation on first upload — fire and forget,
-        // the editor page polls status and shows "Generating…" while it runs.
-        void generateFeedback(apiClient, doc.id).catch(() => {
-          // Non-fatal: student can manually trigger from the editor if this fails.
-        });
-      }
+      // Auto-trigger feedback — fire and forget; editor polls status.
+      void generateFeedback(apiClient, doc.id).catch(() => {
+        // Non-fatal: student can manually trigger from the editor if this fails.
+      });
 
-      return { doc, org, docType, tiptapContent };
+      return { doc, org, docType };
     },
-    onSuccess: ({ doc, org, docType, tiptapContent }) => {
+    onSuccess: ({ doc, org, docType }) => {
       navigate(`/dashboard/document/${doc.id}`, {
         state: {
           organizationName: org?.name,
           contentType: docType?.name,
           documentName: doc.name,
-          initialContent: tiptapContent,
+          // Signal editor to poll feedback; draft content loads from the API.
+          feedbackQueued: true,
         },
       });
     },
@@ -85,6 +106,10 @@ export function NewDocumentPage() {
   const handleActivate = () => {
     activateMutation.mutate();
   };
+
+  const errorMessage = activateMutation.isError
+    ? errorMessageFromUnknown(activateMutation.error)
+    : null;
 
   return (
     <div className="flex flex-col items-center gap-xl py-xl">
@@ -216,9 +241,9 @@ export function NewDocumentPage() {
           </div>
         )}
 
-        {activateMutation.isError && (
+        {errorMessage && (
           <p role="alert" className="text-bodySmall text-signal-critical">
-            Failed to create document. Please try again.
+            {errorMessage}
           </p>
         )}
 
@@ -227,7 +252,7 @@ export function NewDocumentPage() {
           disabled={!canActivate || activateMutation.isPending}
           className="w-full rounded-lg bg-accent-primary px-lg py-sm text-body font-sans font-semibold text-text-on-accent shadow-md disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {activateMutation.isPending ? 'Creating…' : 'Activate Editor'}
+          {activateMutation.isPending ? 'Uploading & creating…' : 'Activate Editor'}
         </button>
       </form>
     </div>

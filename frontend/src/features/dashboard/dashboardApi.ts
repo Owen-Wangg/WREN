@@ -171,15 +171,37 @@ export function fetchDocument(client: HttpClient, documentId: string): Promise<D
   return client.request(`${DOCUMENTS_PATH}/${documentId}`, { schema: documentSchema });
 }
 
-/** Creates a new Document record in the backend. Returns the created Document. */
+/** Creates a Document and ingests the first draft from file (S3 key) or paste. */
 export function createDocument(
   client: HttpClient,
-  input: { documentTypeId: string; contentTypeId?: string; name: string },
+  input: {
+    documentTypeId: string;
+    contentTypeId?: string;
+    name: string;
+    metadata?: Record<string, string>;
+    source: { kind: 'file'; key: string } | { kind: 'paste'; text: string };
+  },
 ): Promise<Document> {
   return client.request(DOCUMENTS_PATH, {
     method: 'POST',
     body: input,
     schema: documentSchema,
+  });
+}
+
+/** Presigned S3 PUT URL for uploading a document file before create. */
+export function getPresignedUrl(
+  client: HttpClient,
+  filename: string,
+  contentType: string,
+): Promise<{ uploadUrl: string; key: string }> {
+  return client.request('/v1/uploads/presign', {
+    method: 'POST',
+    body: { filename, contentType },
+    schema: z.object({
+      uploadUrl: z.string().url(),
+      key: z.string().min(1),
+    }),
   });
 }
 

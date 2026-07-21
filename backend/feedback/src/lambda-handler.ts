@@ -6,6 +6,12 @@ import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
+
+import {
+  appendAskWrenTurn,
+  buildSessionId,
+  loadSession,
+} from './askWren.js';
 // Shared utilities (parseAuthContext, wrapHandler, CORS)
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -103,6 +109,12 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     }
     if (resource === '/v1/documents/{documentId}/feedback/status' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetFeedbackStatus(event));
+    }
+    if (resource === '/v1/documents/{documentId}/ask-wren' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetAskWrenSession(event));
+    }
+    if (resource === '/v1/documents/{documentId}/ask-wren' && httpMethod === 'POST') {
+      return await wrapHandler(() => handlePostAskWren(event));
     }
 
     return withCors({
@@ -342,6 +354,131 @@ async function handleGetFeedbackStatus(event: any): Promise<APIGatewayProxyResul
       status: count > 0 ? 'completed' : 'queued',
       itemCount: count,
       latestDraftId: draftRows[0].id,
+    }),
+  };
+}
+
+async function assertDocumentOwner(
+  documentId: string,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; response: APIGatewayProxyResult }> {
+  const db = await getDataAccess();
+  const docRows = await db.query(
+    'SELECT owner_user_id FROM document WHERE id = $1',
+    [documentId],
+  );
+  if (docRows.length === 0 || docRows[0].owner_user_id !== userId) {
+    return {
+      ok: false,
+      response: {
+        statusCode: 404,
+        body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+      },
+    };
+  }
+  return { ok: true };
+}
+
+async function loadDraftSegments(
+  documentId: string,
+  draftId: string,
+  userId: string,
+): Promise<
+  | { ok: true; segments: Array<{ index?: number; text?: string }> }
+  | { ok: false; response: APIGatewayProxyResult }
+> {
+  const ownership = await assertDocumentOwner(documentId, userId);
+  if (!ownership.ok) return ownership;
+
+  const db = await getDataAccess();
+  const draftRows = await db.query(
+    `SELECT id, segments FROM draft
+     WHERE id = $1 AND document_id = $2`,
+    [draftId, documentId],
+  );
+  if (draftRows.length === 0) {
+    return {
+      ok: false,
+      response: {
+        statusCode: 404,
+        body: JSON.stringify({ code: 'NOT_FOUND', message: 'Draft not found' }),
+      },
+    };
+  }
+
+  const raw = draftRows[0].segments;
+  const parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? []);
+  return {
+    ok: true,
+    segments: Array.isArray(parsed) ? parsed : [],
+  };
+}
+
+async function handleGetAskWrenSession(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const { documentId } = event.pathParameters || {};
+  const draftId = event.queryStringParameters?.draftId;
+
+  if (!documentId || !draftId) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'documentId and draftId are required',
+      }),
+    };
+  }
+
+  const ownership = await assertDocumentOwner(documentId, actor.userId);
+  if (!ownership.ok) return ownership.response;
+
+  const sessionId = buildSessionId(actor.userId, documentId, draftId);
+  const session = await loadSession(sessionId);
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      sessionId,
+      documentId,
+      draftId,
+      messages: session?.messages ?? [],
+    }),
+  };
+}
+
+async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const { documentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const draftId = body.draftId as string | undefined;
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+
+  if (!documentId || !draftId || !text) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'documentId, draftId, and text are required',
+      }),
+    };
+  }
+
+  const draft = await loadDraftSegments(documentId, draftId, actor.userId);
+  if (!draft.ok) return draft.response;
+
+  const { sessionId, reply } = await appendAskWrenTurn({
+    userId: actor.userId,
+    documentId,
+    draftId,
+    userText: text,
+    draftSegments: draft.segments,
+  });
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      sessionId,
+      message: reply,
     }),
   };
 }

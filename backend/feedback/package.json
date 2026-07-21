@@ -13,7 +13,10 @@
     "@types/uuid": "^9.0.7"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.515.0",
+    "@aws-sdk/client-dynamodb": "^3.515.0",
     "@aws-sdk/client-sqs": "^3.515.0",
+    "@aws-sdk/lib-dynamodb": "^3.515.0",
     "@wren/db-node": "*",
     "@wren/types": "*",
     "uuid": "^9.0.0"

@@ -1231,6 +1231,80 @@ export class MockApiClient implements HttpClient {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
     const key = `${method} ${normalizedPath}`;
 
+    // Dynamic: Ask WREN chat (draft-anchored session)
+    const askWrenMatch = normalizedPath.match(
+      /^\/v1\/documents\/([^/?]+)\/ask-wren(?:\?(.*))?$/,
+    );
+    if (askWrenMatch) {
+      const documentId = askWrenMatch[1];
+      const query = new URLSearchParams(askWrenMatch[2] ?? '');
+      const body = options.body as { draftId?: string; text?: string } | undefined;
+      const draftId =
+        method === 'GET' ? query.get('draftId') ?? '' : (body?.draftId ?? '');
+      const sessionKey = `ask-wren:${documentId}:${draftId}`;
+      if (!this.routes[sessionKey]) {
+        this.routes[sessionKey] = [] as unknown;
+      }
+      const messages = this.routes[sessionKey] as Array<{
+        id: string;
+        role: 'user' | 'wren';
+        text: string;
+        createdAt: string;
+      }>;
+
+      if (method === 'GET') {
+        const fixture = {
+          sessionId: `${documentId}#${draftId}`,
+          documentId,
+          draftId,
+          messages,
+        };
+        if (!options.schema) return fixture as T;
+        const parsed = options.schema.safeParse(fixture);
+        if (!parsed.success) {
+          throw new ApiError(
+            `Mock fixture for Ask WREN GET failed validation`,
+            'validation',
+            200,
+            parsed.error.issues,
+          );
+        }
+        return parsed.data;
+      }
+
+      if (method === 'POST') {
+        const text = body?.text?.trim() ?? '';
+        const now = new Date().toISOString();
+        messages.push({
+          id: `user-mock-${Date.now()}`,
+          role: 'user',
+          text,
+          createdAt: now,
+        });
+        const reply = {
+          id: `wren-mock-${Date.now()}`,
+          role: 'wren' as const,
+          text: text
+            ? 'What part of this draft feels least clear to you right now?'
+            : 'What part of your draft would you like to talk through?',
+          createdAt: new Date().toISOString(),
+        };
+        messages.push(reply);
+        const fixture = { sessionId: `${documentId}#${draftId}`, message: reply };
+        if (!options.schema) return fixture as T;
+        const parsed = options.schema.safeParse(fixture);
+        if (!parsed.success) {
+          throw new ApiError(
+            `Mock fixture for Ask WREN POST failed validation`,
+            'validation',
+            200,
+            parsed.error.issues,
+          );
+        }
+        return parsed.data;
+      }
+    }
+
     // Dynamic: POST /v1/departments
     if (key === 'POST /v1/departments') {
       const body = options.body as Record<string, unknown> | undefined;
@@ -1269,9 +1343,38 @@ export class MockApiClient implements HttpClient {
       );
     }
 
+    // Dynamic: POST /v1/uploads/presign — mock S3 upload URL
+    if (key === 'POST /v1/uploads/presign') {
+      const body = options.body as { filename?: string } | undefined;
+      const filename = body?.filename ?? 'upload.docx';
+      const fixture = {
+        uploadUrl: `https://mock-s3.local/upload/${encodeURIComponent(filename)}`,
+        key: `documents/user-1/uploads/mock-${Date.now()}-${filename}`,
+      };
+      if (!options.schema) return fixture as T;
+      const result = options.schema.safeParse(fixture);
+      if (!result.success) {
+        throw new ApiError(
+          `Mock fixture for ${key} failed validation`,
+          'validation',
+          200,
+          result.error.issues,
+        );
+      }
+      return result.data;
+    }
+
     // Dynamic: POST /v1/documents — create a new doc with a unique mock ID
     if (key === 'POST /v1/documents') {
       const body = options.body as Record<string, unknown> | undefined;
+      const source = body?.source as { kind?: string; text?: string; key?: string } | undefined;
+      if (!source?.kind) {
+        throw new ApiError(
+          'source is required (kind: file with key, or paste with text)',
+          'http',
+          400,
+        );
+      }
       const newDocId = `doc-mock-${Date.now()}`;
       const newDoc = {
         id: newDocId,
@@ -1283,14 +1386,30 @@ export class MockApiClient implements HttpClient {
         status: 'Still Drafting',
         createdAt: new Date().toISOString(),
       };
-      // Register draft route for the new document so subsequent POST works
+      const pasteText =
+        source.kind === 'paste' && typeof source.text === 'string' ? source.text : '';
+      const segments = pasteText
+        ? pasteText
+            .split(/\n\s*\n/)
+            .map((t) => t.trim())
+            .filter(Boolean)
+            .map((text, index) => ({ index, text }))
+        : [
+            {
+              index: 0,
+              text: 'Mock ingested paragraph from uploaded file.',
+            },
+          ];
       const draftFixture = {
         id: `draft-${newDocId}-1`,
         documentId: newDocId,
         versionNumber: 1,
-        s3Key: 'inline',
-        segments: [],
-        wordCount: 0,
+        s3Key: source.kind === 'file' && source.key ? source.key : 'inline',
+        segments,
+        wordCount: segments.reduce(
+          (n, s) => n + s.text.split(/\s+/).filter(Boolean).length,
+          0,
+        ),
         createdAt: new Date().toISOString(),
       };
       this.routes[`POST /v1/documents/${newDocId}/drafts`] = draftFixture;

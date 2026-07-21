@@ -16,7 +16,7 @@
  *  - Surfaces `<AiDisclaimerNotice>` so the AI disclaimer is never
  *    copy-pasted inline here (steering §3, §11).
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
 import { appConfig } from '@/config/env';
@@ -47,6 +47,7 @@ export function WrenChatPanel({
 }: WrenChatPanelProps) {
   const [messages, setMessages] = useState<readonly WrenChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [hydrating, setHydrating] = useState(true);
   const {
     register,
     handleSubmit,
@@ -54,7 +55,43 @@ export function WrenChatPanel({
     formState: { isSubmitting },
   } = useZodForm(askWrenMessageSchema);
 
+  useEffect(() => {
+    let cancelled = false;
+    setHydrating(true);
+    setMessages([]);
+    setError(null);
+
+    const load = async () => {
+      if (!draftId || draftId === 'draft-pending') {
+        if (!cancelled) setHydrating(false);
+        return;
+      }
+      if (!askWrenService.getMessages) {
+        if (!cancelled) setHydrating(false);
+        return;
+      }
+      try {
+        const prior = await askWrenService.getMessages(documentId, draftId);
+        if (!cancelled) setMessages(prior);
+      } catch {
+        // Non-fatal: panel still works for new messages.
+      } finally {
+        if (!cancelled) setHydrating(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [askWrenService, documentId, draftId]);
+
   const onSubmit = async ({ text }: AskWrenMessageFormValues) => {
+    if (!draftId || draftId === 'draft-pending') {
+      setError('Save a draft before asking about this document.');
+      return;
+    }
+
     setError(null);
     const userMessage: WrenChatMessage = {
       id: `local-${Date.now()}`,
@@ -72,7 +109,6 @@ export function WrenChatPanel({
         text,
       });
       setMessages((prev) => [...prev, reply]);
-      // Trigger highlight if coach response references a section
       if (reply.highlightAnchorId) {
         onHighlight?.(reply.highlightAnchorId);
       }
@@ -99,9 +135,10 @@ export function WrenChatPanel({
         Ask {appConfig.appName}
       </h2>
 
-      {/* Draft progress indicator */}
       <div className="flex flex-col gap-xs">
-        <span className="text-bodySmall font-sans font-semibold text-text-primary">Draft version {draftVersion}</span>
+        <span className="text-bodySmall font-sans font-semibold text-text-primary">
+          Draft version {draftVersion}
+        </span>
         <div className="h-[6px] w-full overflow-hidden rounded-full bg-surface-subtle">
           <div
             className="h-full rounded-full bg-signal-positive transition-all duration-300"
@@ -115,12 +152,22 @@ export function WrenChatPanel({
         </div>
       </div>
 
-      <AiDisclaimerNotice message={`${appConfig.appName} responds with guiding questions to help you think through your own writing. It will not rewrite your text or provide replacement prose.`} />
+      <AiDisclaimerNotice
+        message={`${appConfig.appName} responds with guiding questions to help you think through your own writing. It will not rewrite your text or provide replacement prose.`}
+      />
 
       <ul
         aria-label="Conversation"
         className="flex flex-1 flex-col gap-sm overflow-y-auto"
       >
+        {hydrating && (
+          <li className="text-bodySmall text-text-secondary">Loading conversation…</li>
+        )}
+        {!hydrating && messages.length === 0 && (
+          <li className="text-bodySmall text-text-secondary">
+            Ask a question about this draft to get started.
+          </li>
+        )}
         {messages.map((message) => (
           <li
             key={message.id}
@@ -143,11 +190,7 @@ export function WrenChatPanel({
         </p>
       )}
 
-      <form
-        className="flex gap-sm"
-        noValidate
-        onSubmit={handleSubmit(onSubmit)}
-      >
+      <form className="flex gap-sm" noValidate onSubmit={handleSubmit(onSubmit)}>
         <label htmlFor="ask-wren-input" className="sr-only">
           Ask {appConfig.appName} a question about this draft
         </label>
@@ -160,7 +203,7 @@ export function WrenChatPanel({
         />
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || draftId === 'draft-pending'}
           className="rounded-md bg-accent-primary px-md py-sm text-bodySmall font-sans font-semibold text-text-on-accent disabled:opacity-60"
         >
           Send
