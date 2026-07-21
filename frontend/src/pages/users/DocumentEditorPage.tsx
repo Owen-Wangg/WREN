@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 
 import { AnchoredFeedbackEditorContainer } from '@/features/editor';
@@ -8,7 +8,7 @@ import { MockAskWrenService } from '@/features/ask-wren';
 import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
 import { fetchDocument, fetchLatestDraft } from '@/features/dashboard/dashboardApi';
-import { generateFeedback, fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
+import { fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
 import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
@@ -49,7 +49,6 @@ export function DocumentEditorPage() {
   const [isPollingFeedback, setIsPollingFeedback] = useState(
     () => !!(location.state as { initialContent?: unknown } | null)?.initialContent,
   );
-  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const state = location.state as {
     documentName?: string;
@@ -144,21 +143,6 @@ export function DocumentEditorPage() {
   const draftId = draftQuery.data?.id ?? 'draft-pending';
   const draftVersion = draftQuery.data?.versionNumber ?? 1;
 
-  // Generate feedback mutation + polling
-  const generateFeedbackMutation = useMutation({
-    mutationFn: () => generateFeedback(apiClient, envId),
-    onMutate: () => {
-      setFeedbackError(null);
-    },
-    onSuccess: () => {
-      setIsPollingFeedback(true);
-    },
-    onError: (error) => {
-      setFeedbackError(
-        error instanceof Error ? error.message : 'Failed to queue feedback generation.',
-      );
-    },
-  });
 
   // Poll feedback status after generation is queued
   useEffect(() => {
@@ -174,7 +158,6 @@ export function DocumentEditorPage() {
           if (status.status === 'completed') {
             setIsPollingFeedback(false);
             clearInterval(interval);
-            setFeedbackError(null);
             void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
             void queryClient.invalidateQueries({ queryKey: queryKeys.debrief(envId) });
             return;
@@ -183,17 +166,11 @@ export function DocumentEditorPage() {
           if (status.status === 'failed') {
             setIsPollingFeedback(false);
             clearInterval(interval);
-            setFeedbackError('Feedback generation failed. Please try again.');
           }
-        } catch (error) {
+        } catch {
           if (cancelled) return;
           setIsPollingFeedback(false);
           clearInterval(interval);
-          setFeedbackError(
-            error instanceof Error
-              ? error.message
-              : 'Could not check feedback status. Please try again.',
-          );
         }
       })();
     }, 2500);
@@ -261,7 +238,7 @@ export function DocumentEditorPage() {
               {/* Open feedback & chat sidebar */}
               <button
                 type="button"
-                onClick={() => setRightSidebarOpen(true)}
+                onClick={() => { setRightSidebarOpen(true); setRightSidebarCollapsed(false); }}
                 className="w-full rounded-md bg-accent-primary px-lg py-sm text-bodySmall font-sans font-semibold text-text-on-accent"
               >
                 Open {appConfig.appName} and AI Debrief
@@ -278,19 +255,6 @@ export function DocumentEditorPage() {
               >
                 Download Document
               </button>
-              <button
-                type="button"
-                onClick={() => generateFeedbackMutation.mutate()}
-                disabled={generateFeedbackMutation.isPending || isPollingFeedback}
-                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {isPollingFeedback ? 'Generating…' : generateFeedbackMutation.isPending ? 'Queuing…' : 'Generate Feedback'}
-              </button>
-              {feedbackError && (
-                <p role="alert" className="text-bodySmall text-signal-critical">
-                  {feedbackError}
-                </p>
-              )}
             </nav>
           </div>
 

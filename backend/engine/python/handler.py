@@ -471,10 +471,10 @@ def update_aggregate_counters(document_type_id: str, feedback_count: int, conn: 
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO aggregate_counter (document_type_id, metric_type, count, week_of)
-                VALUES (%s, 'feedback_items_generated', %s, date_trunc('week', NOW()))
-                ON CONFLICT (document_type_id, metric_type, week_of) DO UPDATE
-                SET count = aggregate_counter.count + EXCLUDED.count
+                INSERT INTO aggregate_counter (scope_kind, scope_id, metric, window_start, value)
+                VALUES ('documentType', %s, 'feedback_items_generated', date_trunc('week', NOW()), %s)
+                ON CONFLICT (scope_kind, scope_id, metric, window_start) DO UPDATE
+                SET value = aggregate_counter.value + EXCLUDED.value
             """, (document_type_id, feedback_count))
 
         conn.commit()

@@ -167,13 +167,73 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     }
   }
 
+  // Build progress summary by comparing category counts across the two most recent drafts.
+  // Only populated when >= 2 drafts exist for this document (Requirement 18, REQ-PROGRESS-ACK-01).
+  type ProgressPattern = { category: string; tendency: 'improving' | 'persistent' | 'emerging'; description: string };
+  const progressSummary: ProgressPattern[] = [];
+
+  const draftRows = await db.query<{ id: string; version_number: number }>(
+    `SELECT id, version_number FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 2`,
+    [documentId],
+  );
+
+  if (draftRows.length >= 2) {
+    const [currentDraft, previousDraft] = draftRows;
+
+    const countRows = await db.query<{ draft_id: string; error_category_id: string; cnt: string }>(
+      `SELECT source_draft_id AS draft_id, error_category_id, COUNT(*) AS cnt
+       FROM feedback_item
+       WHERE source_draft_id = ANY($1)
+       GROUP BY source_draft_id, error_category_id`,
+      [[currentDraft.id, previousDraft.id]],
+    );
+
+    const current: Record<string, number> = {};
+    const previous: Record<string, number> = {};
+    for (const r of countRows) {
+      const map = r.draft_id === currentDraft.id ? current : previous;
+      map[r.error_category_id] = parseInt(r.cnt, 10);
+    }
+
+    const allCategoryIds = new Set([...Object.keys(current), ...Object.keys(previous)]);
+    for (const catId of allCategoryIds) {
+      const name = categoryNames[catId];
+      if (!name) continue;
+      const curr = current[catId] ?? 0;
+      const prev = previous[catId] ?? 0;
+
+      let tendency: 'improving' | 'persistent' | 'emerging';
+      let description: string;
+
+      if (prev === 0 && curr > 0) {
+        tendency = 'emerging';
+        description = `${name} is a new pattern in your latest draft.`;
+      } else if (curr < prev) {
+        tendency = 'improving';
+        description = `${name} issues decreased from ${prev} to ${curr} — keep it up.`;
+      } else if (curr > prev) {
+        tendency = 'persistent';
+        description = `${name} issues increased from ${prev} to ${curr} — worth focusing on.`;
+      } else {
+        tendency = 'persistent';
+        description = `${name} remains at ${curr} — consistent pattern across drafts.`;
+      }
+
+      progressSummary.push({ category: name, tendency, description });
+    }
+
+    // Sort: improving first, then persistent, then emerging
+    const order = { improving: 0, persistent: 1, emerging: 2 };
+    progressSummary.sort((a, b) => order[a.tendency] - order[b.tendency]);
+  }
+
   return {
     statusCode: 200,
     body: JSON.stringify({
       items: feedbackRows.map((row: any) => toFeedbackItemDto(row)),
       anchors: anchorRows.map((row: any) => toAnchorDto(row)),
       categoryNames,
-      progressSummary: [],
+      progressSummary,
     }),
   };
 }

@@ -2,17 +2,10 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
-import { searchAllUsers, assignRole, updateDepartmentPrompt } from '@/features/system-admin/systemAdminApi';
+import { searchAllUsers, assignRole, updateDepartmentPrompt, getAnalyticsSummary } from '@/features/system-admin/systemAdminApi';
 import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
+  BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 
 import { systemAdminApi } from '@/features/system-admin/systemAdminApi';
@@ -49,9 +42,10 @@ export function DepartmentDetailPage() {
   const department = (departments as Department[]).find((d: Department) => d.id === departmentId);
   const isLocked = department?.accessState === 'LOCKED';
 
-  const { data: analyticsData } = useQuery({
-    queryKey: ['department-analytics', departmentId],
-    queryFn: () => systemAdminApi.getAnalytics(),
+  const { data: analyticsSummary } = useQuery({
+    queryKey: ['department-analytics-summary', departmentId],
+    queryFn: () => getAnalyticsSummary(departmentId),
+    enabled: activeTab === 'analytics',
   });
 
   const [userSearch, setUserSearch] = useState('');
@@ -324,60 +318,64 @@ export function DepartmentDetailPage() {
           )}
 
           {/* Analytics Tab */}
-          {activeTab === 'analytics' && analyticsData && (
+          {activeTab === 'analytics' && (
             <div>
               <h2 className="mb-6 text-3xl font-bold text-gray-900">Analytics Dashboard</h2>
 
-              {/* Key Metrics */}
-              <div className="mb-8 grid grid-cols-3 gap-6">
-                <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <p className="text-sm text-gray-600">Total Analytics Points</p>
-                  <p className="text-4xl font-bold">{analyticsData?.totals?.length || 0}</p>
-                </div>
-                <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <p className="text-sm text-gray-600">Platform Scope</p>
-                  <p className="text-4xl font-bold">{analyticsData?.totals?.filter((t: any) => t.scopeKind === 'platform').length || 0}</p>
-                </div>
-                <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <p className="text-sm text-gray-600">Document Type Metrics</p>
-                  <p className="text-4xl font-bold">{analyticsData?.totals?.filter((t: any) => t.scopeKind === 'documentType').length || 0}</p>
-                </div>
-              </div>
+              {!analyticsSummary ? (
+                <div className="text-sm text-gray-500">Loading analytics...</div>
+              ) : (
+                <>
+                  <div className="mb-8 grid grid-cols-3 gap-6">
+                    <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+                      <p className="text-sm text-gray-600">Total Documents</p>
+                      <p className="text-4xl font-bold mt-2">{analyticsSummary.totalDocuments}</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+                      <p className="text-sm text-gray-600">Total Drafts</p>
+                      <p className="text-4xl font-bold mt-2">{analyticsSummary.totalDrafts}</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+                      <p className="text-sm text-gray-600">Active Users</p>
+                      <p className="text-4xl font-bold mt-2">{analyticsSummary.activeUsers}</p>
+                    </div>
+                  </div>
 
-              {/* Charts */}
-              <div className="grid grid-cols-2 gap-8">
-                <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <h3 className="mb-6 text-lg font-semibold text-gray-900">Metrics by Scope</h3>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={(analyticsData?.totals || []).map((t: any) => ({ name: t.scopeKind, value: t.value }))}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                  {analyticsSummary.breakdownByDocumentType.length === 0 && analyticsSummary.platformUsageOverTime.length === 0 ? (
+                    <div className="rounded-lg border border-gray-200 bg-white p-12 text-center text-sm text-gray-500">
+                      No feedback has been generated yet for document types in this department.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+                        <h3 className="mb-6 text-lg font-semibold text-gray-900">Breakdown by Document Type</h3>
+                        <ResponsiveContainer width="100%" height={240}>
+                          <BarChart data={analyticsSummary.breakdownByDocumentType}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                            <YAxis allowDecimals={false} />
+                            <Tooltip formatter={(v: any) => [v, 'Feedback generated']} />
+                            <Bar dataKey="feedbackGenerated" fill="#111827" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
 
-                <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                  <h3 className="mb-6 text-lg font-semibold text-gray-900">All Metrics</h3>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={(analyticsData?.totals || []).map((t: any, i: number) => ({ index: i, metric: t.metric, value: t.value }))}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="index" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line
-                        type="monotone"
-                        dataKey="value"
-                        stroke="#3b82f6"
-                        dot={false}
-                        strokeWidth={2}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+                      <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+                        <h3 className="mb-6 text-lg font-semibold text-gray-900">Platform Total Usage with time</h3>
+                        <ResponsiveContainer width="100%" height={240}>
+                          <LineChart data={analyticsSummary.platformUsageOverTime}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                            <YAxis allowDecimals={false} />
+                            <Tooltip formatter={(v: any) => [v, 'Feedback generated']} />
+                            <Line type="monotone" dataKey="feedbackGenerated" stroke="#111827" dot={{ r: 3 }} strokeWidth={2} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>

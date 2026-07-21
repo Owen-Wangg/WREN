@@ -97,6 +97,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     if (resource === '/v1/analytics' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetAnalytics(event));
     }
+    if (resource === '/v1/analytics/summary' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetAnalyticsSummary(event));
+    }
     if (resource === '/v1/admin/config/model' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetModelConfig(event));
     }
@@ -303,6 +306,89 @@ async function handleGetAnalytics(event: any): Promise<APIGatewayProxyResult> {
   return {
     statusCode: 200,
     body: JSON.stringify(result),
+  };
+}
+
+async function handleGetAnalyticsSummary(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  requireTechnicalAdmin(actor);
+  const db = await getDataAccess();
+  const { departmentId } = event.queryStringParameters || {};
+
+  // Get document type IDs scoped to this department (or all if no filter)
+  const docTypeRows = await db.query<{ id: string; name: string }>(
+    departmentId
+      ? `SELECT id, name FROM document_type WHERE department_id = $1 ORDER BY name ASC`
+      : `SELECT id, name FROM document_type ORDER BY name ASC`,
+    departmentId ? [departmentId] : [],
+  );
+  const docTypeIds = docTypeRows.map((r) => r.id);
+
+  const docTypeFilter = docTypeIds.length > 0
+    ? `AND document_type_id = ANY($1)`
+    : `AND FALSE`;
+  const docTypeFilterAgg = docTypeIds.length > 0
+    ? `AND scope_id = ANY($1)`
+    : `AND FALSE`;
+
+  const [[docRow], [draftRow], [userRow], feedbackByDocType, feedbackByMonth] = await Promise.all([
+    db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM document${docTypeIds.length > 0 ? ` WHERE document_type_id = ANY($1)` : ''}`,
+      docTypeIds.length > 0 ? [docTypeIds] : [],
+    ),
+    db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM draft d
+       JOIN document doc ON doc.id = d.document_id
+       ${docTypeIds.length > 0 ? `WHERE doc.document_type_id = ANY($1)` : ''}`,
+      docTypeIds.length > 0 ? [docTypeIds] : [],
+    ),
+    db.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT ra.user_id) AS count
+       FROM role_assignment ra
+       WHERE ra.role = 'Student'`,
+    ),
+    db.query<{ scope_id: string; value: string }>(
+      `SELECT scope_id, SUM(value)::int AS value
+       FROM aggregate_counter
+       WHERE scope_kind = 'documentType' AND metric = 'feedback_items_generated'
+       ${docTypeIds.length > 0 ? docTypeFilterAgg : ''}
+       GROUP BY scope_id`,
+      docTypeIds.length > 0 ? [docTypeIds] : [],
+    ),
+    db.query<{ month: string; value: string }>(
+      `SELECT to_char(window_start, 'Mon YYYY') AS month,
+              date_trunc('month', window_start) AS month_ts,
+              SUM(value)::int AS value
+       FROM aggregate_counter
+       WHERE metric = 'feedback_items_generated'
+       ${docTypeIds.length > 0 ? docTypeFilterAgg : ''}
+       GROUP BY to_char(window_start, 'Mon YYYY'), date_trunc('month', window_start)
+       ORDER BY date_trunc('month', window_start) ASC`,
+      docTypeIds.length > 0 ? [docTypeIds] : [],
+    ),
+  ]);
+
+  const feedbackByDocTypeMap: Record<string, number> = {};
+  for (const r of feedbackByDocType) {
+    feedbackByDocTypeMap[r.scope_id] = parseInt(r.value, 10);
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      totalDocuments: parseInt(docRow?.count ?? '0', 10),
+      totalDrafts: parseInt(draftRow?.count ?? '0', 10),
+      activeUsers: parseInt(userRow?.count ?? '0', 10),
+      breakdownByDocumentType: docTypeRows.map((dt) => ({
+        id: dt.id,
+        name: dt.name,
+        feedbackGenerated: feedbackByDocTypeMap[dt.id] ?? 0,
+      })),
+      platformUsageOverTime: feedbackByMonth.map((r: any) => ({
+        month: r.month,
+        feedbackGenerated: parseInt(r.value, 10),
+      })),
+    }),
   };
 }
 

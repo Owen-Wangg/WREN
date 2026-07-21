@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 
 import { WrenChatPanel, type AskWrenService } from '@/features/ask-wren';
 import { SidebarDebriefPanel } from '@/features/debrief';
+import { appConfig } from '@/config/env';
 
 export interface ChatFeedbackSidebarProps {
   readonly documentId: string;
@@ -66,7 +67,7 @@ export function ChatFeedbackSidebar({
           aria-pressed={activeTab === 'chat'}
         >
           <MessageSquare size={18} aria-hidden="true" />
-          Writing Coach
+          {appConfig.appName}
         </button>
         <button
           type="button"

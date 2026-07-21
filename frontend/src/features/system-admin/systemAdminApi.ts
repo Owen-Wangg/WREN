@@ -27,6 +27,31 @@ export async function getAnalytics() {
   return apiClient.request('/v1/analytics', { schema: analyticsSchema });
 }
 
+const analyticsSummarySchema = z.object({
+  totalDocuments: z.number(),
+  totalDrafts: z.number(),
+  activeUsers: z.number(),
+  breakdownByDocumentType: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    departmentName: z.string(),
+    feedbackGenerated: z.number(),
+  })),
+  platformUsageOverTime: z.array(z.object({
+    month: z.string(),
+    feedbackGenerated: z.number(),
+  })),
+});
+
+export type AnalyticsSummary = z.infer<typeof analyticsSummarySchema>;
+
+export async function getAnalyticsSummary(departmentId?: string) {
+  const path = departmentId
+    ? `/v1/analytics/summary?departmentId=${departmentId}`
+    : '/v1/analytics/summary';
+  return apiClient.request(path, { schema: analyticsSummarySchema });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Departments — platform-wide management (TechAdmin only) */
 /* -------------------------------------------------------------------------- */
