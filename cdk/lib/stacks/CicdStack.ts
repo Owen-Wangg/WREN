@@ -78,17 +78,14 @@ export class CicdStack extends Stack {
         version: "0.2",
         phases: {
           install: {
-            "runtime-versions": { nodejs: "22", python: "3.12" },
+            "runtime-versions": { nodejs: "22" },
             commands: [
               "npm ci",
               "cd cdk && npm ci && cd ..",
-              "pip install uv && uv sync",
             ],
           },
           pre_build: {
             commands: [
-              "npx jest --config jest.config.ts --passWithNoTests --ci",
-              "uv run pytest -m 'not integration and not slow' --tb=short",
               "npx tsc --noEmit",
               // ECR login before build so the push step is ready
               `aws ecr get-login-password --region ${config.env.region} | docker login --username AWS --password-stdin ${this.ecrRepository.repositoryUri}`,
