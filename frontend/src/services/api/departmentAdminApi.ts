@@ -25,6 +25,7 @@ const DEPARTMENTS_PATH = '/v1/departments';
 const DOCUMENT_TYPES_PATH = '/v1/document-types';
 const USERS_PATH = '/v1/users';
 const ANALYTICS_PATH = '/v1/analytics';
+const HELPFULNESS_ANALYTICS_PATH = '/v1/analytics/feedback-helpfulness';
 
 /* -------------------------------------------------------------------------- */
 /* Reusable Response Schemas */
@@ -182,6 +183,49 @@ export async function revokeAccessGrant(
 /* -------------------------------------------------------------------------- */
 /* Analytics (Department-Scoped) */
 /* -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------------- */
+/* Helpfulness Rating Analytics */
+/* -------------------------------------------------------------------------- */
+
+export interface HelpfulnessComment {
+  helpful: boolean;
+  comment: string;
+  createdAt: string;
+}
+
+export interface HelpfulnessAnalyticsResult {
+  helpful: number;
+  notHelpful: number;
+  total: number;
+  comments: HelpfulnessComment[];
+}
+
+const helpfulnessCommentSchema = z.object({
+  helpful: z.boolean(),
+  comment: z.string(),
+  createdAt: z.string(),
+});
+
+const helpfulnessAnalyticsSchema = z.object({
+  helpful: z.number().int().nonnegative(),
+  notHelpful: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  comments: z.array(helpfulnessCommentSchema),
+});
+
+/**
+ * Get helpfulness-rating analytics for a specific document type.
+ * Returns the donut breakdown (helpful/not) and recent anonymous comments.
+ */
+export async function getHelpfulnessAnalytics(
+  client: HttpClient,
+  documentTypeId: string,
+): Promise<HelpfulnessAnalyticsResult> {
+  return client.request(`${HELPFULNESS_ANALYTICS_PATH}?documentTypeId=${documentTypeId}`, {
+    schema: helpfulnessAnalyticsSchema,
+  });
+}
 
 /**
  * Get analytics scoped to administered document types.

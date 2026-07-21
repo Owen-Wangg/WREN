@@ -20,8 +20,6 @@
  * This module builds on `usageLimitService.ts` (Task 13.1)'s
  * `usage_limit`/`usage_counter` tables and adds no new tables of its own.
  */
-import type { AuthContext } from '@wren/types';
-
 import type { QueryExecutor } from './db';
 import { getUsageLimitForScope } from './usageLimitService';
 

@@ -25,7 +25,7 @@
  * {@link recordActivityEvent} internally, which pseudonymizes the actor
  * automatically (Requirement 44.4).
  */
-import { recordActivityEvent, type RecordActivityEventInput } from './activityLogService';
+import { recordActivityEvent } from './activityLogService';
 import type { QueryExecutor } from './db';
 import type { AuthContext } from '@wren/types';
 

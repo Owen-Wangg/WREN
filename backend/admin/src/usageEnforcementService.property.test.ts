@@ -14,7 +14,7 @@
 import fc from 'fast-check';
 
 import { FakeDb } from './fakeDb';
-import { applicableScopes, checkAndReserve, type FeedbackAction, type UsageDecision } from './usageEnforcementService';
+import { applicableScopes, checkAndReserve } from './usageEnforcementService';
 import { wrenProperty } from '../../../testing/typescript/property';
 
 /** Arbitrary user id. */

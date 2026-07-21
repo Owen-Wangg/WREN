@@ -14,6 +14,7 @@ import {
   grantAccessToUser,
   revokeAccessGrant,
   getAnalytics,
+  getHelpfulnessAnalytics,
 } from '@/services/api/departmentAdminApi';
 import { useApiClient } from '@/services/apiClient';
 
@@ -84,6 +85,19 @@ export function useGetAnalytics(documentTypeId?: string) {
     queryKey: queryKeys.departmentAnalytics(documentTypeId),
     queryFn: () => getAnalytics(client, documentTypeId),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Query hook: get helpfulness-rating analytics for a document type.
+ */
+export function useGetHelpfulnessAnalytics(documentTypeId: string) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: queryKeys.helpfulnessAnalytics(documentTypeId),
+    queryFn: () => getHelpfulnessAnalytics(client, documentTypeId),
+    staleTime: 60_000,
+    enabled: !!documentTypeId,
   });
 }
 

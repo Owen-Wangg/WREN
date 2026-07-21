@@ -82,6 +82,14 @@ export const handler: APIGatewayProxyHandler = async (event) => {
   }
 };
 
+async function queryDatabase(_query: string, _params: any[]): Promise<any> {
+  return null;
+}
+
+async function updateDocumentTypeConfig(_typeId: string, _config: any): Promise<void> {
+  // not yet implemented
+}
+
 function parseAuthContext(event: any) {
   const context = event.requestContext?.authorizer;
   if (!context) throw new Error('Missing authorization context');
@@ -92,11 +100,3 @@ function parseAuthContext(event: any) {
   };
 }
 
-async function queryDatabase(query: string, params: any[]): Promise<any> {
-  // TODO: Implement database query
-  return null;
-}
-
-async function updateDocumentTypeConfig(typeId: string, config: any): Promise<void> {
-  // TODO: Implement database update
-}

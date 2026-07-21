@@ -1176,6 +1176,18 @@ const v1MockRoutes: MockRoutes = {
   },
   // Analytics
   'GET /v1/analytics': { totals: [] },
+  'GET /v1/analytics/feedback-helpfulness': {
+    helpful: 28,
+    notHelpful: 7,
+    total: 35,
+    comments: [
+      { helpful: true, comment: 'Really helped me see where my argument structure was weak.', createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+      { helpful: false, comment: 'The tone feedback felt too generic for a legal memo.', createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+      { helpful: true, comment: 'Clarity suggestions were spot on.', createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
+      { helpful: true, comment: 'Good breakdown by category — easy to prioritize.', createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+      { helpful: false, comment: 'Some suggestions contradicted the assignment requirements.', createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
+    ],
+  },
   // Users
   'GET /v1/users': { users: [], total: 0, page: 1, pageSize: 20 },
   // Usage — matches usageReportSchema
@@ -1201,7 +1213,7 @@ export const defaultMockRoutes: MockRoutes = {
   'GET /documents/doc-1/debrief': sampleDebrief,
   'POST /documents/doc-1/debrief/regenerate': regeneratedSampleDebrief,
   'GET /documents/doc-2/debrief': emptySampleDebrief,
-  'POST /feedback-helpfulness': { recorded: true },
+  'POST /v1/feedback-helpfulness': { recorded: true },
   'GET /documents/doc-1/feedback-items': sampleInlineFeedbackItems,
   'GET /documents/doc-1/anchors': sampleAnchors,
   ...contentTypeMockRoutes,
@@ -1444,6 +1456,16 @@ export class MockApiClient implements HttpClient {
       const result = options.schema.safeParse(fixture);
       if (!result.success) throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, result.error.issues);
       return result.data;
+    }
+
+    // Dynamic: GET /v1/analytics/feedback-helpfulness?documentTypeId=<id>
+    // Return the same fixture regardless of which documentTypeId is requested.
+    if (key.startsWith('GET /v1/analytics/feedback-helpfulness')) {
+      const fixture = this.routes['GET /v1/analytics/feedback-helpfulness'];
+      if (!options.schema) return fixture as T;
+      const r = options.schema.safeParse(fixture);
+      if (!r.success) throw new ApiError(`Mock fixture for helpfulness-analytics failed validation`, 'validation', 200, r.error.issues);
+      return r.data;
     }
 
     const fixture = this.routes[key];

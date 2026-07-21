@@ -116,6 +116,9 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     if (resource === '/v1/documents/{documentId}/ask-wren' && httpMethod === 'POST') {
       return await wrapHandler(() => handlePostAskWren(event));
     }
+    if (resource === '/v1/feedback-helpfulness' && httpMethod === 'POST') {
+      return await wrapHandler(() => handleRecordFeedbackHelpfulness(event));
+    }
 
     return withCors({
       statusCode: 404,
@@ -311,6 +314,43 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
     statusCode: 202,
     body: JSON.stringify({ jobId, status: 'queued' }),
   };
+}
+
+async function handleRecordFeedbackHelpfulness(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+
+  if (!actor.userId) {
+    return withCors({ statusCode: 401, body: JSON.stringify({ code: 'UNAUTHORIZED', message: 'Authentication required' }) });
+  }
+
+  const body = event.body ? JSON.parse(event.body) : {};
+  const { environmentId, draftId, helpful, comment } = body;
+
+  if (!environmentId || typeof helpful !== 'boolean') {
+    return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'environmentId and helpful are required' }) });
+  }
+
+  // Verify the document exists and belongs to this student.
+  const docRows = await db.query<{ owner_user_id: string; document_type_id: string }>(
+    `SELECT owner_user_id, document_type_id FROM document WHERE id = $1`,
+    [environmentId],
+  );
+  if (docRows.length === 0 || docRows[0].owner_user_id !== actor.userId) {
+    return withCors({ statusCode: 404, body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }) });
+  }
+
+  const documentTypeId = docRows[0].document_type_id;
+  // draft_id is nullable — 'none' is not a valid uuid so fall back to null.
+  const effectiveDraftId: string | null = (draftId && draftId !== 'none') ? draftId : null;
+
+  await db.query(
+    `INSERT INTO feedback_helpfulness_rating (document_id, draft_id, document_type_id, helpful, comment)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [environmentId, effectiveDraftId, documentTypeId, helpful, comment ?? null],
+  );
+
+  return withCors({ statusCode: 200, body: JSON.stringify({ recorded: true }) });
 }
 
 async function handleGetFeedbackStatus(event: any): Promise<APIGatewayProxyResult> {
