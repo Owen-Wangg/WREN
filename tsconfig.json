@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "CommonJS",
-    "moduleResolution": "Node",
+    "moduleResolution": "Node10",
     "lib": ["ES2022"],
     "strict": true,
     "noImplicitAny": true,
@@ -12,8 +12,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": false,
-    "types": ["node", "jest"],
-    "ignoreDeprecations": "6.0"
+    "types": ["node", "jest"]
   },
   "include": ["testing/typescript/**/*.ts"],
   "exclude": ["node_modules", "cdk", "frontend"]
