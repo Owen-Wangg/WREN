@@ -135,24 +135,37 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
+  // Only return feedback for the latest draft so regeneration replaces rather than appends.
+  const latestDraftQuery = `
+    SELECT id FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1
+  `;
+  const latestDraftRows = await db.query(latestDraftQuery, [documentId]);
+  const latestDraftId = (latestDraftRows[0] as any)?.id ?? null;
+
   const feedbackQuery = `
     SELECT id, document_id, error_category_id, kind, question_text, quoted_text,
            current_anchor_id, citation_reference_id, source_draft_id, created_at
     FROM feedback_item
-    WHERE document_id = $1
+    WHERE document_id = $1${latestDraftId ? ` AND source_draft_id = $2` : ''}
     ORDER BY created_at DESC
   `;
-  const feedbackRows = await db.query(feedbackQuery, [documentId]);
+  const feedbackRows = await db.query(
+    feedbackQuery,
+    latestDraftId ? [documentId, latestDraftId] : [documentId],
+  );
 
   const anchorsQuery = `
     SELECT a.id, a.feedback_item_id, a.draft_id, a.paragraph_index, a.start_offset,
            a.end_offset, a.content_fingerprint, a.state
     FROM anchor a
     INNER JOIN feedback_item f ON f.id = a.feedback_item_id
-    WHERE f.document_id = $1
+    WHERE f.document_id = $1${latestDraftId ? ` AND f.source_draft_id = $2` : ''}
     ORDER BY a.created_at ASC
   `;
-  const anchorRows = await db.query(anchorsQuery, [documentId]);
+  const anchorRows = await db.query(
+    anchorsQuery,
+    latestDraftId ? [documentId, latestDraftId] : [documentId],
+  );
 
   // Build a categoryId → name map from the distinct category IDs present in the items
   const categoryIds = [...new Set(feedbackRows.map((r: any) => r.error_category_id).filter(Boolean))];

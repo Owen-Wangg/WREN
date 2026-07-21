@@ -217,13 +217,6 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
 
   const document = rows[0];
 
-  const draftQuery = `
-    INSERT INTO draft (document_id, version_number, s3_key, segments, word_count, created_at)
-    VALUES ($1, $2, $3, $4, $5, NOW())
-    RETURNING id
-  `;
-  await db.query(draftQuery, [document.id, 1, 'inline', JSON.stringify([]), 0]);
-
   return {
     statusCode: 201,
     body: JSON.stringify(toDocumentDto(document)),

@@ -321,7 +321,7 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
 
         body: dict[str, Any] = {
             'anthropic_version': 'bedrock-2023-05-31',
-            'max_tokens': 4096,
+            'max_tokens': 8192,
             'messages': [{'role': 'user', 'content': user_text}],
             'temperature': float(config.get('temperature', 0.7)),
         }
@@ -361,7 +361,27 @@ def parse_feedback_output(model_output: str) -> list[dict[str, Any]]:
 
         return validated_items
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse feedback JSON: {str(e)}")
+        logger.warning(f"Failed to parse feedback JSON (possibly truncated): {str(e)}")
+        # Attempt to recover complete items from a truncated JSON array by finding
+        # the last complete object before the truncation point.
+        try:
+            last_close = model_output.rfind('}')
+            if last_close > 0:
+                recovered = model_output[:last_close + 1]
+                # Close the array if it was truncated mid-element
+                if not recovered.rstrip().endswith(']'):
+                    recovered = recovered + ']'
+                items = json.loads(recovered)
+                if not isinstance(items, list):
+                    return []
+                validated_items = [
+                    item for item in items
+                    if isinstance(item, dict) and 'error_category_id' in item and 'question_text' in item
+                ]
+                logger.info(f"Recovered {len(validated_items)} items from truncated output")
+                return validated_items
+        except Exception:
+            pass
         return []
     except Exception as e:
         logger.error(f"Error parsing feedback output: {str(e)}")

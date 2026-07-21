@@ -1,13 +1,13 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 
 import { AnchoredFeedbackEditorContainer } from '@/features/editor';
 import { MockAskWrenService } from '@/features/ask-wren';
 import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
-import { fetchDocument, fetchLatestDraft } from '@/features/dashboard/dashboardApi';
+import { fetchDocument, fetchLatestDraft, createDraft } from '@/features/dashboard/dashboardApi';
 import { fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
 import {
   segmentsToTiptapContent,
@@ -143,6 +143,21 @@ export function DocumentEditorPage() {
   const draftId = draftQuery.data?.id ?? 'draft-pending';
   const draftVersion = draftQuery.data?.versionNumber ?? 1;
 
+  const resubmitDraftMutation = useMutation({
+    mutationFn: async () => {
+      const segments = (currentContent.content ?? []).map((block, idx) => ({
+        index: idx,
+        text: (block.content ?? [])
+          .filter((n) => n.type === 'text')
+          .map((n) => n.text ?? '')
+          .join(''),
+      }));
+      return createDraft(apiClient, envId, segments);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
+    },
+  });
 
   // Poll feedback status after generation is queued
   useEffect(() => {
@@ -255,6 +270,17 @@ export function DocumentEditorPage() {
               >
                 Download Document
               </button>
+              <button
+                type="button"
+                onClick={() => resubmitDraftMutation.mutate()}
+                disabled={resubmitDraftMutation.isPending}
+                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {resubmitDraftMutation.isPending ? 'Saving…' : 'Resubmit Draft'}
+              </button>
+              {resubmitDraftMutation.isSuccess && (
+                <p className="text-bodySmall text-signal-positive">Draft saved — regenerate AI Debrief to see progress.</p>
+              )}
             </nav>
           </div>
 
