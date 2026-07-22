@@ -28,4 +28,23 @@ describe('AiDisclaimerNotice', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('note').className).toContain('bg-notice-surface');
   });
+
+  it('hides after dismiss when dismissible', async () => {
+    const { userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    localStorage.removeItem('test-disclaimer-key');
+
+    render(
+      <AiDisclaimerNotice
+        dismissible
+        dismissStorageKey="test-disclaimer-key"
+        message="Dismissable copy"
+      />,
+    );
+
+    expect(screen.getByRole('note')).toHaveTextContent('Dismissable copy');
+    await user.click(screen.getByRole('button', { name: 'Dismiss disclaimer' }));
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(localStorage.getItem('test-disclaimer-key')).toBe('1');
+  });
 });
