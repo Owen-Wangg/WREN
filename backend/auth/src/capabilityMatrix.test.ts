@@ -68,6 +68,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: Capability[] = [
   'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
+  'documentType.manageCatalog',
   'analytics.view',
 ];
 

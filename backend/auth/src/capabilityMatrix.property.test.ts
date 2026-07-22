@@ -47,6 +47,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
+  'documentType.manageCatalog',
   'analytics.view',
 ]);
 

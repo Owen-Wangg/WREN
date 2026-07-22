@@ -90,13 +90,16 @@ describe('createDocumentType (Requirement 30.1)', () => {
     expect(db.mutationCount).toBe(0);
   });
 
-  it('denies a TechnicalAdmin (no educational ops) with no mutation', async () => {
+  it('allows a TechnicalAdmin to create a Document Type in any department', async () => {
     const db = new FakeDb();
     seedDepartment(db);
-    await expect(
-      createDocumentType(techAdminContext(), { departmentId: DEPT, name: 'X' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    const dt = await createDocumentType(
+      techAdminContext(),
+      { departmentId: DEPT, name: 'Platform Bootstrap Type' },
+      db,
+    );
+    expect(dt.name).toBe('Platform Bootstrap Type');
+    expect(dt.departmentId).toBe(DEPT);
   });
 });
 

@@ -18,15 +18,15 @@
  * Scoping rules (no implicit role hierarchy — authority is the explicit matrix
  * only, Requirement 5.4):
  *
- *   - `TechnicalAdmin` — platform-level operations ONLY: usage-limit
+ *   - `TechnicalAdmin` — platform-level operations: usage-limit
  *                         configuration, temporary usage overrides (for any
  *                         Document Type, Requirement 54.5), system-wide User
- *                         search, Document Type access-state control, and
+ *                         search, Document Type access-state control, Document
+ *                         Type catalog bootstrap (create/rename/delete), and
  *                         platform-wide aggregate analytics filterable by
  *                         Document Type (Requirement 41). This role is NOT a
  *                         superuser for educational content — it cannot read or
- *                         modify Document Type configurations, manage Topics, or
- *                         manage the Document Type catalog.
+ *                         modify Document Type configurations or manage Topics.
  *   - `DepartmentAdmin` — educational operations within administered
  *                          Departments: Document Type configuration, catalog
  *                          management, Topic management, Access Grants, usage
@@ -53,6 +53,10 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
+  // Catalog bootstrap: System Admins may create/rename Document Types on any
+  // Department (dept-admin UI is shared with DepartmentAdmin). Educational
+  // config (prompts, categories) remains DepartmentAdmin-scoped.
+  'documentType.manageCatalog',
   'analytics.view',
 ]);
 

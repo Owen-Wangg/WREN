@@ -3,13 +3,10 @@
  *
  *   1. Cross-department scope denials — a `DepartmentAdmin` of Department X is
  *      denied any dept-scoped operation against Department Y, with no mutation.
- *   2. TechnicalAdmin denied educational content operations — TechnicalAdmin
- *      CANNOT manageCatalog, topic.manage, or any DeptAdmin educational op.
+ *   2. TechnicalAdmin catalog bootstrap is allowed (manageCatalog); educational
+ *      config ops (content types, metadata fields, topics) remain denied.
  *   3. DepartmentAdmin denied role assignment operations — only TechnicalAdmin
  *      can assign/revoke roles.
- *
- * V4 has NO superuser fallback. There is no concept of a TechnicalAdmin
- * performing educational operations on behalf of an absent DepartmentAdmin.
  */
 import { createAccessGrant } from './accessGrantService';
 import { createContentType, updateContentType, deleteContentType } from './contentTypeService';
@@ -228,24 +225,29 @@ describe('Cross-department scope denials — DeptAdmin of dept X denied on dept 
   });
 });
 
-describe('TechnicalAdmin denied educational content operations (no superuser fallback)', () => {
-  it('denies createDocumentType (documentType.manageCatalog)', async () => {
+describe('TechnicalAdmin catalog bootstrap + denied educational config ops', () => {
+  it('allows createDocumentType (documentType.manageCatalog — platform catalog bootstrap)', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT_X, name: 'Dept X' });
-    await expect(
-      createDocumentType(techAdminContext(), { departmentId: DEPT_X, name: 'X' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    const dt = await createDocumentType(
+      techAdminContext(),
+      { departmentId: DEPT_X, name: 'X' },
+      db,
+    );
+    expect(dt.name).toBe('X');
   });
 
-  it('denies updateDocumentType (documentType.manageCatalog)', async () => {
+  it('allows updateDocumentType (documentType.manageCatalog)', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT_X, name: 'Dept X' });
     db.seedDocumentType({ id: 'dt-x', department_id: DEPT_X, name: 'Keep' });
-    await expect(
-      updateDocumentType(techAdminContext(), 'dt-x', { name: 'Hijack' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    const updated = await updateDocumentType(
+      techAdminContext(),
+      'dt-x',
+      { name: 'Renamed' },
+      db,
+    );
+    expect(updated.name).toBe('Renamed');
   });
 
   it('denies setDocumentTypeAccessState — WAIT: TechnicalAdmin CAN do this (platform-level op)', async () => {
@@ -258,14 +260,12 @@ describe('TechnicalAdmin denied educational content operations (no superuser fal
     expect(result.accessState).toBe('OPEN');
   });
 
-  it('denies deleteDocumentType (documentType.manageCatalog)', async () => {
+  it('allows deleteDocumentType (documentType.manageCatalog)', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT_X, name: 'Dept X' });
     db.seedDocumentType({ id: 'dt-x', department_id: DEPT_X, name: 'Keep' });
-    await expect(
-      deleteDocumentType(techAdminContext(), 'dt-x', db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    await deleteDocumentType(techAdminContext(), 'dt-x', db);
+    expect(db.documentTypes.has('dt-x')).toBe(false);
   });
 
   it('denies createTopic (topic.manage)', async () => {
