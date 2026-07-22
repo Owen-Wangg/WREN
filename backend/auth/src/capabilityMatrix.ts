@@ -22,11 +22,11 @@
  *                         configuration, temporary usage overrides (for any
  *                         Document Type, Requirement 54.5), system-wide User
  *                         search, Document Type access-state control, Document
- *                         Type catalog bootstrap (create/rename/delete), and
- *                         platform-wide aggregate analytics filterable by
- *                         Document Type (Requirement 41). This role is NOT a
- *                         superuser for educational content — it cannot read or
- *                         modify Document Type configurations or manage Topics.
+ *                         Type catalog + config bootstrap (create types,
+ *                         feedback categories, prompts), and platform-wide
+ *                         aggregate analytics filterable by Document Type
+ *                         (Requirement 41). Topics / access grants remain
+ *                         DepartmentAdmin-scoped.
  *   - `DepartmentAdmin` — educational operations within administered
  *                          Departments: Document Type configuration, catalog
  *                          management, Topic management, Access Grants, usage
@@ -53,10 +53,11 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
-  // Catalog bootstrap: System Admins may create/rename Document Types on any
-  // Department (dept-admin UI is shared with DepartmentAdmin). Educational
-  // config (prompts, categories) remains DepartmentAdmin-scoped.
+  // Shared dept-admin UI: System Admins may bootstrap Document Types and their
+  // initial taxonomy/config (same screens DepartmentAdmins use).
   'documentType.manageCatalog',
+  'documentType.readConfig',
+  'documentType.modifyConfig',
   'analytics.view',
 ]);
 

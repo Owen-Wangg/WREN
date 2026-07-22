@@ -140,14 +140,17 @@ describe('upsertDocumentTypeConfig — DepartmentAdmin edit boundary', () => {
     ).rejects.toBeInstanceOf(AuthorizationError);
   });
 
-  it('a TechnicalAdmin CANNOT edit educational Document-Type config (no superuser fallback)', async () => {
+  it('allows a TechnicalAdmin to edit Document-Type config (shared dept-admin bootstrap)', async () => {
     const db = new FakeDb();
     seed(db);
 
-    await expect(
-      upsertDocumentTypeConfig(techAdminContext(), DT, { tone: 'formal' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.documentTypeConfigs.has(DT)).toBe(false);
+    const config = await upsertDocumentTypeConfig(
+      techAdminContext(),
+      DT,
+      { tone: 'formal' },
+      db,
+    );
+    expect(config.tone).toBe('formal');
   });
 
   it('throws NotFoundError for an unknown Document Type', async () => {

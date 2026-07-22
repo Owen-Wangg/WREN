@@ -35,11 +35,16 @@ export function FeedbackTypeSection({ documentTypeId }: FeedbackTypeSectionProps
     if (!isLoading && categories.length === 0 && !isSeeding) {
       setIsSeeding(true);
       const seed = async () => {
-        for (const cat of DEFAULT_CATEGORIES) {
-          await createErrorCategory(documentTypeId, cat.name);
+        try {
+          for (const cat of DEFAULT_CATEGORIES) {
+            await createErrorCategory(documentTypeId, cat.name);
+          }
+          await queryClient.invalidateQueries({ queryKey: ['error-categories', documentTypeId] });
+        } catch (error) {
+          console.error('Failed to seed default feedback categories', error);
+        } finally {
+          setIsSeeding(false);
         }
-        await queryClient.invalidateQueries({ queryKey: ['error-categories', documentTypeId] });
-        setIsSeeding(false);
       };
       void seed();
     }

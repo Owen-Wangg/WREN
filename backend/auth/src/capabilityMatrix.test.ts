@@ -69,6 +69,8 @@ const TECHNICAL_ADMIN_CAPABILITIES: Capability[] = [
   'user.search',
   'documentType.setAccessState',
   'documentType.manageCatalog',
+  'documentType.readConfig',
+  'documentType.modifyConfig',
   'analytics.view',
 ];
 
@@ -131,13 +133,13 @@ describe('authorizeCapability — TechnicalAdmin (platform-level operations only
     }
   });
 
-  it('DENIES documentType.readConfig even with a department scope', () => {
+  it('allows documentType.readConfig with a department scope (shared dept-admin UI)', () => {
     expect(
       isCapabilityAllowed(
         admin,
         req('documentType.readConfig', departmentScope(ADMINISTERED_DEPT)),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('DENIES topic.manage (educational, not platform)', () => {

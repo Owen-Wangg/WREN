@@ -297,24 +297,28 @@ describe('TechnicalAdmin catalog bootstrap + denied educational config ops', () 
     expect(db.mutationCount).toBe(0);
   });
 
-  it('denies createContentType (documentType.manageCatalog)', async () => {
+  it('allows createContentType (documentType.manageCatalog)', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT_X, name: 'Dept X' });
     db.seedDocumentType({ id: 'dt-x', department_id: DEPT_X, name: 'Type' });
-    await expect(
-      createContentType(techAdminContext(), { documentTypeId: 'dt-x', label: 'X' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    const ct = await createContentType(
+      techAdminContext(),
+      { documentTypeId: 'dt-x', label: 'X' },
+      db,
+    );
+    expect(ct.label).toBe('X');
   });
 
-  it('denies createCustomMetadataField (documentType.manageCatalog)', async () => {
+  it('allows createCustomMetadataField (documentType.manageCatalog)', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT_X, name: 'Dept X' });
     db.seedDocumentType({ id: 'dt-x', department_id: DEPT_X, name: 'Type' });
-    await expect(
-      createCustomMetadataField(techAdminContext(), { documentTypeId: 'dt-x', label: 'X' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    const field = await createCustomMetadataField(
+      techAdminContext(),
+      { documentTypeId: 'dt-x', label: 'X' },
+      db,
+    );
+    expect(field.label).toBe('X');
   });
 
   it('denies createAccessGrant (accessGrant.create)', async () => {

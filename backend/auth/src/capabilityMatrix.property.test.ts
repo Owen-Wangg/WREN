@@ -48,6 +48,8 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'user.search',
   'documentType.setAccessState',
   'documentType.manageCatalog',
+  'documentType.readConfig',
+  'documentType.modifyConfig',
   'analytics.view',
 ]);
 
