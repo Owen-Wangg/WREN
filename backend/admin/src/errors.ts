@@ -27,3 +27,13 @@ export class NotFoundError extends Error {
     this.name = 'NotFoundError';
   }
 }
+
+/** Thrown when a lifetime usage policy cap would be exceeded. */
+export class UsageLimitReachedError extends Error {
+  public readonly code = 'USAGE_LIMIT_REACHED' as const;
+
+  public constructor(message: string) {
+    super(message);
+    this.name = 'UsageLimitReachedError';
+  }
+}

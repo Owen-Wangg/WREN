@@ -21,6 +21,10 @@ import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
 import { getAnalytics } from './analyticsService';
 import { getHelpfulnessAnalytics } from './helpfulnessAnalyticsService';
+import {
+  getPlatformUsagePolicyForAdmin,
+  updatePlatformUsagePolicy,
+} from './lifetimeUsagePolicy';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
 import { AuthorizationError } from './errors';
 import { requireCapability } from './capabilityGuard';
@@ -117,6 +121,12 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/admin/config/model' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateModelConfig(event));
+    }
+    if (resource === '/v1/admin/config/usage-limits' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetUsageLimits(event));
+    }
+    if (resource === '/v1/admin/config/usage-limits' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleUpdateUsageLimits(event));
     }
 
     return withCors({
@@ -520,5 +530,26 @@ async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResul
       message:
         'Model configuration cannot be changed at runtime. Update BEDROCK_MODEL_ID and redeploy the compute stack.',
     }),
+  };
+}
+
+async function handleGetUsageLimits(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const policy = await getPlatformUsagePolicyForAdmin(actor, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(policy),
+  };
+}
+
+async function handleUpdateUsageLimits(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const body = event.body ? JSON.parse(event.body) : {};
+  const policy = await updatePlatformUsagePolicy(actor, body, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(policy),
   };
 }

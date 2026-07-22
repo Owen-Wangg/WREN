@@ -303,41 +303,35 @@ export async function updateAppName(
 /* Usage Limits Configuration (Task 6.3) */
 /* -------------------------------------------------------------------------- */
 
-const usageLimitSchema = z.object({
-  scope: z.enum(['platform', 'documentType']),
-  scopeId: z.string().nullable().optional(),
-  limit: z.number().int().positive(),
+const platformUsageLimitsSchema = z.object({
+  messageLimit: z.number().int().positive(),
+  debriefGenerationLimit: z.number().int().positive(),
+  documentUploadLimit: z.number().int().positive(),
+  draftsPerDocumentLimit: z.number().int().positive(),
 });
 
 /**
- * Get all usage limits (platform and per-DocumentType).
+ * Get platform lifetime usage policy (TechnicalAdmin only).
  */
 export async function getUsageLimits(
   client: HttpClient,
-): Promise<z.infer<typeof usageLimitSchema>[]> {
+): Promise<z.infer<typeof platformUsageLimitsSchema>> {
   return client.request('/v1/admin/config/usage-limits', {
-    schema: z.array(usageLimitSchema),
+    schema: platformUsageLimitsSchema,
   });
 }
 
 /**
- * Set usage limit for platform or specific DocumentType (TechAdmin only).
+ * Update platform lifetime usage policy (TechnicalAdmin only).
  */
 export async function setUsageLimit(
   client: HttpClient,
-  scope: 'platform' | 'documentType',
-  limit: number,
-  scopeId?: string,
-): Promise<z.infer<typeof usageLimitSchema>> {
-  const body = {
-    scope,
-    limit,
-    ...(scopeId && { scopeId }),
-  };
+  limits: z.infer<typeof platformUsageLimitsSchema>,
+): Promise<z.infer<typeof platformUsageLimitsSchema>> {
   return client.request('/v1/admin/config/usage-limits', {
-    method: 'POST',
-    body,
-    schema: usageLimitSchema,
+    method: 'PUT',
+    body: limits,
+    schema: platformUsageLimitsSchema,
   });
 }
 

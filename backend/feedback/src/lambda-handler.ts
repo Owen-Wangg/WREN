@@ -12,6 +12,11 @@ import {
   buildSessionId,
   loadDocumentConversation,
 } from './askWren.js';
+import {
+  assertAskMessageAllowed,
+  reserveDebriefGeneration,
+  UsageLimitReachedError,
+} from '@wren/admin/lifetimeUsagePolicy';
 // Shared utilities (parseAuthContext, wrapHandler, CORS)
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -47,6 +52,12 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
     return withCors(await fn());
   } catch (error: any) {
     console.error('Error:', error);
+    if (error instanceof UsageLimitReachedError) {
+      return withCors({
+        statusCode: 429,
+        body: JSON.stringify({ code: error.code, message: error.message }),
+      });
+    }
     return withCors({
       statusCode: error.statusCode || 500,
       body: JSON.stringify({
@@ -298,6 +309,8 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
   const draft = draftRows[0];
   const jobId = uuid();
 
+  await reserveDebriefGeneration(documentId, db);
+
   await sqsClient.send(new SendMessageCommand({
     QueueUrl: process.env.FEEDBACK_QUEUE_URL!,
     MessageBody: JSON.stringify({
@@ -522,12 +535,16 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
 
   // Ensure prior turns from older draft-scoped sessions are migrated before append.
   const legacyDraftIds = await listDraftIdsForDocument(documentId);
-  await loadDocumentConversation({
+  const conversation = await loadDocumentConversation({
     userId: actor.userId,
     documentId,
     draftId,
     legacyDraftIds,
   });
+
+  const db = await getDataAccess();
+  const userMessageCount = (conversation?.messages ?? []).filter((m) => m.role === 'user').length;
+  await assertAskMessageAllowed(userMessageCount, db);
 
   const { sessionId, reply } = await appendAskWrenTurn({
     userId: actor.userId,

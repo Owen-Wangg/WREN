@@ -1127,6 +1127,18 @@ const v1MockRoutes: MockRoutes = {
     wordCount: 0,
     createdAt: new Date().toISOString(),
   },
+  'GET /v1/admin/config/usage-limits': {
+    messageLimit: 100,
+    debriefGenerationLimit: 15,
+    documentUploadLimit: 30,
+    draftsPerDocumentLimit: 15,
+  },
+  'PUT /v1/admin/config/usage-limits': {
+    messageLimit: 100,
+    debriefGenerationLimit: 15,
+    documentUploadLimit: 30,
+    draftsPerDocumentLimit: 15,
+  },
   'GET /v1/departments': sampleDepartments,
   'GET /v1/document-types': sampleDocumentTypes,
   'GET /v1/document-types?departmentId=org-law-uuid-0001-000000000001': sampleDocumentTypes,

@@ -18,6 +18,11 @@ import { enforceSizeLimit } from './sizeLimit.js';
 import { gateSubmission } from './submissionGating.js';
 import { createDraftRevision } from './draftVersioning.js';
 import { DbDraftRepository } from './draftRepository.js';
+import {
+  assertDocumentUploadAllowed,
+  assertDraftCreateAllowed,
+  UsageLimitReachedError,
+} from '@wren/admin/lifetimeUsagePolicy';
 
 const docxExtractor = new MammothDocxExtractor();
 const pdfExtractor = new LiteParsePdfExtractor();
@@ -56,6 +61,12 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
     return withCors(await fn());
   } catch (error: any) {
     console.error('Error:', error);
+    if (error instanceof UsageLimitReachedError) {
+      return withCors({
+        statusCode: 429,
+        body: JSON.stringify({ code: error.code, message: error.message }),
+      });
+    }
     return withCors({
       statusCode: error.statusCode || 500,
       body: JSON.stringify({
@@ -437,6 +448,8 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
+  await assertDocumentUploadAllowed(actor.userId, db);
+
   const insertQuery = `
     INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at)
     VALUES ($1, $2, $3, $4, $5, $6, NOW())
@@ -614,6 +627,8 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       body: JSON.stringify({ code: 'PERMISSION_DENIED', message: 'Not authorized' }),
     };
   }
+
+  await assertDraftCreateAllowed(documentId, db);
 
   const documentTypeId = docRows[0].document_type_id as string;
   const dtRows = await db.query(

@@ -977,3 +977,24 @@ export const usageReportSchema = z
   })
   .strict();
 export type UsageReport = z.infer<typeof usageReportSchema>;
+
+/**
+ * System-wide lifetime usage policy (TechnicalAdmin-configurable).
+ * Caps never reset by calendar period; each metric is counted against its
+ * natural subject (document or user) for the lifetime of that subject.
+ */
+export const platformUsagePolicySchema = z
+  .object({
+    messageLimit: z.number().int().positive(),
+    debriefGenerationLimit: z.number().int().positive(),
+    documentUploadLimit: z.number().int().positive(),
+    draftsPerDocumentLimit: z.number().int().positive(),
+  })
+  .strict();
+export type PlatformUsagePolicy = z.infer<typeof platformUsagePolicySchema>;
+
+/** Partial update to the platform lifetime usage policy. */
+export const updatePlatformUsagePolicyInputSchema = platformUsagePolicySchema;
+export type UpdatePlatformUsagePolicyInput = z.infer<
+  typeof updatePlatformUsagePolicyInputSchema
+>;
