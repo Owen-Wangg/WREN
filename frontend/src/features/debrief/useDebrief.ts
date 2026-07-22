@@ -11,19 +11,43 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { fetchDebrief, recordFeedbackHelpfulness, regenerateDebrief } from './debriefApi';
+import {
+  fetchDebrief,
+  fetchDebriefHistory,
+  recordFeedbackHelpfulness,
+  regenerateDebrief,
+} from './debriefApi';
 
+import type { DebriefHistoryVersion } from './debriefApi';
 import type { Debrief, FeedbackHelpfulnessInput, HelpfulnessAck } from './debriefTypes';
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 
 import { queryKeys } from '@/hooks/queryKeys';
 import { apiClient } from '@/services';
 
-/** Fetches the current AI Debrief for a writing environment; refetches on mount if stale. */
-export function useAiDebrief(environmentId: string): UseQueryResult<Debrief> {
+/**
+ * Fetches an AI Debrief. When `draftId` is set, loads that historical
+ * generation; otherwise loads the latest draft's feedback.
+ */
+export function useAiDebrief(
+  environmentId: string,
+  draftId?: string | null,
+): UseQueryResult<Debrief> {
   return useQuery({
-    queryKey: queryKeys.debrief(environmentId),
-    queryFn: () => fetchDebrief(apiClient, environmentId),
+    queryKey: queryKeys.debrief(environmentId, draftId ?? undefined),
+    queryFn: () => fetchDebrief(apiClient, environmentId, draftId ?? undefined),
+    enabled: !!environmentId,
+  });
+}
+
+/** Lists past AI Debrief generations for a document (newest first). */
+export function useDebriefHistory(
+  environmentId: string,
+): UseQueryResult<DebriefHistoryVersion[]> {
+  return useQuery({
+    queryKey: queryKeys.debriefHistory(environmentId),
+    queryFn: () => fetchDebriefHistory(apiClient, environmentId),
+    enabled: !!environmentId,
   });
 }
 
@@ -41,8 +65,21 @@ export function useRegenerateDebrief(
     mutationFn: () => regenerateDebrief(apiClient, environmentId),
     onSuccess: (debrief) => {
       queryClient.setQueryData(queryKeys.debrief(environmentId), debrief);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.debrief(environmentId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(environmentId) });
+      if (debrief.draftId && debrief.draftId !== 'none') {
+        queryClient.setQueryData(
+          queryKeys.debrief(environmentId, debrief.draftId),
+          debrief,
+        );
+      }
+      void queryClient.invalidateQueries({
+        queryKey: [...queryKeys.debrief(environmentId).slice(0, 4)],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.debriefHistory(environmentId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.inlineFeedbackItems(environmentId),
+      });
     },
   });
 }

@@ -1175,10 +1175,27 @@ const v1MockRoutes: MockRoutes = {
   },
   // Feedback generation (matches feedback Lambda routes)
   'POST /v1/documents/doc-1/feedback': { jobId: 'job-mock-1', status: 'queued' },
-  'GET /v1/documents/doc-1/feedback': { items: [], anchors: [], progressSummary: [] },
+  'GET /v1/documents/doc-1/feedback': { items: [], anchors: [], progressSummary: [], draftId: 'draft-1' },
+  'GET /v1/documents/doc-1/feedback/history': {
+    versions: [
+      {
+        draftId: 'draft-1',
+        draftVersion: 2,
+        generatedAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+        itemCount: 3,
+      },
+      {
+        draftId: 'draft-1-prev',
+        draftVersion: 1,
+        generatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        itemCount: 2,
+      },
+    ],
+  },
   'GET /v1/documents/doc-1/feedback/status': { status: 'completed', itemCount: 3, latestDraftId: 'draft-1' },
   'POST /v1/documents/doc-2/feedback': { jobId: 'job-mock-2', status: 'queued' },
-  'GET /v1/documents/doc-2/feedback': { items: [], anchors: [], progressSummary: [] },
+  'GET /v1/documents/doc-2/feedback': { items: [], anchors: [], progressSummary: [], draftId: 'draft-2' },
+  'GET /v1/documents/doc-2/feedback/history': { versions: [] },
   'GET /v1/documents/doc-2/feedback/status': { status: 'queued', itemCount: 0, latestDraftId: 'draft-2' },
   // Model config (matches features/system-admin/systemAdminApi.ts)
   'GET /v1/admin/config/model': {
@@ -1453,6 +1470,9 @@ export class MockApiClient implements HttpClient {
         itemCount: 0,
         latestDraftId: `draft-${newDocId}-1`,
       };
+      this.routes[`GET /v1/documents/${newDocId}/feedback/history`] = {
+        versions: [],
+      };
       this.routes[`GET /documents/${newDocId}/debrief`] = {
         documentId: newDocId,
         draftId: `draft-${newDocId}-1`,
@@ -1520,6 +1540,28 @@ export class MockApiClient implements HttpClient {
         );
       }
       return result.data;
+    }
+
+    // Dynamic: GET /v1/documents/{id}/feedback?draftId=… falls back to base feedback fixture
+    const feedbackWithDraft = key.match(
+      /^GET \/v1\/documents\/([^/?]+)\/feedback\?draftId=/,
+    );
+    if (feedbackWithDraft) {
+      const baseKey = `GET /v1/documents/${feedbackWithDraft[1]}/feedback`;
+      const fixture = this.routes[baseKey];
+      if (fixture !== undefined) {
+        if (!options.schema) return fixture as T;
+        const parsed = options.schema.safeParse(fixture);
+        if (!parsed.success) {
+          throw new ApiError(
+            `Mock fixture for ${key} failed validation`,
+            'validation',
+            200,
+            parsed.error.issues,
+          );
+        }
+        return parsed.data;
+      }
     }
 
     // Dynamic: GET /v1/analytics/feedback-helpfulness?documentTypeId=<id>

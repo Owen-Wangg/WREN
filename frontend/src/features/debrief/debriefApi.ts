@@ -6,8 +6,13 @@ import type { Debrief, FeedbackHelpfulnessInput, HelpfulnessAck } from './debrie
 import type { HttpClient } from '@/services';
 
 // Paths — all real /v1 routes
-export function feedbackPath(documentId: string): string {
-  return `/v1/documents/${documentId}/feedback`;
+export function feedbackPath(documentId: string, draftId?: string): string {
+  const base = `/v1/documents/${documentId}/feedback`;
+  return draftId ? `${base}?draftId=${encodeURIComponent(draftId)}` : base;
+}
+
+export function feedbackHistoryPath(documentId: string): string {
+  return `/v1/documents/${documentId}/feedback/history`;
 }
 
 /** @deprecated kept for any callers that reference the old name */
@@ -43,23 +48,38 @@ const feedbackResponseSchema = z.object({
       description: z.string(),
     }),
   ).optional(),
+  draftId: z.string().optional(),
 });
 
+const feedbackHistorySchema = z.object({
+  versions: z.array(
+    z.object({
+      draftId: z.string(),
+      draftVersion: z.number().int(),
+      generatedAt: z.string(),
+      itemCount: z.number().int(),
+    }),
+  ),
+});
+
+export type DebriefHistoryVersion = z.infer<typeof feedbackHistorySchema>['versions'][number];
+
 /**
- * Fetches the current AI Debrief by reading feedback items from the real
- * backend endpoint and mapping them into the Debrief shape.
+ * Fetches an AI Debrief for a document. Pass `draftId` to load a historical
+ * generation; omit it to load the latest draft's feedback.
  */
 export async function fetchDebrief(
   client: HttpClient,
   environmentId: string,
+  draftId?: string,
 ): Promise<Debrief> {
-  const raw = await client.request(feedbackPath(environmentId), {
+  const raw = await client.request(feedbackPath(environmentId, draftId), {
     schema: feedbackResponseSchema,
   });
 
-  // Derive a synthetic draftId from the most-recent feedback item's sourceDraftId,
-  // falling back to 'none' when there are no items yet.
-  const draftId = raw.items[0]?.sourceDraftId ?? 'none';
+  // Prefer API draftId, then item sourceDraftId, then the requested draftId.
+  const resolvedDraftId =
+    raw.draftId ?? raw.items[0]?.sourceDraftId ?? draftId ?? 'none';
 
   // Prefer the newest item timestamp as "last generated".
   const generatedAt = raw.items
@@ -70,13 +90,24 @@ export async function fetchDebrief(
 
   return {
     documentId: environmentId,
-    draftId,
+    draftId: resolvedDraftId,
     generatedAt: generatedAt ?? new Date().toISOString(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: raw.items as any,
     progressSummary: raw.progressSummary ?? [],
     categoryNames: raw.categoryNames ?? {},
   };
+}
+
+/** Lists past AI Debrief generations for a document (newest first). */
+export async function fetchDebriefHistory(
+  client: HttpClient,
+  environmentId: string,
+): Promise<DebriefHistoryVersion[]> {
+  const raw = await client.request(feedbackHistoryPath(environmentId), {
+    schema: feedbackHistorySchema,
+  });
+  return raw.versions;
 }
 
 /**

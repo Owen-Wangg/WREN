@@ -8,7 +8,7 @@
  *  - Draft-anchored to specific draftId
  *  - Inline vs. structural feedback separated (Requirement 14.2)
  */
-import { ArrowUp, Minus, Star, TrendingUp } from 'lucide-react';
+import { ArrowUp, ChevronDown, Minus, Star, TrendingUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
@@ -16,7 +16,7 @@ import { AiDisclaimerNotice } from '@/components/ui';
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
 
-import { useAiDebrief, useRegenerateDebrief } from '../useDebrief';
+import { useAiDebrief, useDebriefHistory, useRegenerateDebrief } from '../useDebrief';
 
 import type { ProgressPattern } from '../debriefTypes';
 import type { FeedbackItem } from '@wren/types';
@@ -24,15 +24,21 @@ import type { FeedbackItem } from '@wren/types';
 const DEBRIEF_DISCLAIMER_MESSAGE =
   'The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.';
 
-function formatLastGenerated(iso: string): string {
+function formatDebriefTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
-  return `Last generated ${date.toLocaleString(undefined, {
+  return date.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
+    year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-  })}`;
+  });
+}
+
+function formatLastGenerated(iso: string): string {
+  const formatted = formatDebriefTimestamp(iso);
+  return formatted ? `Last generated ${formatted}` : '';
 }
 
 export interface SidebarDebriefPanelProps {
@@ -63,7 +69,13 @@ export function SidebarDebriefPanel({
   activeQuoteId,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
-  const debriefQuery = useAiDebrief(environmentId);
+  /** null = latest generation; otherwise a historical draft's debrief */
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyMenuRef = useRef<HTMLDivElement>(null);
+
+  const debriefQuery = useAiDebrief(environmentId, selectedDraftId);
+  const historyQuery = useDebriefHistory(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
   const [isSavingThenRegen, setIsSavingThenRegen] = useState(false);
 
@@ -75,9 +87,12 @@ export function SidebarDebriefPanel({
 
   const runRegenerate = async () => {
     setIsSavingThenRegen(true);
+    setHistoryOpen(false);
     try {
       await onBeforeRegenerateRef.current?.();
       await regenerateRef.current.mutateAsync();
+      // Always show the newly generated (latest) debrief after regenerate.
+      setSelectedDraftId(null);
     } catch {
       // Error surfaces via regenerate.isError; keep panel usable.
     } finally {
@@ -96,13 +111,37 @@ export function SidebarDebriefPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per autoRegenerate mount
   }, [autoRegenerate]);
 
+  useEffect(() => {
+    if (!historyOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (
+        historyMenuRef.current &&
+        !historyMenuRef.current.contains(event.target as Node)
+      ) {
+        setHistoryOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHistoryOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [historyOpen]);
+
   const debrief = debriefQuery.data;
+  const historyVersions = historyQuery.data ?? [];
   const regenerating = isSavingThenRegen || regenerate.isPending;
   const hasFeedback = (debrief?.items.length ?? 0) > 0;
+  const viewingHistorical = selectedDraftId != null;
   const lastGeneratedLabel =
     hasFeedback && debrief?.generatedAt
       ? formatLastGenerated(debrief.generatedAt)
       : null;
+  const canOpenHistory = historyVersions.length > 0;
 
   const groupedByCategory = (debrief?.items ?? []).reduce<
     Record<string, FeedbackItem[]>
@@ -114,18 +153,98 @@ export function SidebarDebriefPanel({
   }, {});
   const categoryKeys = Object.keys(groupedByCategory);
 
+  const selectHistoryVersion = (draftId: string, isLatest: boolean) => {
+    setSelectedDraftId(isLatest ? null : draftId);
+    setHistoryOpen(false);
+  };
+
   return (
     <div className="flex h-full flex-col">
       {/* Header with regenerate button */}
       <div className="flex items-center justify-between gap-sm border-b border-border-subtle px-lg py-md">
-        <div className="min-w-0">
-          <h3 className="text-heading3 font-sans font-semibold text-text-primary">
-            AI Debrief
-          </h3>
-          {debrief?.progressSummary && debrief.progressSummary.length > 0 && (
+        <div className="relative min-w-0" ref={historyMenuRef}>
+          <button
+            type="button"
+            className={`flex items-center gap-xs rounded-md text-left transition-colors ${
+              canOpenHistory
+                ? 'hover:bg-surface-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40'
+                : 'cursor-default'
+            }`}
+            aria-haspopup={canOpenHistory ? 'listbox' : undefined}
+            aria-expanded={canOpenHistory ? historyOpen : undefined}
+            aria-label={
+              canOpenHistory
+                ? 'AI Debrief version history'
+                : 'AI Debrief'
+            }
+            disabled={!canOpenHistory}
+            onClick={() => {
+              if (canOpenHistory) setHistoryOpen((open) => !open);
+            }}
+          >
+            <span className="text-heading3 font-sans font-semibold text-text-primary">
+              AI Debrief
+            </span>
+            {canOpenHistory && (
+              <ChevronDown
+                size={16}
+                className={`shrink-0 text-text-muted transition-transform ${
+                  historyOpen ? 'rotate-180' : ''
+                }`}
+                aria-hidden="true"
+              />
+            )}
+          </button>
+          {viewingHistorical ? (
             <p className="text-bodySmall text-text-secondary">
-              Feedback & your progress
+              Viewing earlier debrief
             </p>
+          ) : (
+            debrief?.progressSummary &&
+            debrief.progressSummary.length > 0 && (
+              <p className="text-bodySmall text-text-secondary">
+                Feedback & your progress
+              </p>
+            )
+          )}
+          {historyOpen && canOpenHistory && (
+            <ul
+              role="listbox"
+              aria-label="Previous AI Debriefs"
+              className="absolute left-0 top-full z-20 mt-xs max-h-64 min-w-[16rem] overflow-y-auto rounded-md border border-border-subtle bg-surface-primary py-xs shadow-md"
+            >
+              {historyVersions.map((version, index) => {
+                const isLatest = index === 0;
+                const isSelected = selectedDraftId
+                  ? selectedDraftId === version.draftId
+                  : isLatest;
+                const when = formatDebriefTimestamp(version.generatedAt);
+                return (
+                  <li key={version.draftId} role="option" aria-selected={isSelected}>
+                    <button
+                      type="button"
+                      className={`flex w-full flex-col items-start gap-xs px-md py-sm text-left transition-colors ${
+                        isSelected
+                          ? 'bg-accent-primary/10 text-accent-primary'
+                          : 'text-text-primary hover:bg-surface-muted/60'
+                      }`}
+                      onClick={() => selectHistoryVersion(version.draftId, isLatest)}
+                    >
+                      <span className="text-bodySmall font-semibold">
+                        {isLatest ? 'Latest' : `Draft ${version.draftVersion}`}
+                        {isLatest ? ` · Draft ${version.draftVersion}` : ''}
+                      </span>
+                      <span className="text-caption text-text-muted">
+                        {when}
+                        {version.itemCount > 0
+                          ? ` · ${version.itemCount} item${version.itemCount === 1 ? '' : 's'}`
+                          : ''}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-sm">
@@ -214,8 +333,8 @@ export function SidebarDebriefPanel({
               </div>
             ) : (
               <div className="flex flex-col gap-lg">
-                {/* Progress Summary Card */}
-                {debrief.progressSummary && debrief.progressSummary.length > 0 && (
+                {/* Progress Summary Card — only for the latest debrief */}
+                {!viewingHistorical && debrief.progressSummary && debrief.progressSummary.length > 0 && (
                   <section aria-labelledby="progress-card-heading">
                     <div className="mb-md rounded-lg border border-accent-primary/20 bg-accent-primary/5 p-md">
                       <h3 id="progress-card-heading" className="mb-md flex items-center gap-sm text-body font-sans font-semibold text-text-primary">

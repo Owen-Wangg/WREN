@@ -12,11 +12,14 @@ export { CitationDisplay, type CitationDisplayProps } from './components/Citatio
 
 export {
   debriefPath,
+  feedbackHistoryPath,
   regenerateDebriefPath,
   FEEDBACK_HELPFULNESS_PATH,
   fetchDebrief,
+  fetchDebriefHistory,
   regenerateDebrief,
   recordFeedbackHelpfulness,
+  type DebriefHistoryVersion,
 } from './debriefApi';
 export {
   debriefSchema,
@@ -26,4 +29,9 @@ export {
   type FeedbackHelpfulnessInput,
   type HelpfulnessAck,
 } from './debriefTypes';
-export { useAiDebrief, useRegenerateDebrief, useFeedbackHelpfulness } from './useDebrief';
+export {
+  useAiDebrief,
+  useDebriefHistory,
+  useRegenerateDebrief,
+  useFeedbackHelpfulness,
+} from './useDebrief';

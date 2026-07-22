@@ -118,6 +118,9 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     if (resource === '/v1/documents/{documentId}/feedback' && httpMethod === 'POST') {
       return await wrapHandler(() => handleRequestFeedback(event));
     }
+    if (resource === '/v1/documents/{documentId}/feedback/history' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetFeedbackHistory(event));
+    }
     if (resource === '/v1/documents/{documentId}/feedback/status' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetFeedbackStatus(event));
     }
@@ -148,6 +151,10 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { documentId } = event.pathParameters || {};
+  const requestedDraftId =
+    typeof event.queryStringParameters?.draftId === 'string'
+      ? event.queryStringParameters.draftId
+      : null;
 
   const docQuery = `
     SELECT owner_user_id FROM document WHERE id = $1
@@ -161,23 +168,38 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
-  // Only return feedback for the latest draft so regeneration replaces rather than appends.
-  const latestDraftQuery = `
-    SELECT id FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1
-  `;
-  const latestDraftRows = await db.query(latestDraftQuery, [documentId]);
-  const latestDraftId = (latestDraftRows[0] as any)?.id ?? null;
+  let targetDraftId: string | null = null;
+  if (requestedDraftId) {
+    const draftCheck = await db.query(
+      `SELECT id FROM draft WHERE id = $1 AND document_id = $2`,
+      [requestedDraftId, documentId],
+    );
+    if (draftCheck.length === 0) {
+      return {
+        statusCode: 404,
+        body: JSON.stringify({ code: 'NOT_FOUND', message: 'Draft not found for this document' }),
+      };
+    }
+    targetDraftId = requestedDraftId;
+  } else {
+    // Default: latest draft so regeneration appears to replace rather than append.
+    const latestDraftQuery = `
+      SELECT id FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1
+    `;
+    const latestDraftRows = await db.query(latestDraftQuery, [documentId]);
+    targetDraftId = (latestDraftRows[0] as any)?.id ?? null;
+  }
 
   const feedbackQuery = `
     SELECT id, document_id, error_category_id, kind, question_text, quoted_text,
            current_anchor_id, citation_reference_id, source_draft_id, created_at
     FROM feedback_item
-    WHERE document_id = $1${latestDraftId ? ` AND source_draft_id = $2` : ''}
+    WHERE document_id = $1${targetDraftId ? ` AND source_draft_id = $2` : ''}
     ORDER BY created_at DESC
   `;
   const feedbackRows = await db.query(
     feedbackQuery,
-    latestDraftId ? [documentId, latestDraftId] : [documentId],
+    targetDraftId ? [documentId, targetDraftId] : [documentId],
   );
 
   const anchorsQuery = `
@@ -185,12 +207,12 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
            a.end_offset, a.content_fingerprint, a.state
     FROM anchor a
     INNER JOIN feedback_item f ON f.id = a.feedback_item_id
-    WHERE f.document_id = $1${latestDraftId ? ` AND f.source_draft_id = $2` : ''}
+    WHERE f.document_id = $1${targetDraftId ? ` AND f.source_draft_id = $2` : ''}
     ORDER BY a.created_at ASC
   `;
   const anchorRows = await db.query(
     anchorsQuery,
-    latestDraftId ? [documentId, latestDraftId] : [documentId],
+    targetDraftId ? [documentId, targetDraftId] : [documentId],
   );
 
   // Build a categoryId → name map from the distinct category IDs present in the items
@@ -273,6 +295,55 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
       anchors: anchorRows.map((row: any) => toAnchorDto(row)),
       categoryNames,
       progressSummary,
+      draftId: targetDraftId,
+    }),
+  };
+}
+
+async function handleGetFeedbackHistory(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+
+  const docQuery = `
+    SELECT owner_user_id FROM document WHERE id = $1
+  `;
+  const docRows = await db.query(docQuery, [documentId]);
+
+  if (docRows.length === 0 || docRows[0].owner_user_id !== actor.userId) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  const rows = await db.query<{
+    draft_id: string;
+    version_number: number;
+    generated_at: string | Date;
+    item_count: number;
+  }>(
+    `SELECT d.id AS draft_id,
+            d.version_number,
+            MAX(f.created_at) AS generated_at,
+            COUNT(*)::int AS item_count
+     FROM feedback_item f
+     INNER JOIN draft d ON d.id = f.source_draft_id
+     WHERE f.document_id = $1
+     GROUP BY d.id, d.version_number
+     ORDER BY MAX(f.created_at) DESC`,
+    [documentId],
+  );
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      versions: rows.map((row) => ({
+        draftId: row.draft_id,
+        draftVersion: row.version_number,
+        generatedAt: toIsoDateTime(row.generated_at),
+        itemCount: row.item_count,
+      })),
     }),
   };
 }

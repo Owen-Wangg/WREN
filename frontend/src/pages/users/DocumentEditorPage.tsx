@@ -257,7 +257,12 @@ export function DocumentEditorPage() {
             setIsPollingFeedback(false);
             clearInterval(interval);
             void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
-            void queryClient.invalidateQueries({ queryKey: queryKeys.debrief(envId) });
+            void queryClient.invalidateQueries({
+              queryKey: [...queryKeys.debrief(envId).slice(0, 4)],
+            });
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.debriefHistory(envId),
+            });
             return;
           }
 
@@ -374,11 +379,6 @@ export function DocumentEditorPage() {
               {resubmitDraftMutation.isError && (
                 <p role="alert" className="text-bodySmall text-signal-critical">
                   {errorMessageFromUnknown(resubmitDraftMutation.error)}
-                </p>
-              )}
-              {resubmitDraftMutation.isSuccess && !resubmitDraftMutation.isPending && (
-                <p className="text-bodySmall text-signal-positive">
-                  Draft uploaded — generating updated feedback…
                 </p>
               )}
             </nav>

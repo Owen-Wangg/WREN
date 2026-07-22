@@ -21,6 +21,20 @@ describe('queryKeys', () => {
       'documents',
       'env-1',
       'debrief',
+      'latest',
+    ]);
+    expect(queryKeys.debrief('env-1', 'draft-9')).toEqual([
+      appConfig.environment,
+      'documents',
+      'env-1',
+      'debrief',
+      'draft-9',
+    ]);
+    expect(queryKeys.debriefHistory('env-1')).toEqual([
+      appConfig.environment,
+      'documents',
+      'env-1',
+      'debrief-history',
     ]);
   });
 
