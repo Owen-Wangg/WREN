@@ -15,8 +15,6 @@ import { WrenChatPanel, type AskWrenService } from '@/features/ask-wren';
 import { SidebarDebriefPanel, useAiDebrief } from '@/features/debrief';
 import { appConfig } from '@/config/env';
 
-import { computeWritingProgress } from '@/features/ask-wren/writingProgress';
-
 export interface ChatFeedbackSidebarProps {
   readonly documentId: string;
   readonly draftId: string;
@@ -56,15 +54,16 @@ export function ChatFeedbackSidebar({
   const [activeTab, setActiveTab] = useState<TabType>('chat');
   const debriefQuery = useAiDebrief(documentId);
 
-  const writingProgressPercent = useMemo(() => {
+  const progressSignals = useMemo(() => {
     const summary = debriefQuery.data?.progressSummary ?? [];
-    return computeWritingProgress({
+    return {
       wordCount,
+      draftVersion,
       hasFeedback: (debriefQuery.data?.items.length ?? 0) > 0,
       improvingCount: summary.filter((p) => p.tendency === 'improving').length,
       patternCount: summary.length,
-    });
-  }, [wordCount, debriefQuery.data]);
+    };
+  }, [wordCount, draftVersion, debriefQuery.data]);
 
   useEffect(() => {
     const stored = localStorage.getItem(ACTIVE_TAB_KEY) as TabType | null;
@@ -117,7 +116,7 @@ export function ChatFeedbackSidebar({
             documentId={documentId}
             draftId={draftId}
             draftVersion={draftVersion}
-            writingProgressPercent={writingProgressPercent}
+            progressSignals={progressSignals}
             askWrenService={askWrenService}
             className="h-full w-full"
             onHighlight={onHighlight}

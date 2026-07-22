@@ -16,7 +16,7 @@
  *  - Surfaces `<AiDisclaimerNotice>` so the AI disclaimer is never
  *    copy-pasted inline here (steering §3, §11).
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
 import { appConfig } from '@/config/env';
@@ -26,7 +26,11 @@ import { useZodForm } from '@/forms/useZodForm';
 import { askWrenMessageSchema, type AskWrenMessageFormValues } from '../askWrenSchemas';
 import type { AskWrenService } from '../askWrenService';
 import type { WrenChatMessage } from '../askWrenTypes';
-import { writingProgressLabel } from '../writingProgress';
+import {
+  computeWritingProgress,
+  writingProgressLabel,
+  type WritingProgressInput,
+} from '../writingProgress';
 
 function conversationCacheKey(documentId: string): string {
   return `ask-wren-messages:${documentId}`;
@@ -93,11 +97,18 @@ function mergeMessagesById(
   return merged;
 }
 
+export type WrenChatProgressSignals = Omit<WritingProgressInput, 'hasAskedCoach'>;
+
 export interface WrenChatPanelProps {
   readonly documentId: string;
   readonly draftId: string;
   readonly draftVersion: number;
-  /** 0–100 writing progress (substance + feedback + improvement), not draft version. */
+  /**
+   * Signals for the progress bar (word count, debrief, revision). Coach
+   * engagement is derived from chat messages inside this panel.
+   */
+  readonly progressSignals?: WrenChatProgressSignals;
+  /** @deprecated Prefer `progressSignals`. Kept for tests that pass a fixed %. */
   readonly writingProgressPercent?: number;
   readonly askWrenService: AskWrenService;
   readonly className?: string;
@@ -109,7 +120,8 @@ export function WrenChatPanel({
   documentId,
   draftId,
   draftVersion,
-  writingProgressPercent = 0,
+  progressSignals,
+  writingProgressPercent,
   askWrenService,
   className,
   onHighlight,
@@ -118,6 +130,17 @@ export function WrenChatPanel({
     documentId ? (readCachedMessages(documentId, draftId) ?? []) : [],
   );
   const [error, setError] = useState<string | null>(null);
+
+  const computedProgressPercent = useMemo(() => {
+    if (!progressSignals) {
+      return writingProgressPercent ?? 0;
+    }
+    return computeWritingProgress({
+      ...progressSignals,
+      hasAskedCoach: messages.some((m) => m.role === 'user'),
+    });
+  }, [progressSignals, messages, writingProgressPercent]);
+
   const [hydrating, setHydrating] = useState(true);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -234,15 +257,15 @@ export function WrenChatPanel({
             Draft version {draftVersion}
           </span>
           <span className="text-caption text-text-muted">
-            {writingProgressLabel(writingProgressPercent)}
+            {writingProgressLabel(computedProgressPercent)}
           </span>
         </div>
         <div className="h-[6px] w-full overflow-hidden rounded-full bg-surface-subtle">
           <div
             className="h-full rounded-full bg-signal-positive transition-all duration-300"
-            style={{ width: `${Math.max(0, Math.min(100, writingProgressPercent))}%` }}
+            style={{ width: `${Math.max(0, Math.min(100, computedProgressPercent))}%` }}
             role="progressbar"
-            aria-valuenow={writingProgressPercent}
+            aria-valuenow={computedProgressPercent}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-label="Writing progress"

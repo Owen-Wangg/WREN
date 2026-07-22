@@ -5,7 +5,12 @@
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
 import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt } from './departmentService';
-import { listDocumentTypes, listAllDocumentTypes, createDocumentType } from './documentTypeService';
+import {
+  listDocumentTypes,
+  listAllDocumentTypes,
+  createDocumentType,
+  setDocumentTypeAccessState,
+} from './documentTypeService';
 import { listErrorCategories, createErrorCategory } from './errorCategoryService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { listContentTypes } from './contentTypeService';
@@ -79,6 +84,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/document-types/{documentTypeId}/config' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateDocumentTypeConfig(event));
+    }
+    if (resource === '/v1/document-types/{documentTypeId}/access-state' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleSetDocumentTypeAccessState(event));
     }
     if (resource === '/v1/users' && httpMethod === 'GET') {
       return await wrapHandler(() => handleSearchUsers(event));
@@ -213,6 +221,28 @@ async function handleUpdateDocumentTypeConfig(event: any): Promise<APIGatewayPro
   return {
     statusCode: 200,
     body: JSON.stringify(config),
+  };
+}
+
+async function handleSetDocumentTypeAccessState(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const accessState = body.accessState as 'OPEN' | 'LOCKED' | undefined;
+  if (accessState !== 'OPEN' && accessState !== 'LOCKED') {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: "accessState must be 'OPEN' or 'LOCKED'",
+      }),
+    };
+  }
+  const updated = await setDocumentTypeAccessState(actor, documentTypeId, accessState, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ accessState: updated.accessState }),
   };
 }
 
