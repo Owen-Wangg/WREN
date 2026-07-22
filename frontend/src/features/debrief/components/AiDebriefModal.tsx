@@ -188,6 +188,7 @@ export function AiDebriefModal({
             <AiDisclaimerNotice
               dismissible
               dismissStorageKey="ai-debrief-disclaimer-dismissed"
+              dismissScopeId={environmentId}
               message="The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user."
               className="mb-xl leading-relaxed"
             />

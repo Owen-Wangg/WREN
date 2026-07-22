@@ -276,6 +276,7 @@ export function WrenChatPanel({
       <AiDisclaimerNotice
         dismissible
         dismissStorageKey="ask-chat-ai-disclaimer-dismissed"
+        dismissScopeId={documentId}
         message={`${appConfig.appName} responds with guiding questions to help you think through your own writing. It will not rewrite your text or provide replacement prose.`}
       />
 

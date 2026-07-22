@@ -13,7 +13,7 @@
  * semantic HTML can't express it — steering §8) so assistive tech announces it
  * as supplementary information rather than an alert/warning.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 
 export interface AiDisclaimerNoticeProps {
@@ -22,11 +22,18 @@ export interface AiDisclaimerNoticeProps {
   readonly className?: string;
   /**
    * When true, shows a dismiss control. Dismissal is remembered in
-   * `localStorage` under {@link dismissStorageKey} (defaults to a shared key).
+   * `sessionStorage` under {@link dismissStorageKey} (optionally scoped by
+   * {@link dismissScopeId}) for the current browser tab session only — not
+   * permanently across visits.
    */
   readonly dismissible?: boolean;
-  /** localStorage key used when `dismissible` is true. */
+  /** sessionStorage key prefix used when `dismissible` is true. */
   readonly dismissStorageKey?: string;
+  /**
+   * Scopes dismissal (e.g. document id) so closing the notice on one document
+   * does not hide it on another during the same session.
+   */
+  readonly dismissScopeId?: string;
 }
 
 export const AI_DISCLAIMER_DEFAULT_MESSAGE =
@@ -34,9 +41,13 @@ export const AI_DISCLAIMER_DEFAULT_MESSAGE =
 
 const DEFAULT_DISMISS_KEY = 'wren-ai-disclaimer-dismissed';
 
+function storageKeyFor(baseKey: string, scopeId?: string): string {
+  return scopeId ? `${baseKey}:${scopeId}` : baseKey;
+}
+
 function readDismissed(key: string): boolean {
   try {
-    return localStorage.getItem(key) === '1';
+    return sessionStorage.getItem(key) === '1';
   } catch {
     return false;
   }
@@ -44,7 +55,7 @@ function readDismissed(key: string): boolean {
 
 function writeDismissed(key: string): void {
   try {
-    localStorage.setItem(key, '1');
+    sessionStorage.setItem(key, '1');
   } catch {
     // ignore quota / private mode
   }
@@ -55,10 +66,20 @@ export function AiDisclaimerNotice({
   className,
   dismissible = false,
   dismissStorageKey = DEFAULT_DISMISS_KEY,
+  dismissScopeId,
 }: AiDisclaimerNoticeProps) {
+  const storageKey = storageKeyFor(dismissStorageKey, dismissScopeId);
   const [dismissed, setDismissed] = useState(() =>
-    dismissible ? readDismissed(dismissStorageKey) : false,
+    dismissible ? readDismissed(storageKey) : false,
   );
+
+  useEffect(() => {
+    if (!dismissible) {
+      setDismissed(false);
+      return;
+    }
+    setDismissed(readDismissed(storageKey));
+  }, [dismissible, storageKey]);
 
   if (dismissible && dismissed) {
     return null;
@@ -80,7 +101,7 @@ export function AiDisclaimerNotice({
         <button
           type="button"
           onClick={() => {
-            writeDismissed(dismissStorageKey);
+            writeDismissed(storageKey);
             setDismissed(true);
           }}
           aria-label="Dismiss disclaimer"

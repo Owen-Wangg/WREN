@@ -132,6 +132,7 @@ export function SidebarDebriefPanel({
         <AiDisclaimerNotice
           dismissible
           dismissStorageKey="ai-debrief-disclaimer-dismissed"
+          dismissScopeId={environmentId}
           message={DEBRIEF_DISCLAIMER_MESSAGE}
           className="mb-lg text-caption leading-relaxed"
         />
