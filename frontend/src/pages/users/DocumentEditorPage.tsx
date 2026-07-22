@@ -80,6 +80,10 @@ export function DocumentEditorPage() {
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(420);
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
+  const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
+    undefined,
+  );
+  const [activeQuoteId, setActiveQuoteId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
   // Start polling immediately if we arrived from a fresh upload (router state
   // carries feedbackQueued / legacy initialContent when feedback was auto-queued).
@@ -405,6 +409,7 @@ export function DocumentEditorPage() {
                   initialContent={editorInitialContent}
                   categoryLabels={previewCategoryLabels}
                   highlightedAnchorId={highlightedAnchorId}
+                  highlightedQuotedText={highlightedQuotedText}
                   showCoachHighlights={showCoachHighlights}
                   onContentChange={(content) => setCurrentContent(content)}
                 />
@@ -458,11 +463,22 @@ export function DocumentEditorPage() {
               isGeneratingFeedback={isPollingFeedback}
               onBeforeRegenerate={saveDraftFromEditor}
               onHighlight={(anchorId) => {
+                setActiveQuoteId(`ask:${anchorId}`);
                 setHighlightedAnchorId(anchorId);
+                setHighlightedQuotedText(undefined);
                 setShowCoachHighlights(true);
               }}
-              onQuoteClick={(anchorId) => {
-                setHighlightedAnchorId(anchorId);
+              activeQuoteId={activeQuoteId}
+              onQuoteClick={(selection) => {
+                if (activeQuoteId === selection.feedbackItemId) {
+                  setActiveQuoteId(undefined);
+                  setHighlightedAnchorId(undefined);
+                  setHighlightedQuotedText(undefined);
+                  return;
+                }
+                setActiveQuoteId(selection.feedbackItemId);
+                setHighlightedAnchorId(selection.anchorId);
+                setHighlightedQuotedText(selection.quotedText);
               }}
             />
           </div>

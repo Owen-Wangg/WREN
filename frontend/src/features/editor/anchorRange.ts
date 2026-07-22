@@ -72,6 +72,164 @@ export function resolveAnchorRange(
 }
 
 /**
+ * Build search candidates for a debrief quote. Model quotes are sometimes
+ * truncated mid-word ("… One employee describ"); drop an incomplete final
+ * token so we can still locate the phrase, then expand to the full word.
+ */
+export function quoteSearchCandidates(quotedText: string): string[] {
+  const trimmed = quotedText.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return [];
+
+  const candidates = [trimmed];
+  const words = trimmed.split(' ');
+  if (words.length > 2) {
+    const last = words[words.length - 1] ?? '';
+    const looksTruncated = last.length > 0 && last.length < 6 && !/[.!?,"')\]]$/.test(last);
+    if (looksTruncated) {
+      candidates.push(words.slice(0, -1).join(' '));
+    }
+  }
+  return candidates;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Locates `quotedText` inside a single top-level block. When the quote ends
+ * mid-word, expands the match through the remainder of that word in the doc.
+ */
+function findQuotedTextInBlock(
+  blockText: string,
+  contentStart: number,
+  quotedText: string,
+): DocumentRange | null {
+  const fullNormalized = quotedText.trim().replace(/\s+/g, ' ');
+  const candidates = quoteSearchCandidates(quotedText);
+
+  for (const candidate of candidates) {
+    let idx = blockText.indexOf(candidate);
+    let matchedCaseInsensitive = false;
+    if (idx < 0) {
+      idx = blockText.toLowerCase().indexOf(candidate.toLowerCase());
+      matchedCaseInsensitive = idx >= 0;
+    }
+    if (idx < 0) continue;
+
+    let end = idx + candidate.length;
+    // Expand through a truncated final stem ("describ" → "described").
+    if (candidate !== fullNormalized) {
+      const stem = fullNormalized.split(' ').pop() ?? '';
+      if (stem) {
+        const rest = blockText.slice(end);
+        const expansion = rest.match(new RegExp(`^${escapeRegExp(stem)}\\w*`, 'i'));
+        if (expansion) end += expansion[0].length;
+      }
+    } else if (matchedCaseInsensitive) {
+      // Keep the matched length as-is for exact (case-insensitive) hits.
+    }
+
+    return { from: contentStart + idx, to: contentStart + end };
+  }
+  return null;
+}
+
+/** Finds the first block containing the quoted phrase. */
+export function findQuotedTextRange(
+  doc: ProseMirrorNode,
+  quotedText: string,
+): DocumentRange | null {
+  if (!quotedText.trim()) return null;
+
+  let result: DocumentRange | null = null;
+  doc.forEach((node, offset) => {
+    if (result || !BLOCK_NODE_TYPES.has(node.type.name)) return;
+    const found = findQuotedTextInBlock(node.textContent, offset + 1, quotedText);
+    if (found) result = found;
+  });
+  return result;
+}
+
+/** Finds the quoted phrase within a specific paragraph index, if present. */
+export function findQuotedTextInParagraph(
+  doc: ProseMirrorNode,
+  paragraphIndex: number,
+  quotedText: string,
+): DocumentRange | null {
+  if (paragraphIndex < 0 || !quotedText.trim()) return null;
+
+  let result: DocumentRange | null = null;
+  let blockIndex = 0;
+  doc.forEach((node, offset) => {
+    if (result || !BLOCK_NODE_TYPES.has(node.type.name)) return;
+    if (blockIndex === paragraphIndex) {
+      result = findQuotedTextInBlock(node.textContent, offset + 1, quotedText);
+    }
+    blockIndex += 1;
+  });
+  return result;
+}
+
+/** Expand a range so it never starts/ends mid-word within its block. */
+function expandRangeToWordBoundaries(
+  doc: ProseMirrorNode,
+  range: DocumentRange,
+): DocumentRange {
+  let blockText = '';
+  let contentStart = 0;
+  let found = false;
+
+  doc.forEach((node, offset) => {
+    if (found || !BLOCK_NODE_TYPES.has(node.type.name)) return;
+    const start = offset + 1;
+    const end = start + node.textContent.length;
+    if (range.from >= start && range.to <= end) {
+      blockText = node.textContent;
+      contentStart = start;
+      found = true;
+    }
+  });
+  if (!found || !blockText) return range;
+
+  let localFrom = range.from - contentStart;
+  let localTo = range.to - contentStart;
+  while (localFrom > 0 && /\w/.test(blockText[localFrom - 1] ?? '')) localFrom -= 1;
+  while (localTo < blockText.length && /\w/.test(blockText[localTo] ?? '')) localTo += 1;
+  return { from: contentStart + localFrom, to: contentStart + localTo };
+}
+
+/**
+ * Resolve the best highlight span for an AI Debrief quote click.
+ * Prefers the visible quoted text (so the yellow mark matches what the
+ * student clicked); falls back to the stored anchor when text can't be found.
+ * Always snaps to word boundaries so highlights never end mid-word.
+ */
+export function resolveDebriefHighlightRange(
+  doc: ProseMirrorNode,
+  options: {
+    readonly anchor?: AnchorSpan | null;
+    readonly quotedText?: string | null;
+  },
+): DocumentRange | null {
+  const quoted = options.quotedText?.trim() ?? '';
+  let range: DocumentRange | null = null;
+
+  if (quoted) {
+    if (options.anchor) {
+      range = findQuotedTextInParagraph(doc, options.anchor.paragraphIndex, quoted);
+    }
+    if (!range) {
+      range = findQuotedTextRange(doc, quoted);
+    }
+  }
+  if (!range && options.anchor) {
+    range = resolveAnchorRange(doc, options.anchor);
+  }
+  return range ? expandRangeToWordBoundaries(doc, range) : null;
+}
+
+/**
  * Finds the document range currently carrying a comment mark with the given
  * `commentId`, by collecting every node the mark spans and taking the outer
  * bounding range (mirrors `unsetComment`'s own range-collection approach in

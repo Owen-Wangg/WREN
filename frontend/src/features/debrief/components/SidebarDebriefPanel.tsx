@@ -34,8 +34,14 @@ export interface SidebarDebriefPanelProps {
    * TipTap content stays the source of truth in DocumentEditorPage.
    */
   readonly onBeforeRegenerate?: () => Promise<void>;
+  /** Feedback item id of the quote currently highlighted in the editor. */
+  readonly activeQuoteId?: string;
   /** Called when student clicks a quoted text to highlight it in the document. */
-  readonly onQuoteClick?: (anchorId: string | undefined) => void;
+  readonly onQuoteClick?: (selection: {
+    feedbackItemId: string;
+    anchorId?: string;
+    quotedText?: string;
+  }) => void;
 }
 
 export function SidebarDebriefPanel({
@@ -43,6 +49,7 @@ export function SidebarDebriefPanel({
   autoRegenerate = false,
   isGenerating = false,
   onBeforeRegenerate,
+  activeQuoteId,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
   const debriefQuery = useAiDebrief(environmentId);
@@ -303,13 +310,29 @@ export function SidebarDebriefPanel({
                                 </div>
                                 {item.quotedText && (
                                   <blockquote
-                                    className="ml-sm border-l-2 border-signal-positive/30 pl-md italic text-bodySmall text-text-secondary cursor-pointer hover:bg-signal-positive/5 hover:border-signal-positive/60 rounded px-sm transition-colors"
-                                    onClick={() => onQuoteClick?.(item.currentAnchorId)}
+                                    className={`ml-sm border-l-2 pl-md italic text-bodySmall cursor-pointer rounded px-sm transition-colors break-words ${
+                                      activeQuoteId === item.id
+                                        ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
+                                        : 'border-signal-positive/30 text-text-secondary hover:bg-signal-positive/5 hover:border-signal-positive/60'
+                                    }`}
+                                    onClick={() =>
+                                      onQuoteClick?.({
+                                        feedbackItemId: item.id,
+                                        anchorId: item.currentAnchorId,
+                                        quotedText: item.quotedText,
+                                      })
+                                    }
                                     role="button"
                                     tabIndex={0}
+                                    aria-pressed={activeQuoteId === item.id}
                                     onKeyDown={(e) => {
                                       if (e.key === 'Enter' || e.key === ' ') {
-                                        onQuoteClick?.(item.currentAnchorId);
+                                        e.preventDefault();
+                                        onQuoteClick?.({
+                                          feedbackItemId: item.id,
+                                          anchorId: item.currentAnchorId,
+                                          quotedText: item.quotedText,
+                                        });
                                       }
                                     }}
                                   >
@@ -340,13 +363,29 @@ export function SidebarDebriefPanel({
                                 </div>
                                 {item.quotedText && (
                                   <blockquote
-                                    className="ml-sm border-l-2 border-signal-critical/30 pl-md italic text-bodySmall text-text-secondary cursor-pointer hover:bg-signal-critical/5 hover:border-signal-critical/60 rounded px-sm transition-colors"
-                                    onClick={() => onQuoteClick?.(item.currentAnchorId)}
+                                    className={`ml-sm border-l-2 pl-md italic text-bodySmall cursor-pointer rounded px-sm transition-colors break-words ${
+                                      activeQuoteId === item.id
+                                        ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
+                                        : 'border-signal-critical/30 text-text-secondary hover:bg-signal-critical/5 hover:border-signal-critical/60'
+                                    }`}
+                                    onClick={() =>
+                                      onQuoteClick?.({
+                                        feedbackItemId: item.id,
+                                        anchorId: item.currentAnchorId,
+                                        quotedText: item.quotedText,
+                                      })
+                                    }
                                     role="button"
                                     tabIndex={0}
+                                    aria-pressed={activeQuoteId === item.id}
                                     onKeyDown={(e) => {
                                       if (e.key === 'Enter' || e.key === ' ') {
-                                        onQuoteClick?.(item.currentAnchorId);
+                                        e.preventDefault();
+                                        onQuoteClick?.({
+                                          feedbackItemId: item.id,
+                                          anchorId: item.currentAnchorId,
+                                          quotedText: item.quotedText,
+                                        });
                                       }
                                     }}
                                   >

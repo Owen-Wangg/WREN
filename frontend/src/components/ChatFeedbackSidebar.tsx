@@ -24,7 +24,13 @@ export interface ChatFeedbackSidebarProps {
   /** Persist editor content as a new draft before AI Debrief regenerate. */
   readonly onBeforeRegenerate?: () => Promise<void>;
   readonly onHighlight?: (anchorId: string) => void;
-  readonly onQuoteClick?: (anchorId: string | undefined) => void;
+  /** Feedback item id of the quote currently highlighted in the editor. */
+  readonly activeQuoteId?: string;
+  readonly onQuoteClick?: (selection: {
+    feedbackItemId: string;
+    anchorId?: string;
+    quotedText?: string;
+  }) => void;
 }
 
 type TabType = 'chat' | 'debrief';
@@ -39,6 +45,7 @@ export function ChatFeedbackSidebar({
   isGeneratingFeedback = false,
   onBeforeRegenerate,
   onHighlight,
+  activeQuoteId,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
   const [activeTab, setActiveTab] = useState<TabType>('chat');
@@ -108,6 +115,7 @@ export function ChatFeedbackSidebar({
             autoRegenerate={false}
             isGenerating={isGeneratingFeedback}
             onBeforeRegenerate={onBeforeRegenerate}
+            activeQuoteId={activeQuoteId}
             onQuoteClick={onQuoteClick}
           />
         </div>
