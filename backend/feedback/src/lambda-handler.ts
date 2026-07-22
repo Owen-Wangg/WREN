@@ -76,15 +76,143 @@ function toIsoDateTime(value: unknown): string {
   return new Date().toISOString();
 }
 
+/** Snap offsets so quotes never start/end mid-word (matches editor highlight). */
+function expandToWordBoundaries(
+  text: string,
+  startOffset: number,
+  endOffset: number,
+): { start: number; end: number } {
+  let start = Math.max(0, Math.min(startOffset, text.length));
+  let end = Math.max(start, Math.min(endOffset, text.length));
+  while (start > 0 && /\w/.test(text[start - 1] ?? '')) start -= 1;
+  while (end < text.length && /\w/.test(text[end] ?? '')) end += 1;
+  return { start, end };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Locate a (possibly truncated) model quote inside a paragraph and expand to
+ * whole words so the debrief quote matches the document highlight.
+ */
+function resolveExactQuoteInParagraph(
+  paragraphText: string,
+  quotedText: string,
+): string | null {
+  const fullNormalized = quotedText.trim().replace(/\s+/g, ' ');
+  if (!fullNormalized || !paragraphText) return null;
+
+  const candidates = [fullNormalized];
+  const words = fullNormalized.split(' ');
+  if (words.length > 2) {
+    const last = words[words.length - 1] ?? '';
+    const looksTruncated = last.length > 0 && last.length < 6 && !/[.!?,"')\]]$/.test(last);
+    if (looksTruncated) {
+      candidates.push(words.slice(0, -1).join(' '));
+    }
+  }
+
+  for (const candidate of candidates) {
+    let idx = paragraphText.indexOf(candidate);
+    if (idx < 0) {
+      idx = paragraphText.toLowerCase().indexOf(candidate.toLowerCase());
+    }
+    if (idx < 0) continue;
+
+    let end = idx + candidate.length;
+    if (candidate !== fullNormalized) {
+      const stem = fullNormalized.split(' ').pop() ?? '';
+      if (stem) {
+        const rest = paragraphText.slice(end);
+        const expansion = rest.match(new RegExp(`^${escapeRegExp(stem)}\\w*`, 'i'));
+        if (expansion) end += expansion[0].length;
+      }
+    }
+
+    const expanded = expandToWordBoundaries(paragraphText, idx, end);
+    return paragraphText.slice(expanded.start, expanded.end);
+  }
+  return null;
+}
+
+function segmentTextAt(
+  segments: Array<{ index?: number; text?: string }>,
+  paragraphIndex: number,
+): string {
+  const byIndex = segments.find((s) => s.index === paragraphIndex);
+  if (byIndex && typeof byIndex.text === 'string') return byIndex.text;
+  const byPos = segments[paragraphIndex];
+  return typeof byPos?.text === 'string' ? byPos.text : '';
+}
+
+/**
+ * Rebuild quotedText from the draft paragraph so the AI Debrief shows the
+ * same exact span the editor highlights (word-complete, not mid-token cutoff).
+ */
+function resolveQuotedTextForItem(
+  row: any,
+  anchorByFeedbackId: Map<string, any>,
+  segments: Array<{ index?: number; text?: string }>,
+): string | undefined {
+  const stored = typeof row.quoted_text === 'string' ? row.quoted_text : undefined;
+  const anchor =
+    (row.current_anchor_id
+      ? [...anchorByFeedbackId.values()].find((a) => a.id === row.current_anchor_id)
+      : undefined) ?? anchorByFeedbackId.get(row.id);
+
+  if (anchor) {
+    const para = segmentTextAt(segments, Number(anchor.paragraph_index ?? 0));
+    if (para) {
+      if (stored) {
+        const fromQuote = resolveExactQuoteInParagraph(para, stored);
+        if (fromQuote) return fromQuote;
+      }
+      const start = Number(anchor.start_offset ?? 0);
+      const end = Number(anchor.end_offset ?? 0);
+      if (end > start && end <= para.length) {
+        const expanded = expandToWordBoundaries(para, start, end);
+        const slice = para.slice(expanded.start, expanded.end).trim();
+        if (slice) return slice;
+      }
+    }
+  }
+
+  // No usable anchor — still try to complete a truncated stored quote across segments.
+  if (stored) {
+    for (const segment of segments) {
+      const para = typeof segment.text === 'string' ? segment.text : '';
+      const fromQuote = resolveExactQuoteInParagraph(para, stored);
+      if (fromQuote) return fromQuote;
+    }
+  }
+
+  return stored;
+}
+
 /** Map a `feedback_item` row to the shared camelCase FeedbackItem DTO. */
-function toFeedbackItemDto(row: any) {
+function toFeedbackItemDto(
+  row: any,
+  options?: {
+    anchorByFeedbackId?: Map<string, any>;
+    segments?: Array<{ index?: number; text?: string }>;
+  },
+) {
+  const quotedText =
+    options?.segments && options.anchorByFeedbackId
+      ? resolveQuotedTextForItem(row, options.anchorByFeedbackId, options.segments)
+      : row.quoted_text
+        ? row.quoted_text
+        : undefined;
+
   return {
     id: row.id,
     documentId: row.document_id,
     errorCategoryId: row.error_category_id,
     kind: row.kind,
     questionText: row.question_text,
-    ...(row.quoted_text ? { quotedText: row.quoted_text } : {}),
+    ...(quotedText ? { quotedText } : {}),
     ...(row.current_anchor_id ? { currentAnchorId: row.current_anchor_id } : {}),
     ...(row.citation_reference_id ? { citationReferenceId: row.citation_reference_id } : {}),
     sourceDraftId: row.source_draft_id,
@@ -288,10 +416,32 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     progressSummary.sort((a, b) => order[a.tendency] - order[b.tendency]);
   }
 
+  // Prefer exact draft text for quotes (word-complete), matching editor highlights.
+  let segments: Array<{ index?: number; text?: string }> = [];
+  if (targetDraftId) {
+    const draftSegRows = await db.query(
+      `SELECT segments FROM draft WHERE id = $1 AND document_id = $2`,
+      [targetDraftId, documentId],
+    );
+    if (draftSegRows.length > 0) {
+      const raw = (draftSegRows[0] as any).segments;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? []);
+      segments = Array.isArray(parsed) ? parsed : [];
+    }
+  }
+  const anchorByFeedbackId = new Map<string, any>();
+  for (const row of anchorRows as any[]) {
+    if (!anchorByFeedbackId.has(row.feedback_item_id)) {
+      anchorByFeedbackId.set(row.feedback_item_id, row);
+    }
+  }
+
   return {
     statusCode: 200,
     body: JSON.stringify({
-      items: feedbackRows.map((row: any) => toFeedbackItemDto(row)),
+      items: feedbackRows.map((row: any) =>
+        toFeedbackItemDto(row, { anchorByFeedbackId, segments }),
+      ),
       anchors: anchorRows.map((row: any) => toAnchorDto(row)),
       categoryNames,
       progressSummary,

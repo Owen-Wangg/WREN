@@ -394,6 +394,17 @@ def compute_content_fingerprint(text: str, start_offset: int, end_offset: int) -
     return hashlib.sha256(anchor_text.encode()).hexdigest()[:16]
 
 
+def expand_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]:
+    """Snap offsets so saved quotes never start/end mid-word."""
+    start = max(0, min(start, len(text)))
+    end = max(start, min(end, len(text)))
+    while start > 0 and (text[start - 1].isalnum() or text[start - 1] == "_"):
+        start -= 1
+    while end < len(text) and (text[end].isalnum() or text[end] == "_"):
+        end += 1
+    return start, end
+
+
 def insert_feedback_items(
     document_id: str,
     draft_id: str,
@@ -417,8 +428,15 @@ def insert_feedback_items(
                         end_offset = anchor_data.get('endOffset', 0)
                         if para_index < len(segments):
                             para_text = segments[para_index].get('text', '')
-                            if end_offset <= len(para_text) and end_offset > start_offset:
-                                quoted_text = para_text[start_offset:end_offset]
+                            if end_offset > start_offset:
+                                start_offset, end_offset = expand_to_word_boundaries(
+                                    para_text, start_offset, end_offset
+                                )
+                                # Keep expanded offsets on the item for the anchor insert below.
+                                anchor_data['startOffset'] = start_offset
+                                anchor_data['endOffset'] = end_offset
+                                if end_offset <= len(para_text):
+                                    quoted_text = para_text[start_offset:end_offset]
 
                     # Insert feedback item
                     feedback_id = str(uuid.uuid4())
