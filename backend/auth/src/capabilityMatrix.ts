@@ -70,6 +70,8 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'documentType.readConfig',
   'documentType.modifyConfig',
   'documentType.manageCatalog',
+  // Dept admins unlock types they create (new types default to LOCKED).
+  'documentType.setAccessState',
   'topic.manage',
   'department.manage',
   'accessGrant.create',

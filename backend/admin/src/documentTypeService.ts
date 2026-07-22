@@ -14,14 +14,9 @@
  *     `documentType.manageCatalog`: a `DepartmentAdmin` within an administered
  *     Department (Requirement 30.1).
  *   - OPEN / LOCKED access-state control → `documentType.setAccessState`:
- *     `TechnicalAdmin` only (Requirement 28.4 / 33.2). This is a
- *     platform-level operation, not an educational one — a `DepartmentAdmin`
- *     may manage the catalog but may NOT change a Document Type's access
- *     state.
- *
- * No superuser fallback — TechnicalAdmin CANNOT perform educational
- * (catalog-management) operations; the reverse also holds: DepartmentAdmin
- * cannot perform the platform-level access-state operation above.
+ *     `TechnicalAdmin` (any type) or `DepartmentAdmin` within an administered
+ *     Department. New catalog rows default to LOCKED; unlocking is a separate
+ *     step so types can be prepared before students use them.
  *
  * Every mutation re-checks the capability BEFORE touching the database and
  * denies with no mutation when disallowed (Requirements 36.2, 36.3). All
@@ -200,9 +195,9 @@ export async function updateDocumentType(
 }
 
 /**
- * Set a Document Type's access state to OPEN or LOCKED (TechnicalAdmin only —
- * a platform-level operation, not delegated to DepartmentAdmin). Throws
- * {@link NotFoundError} when the Document Type does not exist.
+ * Set a Document Type's access state to OPEN or LOCKED. TechnicalAdmins may
+ * set any type; DepartmentAdmins may set types in departments they administer.
+ * Throws {@link NotFoundError} when the Document Type does not exist.
  */
 export async function setDocumentTypeAccessState(
   actor: AuthContext,

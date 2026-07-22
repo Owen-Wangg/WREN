@@ -78,6 +78,7 @@ const DEPARTMENT_ADMIN_CAPABILITIES: Capability[] = [
   'documentType.readConfig',
   'documentType.modifyConfig',
   'documentType.manageCatalog',
+  'documentType.setAccessState',
   'topic.manage',
   'department.manage',
   'accessGrant.create',
