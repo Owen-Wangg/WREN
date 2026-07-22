@@ -1132,11 +1132,30 @@ paths:
           application/json:
             schema:
               type: object
+              description: |
+                Provide either `segments` (editor save) or `source` (file re-upload /
+                paste ingest). When both are present, `source` wins.
               properties:
                 segments:
                   type: array
                   items:
                     type: object
+                    properties:
+                      index:
+                        type: integer
+                      text:
+                        type: string
+                source:
+                  type: object
+                  required: [kind]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [file, paste]
+                    text:
+                      type: string
+                    key:
+                      type: string
       responses:
         "201":
           description: Draft created
@@ -1145,7 +1164,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Draft"
         "400":
-          description: Validation error
+          description: Validation error (unsupported format, oversize, extraction failure)
           content:
             application/json:
               schema:

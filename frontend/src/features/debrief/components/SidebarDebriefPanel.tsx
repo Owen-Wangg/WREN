@@ -9,7 +9,7 @@
  *  - Inline vs. structural feedback separated (Requirement 14.2)
  */
 import { ArrowUp, Minus, Star, TrendingUp } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
 
@@ -29,6 +29,11 @@ export interface SidebarDebriefPanelProps {
   readonly autoRegenerate?: boolean;
   /** True while DocumentEditorPage is polling for feedback generation. */
   readonly isGenerating?: boolean;
+  /**
+   * Persist in-editor edits as a new draft before feedback runs.
+   * TipTap content stays the source of truth in DocumentEditorPage.
+   */
+  readonly onBeforeRegenerate?: () => Promise<void>;
   /** Called when student clicks a quoted text to highlight it in the document. */
   readonly onQuoteClick?: (anchorId: string | undefined) => void;
 }
@@ -37,26 +42,44 @@ export function SidebarDebriefPanel({
   environmentId,
   autoRegenerate = false,
   isGenerating = false,
+  onBeforeRegenerate,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
   const debriefQuery = useAiDebrief(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
+  const [isSavingThenRegen, setIsSavingThenRegen] = useState(false);
 
   const didAutoRegenerate = useRef(false);
   const regenerateRef = useRef(regenerate);
   regenerateRef.current = regenerate;
+  const onBeforeRegenerateRef = useRef(onBeforeRegenerate);
+  onBeforeRegenerateRef.current = onBeforeRegenerate;
+
+  const runRegenerate = async () => {
+    setIsSavingThenRegen(true);
+    try {
+      await onBeforeRegenerateRef.current?.();
+      await regenerateRef.current.mutateAsync();
+    } catch {
+      // Error surfaces via regenerate.isError; keep panel usable.
+    } finally {
+      setIsSavingThenRegen(false);
+    }
+  };
 
   useEffect(() => {
     if (autoRegenerate && !didAutoRegenerate.current) {
       didAutoRegenerate.current = true;
-      regenerateRef.current.mutate();
+      void runRegenerate();
     }
     return () => {
       didAutoRegenerate.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per autoRegenerate mount
   }, [autoRegenerate]);
 
   const debrief = debriefQuery.data;
+  const regenerating = isSavingThenRegen || regenerate.isPending;
 
   const groupedByCategory = (debrief?.items ?? []).reduce<
     Record<string, FeedbackItem[]>
@@ -84,12 +107,12 @@ export function SidebarDebriefPanel({
         </div>
         <button
           type="button"
-          onClick={() => regenerate.mutate()}
-          disabled={regenerate.isPending || debriefQuery.isLoading}
+          onClick={() => void runRegenerate()}
+          disabled={regenerating || debriefQuery.isLoading}
           className="rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           aria-label="Regenerate AI Debrief"
         >
-          {regenerate.isPending ? (
+          {regenerating ? (
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
           ) : (
             '↻ Regenerate'
@@ -143,7 +166,7 @@ export function SidebarDebriefPanel({
           <>
             {debrief.items.length === 0 ? (
               <div className="flex flex-col items-center gap-md py-xl text-center">
-                {isGenerating || regenerate.isPending ? (
+                {isGenerating || regenerating ? (
                   <>
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
                     <p className="text-body text-text-secondary">Generating feedback…</p>
@@ -151,7 +174,7 @@ export function SidebarDebriefPanel({
                   </>
                 ) : (
                   <p className="text-body text-text-secondary">
-                    No feedback yet. Click <strong>Generate Feedback</strong> to get started.
+                    No feedback yet. Click <strong>Regenerate</strong> to save your draft and generate feedback.
                   </p>
                 )}
               </div>

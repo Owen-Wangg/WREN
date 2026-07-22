@@ -7,13 +7,19 @@ import { AnchoredFeedbackEditorContainer } from '@/features/editor';
 import { createAskWrenService } from '@/features/ask-wren';
 import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
-import { fetchDocument, fetchLatestDraft, createDraft } from '@/features/dashboard/dashboardApi';
-import { fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
+import {
+  fetchDocument,
+  fetchLatestDraft,
+  createDraft,
+  createDraftFromSource,
+  getPresignedUrl,
+} from '@/features/dashboard/dashboardApi';
+import { fetchFeedbackStatus, generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
 } from '@/features/editor/docxContentMapper';
-import { apiClient } from '@/services';
+import { apiClient, ApiError } from '@/services';
 import { queryKeys } from '@/hooks/queryKeys';
 
 import type { JSONContent } from '@tiptap/react';
@@ -32,6 +38,37 @@ const previewCategoryLabels: Readonly<Record<string, string>> = {
   'cat-structure': 'Structure',
   'cat-content': 'Content',
 };
+
+function contentTypeForFile(file: File): string {
+  if (file.type) return file.type;
+  if (file.name.toLowerCase().endsWith('.pdf')) return 'application/pdf';
+  return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+}
+
+function segmentsFromEditorContent(
+  content: JSONContent,
+): Array<{ index: number; text: string }> {
+  return (content.content ?? []).map((block, idx) => ({
+    index: idx,
+    text: (block.content ?? [])
+      .filter((n) => n.type === 'text')
+      .map((n) => n.text ?? '')
+      .join(''),
+  }));
+}
+
+function errorMessageFromUnknown(error: unknown): string {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+    return error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return 'Something went wrong. Please try again.';
+}
 
 export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
@@ -145,21 +182,54 @@ export function DocumentEditorPage() {
   const draftId = draftQuery.data?.id ?? 'draft-pending';
   const draftVersion = draftQuery.data?.versionNumber ?? 1;
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  /** Persist TipTap content as a new draft before Regenerate runs feedback. */
+  const saveDraftFromEditor = useCallback(async () => {
+    const segments = segmentsFromEditorContent(currentContent);
+    await createDraft(apiClient, envId, segments);
+    await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
+  }, [currentContent, envId, queryClient]);
+
+  /** Resubmit = re-upload a .docx/.pdf onto this same document as a new draft. */
   const resubmitDraftMutation = useMutation({
-    mutationFn: async () => {
-      const segments = (currentContent.content ?? []).map((block, idx) => ({
-        index: idx,
-        text: (block.content ?? [])
-          .filter((n) => n.type === 'text')
-          .map((n) => n.text ?? '')
-          .join(''),
-      }));
-      return createDraft(apiClient, envId, segments);
+    mutationFn: async (file: File) => {
+      const { uploadUrl, key } = await getPresignedUrl(
+        apiClient,
+        file.name,
+        contentTypeForFile(file),
+      );
+
+      const putResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': contentTypeForFile(file) },
+      });
+      if (!putResponse.ok) {
+        throw new Error('File upload to storage failed');
+      }
+
+      return createDraftFromSource(apiClient, envId, { kind: 'file', key });
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
+      setIsPollingFeedback(true);
+      void generateFeedback(apiClient, envId).catch(() => {
+        // Non-fatal: student can Regenerate from the debrief panel.
+      });
     },
   });
+
+  const handleResubmitClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleResubmitFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    resubmitDraftMutation.mutate(file);
+  };
 
   // Poll feedback status after generation is queued
   useEffect(() => {
@@ -272,16 +342,33 @@ export function DocumentEditorPage() {
               >
                 Download Document
               </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                className="hidden"
+                onChange={handleResubmitFileChange}
+              />
               <button
                 type="button"
-                onClick={() => resubmitDraftMutation.mutate()}
+                onClick={handleResubmitClick}
                 disabled={resubmitDraftMutation.isPending}
                 className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {resubmitDraftMutation.isPending ? 'Saving…' : 'Resubmit Draft'}
+                {resubmitDraftMutation.isPending ? 'Uploading…' : 'Resubmit Draft'}
               </button>
-              {resubmitDraftMutation.isSuccess && (
-                <p className="text-bodySmall text-signal-positive">Draft saved — regenerate AI Debrief to see progress.</p>
+              <p className="text-caption text-text-muted leading-relaxed">
+                Upload a revised .docx or .pdf for this document.
+              </p>
+              {resubmitDraftMutation.isError && (
+                <p role="alert" className="text-bodySmall text-signal-critical">
+                  {errorMessageFromUnknown(resubmitDraftMutation.error)}
+                </p>
+              )}
+              {resubmitDraftMutation.isSuccess && !resubmitDraftMutation.isPending && (
+                <p className="text-bodySmall text-signal-positive">
+                  Draft uploaded — generating updated feedback…
+                </p>
               )}
             </nav>
           </div>
@@ -369,6 +456,7 @@ export function DocumentEditorPage() {
               draftVersion={draftVersion}
               askWrenService={askWrenService}
               isGeneratingFeedback={isPollingFeedback}
+              onBeforeRegenerate={saveDraftFromEditor}
               onHighlight={(anchorId) => {
                 setHighlightedAnchorId(anchorId);
                 setShowCoachHighlights(true);

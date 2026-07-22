@@ -1458,6 +1458,58 @@ export class MockApiClient implements HttpClient {
       return result.data;
     }
 
+    // Dynamic: POST /v1/documents/{id}/drafts — segments or source ingest
+    const draftPostMatch = /^POST \/v1\/documents\/([^/]+)\/drafts$/.exec(key);
+    if (draftPostMatch) {
+      const documentId = draftPostMatch[1];
+      const body = options.body as {
+        segments?: Array<{ index: number; text: string }>;
+        source?: { kind?: string; text?: string; key?: string };
+      } | undefined;
+      const source = body?.source;
+      let segments = body?.segments ?? [];
+      let s3Key = 'inline';
+      if (source?.kind === 'paste' && typeof source.text === 'string') {
+        segments = source.text
+          .split(/\n\s*\n/)
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .map((text, index) => ({ index, text }));
+      } else if (source?.kind === 'file') {
+        s3Key = typeof source.key === 'string' ? source.key : 'inline';
+        segments = [{ index: 0, text: 'Mock ingested paragraph from resubmitted file.' }];
+      }
+      const prev = this.routes[`GET /v1/documents/${documentId}/drafts`] as
+        | { versionNumber?: number }
+        | undefined;
+      const versionNumber = (prev?.versionNumber ?? 0) + 1;
+      const draftFixture = {
+        id: `draft-${documentId}-v${versionNumber}`,
+        documentId,
+        versionNumber,
+        s3Key,
+        segments,
+        wordCount: segments.reduce(
+          (n, s) => n + s.text.split(/\s+/).filter(Boolean).length,
+          0,
+        ),
+        createdAt: new Date().toISOString(),
+      };
+      this.routes[`GET /v1/documents/${documentId}/drafts`] = draftFixture;
+      this.routes[`POST /v1/documents/${documentId}/drafts`] = draftFixture;
+      if (!options.schema) return draftFixture as T;
+      const result = options.schema.safeParse(draftFixture);
+      if (!result.success) {
+        throw new ApiError(
+          `Mock fixture for ${key} failed validation`,
+          'validation',
+          200,
+          result.error.issues,
+        );
+      }
+      return result.data;
+    }
+
     // Dynamic: GET /v1/analytics/feedback-helpfulness?documentTypeId=<id>
     // Return the same fixture regardless of which documentTypeId is requested.
     if (key.startsWith('GET /v1/analytics/feedback-helpfulness')) {

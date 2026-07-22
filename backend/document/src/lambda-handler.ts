@@ -579,10 +579,25 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   const db = await getDataAccess();
   const { documentId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
+  const source = body.source as
+    | { kind?: string; text?: string; key?: string }
+    | undefined;
   const { segments } = body;
+  const hasSource = source?.kind === 'file' || source?.kind === 'paste';
+  const hasSegments = Array.isArray(segments);
+
+  if (!hasSource && !hasSegments) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'Provide segments (editor save) or source (file/paste ingest)',
+      }),
+    };
+  }
 
   const docQuery = `
-    SELECT owner_user_id FROM document WHERE id = $1
+    SELECT owner_user_id, document_type_id FROM document WHERE id = $1
   `;
   const docRows = await db.query(docQuery, [documentId]);
 
@@ -600,31 +615,136 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
-  const revisionQuery = `
-    SELECT COALESCE(MAX(version_number), 0) as max_revision FROM draft WHERE document_id = $1
-  `;
-  const revisionRows = await db.query(revisionQuery, [documentId]);
-  const nextRevision = ((revisionRows[0] as any)?.max_revision ?? 0) + 1;
+  const documentTypeId = docRows[0].document_type_id as string;
+  const dtRows = await db.query(
+    `SELECT size_limit_words FROM document_type WHERE id = $1`,
+    [documentTypeId],
+  );
+  const sizeLimitWords =
+    typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
 
-  const normalizedSegments = normalizeSegments(segments);
-  const wordCount = wordCountFromSegments(normalizedSegments);
+  let s3Key = 'inline';
+  let normalizedSegments: Array<{ index: number; text: string }>;
+  let wordCount: number;
 
-  const draftQuery = `
-    INSERT INTO draft (document_id, version_number, s3_key, segments, word_count, created_at)
-    VALUES ($1, $2, $3, $4, $5, NOW())
-    RETURNING id, document_id, version_number, s3_key, segments, word_count, created_at
-  `;
-  const draftRows = await db.query(draftQuery, [
-    documentId,
-    nextRevision,
-    'inline',
-    JSON.stringify(normalizedSegments),
-    wordCount,
-  ]);
+  if (hasSource) {
+    let ingestSource:
+      | { kind: 'paste'; pastedText: string }
+      | { kind: 'file'; fileName: string; bytes: Buffer };
+
+    if (source.kind === 'paste') {
+      const text = typeof source.text === 'string' ? source.text : '';
+      if (!text.trim()) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({
+            code: 'BAD_REQUEST',
+            message: 'Paste source requires non-empty text',
+          }),
+        };
+      }
+      ingestSource = { kind: 'paste', pastedText: text };
+    } else {
+      const key = typeof source.key === 'string' ? source.key : '';
+      if (!key) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({
+            code: 'BAD_REQUEST',
+            message: 'File source requires an S3 key from /v1/uploads/presign',
+          }),
+        };
+      }
+      const allowedPrefix = `documents/${actor.userId}/`;
+      if (!key.startsWith(allowedPrefix)) {
+        return {
+          statusCode: 403,
+          body: JSON.stringify({
+            code: 'PERMISSION_DENIED',
+            message: 'Upload key does not belong to the authenticated user',
+          }),
+        };
+      }
+      const bytes = await readS3ObjectBytes(key);
+      const fileName = key.split('/').pop() || 'upload.docx';
+      ingestSource = { kind: 'file', fileName, bytes };
+      s3Key = key;
+    }
+
+    let ingestResult;
+    try {
+      ingestResult = await ingestUpload(ingestSource, { docxExtractor, pdfExtractor });
+    } catch (error) {
+      if (error instanceof UnsupportedFileFormatError) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ code: 'UNSUPPORTED_FORMAT', message: error.message }),
+        };
+      }
+      throw error;
+    }
+
+    if (ingestResult.status === 'fallback') {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          code: 'EXTRACTION_FAILED',
+          message: ingestResult.reason,
+        }),
+      };
+    }
+
+    const sizeResult = enforceSizeLimit(ingestResult.segments, {
+      documentTypeSizeLimitWords: sizeLimitWords,
+    });
+    if (sizeResult.status === 'over-limit') {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          code: 'OVER_SIZE_LIMIT',
+          message: sizeResult.message,
+          measuredWords: sizeResult.measuredWords,
+          effectiveLimitWords: sizeResult.effectiveLimitWords,
+        }),
+      };
+    }
+
+    normalizedSegments = normalizeSegments(ingestResult.segments);
+    wordCount = sizeResult.measuredWords;
+  } else {
+    normalizedSegments = normalizeSegments(segments);
+    wordCount = wordCountFromSegments(normalizedSegments);
+    const sizeResult = enforceSizeLimit(normalizedSegments, {
+      documentTypeSizeLimitWords: sizeLimitWords,
+    });
+    if (sizeResult.status === 'over-limit') {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          code: 'OVER_SIZE_LIMIT',
+          message: sizeResult.message,
+          measuredWords: sizeResult.measuredWords,
+          effectiveLimitWords: sizeResult.effectiveLimitWords,
+        }),
+      };
+    }
+    wordCount = sizeResult.measuredWords;
+  }
+
+  const draftRepo = new DbDraftRepository(db);
+  const { draft } = await createDraftRevision(
+    {
+      documentId: documentId as string,
+      segments: normalizedSegments,
+      wordCount,
+      s3Key,
+    },
+    draftRepo,
+  );
 
   return {
     statusCode: 201,
-    body: JSON.stringify(toDraftDto(draftRows[0])),
+    body: JSON.stringify(draft),
   };
 }
 

@@ -226,3 +226,16 @@ export function createDraft(
     schema: draftSchema,
   });
 }
+
+/** Creates a new draft by server-ingesting an uploaded file (or paste). */
+export function createDraftFromSource(
+  client: HttpClient,
+  documentId: string,
+  source: { kind: 'file'; key: string } | { kind: 'paste'; text: string },
+): Promise<Draft> {
+  return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
+    method: 'POST',
+    body: { source },
+    schema: draftSchema,
+  });
+}

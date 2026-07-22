@@ -21,6 +21,8 @@ export interface ChatFeedbackSidebarProps {
   readonly draftVersion: number;
   readonly askWrenService: AskWrenService;
   readonly isGeneratingFeedback?: boolean;
+  /** Persist editor content as a new draft before AI Debrief regenerate. */
+  readonly onBeforeRegenerate?: () => Promise<void>;
   readonly onHighlight?: (anchorId: string) => void;
   readonly onQuoteClick?: (anchorId: string | undefined) => void;
 }
@@ -35,6 +37,7 @@ export function ChatFeedbackSidebar({
   draftVersion,
   askWrenService,
   isGeneratingFeedback = false,
+  onBeforeRegenerate,
   onHighlight,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
@@ -104,6 +107,7 @@ export function ChatFeedbackSidebar({
             environmentId={documentId}
             autoRegenerate={false}
             isGenerating={isGeneratingFeedback}
+            onBeforeRegenerate={onBeforeRegenerate}
             onQuoteClick={onQuoteClick}
           />
         </div>
