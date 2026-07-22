@@ -359,6 +359,8 @@ export class ComputeStack extends Stack {
         `arn:aws:dynamodb:${this.region}:${this.account}:table/${props.conversationTableName}`,
       ],
     }));
+    // ConversationHistory is SSE-KMS with the storage CMK — DynamoDB calls need decrypt/encrypt.
+    props.storageEncryptionKey.grantEncryptDecrypt(this.feedbackOrchestratorFunction);
 
     // Feedback Engine: S3 read for documents + reference materials.
     this.feedbackEngineFunction.addToRolePolicy(new iam.PolicyStatement({
