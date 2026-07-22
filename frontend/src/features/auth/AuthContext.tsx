@@ -12,15 +12,35 @@
  * 4. Frontend stores roles from DATABASE (never trusts JWT claims)
  * 5. useAuthorization hooks use DATABASE roles
  * 6. Every API call re-checks database permissions
+ *
+ * Additionally, a client-side `activeRole` override lets testers switch the
+ * persona UI (Student / Department Admin / System Admin) without changing DB
+ * assignments. Protected routes honor the override; the JWT and APIs do not.
  */
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { authService } from './defaultAuthService';
 import type { AuthSession } from './authService';
+
+import type { Role } from '@wren/types';
+
+const ROLE_OVERRIDE_KEY = 'wren_role_override';
+
+function readStoredRoleOverride(): Role | null {
+  try {
+    const raw = localStorage.getItem(ROLE_OVERRIDE_KEY);
+    if (raw === 'Student' || raw === 'DepartmentAdmin' || raw === 'TechnicalAdmin') {
+      return raw;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return null;
+}
 
 export interface AuthUser {
   readonly userId: string;
   readonly email: string;
-  /** Roles from DATABASE (never from JWT) */
+  /** Effective roles for UI/routing (may reflect a view-as override). */
   readonly roles: Array<'Student' | 'DepartmentAdmin' | 'TechnicalAdmin'>;
   /** Administered departments from DATABASE */
   readonly administeredDepartmentIds: string[];
@@ -31,6 +51,12 @@ export interface AuthContextValue {
   readonly isAuthenticated: boolean;
   readonly user: AuthUser | null;
   readonly session: AuthSession | null;
+  /** Roles returned by `/v1/auth/me` (database), ignoring view-as. */
+  readonly dbRoles: Role[];
+  /** Role used for UI routing / RoleContext (override or primary DB role). */
+  readonly activeRole: Role;
+  /** Client-side persona switch for demos/testing. */
+  readonly setActiveRole: (role: Role) => void;
   readonly signIn: (email: string, password: string) => Promise<void>;
   readonly signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
   readonly signOut: () => Promise<void>;
@@ -49,6 +75,7 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
+  const [roleOverride, setRoleOverride] = useState<Role | null>(() => readStoredRoleOverride());
 
   // Restore session and fetch user from DATABASE on mount
   useEffect(() => {
@@ -104,17 +131,50 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
     setSession(null);
     setUser(null);
     setIsAuthenticated(false);
+    setRoleOverride(null);
+    try {
+      localStorage.removeItem(ROLE_OVERRIDE_KEY);
+    } catch {
+      // ignore
+    }
   };
 
   const getAccessToken = async (): Promise<string | null> => {
     return authService.getAccessToken();
   };
 
+  const dbRoles = user?.roles ?? [];
+  // Ignore a stale localStorage override that is not actually assigned.
+  const effectiveOverride =
+    roleOverride && dbRoles.includes(roleOverride) ? roleOverride : null;
+  const activeRole: Role = effectiveOverride ?? dbRoles[0] ?? 'Student';
+
+  const effectiveUser = useMemo((): AuthUser | null => {
+    if (!user) return null;
+    if (!effectiveOverride) return user;
+    return { ...user, roles: [effectiveOverride] };
+  }, [user, effectiveOverride]);
+
+  const setActiveRole = (role: Role) => {
+    if (user && !user.roles.includes(role)) {
+      return;
+    }
+    setRoleOverride(role);
+    try {
+      localStorage.setItem(ROLE_OVERRIDE_KEY, role);
+    } catch {
+      // ignore
+    }
+  };
+
   const value: AuthContextValue = {
     isLoading,
     isAuthenticated,
-    user,
+    user: effectiveUser,
     session,
+    dbRoles,
+    activeRole,
+    setActiveRole,
     signIn,
     signUp,
     signOut,
