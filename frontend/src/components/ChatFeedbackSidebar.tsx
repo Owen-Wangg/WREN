@@ -9,16 +9,20 @@
  * Task 4: Wires async feedback generation via onDebriefRegenerate callback.
  */
 import { MessageSquare, Sparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { WrenChatPanel, type AskWrenService } from '@/features/ask-wren';
-import { SidebarDebriefPanel } from '@/features/debrief';
+import { SidebarDebriefPanel, useAiDebrief } from '@/features/debrief';
 import { appConfig } from '@/config/env';
+
+import { computeWritingProgress } from '@/features/ask-wren/writingProgress';
 
 export interface ChatFeedbackSidebarProps {
   readonly documentId: string;
   readonly draftId: string;
   readonly draftVersion: number;
+  /** Live word count from the editor (preferred) or latest draft. */
+  readonly wordCount?: number;
   readonly askWrenService: AskWrenService;
   readonly isGeneratingFeedback?: boolean;
   /** Persist editor content as a new draft before AI Debrief regenerate. */
@@ -41,6 +45,7 @@ export function ChatFeedbackSidebar({
   documentId,
   draftId,
   draftVersion,
+  wordCount = 0,
   askWrenService,
   isGeneratingFeedback = false,
   onBeforeRegenerate,
@@ -49,6 +54,17 @@ export function ChatFeedbackSidebar({
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
   const [activeTab, setActiveTab] = useState<TabType>('chat');
+  const debriefQuery = useAiDebrief(documentId);
+
+  const writingProgressPercent = useMemo(() => {
+    const summary = debriefQuery.data?.progressSummary ?? [];
+    return computeWritingProgress({
+      wordCount,
+      hasFeedback: (debriefQuery.data?.items.length ?? 0) > 0,
+      improvingCount: summary.filter((p) => p.tendency === 'improving').length,
+      patternCount: summary.length,
+    });
+  }, [wordCount, debriefQuery.data]);
 
   useEffect(() => {
     const stored = localStorage.getItem(ACTIVE_TAB_KEY) as TabType | null;
@@ -101,6 +117,7 @@ export function ChatFeedbackSidebar({
             documentId={documentId}
             draftId={draftId}
             draftVersion={draftVersion}
+            writingProgressPercent={writingProgressPercent}
             askWrenService={askWrenService}
             className="h-full w-full"
             onHighlight={onHighlight}

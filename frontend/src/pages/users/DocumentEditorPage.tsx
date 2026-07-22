@@ -57,6 +57,13 @@ function segmentsFromEditorContent(
   }));
 }
 
+function wordCountFromEditorContent(content: JSONContent): number {
+  return segmentsFromEditorContent(content).reduce(
+    (total, seg) => total + seg.text.split(/\s+/).filter(Boolean).length,
+    0,
+  );
+}
+
 function errorMessageFromUnknown(error: unknown): string {
   if (error instanceof ApiError) {
     const details = error.details;
@@ -459,6 +466,7 @@ export function DocumentEditorPage() {
               documentId={envId}
               draftId={draftId}
               draftVersion={draftVersion}
+              wordCount={wordCountFromEditorContent(currentContent)}
               askWrenService={askWrenService}
               isGeneratingFeedback={isPollingFeedback}
               onBeforeRegenerate={saveDraftFromEditor}

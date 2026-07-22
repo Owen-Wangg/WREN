@@ -26,6 +26,7 @@ import { useZodForm } from '@/forms/useZodForm';
 import { askWrenMessageSchema, type AskWrenMessageFormValues } from '../askWrenSchemas';
 import type { AskWrenService } from '../askWrenService';
 import type { WrenChatMessage } from '../askWrenTypes';
+import { writingProgressLabel } from '../writingProgress';
 
 function conversationCacheKey(documentId: string): string {
   return `ask-wren-messages:${documentId}`;
@@ -96,6 +97,8 @@ export interface WrenChatPanelProps {
   readonly documentId: string;
   readonly draftId: string;
   readonly draftVersion: number;
+  /** 0–100 writing progress (substance + feedback + improvement), not draft version. */
+  readonly writingProgressPercent?: number;
   readonly askWrenService: AskWrenService;
   readonly className?: string;
   /** Called when coach response includes a highlight anchor. */
@@ -106,6 +109,7 @@ export function WrenChatPanel({
   documentId,
   draftId,
   draftVersion,
+  writingProgressPercent = 0,
   askWrenService,
   className,
   onHighlight,
@@ -225,18 +229,23 @@ export function WrenChatPanel({
       </h2>
 
       <div className="flex flex-col gap-xs">
-        <span className="text-bodySmall font-sans font-semibold text-text-primary">
-          Draft version {draftVersion}
-        </span>
+        <div className="flex items-baseline justify-between gap-sm">
+          <span className="text-bodySmall font-sans font-semibold text-text-primary">
+            Draft version {draftVersion}
+          </span>
+          <span className="text-caption text-text-muted">
+            {writingProgressLabel(writingProgressPercent)}
+          </span>
+        </div>
         <div className="h-[6px] w-full overflow-hidden rounded-full bg-surface-subtle">
           <div
             className="h-full rounded-full bg-signal-positive transition-all duration-300"
-            style={{ width: `${Math.min((draftVersion / 3) * 100, 100)}%` }}
+            style={{ width: `${Math.max(0, Math.min(100, writingProgressPercent))}%` }}
             role="progressbar"
-            aria-valuenow={draftVersion}
-            aria-valuemin={1}
-            aria-valuemax={3}
-            aria-label="Draft progress"
+            aria-valuenow={writingProgressPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Writing progress"
           />
         </div>
       </div>
