@@ -21,8 +21,8 @@ import { createQueryClient } from './queryClient';
  * (frontend steering §2). `null` while unauthenticated/unknown.
  */
 function CurrentRoleBridge({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
-  return <RoleProvider role={user?.roles[0] ?? null}>{children}</RoleProvider>;
+  const { activeRole } = useAuth();
+  return <RoleProvider role={activeRole}>{children}</RoleProvider>;
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {

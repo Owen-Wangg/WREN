@@ -4,21 +4,27 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 
 import { AnchoredFeedbackEditorContainer } from '@/features/editor';
-import { MockAskWrenService } from '@/features/ask-wren';
+import { createAskWrenService } from '@/features/ask-wren';
 import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
-import { fetchDocument, fetchLatestDraft, createDraft } from '@/features/dashboard/dashboardApi';
-import { fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
+import {
+  fetchDocument,
+  fetchLatestDraft,
+  createDraft,
+  createDraftFromSource,
+  getPresignedUrl,
+} from '@/features/dashboard/dashboardApi';
+import { fetchFeedbackStatus, generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
 } from '@/features/editor/docxContentMapper';
-import { apiClient } from '@/services';
+import { apiClient, ApiError } from '@/services';
 import { queryKeys } from '@/hooks/queryKeys';
 
 import type { JSONContent } from '@tiptap/react';
 
-const askWrenService = new MockAskWrenService();
+const askWrenService = createAskWrenService(apiClient);
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -33,6 +39,44 @@ const previewCategoryLabels: Readonly<Record<string, string>> = {
   'cat-content': 'Content',
 };
 
+function contentTypeForFile(file: File): string {
+  if (file.type) return file.type;
+  if (file.name.toLowerCase().endsWith('.pdf')) return 'application/pdf';
+  return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+}
+
+function segmentsFromEditorContent(
+  content: JSONContent,
+): Array<{ index: number; text: string }> {
+  return (content.content ?? []).map((block, idx) => ({
+    index: idx,
+    text: (block.content ?? [])
+      .filter((n) => n.type === 'text')
+      .map((n) => n.text ?? '')
+      .join(''),
+  }));
+}
+
+function wordCountFromEditorContent(content: JSONContent): number {
+  return segmentsFromEditorContent(content).reduce(
+    (total, seg) => total + seg.text.split(/\s+/).filter(Boolean).length,
+    0,
+  );
+}
+
+function errorMessageFromUnknown(error: unknown): string {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+    return error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return 'Something went wrong. Please try again.';
+}
+
 export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
   const navigate = useNavigate();
@@ -43,18 +87,24 @@ export function DocumentEditorPage() {
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(420);
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
+  const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
+    undefined,
+  );
+  const [activeQuoteId, setActiveQuoteId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
   // Start polling immediately if we arrived from a fresh upload (router state
-  // carries initialContent, meaning feedback was auto-queued on creation).
-  const [isPollingFeedback, setIsPollingFeedback] = useState(
-    () => !!(location.state as { initialContent?: unknown } | null)?.initialContent,
-  );
+  // carries feedbackQueued / legacy initialContent when feedback was auto-queued).
+  const [isPollingFeedback, setIsPollingFeedback] = useState(() => {
+    const s = location.state as { feedbackQueued?: boolean; initialContent?: unknown } | null;
+    return !!(s?.feedbackQueued || s?.initialContent);
+  });
 
   const state = location.state as {
     documentName?: string;
     organizationName?: string;
     contentType?: string;
     initialContent?: JSONContent;
+    feedbackQueued?: boolean;
   } | null;
 
   const routerInitialContent = state?.initialContent;
@@ -143,21 +193,54 @@ export function DocumentEditorPage() {
   const draftId = draftQuery.data?.id ?? 'draft-pending';
   const draftVersion = draftQuery.data?.versionNumber ?? 1;
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  /** Persist TipTap content as a new draft before Regenerate runs feedback. */
+  const saveDraftFromEditor = useCallback(async () => {
+    const segments = segmentsFromEditorContent(currentContent);
+    await createDraft(apiClient, envId, segments);
+    await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
+  }, [currentContent, envId, queryClient]);
+
+  /** Resubmit = re-upload a .docx/.pdf onto this same document as a new draft. */
   const resubmitDraftMutation = useMutation({
-    mutationFn: async () => {
-      const segments = (currentContent.content ?? []).map((block, idx) => ({
-        index: idx,
-        text: (block.content ?? [])
-          .filter((n) => n.type === 'text')
-          .map((n) => n.text ?? '')
-          .join(''),
-      }));
-      return createDraft(apiClient, envId, segments);
+    mutationFn: async (file: File) => {
+      const { uploadUrl, key } = await getPresignedUrl(
+        apiClient,
+        file.name,
+        contentTypeForFile(file),
+      );
+
+      const putResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': contentTypeForFile(file) },
+      });
+      if (!putResponse.ok) {
+        throw new Error('File upload to storage failed');
+      }
+
+      return createDraftFromSource(apiClient, envId, { kind: 'file', key });
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
+      setIsPollingFeedback(true);
+      void generateFeedback(apiClient, envId).catch(() => {
+        // Non-fatal: student can Regenerate from the debrief panel.
+      });
     },
   });
+
+  const handleResubmitClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleResubmitFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    resubmitDraftMutation.mutate(file);
+  };
 
   // Poll feedback status after generation is queued
   useEffect(() => {
@@ -174,7 +257,12 @@ export function DocumentEditorPage() {
             setIsPollingFeedback(false);
             clearInterval(interval);
             void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
-            void queryClient.invalidateQueries({ queryKey: queryKeys.debrief(envId) });
+            void queryClient.invalidateQueries({
+              queryKey: [...queryKeys.debrief(envId).slice(0, 4)],
+            });
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.debriefHistory(envId),
+            });
             return;
           }
 
@@ -270,16 +358,28 @@ export function DocumentEditorPage() {
               >
                 Download Document
               </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                className="hidden"
+                onChange={handleResubmitFileChange}
+              />
               <button
                 type="button"
-                onClick={() => resubmitDraftMutation.mutate()}
+                onClick={handleResubmitClick}
                 disabled={resubmitDraftMutation.isPending}
                 className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {resubmitDraftMutation.isPending ? 'Saving…' : 'Resubmit Draft'}
+                {resubmitDraftMutation.isPending ? 'Uploading…' : 'Upload New Draft'}
               </button>
-              {resubmitDraftMutation.isSuccess && (
-                <p className="text-bodySmall text-signal-positive">Draft saved — regenerate AI Debrief to see progress.</p>
+              <p className="text-caption text-text-muted leading-relaxed">
+                Upload a revised .docx or .pdf for this document.
+              </p>
+              {resubmitDraftMutation.isError && (
+                <p role="alert" className="text-bodySmall text-signal-critical">
+                  {errorMessageFromUnknown(resubmitDraftMutation.error)}
+                </p>
               )}
             </nav>
           </div>
@@ -316,6 +416,7 @@ export function DocumentEditorPage() {
                   initialContent={editorInitialContent}
                   categoryLabels={previewCategoryLabels}
                   highlightedAnchorId={highlightedAnchorId}
+                  highlightedQuotedText={highlightedQuotedText}
                   showCoachHighlights={showCoachHighlights}
                   onContentChange={(content) => setCurrentContent(content)}
                 />
@@ -365,14 +466,27 @@ export function DocumentEditorPage() {
               documentId={envId}
               draftId={draftId}
               draftVersion={draftVersion}
+              wordCount={wordCountFromEditorContent(currentContent)}
               askWrenService={askWrenService}
               isGeneratingFeedback={isPollingFeedback}
+              onBeforeRegenerate={saveDraftFromEditor}
               onHighlight={(anchorId) => {
+                setActiveQuoteId(`ask:${anchorId}`);
                 setHighlightedAnchorId(anchorId);
+                setHighlightedQuotedText(undefined);
                 setShowCoachHighlights(true);
               }}
-              onQuoteClick={(anchorId) => {
-                setHighlightedAnchorId(anchorId);
+              activeQuoteId={activeQuoteId}
+              onQuoteClick={(selection) => {
+                if (activeQuoteId === selection.feedbackItemId) {
+                  setActiveQuoteId(undefined);
+                  setHighlightedAnchorId(undefined);
+                  setHighlightedQuotedText(undefined);
+                  return;
+                }
+                setActiveQuoteId(selection.feedbackItemId);
+                setHighlightedAnchorId(selection.anchorId);
+                setHighlightedQuotedText(selection.quotedText);
               }}
             />
           </div>

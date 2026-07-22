@@ -1,6 +1,6 @@
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import type { AuthContext } from '@wren/types';
-import { AuthorizationError, NotFoundError } from './errors';
+import { AuthorizationError, NotFoundError, UsageLimitReachedError } from './errors';
 
 /** CORS headers required on aws_proxy Lambda responses (API Gateway does not add them). */
 export const CORS_HEADERS: Record<string, string> = {
@@ -49,6 +49,12 @@ export async function wrapHandler(
       return withCors({
         statusCode: 404,
         body: JSON.stringify({ code: 'NOT_FOUND', message: e.message }),
+      });
+    }
+    if (e instanceof UsageLimitReachedError) {
+      return withCors({
+        statusCode: 429,
+        body: JSON.stringify({ code: e.code, message: e.message }),
       });
     }
     if (e instanceof SyntaxError || (e as any)?.statusCode === 400) {

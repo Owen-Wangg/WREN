@@ -28,4 +28,52 @@ describe('AiDisclaimerNotice', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('note').className).toContain('bg-notice-surface');
   });
+
+  it('hides after dismiss for the current session only (sessionStorage)', async () => {
+    const { userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    sessionStorage.removeItem('test-disclaimer-key');
+
+    render(
+      <AiDisclaimerNotice
+        dismissible
+        dismissStorageKey="test-disclaimer-key"
+        message="Dismissable copy"
+      />,
+    );
+
+    expect(screen.getByRole('note')).toHaveTextContent('Dismissable copy');
+    await user.click(screen.getByRole('button', { name: 'Dismiss disclaimer' }));
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(sessionStorage.getItem('test-disclaimer-key')).toBe('1');
+  });
+
+  it('shows again for a different document scope in the same session', async () => {
+    const { userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    sessionStorage.clear();
+
+    const { rerender } = render(
+      <AiDisclaimerNotice
+        dismissible
+        dismissStorageKey="test-disclaimer-key"
+        dismissScopeId="doc-a"
+        message="Doc A disclaimer"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Dismiss disclaimer' }));
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+
+    rerender(
+      <AiDisclaimerNotice
+        dismissible
+        dismissStorageKey="test-disclaimer-key"
+        dismissScopeId="doc-b"
+        message="Doc B disclaimer"
+      />,
+    );
+
+    expect(screen.getByRole('note')).toHaveTextContent('Doc B disclaimer');
+  });
 });

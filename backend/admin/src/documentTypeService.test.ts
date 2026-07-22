@@ -90,13 +90,16 @@ describe('createDocumentType (Requirement 30.1)', () => {
     expect(db.mutationCount).toBe(0);
   });
 
-  it('denies a TechnicalAdmin (no educational ops) with no mutation', async () => {
+  it('allows a TechnicalAdmin to create a Document Type in any department', async () => {
     const db = new FakeDb();
     seedDepartment(db);
-    await expect(
-      createDocumentType(techAdminContext(), { departmentId: DEPT, name: 'X' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    const dt = await createDocumentType(
+      techAdminContext(),
+      { departmentId: DEPT, name: 'Platform Bootstrap Type' },
+      db,
+    );
+    expect(dt.name).toBe('Platform Bootstrap Type');
+    expect(dt.departmentId).toBe(DEPT);
   });
 });
 
@@ -172,12 +175,20 @@ describe('setDocumentTypeAccessState (Requirement 28.4 / 33.2)', () => {
     expect(locked.accessState).toBe('LOCKED');
   });
 
-  it('denies a DeptAdmin (setAccessState is TechnicalAdmin only) with no mutation', async () => {
+  it('lets a DeptAdmin open a type in an administered department', async () => {
+    const db = new FakeDb();
+    seedDepartment(db);
+    db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'T', access_state: 'LOCKED' });
+    const opened = await setDocumentTypeAccessState(deptAdminContext([DEPT]), 'dt-1', 'OPEN', db);
+    expect(opened.accessState).toBe('OPEN');
+  });
+
+  it('denies a DeptAdmin for a type outside administered departments', async () => {
     const db = new FakeDb();
     seedDepartment(db);
     db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'T', access_state: 'LOCKED' });
     await expect(
-      setDocumentTypeAccessState(deptAdminContext([DEPT]), 'dt-1', 'OPEN', db),
+      setDocumentTypeAccessState(deptAdminContext(['other-dept']), 'dt-1', 'OPEN', db),
     ).rejects.toBeInstanceOf(AuthorizationError);
     expect(db.mutationCount).toBe(0);
     expect(db.documentTypes.get('dt-1')!.access_state).toBe('LOCKED');

@@ -8,50 +8,161 @@
  *  - Draft-anchored to specific draftId
  *  - Inline vs. structural feedback separated (Requirement 14.2)
  */
-import { ArrowUp, Minus, Star, TrendingUp } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { ArrowUp, ChevronDown, Minus, Star, TrendingUp } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+
+import { AiDisclaimerNotice } from '@/components/ui';
 
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
 
-import { useAiDebrief, useRegenerateDebrief } from '../useDebrief';
+import { useAiDebrief, useDebriefHistory, useRegenerateDebrief } from '../useDebrief';
 
 import type { ProgressPattern } from '../debriefTypes';
 import type { FeedbackItem } from '@wren/types';
+
+const DEBRIEF_DISCLAIMER_MESSAGE =
+  'The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.';
+
+function formatDebriefTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatCompactGeneratedAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 export interface SidebarDebriefPanelProps {
   readonly environmentId: string;
   readonly autoRegenerate?: boolean;
   /** True while DocumentEditorPage is polling for feedback generation. */
   readonly isGenerating?: boolean;
+  /**
+   * Persist in-editor edits as a new draft before feedback runs.
+   * TipTap content stays the source of truth in DocumentEditorPage.
+   */
+  readonly onBeforeRegenerate?: () => Promise<void>;
+  /** Feedback item id of the quote currently highlighted in the editor. */
+  readonly activeQuoteId?: string;
   /** Called when student clicks a quoted text to highlight it in the document. */
-  readonly onQuoteClick?: (anchorId: string | undefined) => void;
+  readonly onQuoteClick?: (selection: {
+    feedbackItemId: string;
+    anchorId?: string;
+    quotedText?: string;
+  }) => void;
 }
 
 export function SidebarDebriefPanel({
   environmentId,
   autoRegenerate = false,
   isGenerating = false,
+  onBeforeRegenerate,
+  activeQuoteId,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
-  const debriefQuery = useAiDebrief(environmentId);
+  /** null = latest generation; otherwise a historical draft's debrief */
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyMenuRef = useRef<HTMLDivElement>(null);
+
+  const debriefQuery = useAiDebrief(environmentId, selectedDraftId);
+  const historyQuery = useDebriefHistory(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
+  const [isSavingThenRegen, setIsSavingThenRegen] = useState(false);
 
   const didAutoRegenerate = useRef(false);
   const regenerateRef = useRef(regenerate);
   regenerateRef.current = regenerate;
+  const onBeforeRegenerateRef = useRef(onBeforeRegenerate);
+  onBeforeRegenerateRef.current = onBeforeRegenerate;
+
+  const runRegenerate = async () => {
+    setIsSavingThenRegen(true);
+    setHistoryOpen(false);
+    try {
+      await onBeforeRegenerateRef.current?.();
+      await regenerateRef.current.mutateAsync();
+      // Always show the newly generated (latest) debrief after regenerate.
+      setSelectedDraftId(null);
+    } catch {
+      // Error surfaces via regenerate.isError; keep panel usable.
+    } finally {
+      setIsSavingThenRegen(false);
+    }
+  };
 
   useEffect(() => {
     if (autoRegenerate && !didAutoRegenerate.current) {
       didAutoRegenerate.current = true;
-      regenerateRef.current.mutate();
+      void runRegenerate();
     }
     return () => {
       didAutoRegenerate.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per autoRegenerate mount
   }, [autoRegenerate]);
 
+  useEffect(() => {
+    if (!historyOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (
+        historyMenuRef.current &&
+        !historyMenuRef.current.contains(event.target as Node)
+      ) {
+        setHistoryOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHistoryOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [historyOpen]);
+
   const debrief = debriefQuery.data;
+  const regenerating = isSavingThenRegen || regenerate.isPending;
+  const hasFeedback = (debrief?.items.length ?? 0) > 0;
+  const viewingHistorical = selectedDraftId != null;
+  const lastGeneratedCompact =
+    hasFeedback && debrief?.generatedAt
+      ? formatCompactGeneratedAt(debrief.generatedAt)
+      : null;
+
+  // Prefer API history; if it isn't available yet, fall back to the loaded debrief
+  // so the title still exposes a version menu whenever feedback exists.
+  const historyVersions =
+    historyQuery.data && historyQuery.data.length > 0
+      ? historyQuery.data
+      : hasFeedback && debrief?.draftId && debrief.draftId !== 'none'
+        ? [
+            {
+              draftId: debrief.draftId,
+              draftVersion: 1,
+              generatedAt: debrief.generatedAt,
+              itemCount: debrief.items.length,
+            },
+          ]
+        : [];
+  const canOpenHistory = hasFeedback || historyVersions.length > 0;
 
   const groupedByCategory = (debrief?.items ?? []).reduce<
     Record<string, FeedbackItem[]>
@@ -63,44 +174,148 @@ export function SidebarDebriefPanel({
   }, {});
   const categoryKeys = Object.keys(groupedByCategory);
 
+  const selectHistoryVersion = (draftId: string, isLatest: boolean) => {
+    setSelectedDraftId(isLatest ? null : draftId);
+    setHistoryOpen(false);
+  };
+
   return (
     <div className="flex h-full flex-col">
-      {/* Header with regenerate button */}
-      <div className="flex items-center justify-between border-b border-border-subtle px-lg py-md">
-        <div>
-          <h3 className="text-heading3 font-sans font-semibold text-text-primary">
-            AI Debrief
-          </h3>
-          {debrief?.progressSummary && debrief.progressSummary.length > 0 && (
-            <p className="text-bodySmall text-text-secondary">
-              Feedback & your progress
+      {/* Header: title left, regenerate + timestamp stacked right */}
+      <div className="flex items-start justify-between gap-md border-b border-border-subtle px-lg py-md">
+        <div className="relative min-w-0" ref={historyMenuRef}>
+          <button
+            type="button"
+            className={`flex items-center gap-xs rounded-md text-left transition-colors ${
+              canOpenHistory
+                ? 'hover:bg-surface-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40'
+                : 'cursor-default'
+            }`}
+            aria-haspopup={canOpenHistory ? 'listbox' : undefined}
+            aria-expanded={canOpenHistory ? historyOpen : undefined}
+            aria-label={
+              canOpenHistory
+                ? 'AI Debrief version history'
+                : 'AI Debrief'
+            }
+            disabled={!canOpenHistory}
+            onClick={() => {
+              if (canOpenHistory) setHistoryOpen((open) => !open);
+            }}
+          >
+            <span className="text-heading3 font-sans font-semibold text-text-primary">
+              AI Debrief
+            </span>
+            {canOpenHistory && (
+              <ChevronDown
+                size={16}
+                className={`shrink-0 text-text-muted transition-transform ${
+                  historyOpen ? 'rotate-180' : ''
+                }`}
+                aria-hidden="true"
+              />
+            )}
+          </button>
+          {viewingHistorical ? (
+            <p className="mt-xs text-caption text-text-secondary whitespace-nowrap">
+              Viewing earlier debrief
             </p>
+          ) : (
+            debrief?.progressSummary &&
+            debrief.progressSummary.length > 0 && (
+              <p className="mt-xs text-caption text-text-secondary whitespace-nowrap">
+                Feedback & your progress
+              </p>
+            )
+          )}
+          {historyOpen && canOpenHistory && (
+            <ul
+              role="listbox"
+              aria-label="Previous AI Debriefs"
+              className="absolute left-0 top-full z-20 mt-xs max-h-64 min-w-[16rem] overflow-y-auto rounded-md border border-border-subtle bg-surface-primary py-xs shadow-md"
+            >
+              {historyQuery.isLoading && (
+                <li className="px-md py-sm text-caption text-text-muted">
+                  Loading history…
+                </li>
+              )}
+              {historyQuery.isError && historyVersions.length <= 1 && (
+                <li className="px-md py-sm text-caption text-text-muted">
+                  Previous versions unavailable right now.
+                </li>
+              )}
+              {historyVersions.map((version, index) => {
+                const isLatest = index === 0;
+                const isSelected = selectedDraftId
+                  ? selectedDraftId === version.draftId
+                  : isLatest;
+                const when = formatDebriefTimestamp(version.generatedAt);
+                return (
+                  <li key={version.draftId} role="option" aria-selected={isSelected}>
+                    <button
+                      type="button"
+                      className={`flex w-full flex-col items-start gap-xs px-md py-sm text-left transition-colors ${
+                        isSelected
+                          ? 'bg-accent-primary/10 text-accent-primary'
+                          : 'text-text-primary hover:bg-surface-muted/60'
+                      }`}
+                      onClick={() => selectHistoryVersion(version.draftId, isLatest)}
+                    >
+                      <span className="text-bodySmall font-semibold">
+                        {isLatest ? 'Latest' : `Draft ${version.draftVersion}`}
+                        {isLatest ? ` · Draft ${version.draftVersion}` : ''}
+                      </span>
+                      <span className="text-caption text-text-muted">
+                        {when}
+                        {version.itemCount > 0
+                          ? ` · ${version.itemCount} item${version.itemCount === 1 ? '' : 's'}`
+                          : ''}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => regenerate.mutate()}
-          disabled={regenerate.isPending || debriefQuery.isLoading}
-          className="rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          aria-label="Regenerate AI Debrief"
-        >
-          {regenerate.isPending ? (
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-          ) : (
-            '↻ Regenerate'
+        <div className="flex shrink-0 flex-col items-end gap-xs">
+          <button
+            type="button"
+            onClick={() => void runRegenerate()}
+            disabled={regenerating || debriefQuery.isLoading}
+            className="rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            aria-label="Regenerate AI Debrief"
+          >
+            {regenerating ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
+            ) : (
+              '↻ Regenerate'
+            )}
+          </button>
+          {lastGeneratedCompact && (
+            <span
+              className="px-sm text-caption text-text-muted whitespace-nowrap"
+              title={
+                debrief?.generatedAt
+                  ? `Last generated ${formatDebriefTimestamp(debrief.generatedAt)}`
+                  : undefined
+              }
+            >
+              {lastGeneratedCompact}
+            </span>
           )}
-        </button>
+        </div>
       </div>
 
       {/* Scrollable content area */}
       <div className="relative min-h-0 flex-1 overflow-y-auto px-lg py-md">
-        {/* AI Disclaimer */}
-        <div
-          role="note"
-          className="mb-lg rounded-md border border-notice-border bg-notice-surface px-md py-sm text-caption leading-relaxed text-text-secondary"
-        >
-          The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.
-        </div>
+        <AiDisclaimerNotice
+          dismissible
+          dismissStorageKey="ai-debrief-disclaimer-dismissed"
+          dismissScopeId={environmentId}
+          message={DEBRIEF_DISCLAIMER_MESSAGE}
+          className="mb-lg text-caption leading-relaxed"
+        />
 
         {(debriefQuery.isLoading || (isGenerating && !debrief)) && (
           <div className="flex flex-col items-center gap-md py-xl text-center">
@@ -139,7 +354,7 @@ export function SidebarDebriefPanel({
           <>
             {debrief.items.length === 0 ? (
               <div className="flex flex-col items-center gap-md py-xl text-center">
-                {isGenerating || regenerate.isPending ? (
+                {isGenerating || regenerating ? (
                   <>
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
                     <p className="text-body text-text-secondary">Generating feedback…</p>
@@ -147,14 +362,14 @@ export function SidebarDebriefPanel({
                   </>
                 ) : (
                   <p className="text-body text-text-secondary">
-                    No feedback yet. Click <strong>Generate Feedback</strong> to get started.
+                    No feedback yet. Click <strong>Regenerate</strong> to save your draft and generate feedback.
                   </p>
                 )}
               </div>
             ) : (
               <div className="flex flex-col gap-lg">
-                {/* Progress Summary Card */}
-                {debrief.progressSummary && debrief.progressSummary.length > 0 && (
+                {/* Progress Summary Card — only for the latest debrief */}
+                {!viewingHistorical && debrief.progressSummary && debrief.progressSummary.length > 0 && (
                   <section aria-labelledby="progress-card-heading">
                     <div className="mb-md rounded-lg border border-accent-primary/20 bg-accent-primary/5 p-md">
                       <h3 id="progress-card-heading" className="mb-md flex items-center gap-sm text-body font-sans font-semibold text-text-primary">
@@ -276,13 +491,29 @@ export function SidebarDebriefPanel({
                                 </div>
                                 {item.quotedText && (
                                   <blockquote
-                                    className="ml-sm border-l-2 border-signal-positive/30 pl-md italic text-bodySmall text-text-secondary cursor-pointer hover:bg-signal-positive/5 hover:border-signal-positive/60 rounded px-sm transition-colors"
-                                    onClick={() => onQuoteClick?.(item.currentAnchorId)}
+                                    className={`ml-sm border-l-2 pl-md italic text-bodySmall cursor-pointer rounded px-sm transition-colors break-words ${
+                                      activeQuoteId === item.id
+                                        ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
+                                        : 'border-signal-positive/30 text-text-secondary hover:bg-signal-positive/5 hover:border-signal-positive/60'
+                                    }`}
+                                    onClick={() =>
+                                      onQuoteClick?.({
+                                        feedbackItemId: item.id,
+                                        anchorId: item.currentAnchorId,
+                                        quotedText: item.quotedText,
+                                      })
+                                    }
                                     role="button"
                                     tabIndex={0}
+                                    aria-pressed={activeQuoteId === item.id}
                                     onKeyDown={(e) => {
                                       if (e.key === 'Enter' || e.key === ' ') {
-                                        onQuoteClick?.(item.currentAnchorId);
+                                        e.preventDefault();
+                                        onQuoteClick?.({
+                                          feedbackItemId: item.id,
+                                          anchorId: item.currentAnchorId,
+                                          quotedText: item.quotedText,
+                                        });
                                       }
                                     }}
                                   >
@@ -313,13 +544,29 @@ export function SidebarDebriefPanel({
                                 </div>
                                 {item.quotedText && (
                                   <blockquote
-                                    className="ml-sm border-l-2 border-signal-critical/30 pl-md italic text-bodySmall text-text-secondary cursor-pointer hover:bg-signal-critical/5 hover:border-signal-critical/60 rounded px-sm transition-colors"
-                                    onClick={() => onQuoteClick?.(item.currentAnchorId)}
+                                    className={`ml-sm border-l-2 pl-md italic text-bodySmall cursor-pointer rounded px-sm transition-colors break-words ${
+                                      activeQuoteId === item.id
+                                        ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
+                                        : 'border-signal-critical/30 text-text-secondary hover:bg-signal-critical/5 hover:border-signal-critical/60'
+                                    }`}
+                                    onClick={() =>
+                                      onQuoteClick?.({
+                                        feedbackItemId: item.id,
+                                        anchorId: item.currentAnchorId,
+                                        quotedText: item.quotedText,
+                                      })
+                                    }
                                     role="button"
                                     tabIndex={0}
+                                    aria-pressed={activeQuoteId === item.id}
                                     onKeyDown={(e) => {
                                       if (e.key === 'Enter' || e.key === ' ') {
-                                        onQuoteClick?.(item.currentAnchorId);
+                                        e.preventDefault();
+                                        onQuoteClick?.({
+                                          feedbackItemId: item.id,
+                                          anchorId: item.currentAnchorId,
+                                          quotedText: item.quotedText,
+                                        });
                                       }
                                     }}
                                   >

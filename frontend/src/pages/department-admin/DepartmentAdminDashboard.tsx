@@ -1,13 +1,32 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Trash2 } from 'lucide-react';
 
+import { useAuth } from '@/features/auth/AuthContext';
 import { listDepartments, listDocumentTypes, createDocumentType } from '@/features/department-admin/departmentAdminApi';
+import { ApiError } from '@/services';
 import { ManageFeedbackCategoriesModal, type FeedbackCategory } from './ManageFeedbackCategoriesModal';
+
+function createErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+    if (error.status === 403) {
+      return 'You do not have permission to create document types for this department.';
+    }
+    return error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return 'Failed to create document type. Please try again.';
+}
 
 export function DepartmentAdminDashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [feedbackCategories, setFeedbackCategories] = useState<FeedbackCategory[]>([
@@ -20,10 +39,21 @@ export function DepartmentAdminDashboard() {
     { id: '7', title: 'Organization', description: 'Structure, logical flow, proper section organization, and document layout' },
   ]);
 
-  const { data: departments = [], isLoading: deptLoading } = useQuery({
+  const { data: allDepartments = [], isLoading: deptLoading } = useQuery({
     queryKey: ['dept-admin-departments'],
     queryFn: () => listDepartments(),
   });
+
+  const isTechnicalAdmin = user?.roles.includes('TechnicalAdmin') ?? false;
+  const administeredIds = user?.administeredDepartmentIds ?? [];
+
+  // DepartmentAdmins only manage their appointed departments; System Admins can
+  // bootstrap catalog entries for any department.
+  const departments = useMemo(() => {
+    if (isTechnicalAdmin) return allDepartments;
+    if (administeredIds.length === 0) return [];
+    return allDepartments.filter((d) => administeredIds.includes(d.id));
+  }, [allDepartments, administeredIds, isTechnicalAdmin]);
 
   const currentDepartment = departments[0];
   const [showCreateDocType, setShowCreateDocType] = useState(false);
@@ -47,6 +77,20 @@ export function DepartmentAdminDashboard() {
 
   if (deptLoading || typesLoading) {
     return <div className="p-8">Loading...</div>;
+  }
+
+  if (!currentDepartment) {
+    return (
+      <div className="p-8">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
+          <h2 className="text-lg font-semibold text-amber-900">No department assigned</h2>
+          <p className="mt-2 text-sm text-amber-800">
+            Your account does not administer any department yet. Ask a System Admin to
+            appoint you as Department Admin for a department, then try again.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const filteredDocumentTypes = documentTypes.filter((docType) =>
@@ -190,7 +234,9 @@ export function DepartmentAdminDashboard() {
               autoFocus
             />
             {createDocTypeMutation.isError && (
-              <p className="mb-3 text-sm text-red-600">Failed to create document type. Please try again.</p>
+              <p className="mb-3 text-sm text-red-600">
+                {createErrorMessage(createDocTypeMutation.error)}
+              </p>
             )}
             <div className="flex justify-end gap-3">
               <button

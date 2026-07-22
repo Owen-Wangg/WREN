@@ -5,7 +5,12 @@
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
 import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt } from './departmentService';
-import { listDocumentTypes, listAllDocumentTypes, createDocumentType } from './documentTypeService';
+import {
+  listDocumentTypes,
+  listAllDocumentTypes,
+  createDocumentType,
+  setDocumentTypeAccessState,
+} from './documentTypeService';
 import { listErrorCategories, createErrorCategory } from './errorCategoryService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { listContentTypes } from './contentTypeService';
@@ -16,6 +21,10 @@ import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
 import { getAnalytics } from './analyticsService';
 import { getHelpfulnessAnalytics } from './helpfulnessAnalyticsService';
+import {
+  getPlatformUsagePolicyForAdmin,
+  updatePlatformUsagePolicy,
+} from './lifetimeUsagePolicy';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
 import { AuthorizationError } from './errors';
 import { requireCapability } from './capabilityGuard';
@@ -80,6 +89,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     if (resource === '/v1/document-types/{documentTypeId}/config' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateDocumentTypeConfig(event));
     }
+    if (resource === '/v1/document-types/{documentTypeId}/access-state' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleSetDocumentTypeAccessState(event));
+    }
     if (resource === '/v1/users' && httpMethod === 'GET') {
       return await wrapHandler(() => handleSearchUsers(event));
     }
@@ -109,6 +121,12 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/admin/config/model' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateModelConfig(event));
+    }
+    if (resource === '/v1/admin/config/usage-limits' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetUsageLimits(event));
+    }
+    if (resource === '/v1/admin/config/usage-limits' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleUpdateUsageLimits(event));
     }
 
     return withCors({
@@ -213,6 +231,28 @@ async function handleUpdateDocumentTypeConfig(event: any): Promise<APIGatewayPro
   return {
     statusCode: 200,
     body: JSON.stringify(config),
+  };
+}
+
+async function handleSetDocumentTypeAccessState(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const accessState = body.accessState as 'OPEN' | 'LOCKED' | undefined;
+  if (accessState !== 'OPEN' && accessState !== 'LOCKED') {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: "accessState must be 'OPEN' or 'LOCKED'",
+      }),
+    };
+  }
+  const updated = await setDocumentTypeAccessState(actor, documentTypeId, accessState, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ accessState: updated.accessState }),
   };
 }
 
@@ -490,5 +530,26 @@ async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResul
       message:
         'Model configuration cannot be changed at runtime. Update BEDROCK_MODEL_ID and redeploy the compute stack.',
     }),
+  };
+}
+
+async function handleGetUsageLimits(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const policy = await getPlatformUsagePolicyForAdmin(actor, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(policy),
+  };
+}
+
+async function handleUpdateUsageLimits(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const body = event.body ? JSON.parse(event.body) : {};
+  const policy = await updatePlatformUsagePolicy(actor, body, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(policy),
   };
 }

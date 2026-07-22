@@ -104,14 +104,17 @@ describe('createErrorCategory (Requirement 15.1, 15.2)', () => {
     expect(db.mutationCount).toBe(0);
   });
 
-  it('denies a TechnicalAdmin — educational content is not a technical operation', async () => {
+  it('allows a TechnicalAdmin to seed feedback categories (shared dept-admin bootstrap)', async () => {
     const db = new FakeDb();
     seed(db);
 
-    await expect(
-      createErrorCategory(techAdminContext(), { documentTypeId: DT, name: 'X' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    const cat = await createErrorCategory(
+      techAdminContext(),
+      { documentTypeId: DT, name: 'Clarity' },
+      db,
+    );
+    expect(cat.name).toBe('Clarity');
+    expect(cat.documentTypeId).toBe(DT);
   });
 
   it('throws NotFoundError for an unknown Document Type', async () => {

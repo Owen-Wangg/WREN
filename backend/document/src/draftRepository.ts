@@ -120,6 +120,20 @@ function toIso(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+/**
+ * Normalize a jsonb column value. Drivers may return a parsed object, a JSON
+ * string, or (when the app also `JSON.stringify`s the bind param) a
+ * double-encoded JSON string.
+ */
+function parseJsonbColumn(value: unknown): unknown {
+  if (typeof value !== 'string') return value ?? [];
+  let parsed: unknown = JSON.parse(value);
+  if (typeof parsed === 'string') {
+    parsed = JSON.parse(parsed);
+  }
+  return parsed;
+}
+
 /** Map a raw `draft` row to the validated shared {@link Draft} DTO. */
 function toDraft(row: DraftRow): Draft {
   return draftSchema.parse({
@@ -127,8 +141,7 @@ function toDraft(row: DraftRow): Draft {
     documentId: row.document_id,
     versionNumber: row.version_number,
     s3Key: row.s3_key,
-    // `segments` is a jsonb column; the driver returns it already parsed.
-    segments: row.segments,
+    segments: parseJsonbColumn(row.segments),
     wordCount: row.word_count,
     createdAt: toIso(row.created_at),
   });

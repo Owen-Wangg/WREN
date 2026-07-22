@@ -241,7 +241,7 @@ export function useUpdateAppName() {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Query hook: get all usage limits (platform + per-DocumentType).
+ * Query hook: get platform lifetime usage policy.
  */
 export function useGetUsageLimits() {
   const client = useApiClient();
@@ -253,22 +253,19 @@ export function useGetUsageLimits() {
 }
 
 /**
- * Mutation hook: set usage limit for platform or specific DocumentType.
+ * Mutation hook: update platform lifetime usage policy.
  */
 export function useSetUsageLimit() {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      scope,
-      limit,
-      scopeId,
-    }: {
-      scope: 'platform' | 'documentType';
-      limit: number;
-      scopeId?: string;
-    }) => setUsageLimit(client, scope, limit, scopeId),
+    mutationFn: (limits: {
+      messageLimit: number;
+      debriefGenerationLimit: number;
+      documentUploadLimit: number;
+      draftsPerDocumentLimit: number;
+    }) => setUsageLimit(client, limits),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-admin', 'usage-limits'] });
     },

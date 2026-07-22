@@ -47,6 +47,9 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
+  'documentType.manageCatalog',
+  'documentType.readConfig',
+  'documentType.modifyConfig',
   'analytics.view',
 ]);
 
@@ -54,6 +57,7 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'documentType.readConfig',
   'documentType.modifyConfig',
   'documentType.manageCatalog',
+  'documentType.setAccessState',
   'topic.manage',
   'department.manage',
   'accessGrant.create',

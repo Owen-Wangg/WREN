@@ -38,7 +38,7 @@ import {
  * `npm run dev` renders every screen against the mock without a login wall.
  */
 function ProtectedRoute({ allow }: { allow?: readonly Role[] }) {
-  const { isLoading, isAuthenticated, user } = useAuth();
+  const { isLoading, isAuthenticated, user, dbRoles } = useAuth();
 
   if (!appConfig.useLiveApi) {
     return <Outlet />;
@@ -49,7 +49,9 @@ function ProtectedRoute({ allow }: { allow?: readonly Role[] }) {
   if (!isAuthenticated || !user) {
     return <Navigate to="/login" replace />;
   }
-  if (allow && !user.roles.some((role) => allow.includes(role))) {
+  // Gate on assigned DB roles, not Profile "view as", so switching persona
+  // while on an admin URL does not bounce to `/`.
+  if (allow && !dbRoles.some((role) => allow.includes(role))) {
     return <Navigate to="/" replace />;
   }
   return <Outlet />;

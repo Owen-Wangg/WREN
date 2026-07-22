@@ -814,6 +814,85 @@ paths:
               schema:
                 type: string
 
+  /v1/document-types/{documentTypeId}/access-state:
+    put:
+      summary: Set Document Type student access state (OPEN or LOCKED)
+      tags: [DocumentTypes]
+      operationId: setDocumentTypeAccessState
+      parameters:
+        - name: documentTypeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accessState]
+              properties:
+                accessState:
+                  type: string
+                  enum: [OPEN, LOCKED]
+      responses:
+        "200":
+          description: Updated access state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessState]
+                properties:
+                  accessState:
+                    type: string
+                    enum: [OPEN, LOCKED]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   /v1/access-grants:
     get:
       summary: List the authenticated user's Access Grants
@@ -923,7 +1002,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [documentTypeId, name]
+              required: [documentTypeId, name, source]
               properties:
                 documentTypeId:
                   type: string
@@ -937,6 +1016,7 @@ paths:
                     type: string
                 source:
                   type: object
+                  required: [kind]
                   properties:
                     kind:
                       type: string
@@ -947,13 +1027,13 @@ paths:
                       type: string
       responses:
         "201":
-          description: Document created
+          description: Document created (initial draft ingested server-side)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Document"
         "400":
-          description: Validation error (unsupported format, oversize, missing required fields)
+          description: Validation error (unsupported format, oversize, missing required fields, extraction failure)
           content:
             application/json:
               schema:
@@ -1131,11 +1211,30 @@ paths:
           application/json:
             schema:
               type: object
+              description: |
+                Provide either `segments` (editor save) or `source` (file re-upload /
+                paste ingest). When both are present, `source` wins.
               properties:
                 segments:
                   type: array
                   items:
                     type: object
+                    properties:
+                      index:
+                        type: integer
+                      text:
+                        type: string
+                source:
+                  type: object
+                  required: [kind]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [file, paste]
+                    text:
+                      type: string
+                    key:
+                      type: string
       responses:
         "201":
           description: Draft created
@@ -1144,7 +1243,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Draft"
         "400":
-          description: Validation error
+          description: Validation error (unsupported format, oversize, extraction failure)
           content:
             application/json:
               schema:
@@ -1195,7 +1294,7 @@ paths:
 
   /v1/documents/{documentId}/feedback:
     get:
-      summary: Get feedback items for the current draft
+      summary: Get feedback items for a draft (defaults to latest)
       tags: [Feedback]
       operationId: getFeedback
       parameters:
@@ -1204,6 +1303,13 @@ paths:
           required: true
           schema:
             type: string
+        - name: draftId
+          in: query
+          required: false
+          description: Optional draft id to load a historical AI Debrief generation
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: Feedback items and anchors for the document
@@ -1224,6 +1330,8 @@ paths:
                   progressSummary:
                     type: array
                     items: {}
+                  draftId:
+                    type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1269,6 +1377,91 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          description: Usage limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
+  /v1/documents/{documentId}/feedback/history:
+    get:
+      summary: List past AI Debrief generations for a document (newest first)
+      tags: [Feedback]
+      operationId: getFeedbackHistory
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Past debrief versions ordered by generation time
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [versions]
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      type: object
+                      required: [draftId, draftVersion, generatedAt, itemCount]
+                      properties:
+                        draftId:
+                          type: string
+                        draftVersion:
+                          type: integer
+                        generatedAt:
+                          type: string
+                          format: date-time
+                        itemCount:
+                          type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
       x-amazon-apigateway-integration:
@@ -1278,13 +1471,17 @@ paths:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
     options:
       summary: CORS preflight
+      security: []
       x-amazon-apigateway-integration:
         type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
         responses:
           default:
             statusCode: 200
             responseParameters:
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
               method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
               method.response.header.Access-Control-Allow-Origin: "'*'"
               method.response.header.Access-Control-Max-Age: "'86400'"
@@ -1328,6 +1525,164 @@ paths:
                     type: string
                   itemCount:
                     type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
+  /v1/documents/{documentId}/ask-wren:
+    get:
+      summary: Get Ask WREN conversation for a draft
+      tags: [Feedback]
+      operationId: getAskWrenSession
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: draftId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Conversation messages for the draft-anchored session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, documentId, draftId, messages]
+                properties:
+                  sessionId:
+                    type: string
+                  documentId:
+                    type: string
+                  draftId:
+                    type: string
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, role, text, createdAt]
+                      properties:
+                        id:
+                          type: string
+                        role:
+                          type: string
+                          enum: [user, wren]
+                        text:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+    post:
+      summary: Send a message to Ask WREN for a draft
+      tags: [Feedback]
+      operationId: postAskWrenMessage
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draftId, text]
+              properties:
+                draftId:
+                  type: string
+                text:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Socratic reply from Ask WREN
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, message]
+                properties:
+                  sessionId:
+                    type: string
+                  message:
+                    type: object
+                    required: [id, role, text, createdAt]
+                    properties:
+                      id:
+                        type: string
+                      role:
+                        type: string
+                        enum: [user, wren]
+                      text:
+                        type: string
+                      createdAt:
+                        type: string
+                        format: date-time
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -2152,6 +2507,136 @@ paths:
                 type: string
 
   # ==================== Admin Model Configuration ====================
+  /v1/admin/config/usage-limits:
+    get:
+      summary: Get platform lifetime usage policy (TechnicalAdmin only)
+      tags: [AdminConfig]
+      operationId: getPlatformUsageLimits
+      responses:
+        "200":
+          description: Lifetime usage policy
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - messageLimit
+                  - debriefGenerationLimit
+                  - documentUploadLimit
+                  - draftsPerDocumentLimit
+                properties:
+                  messageLimit:
+                    type: integer
+                    minimum: 1
+                  debriefGenerationLimit:
+                    type: integer
+                    minimum: 1
+                  documentUploadLimit:
+                    type: integer
+                    minimum: 1
+                  draftsPerDocumentLimit:
+                    type: integer
+                    minimum: 1
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    put:
+      summary: Update platform lifetime usage policy (TechnicalAdmin only)
+      tags: [AdminConfig]
+      operationId: updatePlatformUsageLimits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - messageLimit
+                - debriefGenerationLimit
+                - documentUploadLimit
+                - draftsPerDocumentLimit
+              properties:
+                messageLimit:
+                  type: integer
+                  minimum: 1
+                debriefGenerationLimit:
+                  type: integer
+                  minimum: 1
+                documentUploadLimit:
+                  type: integer
+                  minimum: 1
+                draftsPerDocumentLimit:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Updated lifetime usage policy
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - messageLimit
+                  - debriefGenerationLimit
+                  - documentUploadLimit
+                  - draftsPerDocumentLimit
+                properties:
+                  messageLimit:
+                    type: integer
+                  debriefGenerationLimit:
+                    type: integer
+                  documentUploadLimit:
+                    type: integer
+                  draftsPerDocumentLimit:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   /v1/admin/config/model:
     get:
       summary: Get active Bedrock model ID (TechnicalAdmin only)

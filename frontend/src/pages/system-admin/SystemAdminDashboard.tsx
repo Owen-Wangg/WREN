@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Trash2, ChevronDown } from 'lucide-react';
 
-import { listDepartments, getAnalytics, getModelConfig, getUsageReport, createDepartment } from '@/features/system-admin/systemAdminApi';
+import { listDepartments, getAnalytics, getModelConfig, createDepartment, getPlatformUsageLimits, updatePlatformUsageLimits } from '@/features/system-admin/systemAdminApi';
+import { SystemUsageLimitsForm } from '@/features/system-admin/components/SystemUsageLimitsForm';
+import type { UsageLimits } from '@/features/system-admin/systemAdminSchemas';
 
 export function SystemAdminDashboard() {
   const navigate = useNavigate();
@@ -40,9 +42,16 @@ export function SystemAdminDashboard() {
     },
   });
 
-  const { data: usageReport, isLoading: usageLimitsLoading } = useQuery({
+  const { data: usageLimits, isLoading: usageLimitsLoading } = useQuery({
     queryKey: ['system-usage-limits'],
-    queryFn: () => getUsageReport('platform'),
+    queryFn: () => getPlatformUsageLimits(),
+  });
+
+  const saveUsageLimitsMutation = useMutation({
+    mutationFn: (limits: UsageLimits) => updatePlatformUsageLimits(limits),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['system-usage-limits'] });
+    },
   });
 
   if (isLoading) {
@@ -147,7 +156,7 @@ export function SystemAdminDashboard() {
             </div>
           )}
 
-          {/* Usage Limits Card — read-only report */}
+          {/* Usage Limits Card — lifetime policy editor */}
           {(expandedSection === null || expandedSection === 'limits') && (
             <div
               className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
@@ -158,7 +167,9 @@ export function SystemAdminDashboard() {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Usage Limits</h3>
-                <p className="text-sm text-gray-600 mt-1">Platform usage for the current period</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Lifetime caps for Ask LEON, AI Debrief, uploads, and drafts
+                </p>
               </div>
               <ChevronDown
                 size={20}
@@ -168,51 +179,41 @@ export function SystemAdminDashboard() {
               />
             </div>
 
-            {!usageLimitsLoading && expandedSection !== 'limits' && (
+            {!usageLimitsLoading && expandedSection !== 'limits' && usageLimits && (
               <div className="mb-4 space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Platform Usage:</span>
+                  <span className="text-gray-600">Debrief gens / document:</span>
                   <span className="font-semibold text-gray-900">
-                    {usageReport
-                      ? `${usageReport.consumed} / ${usageReport.limitValue}`
-                      : 'No limit configured'}
+                    {usageLimits.debriefGenerationLimit}
                   </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Ask messages / document:</span>
+                  <span className="font-semibold text-gray-900">{usageLimits.messageLimit}</span>
                 </div>
               </div>
             )}
 
             {expandedSection === 'limits' && (
-              <div className="border-t border-gray-200 pt-6">
+              <div className="border-t border-gray-200 pt-6" onClick={(e) => e.stopPropagation()}>
                 {usageLimitsLoading ? (
                   <div>Loading...</div>
-                ) : usageReport ? (
-                  <div className="space-y-3 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Consumed</span>
-                      <span className="font-semibold text-gray-900">{usageReport.consumed}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Limit</span>
-                      <span className="font-semibold text-gray-900">{usageReport.limitValue}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Remaining</span>
-                      <span className="font-semibold text-gray-900">{usageReport.remaining}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Period start</span>
-                      <span className="font-semibold text-gray-900">
-                        {new Date(usageReport.periodStart).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-600 rounded-lg bg-gray-50 p-3">
-                      Usage limits are configured in the database. This view is read-only.
-                    </p>
-                  </div>
                 ) : (
-                  <p className="text-sm text-gray-600 rounded-lg bg-gray-50 p-3">
-                    No platform usage limit is configured for the current period.
+                  <SystemUsageLimitsForm
+                    initialData={usageLimits}
+                    isLoading={saveUsageLimitsMutation.isPending}
+                    onSubmit={(data) => saveUsageLimitsMutation.mutate(data)}
+                  />
+                )}
+                {saveUsageLimitsMutation.isError && (
+                  <p className="mt-3 text-sm text-red-600">
+                    {saveUsageLimitsMutation.error instanceof Error
+                      ? saveUsageLimitsMutation.error.message
+                      : 'Failed to save usage limits'}
                   </p>
+                )}
+                {saveUsageLimitsMutation.isSuccess && (
+                  <p className="mt-3 text-sm text-green-700">Usage limits saved.</p>
                 )}
               </div>
             )}

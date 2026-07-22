@@ -41,11 +41,16 @@ export const queryKeys = {
     [ns, 'documents', documentId, 'feedback', 'status'] as const,
 
   /**
-   * The AI Debrief for a writing environment. Invalidate this exact key on
-   * "Regenerate AI Debrief" to force a refetch (design + steering §6).
+   * The AI Debrief for a writing environment. Pass draftId to pin a historical
+   * generation; omit for the latest draft. Invalidate the environment prefix
+   * on regenerate.
    */
-  debrief: (environmentId: string) =>
-    [ns, 'documents', environmentId, 'debrief'] as const,
+  debrief: (environmentId: string, draftId?: string) =>
+    [ns, 'documents', environmentId, 'debrief', draftId ?? 'latest'] as const,
+
+  /** Past AI Debrief generations for a document (newest first). */
+  debriefHistory: (environmentId: string) =>
+    [ns, 'documents', environmentId, 'debrief-history'] as const,
 
   /**
    * The writer-facing qualitative progress summary for a writing environment's
@@ -68,6 +73,10 @@ export const queryKeys = {
 
   /** Content types (document types) for a given writing type. */
   contentTypes: (writingTypeId: string) => [ns, 'content-types', writingTypeId] as const,
+
+  /** Custom metadata fields for a document type (New Document form). */
+  metadataFields: (documentTypeId: string) =>
+    [ns, 'metadata-fields', documentTypeId] as const,
 
   /** Organization groupings (id + effective access state) for INHERIT resolution (task 19.1). */
   organizations: () => [ns, 'organizations'] as const,

@@ -10,6 +10,7 @@ import {
   BlockPublicAccess,
   Bucket,
   BucketEncryption,
+  HttpMethods,
   type LifecycleRule,
   StorageClass,
 } from "aws-cdk-lib/aws-s3";
@@ -90,6 +91,20 @@ export class StorageResources extends Construct {
       versioned: true,
       lifecycleRules: this.lifecycleRules(),
       removalPolicy: RemovalPolicy.RETAIN,
+      // Documents: browser PUT via presigned URL (create/ingest flow).
+      ...(name === "Documents"
+        ? {
+            cors: [
+              {
+                allowedMethods: [HttpMethods.PUT, HttpMethods.GET, HttpMethods.HEAD],
+                allowedOrigins: ["*"],
+                allowedHeaders: ["*"],
+                exposedHeaders: ["ETag"],
+                maxAge: 3000,
+              },
+            ],
+          }
+        : {}),
     });
   }
 

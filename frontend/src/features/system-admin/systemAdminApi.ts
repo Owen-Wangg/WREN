@@ -7,6 +7,10 @@
 import { z } from 'zod';
 import { departmentSchema, userSummarySchema } from '@wren/types';
 import { apiClient } from '@/services';
+import { usageLimitsSchema, type UsageLimits } from './systemAdminSchemas';
+
+export type { UsageLimits };
+export { usageLimitsSchema };
 
 /* -------------------------------------------------------------------------- */
 /* Analytics — platform-wide aggregates */
@@ -111,7 +115,7 @@ export async function searchAllUsers(options?: {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Usage — platform-wide report (read-only; configure via dedicated APIs later) */
+/* Usage — platform-wide report + lifetime policy config */
 /* -------------------------------------------------------------------------- */
 
 const usageReportSchema = z
@@ -132,6 +136,20 @@ export async function getUsageReport(scope: 'platform' | string = 'platform', pe
   params.append('scope', scope);
   if (periodStart) params.append('periodStart', periodStart);
   return apiClient.request(`/v1/usage?${params}`, { schema: usageReportSchema });
+}
+
+export async function getPlatformUsageLimits(): Promise<UsageLimits> {
+  return apiClient.request('/v1/admin/config/usage-limits', {
+    schema: usageLimitsSchema,
+  });
+}
+
+export async function updatePlatformUsageLimits(limits: UsageLimits): Promise<UsageLimits> {
+  return apiClient.request('/v1/admin/config/usage-limits', {
+    method: 'PUT',
+    body: limits,
+    schema: usageLimitsSchema,
+  });
 }
 
 const overrideSchema = z.object({
@@ -216,6 +234,8 @@ export const systemAdminApi = {
   updateDepartmentPrompt,
   searchAllUsers,
   getUsageReport,
+  getPlatformUsageLimits,
+  updatePlatformUsageLimits,
   grantUsageOverride,
   assignRole,
   getModelConfig,

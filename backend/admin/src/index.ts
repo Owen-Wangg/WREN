@@ -98,6 +98,17 @@ export {
   auditRoleOrGrantChange,
 } from './auditRecordingService';
 
+export {
+  getPlatformUsagePolicy,
+  getPlatformUsagePolicyForAdmin,
+  updatePlatformUsagePolicy,
+  assertDocumentUploadAllowed,
+  assertDraftCreateAllowed,
+  assertAskMessageAllowed,
+  reserveDebriefGeneration,
+} from './lifetimeUsagePolicy';
+export { UsageLimitReachedError } from './errors';
+
 export type {
   AccessGrant,
   AccessRequestApprovalInput,

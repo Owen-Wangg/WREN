@@ -140,6 +140,15 @@ interface DocumentRow {
   document_type_id: string;
   owner_user_id?: string;
   metadata?: Record<string, string>;
+  debrief_generation_count?: number;
+}
+
+interface PlatformUsagePolicyRow {
+  id: number;
+  message_limit: number;
+  debrief_generation_limit: number;
+  document_upload_limit: number;
+  drafts_per_document_limit: number;
 }
 
 /** Minimal `draft` row for deletion-retention tests. */
@@ -239,6 +248,7 @@ export class FakeDb implements QueryExecutor {
   public readonly overrides = new Map<string, OverrideRow>();
   public readonly activityEvents: ActivityEventRow[] = [];
   public readonly aggregateCounters = new Map<string, AggregateCounterRow>();
+  public platformUsagePolicy: PlatformUsagePolicyRow | null = null;
   public mutationCount = 0;
 
   private seq = 0;
@@ -318,9 +328,29 @@ export class FakeDb implements QueryExecutor {
     document_type_id: string;
     owner_user_id?: string;
     metadata?: Record<string, string>;
+    debrief_generation_count?: number;
   }): DocumentRow {
-    const full: DocumentRow = { ...row, owner_user_id: row.owner_user_id ?? 'seed-user' };
+    const full: DocumentRow = {
+      ...row,
+      owner_user_id: row.owner_user_id ?? 'seed-user',
+      debrief_generation_count: row.debrief_generation_count ?? 0,
+    };
     this.documents.set(full.id, full);
+    return full;
+  }
+
+  public seedPlatformUsagePolicy(
+    overrides: Partial<Omit<PlatformUsagePolicyRow, 'id'>> = {},
+  ): PlatformUsagePolicyRow {
+    const full: PlatformUsagePolicyRow = {
+      id: 1,
+      message_limit: 100,
+      debrief_generation_limit: 15,
+      document_upload_limit: 30,
+      drafts_per_document_limit: 15,
+      ...overrides,
+    };
+    this.platformUsagePolicy = full;
     return full;
   }
 
@@ -1523,6 +1553,69 @@ export class FakeDb implements QueryExecutor {
       this.mutationCount += 1;
       this.documents.delete(params[0] as string);
       return [] as unknown as Row[];
+    }
+
+    /* -------------------- platform lifetime usage policy -------------------- */
+
+    if (
+      sql.includes('FROM platform_usage_policy WHERE id = 1') &&
+      sql.includes('SELECT message_limit')
+    ) {
+      return (this.platformUsagePolicy ? [{ ...this.platformUsagePolicy }] : []) as unknown as Row[];
+    }
+
+    if (sql.startsWith('UPDATE platform_usage_policy SET')) {
+      this.mutationCount += 1;
+      const next: PlatformUsagePolicyRow = {
+        id: 1,
+        message_limit: params[0] as number,
+        debrief_generation_limit: params[1] as number,
+        document_upload_limit: params[2] as number,
+        drafts_per_document_limit: params[3] as number,
+      };
+      this.platformUsagePolicy = next;
+      return [{ ...next }] as unknown as Row[];
+    }
+
+    if (sql.startsWith('INSERT INTO platform_usage_policy')) {
+      this.mutationCount += 1;
+      const next: PlatformUsagePolicyRow = {
+        id: 1,
+        message_limit: params[0] as number,
+        debrief_generation_limit: params[1] as number,
+        document_upload_limit: params[2] as number,
+        drafts_per_document_limit: params[3] as number,
+      };
+      this.platformUsagePolicy = next;
+      return [] as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT COUNT(*)::int AS count FROM document WHERE owner_user_id = $1')) {
+      const count = [...this.documents.values()].filter(
+        (d) => d.owner_user_id === (params[0] as string),
+      ).length;
+      return [{ count }] as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT debrief_generation_count FROM document WHERE id = $1')) {
+      const row = this.documents.get(params[0] as string);
+      return (row
+        ? [{ debrief_generation_count: row.debrief_generation_count ?? 0 }]
+        : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith('UPDATE document') &&
+      sql.includes('SET debrief_generation_count = debrief_generation_count + 1')
+    ) {
+      this.mutationCount += 1;
+      const row = this.documents.get(params[0] as string);
+      const limit = params[1] as number;
+      if (!row) return [] as unknown as Row[];
+      const current = row.debrief_generation_count ?? 0;
+      if (current >= limit) return [] as unknown as Row[];
+      row.debrief_generation_count = current + 1;
+      return [{ debrief_generation_count: row.debrief_generation_count }] as unknown as Row[];
     }
 
     throw new Error(`FakeDb: unhandled SQL: ${sql}`);

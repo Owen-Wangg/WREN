@@ -1,13 +1,13 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthContext';
+import { ProfileRoleSwitcher } from '@/features/auth/components/ProfileRoleSwitcher';
 
 export function ProfilePage() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user, signOut, activeRole } = useAuth();
 
   const displayName = user?.email ?? 'Student User';
   const initial = displayName.charAt(0).toUpperCase();
-  const role = user?.roles?.[0] ?? 'Student';
 
   const handleSignOut = async () => {
     await signOut();
@@ -34,11 +34,11 @@ export function ProfilePage() {
 
         <hr className="border-border-subtle" />
 
-        <div className="flex flex-col gap-sm">
-          <p className="text-body text-text-secondary">
-            <span className="font-semibold">Role:</span> {role}
-          </p>
-        </div>
+        <p className="text-body text-text-secondary">
+          <span className="font-semibold">Active role:</span> {activeRole}
+        </p>
+
+        <ProfileRoleSwitcher />
 
         <button
           type="button"

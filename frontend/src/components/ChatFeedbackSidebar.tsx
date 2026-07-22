@@ -9,20 +9,30 @@
  * Task 4: Wires async feedback generation via onDebriefRegenerate callback.
  */
 import { MessageSquare, Sparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { WrenChatPanel, type AskWrenService } from '@/features/ask-wren';
-import { SidebarDebriefPanel } from '@/features/debrief';
+import { SidebarDebriefPanel, useAiDebrief } from '@/features/debrief';
 import { appConfig } from '@/config/env';
 
 export interface ChatFeedbackSidebarProps {
   readonly documentId: string;
   readonly draftId: string;
   readonly draftVersion: number;
+  /** Live word count from the editor (preferred) or latest draft. */
+  readonly wordCount?: number;
   readonly askWrenService: AskWrenService;
   readonly isGeneratingFeedback?: boolean;
+  /** Persist editor content as a new draft before AI Debrief regenerate. */
+  readonly onBeforeRegenerate?: () => Promise<void>;
   readonly onHighlight?: (anchorId: string) => void;
-  readonly onQuoteClick?: (anchorId: string | undefined) => void;
+  /** Feedback item id of the quote currently highlighted in the editor. */
+  readonly activeQuoteId?: string;
+  readonly onQuoteClick?: (selection: {
+    feedbackItemId: string;
+    anchorId?: string;
+    quotedText?: string;
+  }) => void;
 }
 
 type TabType = 'chat' | 'debrief';
@@ -33,12 +43,27 @@ export function ChatFeedbackSidebar({
   documentId,
   draftId,
   draftVersion,
+  wordCount = 0,
   askWrenService,
   isGeneratingFeedback = false,
+  onBeforeRegenerate,
   onHighlight,
+  activeQuoteId,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
   const [activeTab, setActiveTab] = useState<TabType>('chat');
+  const debriefQuery = useAiDebrief(documentId);
+
+  const progressSignals = useMemo(() => {
+    const summary = debriefQuery.data?.progressSummary ?? [];
+    return {
+      wordCount,
+      draftVersion,
+      hasFeedback: (debriefQuery.data?.items.length ?? 0) > 0,
+      improvingCount: summary.filter((p) => p.tendency === 'improving').length,
+      patternCount: summary.length,
+    };
+  }, [wordCount, draftVersion, debriefQuery.data]);
 
   useEffect(() => {
     const stored = localStorage.getItem(ACTIVE_TAB_KEY) as TabType | null;
@@ -84,26 +109,32 @@ export function ChatFeedbackSidebar({
         </button>
       </div>
 
-      {/* Tab content */}
+      {/* Tab content — keep both panels mounted so Ask chat state survives tab switches */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {activeTab === 'chat' && (
+        <div className={activeTab === 'chat' ? 'h-full' : 'hidden'} hidden={activeTab !== 'chat'}>
           <WrenChatPanel
             documentId={documentId}
             draftId={draftId}
             draftVersion={draftVersion}
+            progressSignals={progressSignals}
             askWrenService={askWrenService}
             className="h-full w-full"
             onHighlight={onHighlight}
           />
-        )}
-        {activeTab === 'debrief' && (
+        </div>
+        <div
+          className={activeTab === 'debrief' ? 'h-full' : 'hidden'}
+          hidden={activeTab !== 'debrief'}
+        >
           <SidebarDebriefPanel
             environmentId={documentId}
             autoRegenerate={false}
             isGenerating={isGeneratingFeedback}
+            onBeforeRegenerate={onBeforeRegenerate}
+            activeQuoteId={activeQuoteId}
             onQuoteClick={onQuoteClick}
           />
-        )}
+        </div>
       </div>
     </div>
   );

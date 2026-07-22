@@ -18,15 +18,15 @@
  * Scoping rules (no implicit role hierarchy — authority is the explicit matrix
  * only, Requirement 5.4):
  *
- *   - `TechnicalAdmin` — platform-level operations ONLY: usage-limit
+ *   - `TechnicalAdmin` — platform-level operations: usage-limit
  *                         configuration, temporary usage overrides (for any
  *                         Document Type, Requirement 54.5), system-wide User
- *                         search, Document Type access-state control, and
- *                         platform-wide aggregate analytics filterable by
- *                         Document Type (Requirement 41). This role is NOT a
- *                         superuser for educational content — it cannot read or
- *                         modify Document Type configurations, manage Topics, or
- *                         manage the Document Type catalog.
+ *                         search, Document Type access-state control, Document
+ *                         Type catalog + config bootstrap (create types,
+ *                         feedback categories, prompts), and platform-wide
+ *                         aggregate analytics filterable by Document Type
+ *                         (Requirement 41). Topics / access grants remain
+ *                         DepartmentAdmin-scoped.
  *   - `DepartmentAdmin` — educational operations within administered
  *                          Departments: Document Type configuration, catalog
  *                          management, Topic management, Access Grants, usage
@@ -53,6 +53,11 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageOverride.grant',
   'user.search',
   'documentType.setAccessState',
+  // Shared dept-admin UI: System Admins may bootstrap Document Types and their
+  // initial taxonomy/config (same screens DepartmentAdmins use).
+  'documentType.manageCatalog',
+  'documentType.readConfig',
+  'documentType.modifyConfig',
   'analytics.view',
 ]);
 
@@ -65,6 +70,8 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'documentType.readConfig',
   'documentType.modifyConfig',
   'documentType.manageCatalog',
+  // Dept admins unlock types they create (new types default to LOCKED).
+  'documentType.setAccessState',
   'topic.manage',
   'department.manage',
   'accessGrant.create',

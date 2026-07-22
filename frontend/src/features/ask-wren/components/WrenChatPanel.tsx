@@ -10,13 +10,13 @@
  *    could hold a candidate replacement. The only interactive elements are a
  *    plain-text message list and a single text input for the User's own
  *    question.
- *  - Draft-anchored: requires `draftId`/`draftVersion` props so every message
- *    sent through this panel is scoped to one specific Draft (never "the
- *    document" generically).
+ *  - Document-scoped conversation: history persists across draft versions
+ *    (Regenerate / Resubmit). New turns still send the *current* `draftId` so
+ *    replies are grounded in the latest draft text.
  *  - Surfaces `<AiDisclaimerNotice>` so the AI disclaimer is never
  *    copy-pasted inline here (steering §3, §11).
  */
-import { useState } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
 import { appConfig } from '@/config/env';
@@ -26,11 +26,90 @@ import { useZodForm } from '@/forms/useZodForm';
 import { askWrenMessageSchema, type AskWrenMessageFormValues } from '../askWrenSchemas';
 import type { AskWrenService } from '../askWrenService';
 import type { WrenChatMessage } from '../askWrenTypes';
+import {
+  computeWritingProgress,
+  writingProgressLabel,
+  type WritingProgressInput,
+} from '../writingProgress';
+
+function conversationCacheKey(documentId: string): string {
+  return `ask-wren-messages:${documentId}`;
+}
+
+function legacyDraftCacheKey(documentId: string, draftId: string): string {
+  return `ask-wren-messages:${documentId}:${draftId}`;
+}
+
+function readCachedMessages(
+  documentId: string,
+  draftId?: string,
+): WrenChatMessage[] | null {
+  try {
+    const docRaw = sessionStorage.getItem(conversationCacheKey(documentId));
+    if (docRaw) {
+      const parsed = JSON.parse(docRaw) as unknown;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as WrenChatMessage[];
+      }
+    }
+    if (draftId) {
+      const legacyRaw = sessionStorage.getItem(legacyDraftCacheKey(documentId, draftId));
+      if (legacyRaw) {
+        const parsed = JSON.parse(legacyRaw) as unknown;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed as WrenChatMessage[];
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedMessages(
+  documentId: string,
+  messages: readonly WrenChatMessage[],
+): void {
+  try {
+    sessionStorage.setItem(
+      conversationCacheKey(documentId),
+      JSON.stringify(messages),
+    );
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function mergeMessagesById(
+  ...lists: Array<readonly WrenChatMessage[] | null | undefined>
+): WrenChatMessage[] {
+  const seen = new Set<string>();
+  const merged: WrenChatMessage[] = [];
+  for (const list of lists) {
+    for (const message of list ?? []) {
+      if (seen.has(message.id)) continue;
+      seen.add(message.id);
+      merged.push(message);
+    }
+  }
+  merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return merged;
+}
+
+export type WrenChatProgressSignals = Omit<WritingProgressInput, 'hasAskedCoach'>;
 
 export interface WrenChatPanelProps {
   readonly documentId: string;
   readonly draftId: string;
   readonly draftVersion: number;
+  /**
+   * Signals for the progress bar (word count, debrief, revision). Coach
+   * engagement is derived from chat messages inside this panel.
+   */
+  readonly progressSignals?: WrenChatProgressSignals;
+  /** @deprecated Prefer `progressSignals`. Kept for tests that pass a fixed %. */
+  readonly writingProgressPercent?: number;
   readonly askWrenService: AskWrenService;
   readonly className?: string;
   /** Called when coach response includes a highlight anchor. */
@@ -41,12 +120,31 @@ export function WrenChatPanel({
   documentId,
   draftId,
   draftVersion,
+  progressSignals,
+  writingProgressPercent,
   askWrenService,
   className,
   onHighlight,
 }: WrenChatPanelProps) {
-  const [messages, setMessages] = useState<readonly WrenChatMessage[]>([]);
+  const [messages, setMessages] = useState<readonly WrenChatMessage[]>(() =>
+    documentId ? (readCachedMessages(documentId, draftId) ?? []) : [],
+  );
   const [error, setError] = useState<string | null>(null);
+
+  const computedProgressPercent = useMemo(() => {
+    if (!progressSignals) {
+      return writingProgressPercent ?? 0;
+    }
+    return computeWritingProgress({
+      ...progressSignals,
+      hasAskedCoach: messages.some((m) => m.role === 'user'),
+    });
+  }, [progressSignals, messages, writingProgressPercent]);
+
+  const [hydrating, setHydrating] = useState(true);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
   const {
     register,
     handleSubmit,
@@ -54,7 +152,54 @@ export function WrenChatPanel({
     formState: { isSubmitting },
   } = useZodForm(askWrenMessageSchema);
 
+  useEffect(() => {
+    let cancelled = false;
+    setHydrating(true);
+    setError(null);
+
+    const load = async () => {
+      if (!documentId || !draftId || draftId === 'draft-pending') {
+        if (!cancelled) {
+          setHydrating(false);
+        }
+        return;
+      }
+
+      const cached = readCachedMessages(documentId, draftId);
+      if (cached && cached.length > 0 && !cancelled) {
+        setMessages((prev) => mergeMessagesById(prev, cached));
+      }
+
+      if (!askWrenService.getMessages) {
+        if (!cancelled) setHydrating(false);
+        return;
+      }
+      try {
+        const prior = await askWrenService.getMessages(documentId, draftId);
+        if (!cancelled) {
+          const next = mergeMessagesById(messagesRef.current, cached, prior);
+          setMessages(next);
+          writeCachedMessages(documentId, next);
+        }
+      } catch {
+        // Keep sessionStorage / in-memory messages if the network hydrate fails.
+      } finally {
+        if (!cancelled) setHydrating(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [askWrenService, documentId, draftId]);
+
   const onSubmit = async ({ text }: AskWrenMessageFormValues) => {
+    if (!draftId || draftId === 'draft-pending') {
+      setError('Save a draft before asking about this document.');
+      return;
+    }
+
     setError(null);
     const userMessage: WrenChatMessage = {
       id: `local-${Date.now()}`,
@@ -62,7 +207,11 @@ export function WrenChatPanel({
       text,
       createdAt: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => {
+      const next = [...prev, userMessage];
+      writeCachedMessages(documentId, next);
+      return next;
+    });
     reset();
 
     try {
@@ -71,8 +220,11 @@ export function WrenChatPanel({
         draftId,
         text,
       });
-      setMessages((prev) => [...prev, reply]);
-      // Trigger highlight if coach response references a section
+      setMessages((prev) => {
+        const next = [...prev, reply];
+        writeCachedMessages(documentId, next);
+        return next;
+      });
       if (reply.highlightAnchorId) {
         onHighlight?.(reply.highlightAnchorId);
       }
@@ -99,28 +251,47 @@ export function WrenChatPanel({
         Ask {appConfig.appName}
       </h2>
 
-      {/* Draft progress indicator */}
       <div className="flex flex-col gap-xs">
-        <span className="text-bodySmall font-sans font-semibold text-text-primary">Draft version {draftVersion}</span>
+        <div className="flex items-baseline justify-between gap-sm">
+          <span className="text-bodySmall font-sans font-semibold text-text-primary">
+            Draft version {draftVersion}
+          </span>
+          <span className="text-caption text-text-muted">
+            {writingProgressLabel(computedProgressPercent)}
+          </span>
+        </div>
         <div className="h-[6px] w-full overflow-hidden rounded-full bg-surface-subtle">
           <div
             className="h-full rounded-full bg-signal-positive transition-all duration-300"
-            style={{ width: `${Math.min((draftVersion / 3) * 100, 100)}%` }}
+            style={{ width: `${Math.max(0, Math.min(100, computedProgressPercent))}%` }}
             role="progressbar"
-            aria-valuenow={draftVersion}
-            aria-valuemin={1}
-            aria-valuemax={3}
-            aria-label="Draft progress"
+            aria-valuenow={computedProgressPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Writing progress"
           />
         </div>
       </div>
 
-      <AiDisclaimerNotice message={`${appConfig.appName} responds with guiding questions to help you think through your own writing. It will not rewrite your text or provide replacement prose.`} />
+      <AiDisclaimerNotice
+        dismissible
+        dismissStorageKey="ask-chat-ai-disclaimer-dismissed"
+        dismissScopeId={documentId}
+        message={`${appConfig.appName} responds with guiding questions to help you think through your own writing. It will not rewrite your text or provide replacement prose.`}
+      />
 
       <ul
         aria-label="Conversation"
         className="flex flex-1 flex-col gap-sm overflow-y-auto"
       >
+        {hydrating && messages.length === 0 && (
+          <li className="text-bodySmall text-text-secondary">Loading conversation…</li>
+        )}
+        {!hydrating && messages.length === 0 && (
+          <li className="text-bodySmall text-text-secondary">
+            Ask a question about this draft to get started.
+          </li>
+        )}
         {messages.map((message) => (
           <li
             key={message.id}
@@ -143,11 +314,7 @@ export function WrenChatPanel({
         </p>
       )}
 
-      <form
-        className="flex gap-sm"
-        noValidate
-        onSubmit={handleSubmit(onSubmit)}
-      >
+      <form className="flex gap-sm" noValidate onSubmit={handleSubmit(onSubmit)}>
         <label htmlFor="ask-wren-input" className="sr-only">
           Ask {appConfig.appName} a question about this draft
         </label>
@@ -160,7 +327,7 @@ export function WrenChatPanel({
         />
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || draftId === 'draft-pending'}
           className="rounded-md bg-accent-primary px-md py-sm text-bodySmall font-sans font-semibold text-text-on-accent disabled:opacity-60"
         >
           Send

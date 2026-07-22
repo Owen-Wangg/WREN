@@ -30,11 +30,9 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 
-import { TextSelection } from '@tiptap/pm/state';
-
 import { DocumentEditor, type DocumentEditorHandle, type DocumentEditorProps } from './DocumentEditor';
 
-import { collectCommentIds, resolveAnchorRange } from '../anchorRange';
+import { collectCommentIds, resolveAnchorRange, resolveDebriefHighlightRange } from '../anchorRange';
 import {
   buildAnchoredFeedbackItems,
   partitionAnchoredFeedbackItems,
@@ -56,8 +54,27 @@ export interface AnchoredFeedbackEditorProps
   readonly categoryLabels?: Readonly<Record<string, string>>;
   /** Anchor ID to highlight when student clicks a quote in the AI Debrief. */
   readonly highlightedAnchorId?: string;
+  /** Quoted text from the debrief item — preferred for locating the highlight span. */
+  readonly highlightedQuotedText?: string;
   /** Show comment marks only after coach has responded (default: false). */
   readonly showCoachHighlights?: boolean;
+}
+
+function scrollRangeIntoView(
+  editor: NonNullable<ReturnType<DocumentEditorHandle['getEditor']>>,
+  from: number,
+): void {
+  try {
+    const dom = editor.view.domAtPos(from);
+    const node = dom.node;
+    const el =
+      node.nodeType === Node.TEXT_NODE
+        ? node.parentElement
+        : (node as HTMLElement);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth', inline: 'nearest' });
+  } catch {
+    // Position may be temporarily invalid during remounts; ignore.
+  }
 }
 
 export function AnchoredFeedbackEditor({
@@ -68,6 +85,7 @@ export function AnchoredFeedbackEditor({
   onContentChange,
   className,
   highlightedAnchorId,
+  highlightedQuotedText,
   showCoachHighlights = false,
 }: AnchoredFeedbackEditorProps) {
   const editorRef = useRef<DocumentEditorHandle>(null);
@@ -136,12 +154,12 @@ export function AnchoredFeedbackEditor({
     // Comment activation handler preserved for future margin-card linkage.
   };
 
-  // When student clicks a quote in AI Debrief, scroll to and highlight that anchor
+  // When student clicks a quote in AI Debrief, scroll to and keep it highlighted
+  // until they clear the selection (click again) or pick another quote.
   useEffect(() => {
     const editor = editorRef.current?.getEditor();
     if (!editor) return;
 
-    // Clear any previous debrief highlights from the entire document
     const markType = editor.schema.marks.highlight;
     if (markType) {
       const { size } = editor.state.doc.content;
@@ -151,45 +169,36 @@ export function AnchoredFeedbackEditor({
       }
     }
 
-    if (!highlightedAnchorId) return;
+    if (!highlightedAnchorId && !highlightedQuotedText?.trim()) return;
 
-    const anchor = anchors.find((a) => a.id === highlightedAnchorId);
-    if (!anchor) {
-      console.warn('Anchor not found:', highlightedAnchorId);
-      return;
-    }
+    const anchor = highlightedAnchorId
+      ? anchors.find((a) => a.id === highlightedAnchorId)
+      : undefined;
 
-    const range = resolveAnchorRange(editor.state.doc, anchor);
+    const range = resolveDebriefHighlightRange(editor.state.doc, {
+      anchor: anchor ?? null,
+      quotedText: highlightedQuotedText,
+    });
     if (!range) {
-      console.warn('Could not resolve anchor range for:', anchor);
+      console.warn('Could not resolve debrief highlight', {
+        highlightedAnchorId,
+        highlightedQuotedText,
+      });
       return;
     }
 
     const { from, to } = range;
 
-    // Apply highlight mark without selection
     if (markType) {
-      const tr = editor.state.tr.addMark(from, to, markType.create({ color: '#FFD700' }));
+      const tr = editor.state.tr.addMark(from, to, markType.create({ color: '#F5D76E' }));
       editor.view.dispatch(tr);
     }
 
-    // Scroll to the highlighted text by temporarily selecting then deselecting
-    const scrollTr = editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(from)));
-    editor.view.dispatch(scrollTr);
-    editor.view.focus();
-
-    // Remove highlight after 2 seconds - capture from/to in closure
-    const timeoutId = setTimeout(() => {
-      const currentEditor = editorRef.current?.getEditor();
-      if (currentEditor && markType) {
-        const tr = currentEditor.state.tr.removeMark(from, to, markType);
-        currentEditor.view.dispatch(tr);
-      }
-    }, 2000);
-
-    // Cleanup timeout if component unmounts or effect reruns
-    return () => clearTimeout(timeoutId);
-  }, [highlightedAnchorId, anchors]);
+    // Defer scroll so the mark is painted and nested scroll parents settle.
+    requestAnimationFrame(() => {
+      scrollRangeIntoView(editor, from);
+    });
+  }, [highlightedAnchorId, highlightedQuotedText, anchors]);
 
   return (
     <div className={['flex h-full gap-0', className].filter(Boolean).join(' ')}>

@@ -26,6 +26,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { ArrowUp, Minus, Star, TrendingUp, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { AiDisclaimerNotice } from '@/components/ui';
+
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 
 import { useAiDebrief, useRegenerateDebrief } from '../useDebrief';
@@ -38,8 +40,14 @@ export interface AiDebriefModalProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly autoRegenerate?: boolean;
+  /** Feedback item id of the quote currently highlighted in the editor. */
+  readonly activeQuoteId?: string;
   /** Called when student clicks a quoted text to highlight it in the document. */
-  readonly onQuoteClick?: (anchorId: string | undefined) => void;
+  readonly onQuoteClick?: (selection: {
+    feedbackItemId: string;
+    anchorId?: string;
+    quotedText?: string;
+  }) => void;
 }
 
 export function AiDebriefModal({
@@ -47,6 +55,7 @@ export function AiDebriefModal({
   open,
   onOpenChange,
   autoRegenerate = false,
+  activeQuoteId,
   onQuoteClick,
 }: AiDebriefModalProps) {
   const debriefQuery = useAiDebrief(environmentId);
@@ -176,13 +185,13 @@ export function AiDebriefModal({
               </div>
             )}
 
-            {/* AI Disclaimer */}
-            <div
-              role="note"
-              className="mb-xl rounded-md border border-notice-border bg-notice-surface px-lg py-md text-bodySmall leading-relaxed text-text-secondary"
-            >
-              The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.
-            </div>
+            <AiDisclaimerNotice
+              dismissible
+              dismissStorageKey="ai-debrief-disclaimer-dismissed"
+              dismissScopeId={environmentId}
+              message="The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user."
+              className="mb-xl leading-relaxed"
+            />
 
             {debriefQuery.isLoading && (
               <p role="status" className="text-bodySmall text-text-secondary">
@@ -344,13 +353,29 @@ export function AiDebriefModal({
                                     </div>
                                     {item.quotedText && (
                                       <blockquote
-                                        className="ml-sm border-l-2 border-signal-positive/30 pl-md italic text-text-secondary cursor-pointer hover:bg-signal-positive/5 hover:border-signal-positive/60 rounded px-sm transition-colors"
-                                        onClick={() => onQuoteClick?.(item.currentAnchorId)}
+                                        className={`ml-sm border-l-2 pl-md italic cursor-pointer rounded px-sm transition-colors break-words ${
+                                          activeQuoteId === item.id
+                                            ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
+                                            : 'border-signal-positive/30 text-text-secondary hover:bg-signal-positive/5 hover:border-signal-positive/60'
+                                        }`}
+                                        onClick={() =>
+                                          onQuoteClick?.({
+                                            feedbackItemId: item.id,
+                                            anchorId: item.currentAnchorId,
+                                            quotedText: item.quotedText,
+                                          })
+                                        }
                                         role="button"
                                         tabIndex={0}
+                                        aria-pressed={activeQuoteId === item.id}
                                         onKeyDown={(e) => {
                                           if (e.key === 'Enter' || e.key === ' ') {
-                                            onQuoteClick?.(item.currentAnchorId);
+                                            e.preventDefault();
+                                            onQuoteClick?.({
+                                              feedbackItemId: item.id,
+                                              anchorId: item.currentAnchorId,
+                                              quotedText: item.quotedText,
+                                            });
                                           }
                                         }}
                                       >
@@ -380,13 +405,29 @@ export function AiDebriefModal({
                                     </div>
                                     {item.quotedText && (
                                       <blockquote
-                                        className="ml-sm border-l-2 border-signal-critical/30 pl-md italic text-text-secondary cursor-pointer hover:bg-signal-critical/5 hover:border-signal-critical/60 rounded px-sm transition-colors"
-                                        onClick={() => onQuoteClick?.(item.currentAnchorId)}
+                                        className={`ml-sm border-l-2 pl-md italic cursor-pointer rounded px-sm transition-colors break-words ${
+                                          activeQuoteId === item.id
+                                            ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
+                                            : 'border-signal-critical/30 text-text-secondary hover:bg-signal-critical/5 hover:border-signal-critical/60'
+                                        }`}
+                                        onClick={() =>
+                                          onQuoteClick?.({
+                                            feedbackItemId: item.id,
+                                            anchorId: item.currentAnchorId,
+                                            quotedText: item.quotedText,
+                                          })
+                                        }
                                         role="button"
                                         tabIndex={0}
+                                        aria-pressed={activeQuoteId === item.id}
                                         onKeyDown={(e) => {
                                           if (e.key === 'Enter' || e.key === ' ') {
-                                            onQuoteClick?.(item.currentAnchorId);
+                                            e.preventDefault();
+                                            onQuoteClick?.({
+                                              feedbackItemId: item.id,
+                                              anchorId: item.currentAnchorId,
+                                              quotedText: item.quotedText,
+                                            });
                                           }
                                         }}
                                       >

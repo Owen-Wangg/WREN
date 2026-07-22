@@ -14,15 +14,37 @@ import type { WrenChatMessage } from './askWrenTypes';
 let nextMessageSequence = 1;
 
 export class MockAskWrenService implements AskWrenService {
-  async sendMessage({ text }: SendAskWrenMessageInput): Promise<WrenChatMessage> {
-    const anchorId = getHighlightAnchorForQuestion(text);
-    return {
+  private readonly sessions = new Map<string, WrenChatMessage[]>();
+
+  /** Document-scoped — survives draft version changes (matches live API). */
+  private sessionKey(documentId: string): string {
+    return documentId;
+  }
+
+  async getMessages(documentId: string, _draftId: string): Promise<readonly WrenChatMessage[]> {
+    return this.sessions.get(this.sessionKey(documentId)) ?? [];
+  }
+
+  async sendMessage({
+    documentId,
+    text,
+  }: SendAskWrenMessageInput): Promise<WrenChatMessage> {
+    const key = this.sessionKey(documentId);
+    const prior = this.sessions.get(key) ?? [];
+    const userMessage: WrenChatMessage = {
+      id: `user-message-${nextMessageSequence++}`,
+      role: 'user',
+      text,
+      createdAt: new Date().toISOString(),
+    };
+    const reply: WrenChatMessage = {
       id: `wren-message-${nextMessageSequence++}`,
       role: 'wren',
       text: buildSocraticReply(text),
       createdAt: new Date().toISOString(),
-      highlightAnchorId: anchorId,
     };
+    this.sessions.set(key, [...prior, userMessage, reply]);
+    return reply;
   }
 }
 
@@ -35,28 +57,13 @@ function buildSocraticReply(userText: string): string {
     return 'What makes you say the intro needs fixing? Is it the hook, the thesis statement, or how you frame the topic?';
   }
   if (trimmed.includes('formal') || trimmed.includes('tone')) {
-    return "Look at this sentence: \"Expenses happened too from medications and travel although receipts are not all available currently.\" Notice the passive voice and wordy phrasing — \"happened\", \"although receipts are not\" — these create distance from the reader. What would it sound like if you made it more direct and active?";
+    return 'Where in this draft does the tone feel off to you, and what would a more appropriate register need to accomplish?';
   }
   if (trimmed.includes('run-on') || trimmed.includes('sentence')) {
-    return 'Here\'s an example: \"Person 1 had pain and suffering and also had to miss work. It is believed maybe around $25,000 could be awarded but also maybe more because injuries can sometimes last long periods.\" Notice how each \"and\" adds another idea? Try breaking it into separate sentences — each one should focus on one main point.';
+    return 'Which sentence feels overloaded, and what is the single main point you want that sentence to carry?';
   }
   if (trimmed.includes('clear') || trimmed.includes('structure') || trimmed.includes('confusing')) {
-    return "Look at: \"This is about a negligence claim maybe and happened in Kelowna sometime in January.\" What's the core fact here? Lead with that — then layer in the context. Can you reorder it so the main point lands first?";
+    return 'What is the core claim in the unclear section, and where should that claim appear for a reader encountering it cold?';
   }
-  return 'What would help you most — understanding where the issue is, or brainstorming how to rewrite it?';
-}
-
-function getHighlightAnchorForQuestion(userText: string): string | undefined {
-  const lower = userText.toLowerCase();
-  // Map student questions to relevant anchors to highlight
-  if (lower.includes('formal') || lower.includes('tone')) {
-    return 'anchor-tone-2'; // Highlights the formal phrasing example
-  }
-  if (lower.includes('run-on') || lower.includes('sentence')) {
-    return 'anchor-grammar-2'; // Highlights the run-on sentence example
-  }
-  if (lower.includes('clear') || lower.includes('structure')) {
-    return 'anchor-clarity-2'; // Highlights the complex sentence example
-  }
-  return undefined;
+  return 'What would help you most right now — locating where the issue is, or figuring out what question that section should answer?';
 }
