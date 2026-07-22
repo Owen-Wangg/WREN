@@ -61,10 +61,17 @@ export async function fetchDebrief(
   // falling back to 'none' when there are no items yet.
   const draftId = raw.items[0]?.sourceDraftId ?? 'none';
 
+  // Prefer the newest item timestamp as "last generated".
+  const generatedAt = raw.items
+    .map((item) => item.createdAt)
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .sort()
+    .at(-1);
+
   return {
     documentId: environmentId,
     draftId,
-    generatedAt: raw.items[0]?.createdAt ?? new Date().toISOString(),
+    generatedAt: generatedAt ?? new Date().toISOString(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     items: raw.items as any,
     progressSummary: raw.progressSummary ?? [],

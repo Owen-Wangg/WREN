@@ -24,6 +24,17 @@ import type { FeedbackItem } from '@wren/types';
 const DEBRIEF_DISCLAIMER_MESSAGE =
   'The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.';
 
+function formatLastGenerated(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return `Last generated ${date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })}`;
+}
+
 export interface SidebarDebriefPanelProps {
   readonly environmentId: string;
   readonly autoRegenerate?: boolean;
@@ -87,6 +98,11 @@ export function SidebarDebriefPanel({
 
   const debrief = debriefQuery.data;
   const regenerating = isSavingThenRegen || regenerate.isPending;
+  const hasFeedback = (debrief?.items.length ?? 0) > 0;
+  const lastGeneratedLabel =
+    hasFeedback && debrief?.generatedAt
+      ? formatLastGenerated(debrief.generatedAt)
+      : null;
 
   const groupedByCategory = (debrief?.items ?? []).reduce<
     Record<string, FeedbackItem[]>
@@ -101,8 +117,8 @@ export function SidebarDebriefPanel({
   return (
     <div className="flex h-full flex-col">
       {/* Header with regenerate button */}
-      <div className="flex items-center justify-between border-b border-border-subtle px-lg py-md">
-        <div>
+      <div className="flex items-center justify-between gap-sm border-b border-border-subtle px-lg py-md">
+        <div className="min-w-0">
           <h3 className="text-heading3 font-sans font-semibold text-text-primary">
             AI Debrief
           </h3>
@@ -112,19 +128,29 @@ export function SidebarDebriefPanel({
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => void runRegenerate()}
-          disabled={regenerating || debriefQuery.isLoading}
-          className="rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          aria-label="Regenerate AI Debrief"
-        >
-          {regenerating ? (
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-          ) : (
-            '↻ Regenerate'
+        <div className="flex shrink-0 items-center gap-sm">
+          {lastGeneratedLabel && (
+            <span
+              className="text-caption text-text-muted whitespace-nowrap"
+              title={debrief?.generatedAt}
+            >
+              {lastGeneratedLabel}
+            </span>
           )}
-        </button>
+          <button
+            type="button"
+            onClick={() => void runRegenerate()}
+            disabled={regenerating || debriefQuery.isLoading}
+            className="rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            aria-label="Regenerate AI Debrief"
+          >
+            {regenerating ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
+            ) : (
+              '↻ Regenerate'
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Scrollable content area */}

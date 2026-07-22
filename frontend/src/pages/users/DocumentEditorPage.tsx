@@ -366,7 +366,7 @@ export function DocumentEditorPage() {
                 disabled={resubmitDraftMutation.isPending}
                 className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {resubmitDraftMutation.isPending ? 'Uploading…' : 'Resubmit Draft'}
+                {resubmitDraftMutation.isPending ? 'Uploading…' : 'Upload New Draft'}
               </button>
               <p className="text-caption text-text-muted leading-relaxed">
                 Upload a revised .docx or .pdf for this document.
