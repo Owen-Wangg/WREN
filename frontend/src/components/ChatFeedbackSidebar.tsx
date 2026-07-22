@@ -84,9 +84,9 @@ export function ChatFeedbackSidebar({
         </button>
       </div>
 
-      {/* Tab content */}
+      {/* Tab content — keep both panels mounted so Ask chat state survives tab switches */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {activeTab === 'chat' && (
+        <div className={activeTab === 'chat' ? 'h-full' : 'hidden'} hidden={activeTab !== 'chat'}>
           <WrenChatPanel
             documentId={documentId}
             draftId={draftId}
@@ -95,15 +95,18 @@ export function ChatFeedbackSidebar({
             className="h-full w-full"
             onHighlight={onHighlight}
           />
-        )}
-        {activeTab === 'debrief' && (
+        </div>
+        <div
+          className={activeTab === 'debrief' ? 'h-full' : 'hidden'}
+          hidden={activeTab !== 'debrief'}
+        >
           <SidebarDebriefPanel
             environmentId={documentId}
             autoRegenerate={false}
             isGenerating={isGeneratingFeedback}
             onQuoteClick={onQuoteClick}
           />
-        )}
+        </div>
       </div>
     </div>
   );

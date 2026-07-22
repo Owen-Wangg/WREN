@@ -27,6 +27,39 @@ import { askWrenMessageSchema, type AskWrenMessageFormValues } from '../askWrenS
 import type { AskWrenService } from '../askWrenService';
 import type { WrenChatMessage } from '../askWrenTypes';
 
+function conversationCacheKey(documentId: string, draftId: string): string {
+  return `ask-wren-messages:${documentId}:${draftId}`;
+}
+
+function readCachedMessages(
+  documentId: string,
+  draftId: string,
+): WrenChatMessage[] | null {
+  try {
+    const raw = sessionStorage.getItem(conversationCacheKey(documentId, draftId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as WrenChatMessage[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedMessages(
+  documentId: string,
+  draftId: string,
+  messages: readonly WrenChatMessage[],
+): void {
+  try {
+    sessionStorage.setItem(
+      conversationCacheKey(documentId, draftId),
+      JSON.stringify(messages),
+    );
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
 export interface WrenChatPanelProps {
   readonly documentId: string;
   readonly draftId: string;
@@ -45,7 +78,11 @@ export function WrenChatPanel({
   className,
   onHighlight,
 }: WrenChatPanelProps) {
-  const [messages, setMessages] = useState<readonly WrenChatMessage[]>([]);
+  const [messages, setMessages] = useState<readonly WrenChatMessage[]>(() =>
+    draftId && draftId !== 'draft-pending'
+      ? (readCachedMessages(documentId, draftId) ?? [])
+      : [],
+  );
   const [error, setError] = useState<string | null>(null);
   const [hydrating, setHydrating] = useState(true);
   const {
@@ -58,23 +95,34 @@ export function WrenChatPanel({
   useEffect(() => {
     let cancelled = false;
     setHydrating(true);
-    setMessages([]);
     setError(null);
 
     const load = async () => {
       if (!draftId || draftId === 'draft-pending') {
-        if (!cancelled) setHydrating(false);
+        if (!cancelled) {
+          setMessages([]);
+          setHydrating(false);
+        }
         return;
       }
+
+      const cached = readCachedMessages(documentId, draftId);
+      if (cached && cached.length > 0 && !cancelled) {
+        setMessages(cached);
+      }
+
       if (!askWrenService.getMessages) {
         if (!cancelled) setHydrating(false);
         return;
       }
       try {
         const prior = await askWrenService.getMessages(documentId, draftId);
-        if (!cancelled) setMessages(prior);
+        if (!cancelled) {
+          setMessages(prior);
+          writeCachedMessages(documentId, draftId, prior);
+        }
       } catch {
-        // Non-fatal: panel still works for new messages.
+        // Keep sessionStorage cache if the network/API hydrate fails.
       } finally {
         if (!cancelled) setHydrating(false);
       }
@@ -99,7 +147,11 @@ export function WrenChatPanel({
       text,
       createdAt: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => {
+      const next = [...prev, userMessage];
+      writeCachedMessages(documentId, draftId, next);
+      return next;
+    });
     reset();
 
     try {
@@ -108,7 +160,11 @@ export function WrenChatPanel({
         draftId,
         text,
       });
-      setMessages((prev) => [...prev, reply]);
+      setMessages((prev) => {
+        const next = [...prev, reply];
+        writeCachedMessages(documentId, draftId, next);
+        return next;
+      });
       if (reply.highlightAnchorId) {
         onHighlight?.(reply.highlightAnchorId);
       }
@@ -160,7 +216,7 @@ export function WrenChatPanel({
         aria-label="Conversation"
         className="flex flex-1 flex-col gap-sm overflow-y-auto"
       >
-        {hydrating && (
+        {hydrating && messages.length === 0 && (
           <li className="text-bodySmall text-text-secondary">Loading conversation…</li>
         )}
         {!hydrating && messages.length === 0 && (
