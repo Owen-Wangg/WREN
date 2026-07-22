@@ -1,9 +1,10 @@
 /**
- * Ask WREN — draft-anchored Socratic chat (design.md ConversationHistory).
+ * Ask WREN — document-scoped Socratic chat (design.md ConversationHistory).
  *
- * Sync path on the Feedback Orchestrator Lambda: load draft context, call
- * Bedrock, run a lightweight no-ghostwriting check, persist messages in
- * DynamoDB `${StackPrefix}-ConversationHistory`.
+ * Sync path on the Feedback Orchestrator Lambda: load the *current* draft for
+ * Bedrock context, call Bedrock, run a lightweight no-ghostwriting check, and
+ * persist messages in DynamoDB `${StackPrefix}-ConversationHistory` keyed by
+ * user + document so conversation survives draft regenerations/resubmits.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -31,6 +32,7 @@ export interface ConversationSession {
   sessionId: string;
   userId: string;
   documentId: string;
+  /** Latest draft id used when a turn was appended (context only; not the session key). */
   draftId: string;
   messages: ChatMessage[];
   ttl: number;
@@ -79,7 +81,13 @@ function getBedrock(): BedrockRuntimeClient {
   return bedrockClient;
 }
 
-export function buildSessionId(
+/** Document-scoped session key — survives draft version bumps (Regenerate / Resubmit). */
+export function buildSessionId(userId: string, documentId: string): string {
+  return `${userId}#${documentId}`;
+}
+
+/** Legacy draft-scoped key (pre-carry-forward). Used only to migrate history. */
+export function buildLegacyDraftSessionId(
   userId: string,
   documentId: string,
   draftId: string,
@@ -126,6 +134,61 @@ export async function saveSession(session: ConversationSession): Promise<void> {
       Item: session,
     }),
   );
+}
+
+/**
+ * Load the document conversation, migrating legacy draft-scoped session(s)
+ * when the document session is empty.
+ */
+export async function loadDocumentConversation(input: {
+  userId: string;
+  documentId: string;
+  draftId: string;
+  /** Draft ids to probe for legacy sessions (any order; merged by createdAt). */
+  legacyDraftIds?: readonly string[];
+}): Promise<ConversationSession | null> {
+  const sessionId = buildSessionId(input.userId, input.documentId);
+  const existing = await loadSession(sessionId);
+  if (existing?.messages?.length) {
+    return existing;
+  }
+
+  const draftIdsToProbe = [
+    ...new Set([input.draftId, ...(input.legacyDraftIds ?? [])]),
+  ];
+
+  const seen = new Set<string>();
+  const merged: ChatMessage[] = [];
+  for (const draftId of draftIdsToProbe) {
+    const legacyId = buildLegacyDraftSessionId(
+      input.userId,
+      input.documentId,
+      draftId,
+    );
+    const legacy = await loadSession(legacyId);
+    for (const message of legacy?.messages ?? []) {
+      if (seen.has(message.id)) continue;
+      seen.add(message.id);
+      merged.push(message);
+    }
+  }
+
+  if (merged.length === 0) {
+    return existing;
+  }
+
+  merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  const migrated: ConversationSession = {
+    sessionId,
+    userId: input.userId,
+    documentId: input.documentId,
+    draftId: input.draftId,
+    messages: merged,
+    ttl: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+  };
+  await saveSession(migrated);
+  return migrated;
 }
 
 function formatDraftContext(
@@ -190,12 +253,12 @@ export async function appendAskWrenTurn(input: {
   userText: string;
   draftSegments: Array<{ index?: number; text?: string }>;
 }): Promise<{ sessionId: string; userMessage: ChatMessage; reply: ChatMessage }> {
-  const sessionId = buildSessionId(
-    input.userId,
-    input.documentId,
-    input.draftId,
-  );
-  const existing = await loadSession(sessionId);
+  const sessionId = buildSessionId(input.userId, input.documentId);
+  const existing = await loadDocumentConversation({
+    userId: input.userId,
+    documentId: input.documentId,
+    draftId: input.draftId,
+  });
   const now = new Date().toISOString();
   const ttl = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
 

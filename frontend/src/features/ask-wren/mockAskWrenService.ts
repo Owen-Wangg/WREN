@@ -16,20 +16,20 @@ let nextMessageSequence = 1;
 export class MockAskWrenService implements AskWrenService {
   private readonly sessions = new Map<string, WrenChatMessage[]>();
 
-  private sessionKey(documentId: string, draftId: string): string {
-    return `${documentId}#${draftId}`;
+  /** Document-scoped — survives draft version changes (matches live API). */
+  private sessionKey(documentId: string): string {
+    return documentId;
   }
 
-  async getMessages(documentId: string, draftId: string): Promise<readonly WrenChatMessage[]> {
-    return this.sessions.get(this.sessionKey(documentId, draftId)) ?? [];
+  async getMessages(documentId: string, _draftId: string): Promise<readonly WrenChatMessage[]> {
+    return this.sessions.get(this.sessionKey(documentId)) ?? [];
   }
 
   async sendMessage({
     documentId,
-    draftId,
     text,
   }: SendAskWrenMessageInput): Promise<WrenChatMessage> {
-    const key = this.sessionKey(documentId, draftId);
+    const key = this.sessionKey(documentId);
     const prior = this.sessions.get(key) ?? [];
     const userMessage: WrenChatMessage = {
       id: `user-message-${nextMessageSequence++}`,

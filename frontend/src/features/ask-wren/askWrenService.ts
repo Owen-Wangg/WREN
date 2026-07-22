@@ -17,8 +17,8 @@ export interface SendAskWrenMessageInput {
 }
 
 export interface AskWrenService {
-  /** Sends a message scoped to a specific draft and returns WREN's Socratic reply. */
+  /** Sends a message grounded in the current draft; conversation is document-scoped. */
   sendMessage(input: SendAskWrenMessageInput): Promise<WrenChatMessage>;
-  /** Optional hydrate of prior messages for the draft-anchored session. */
+  /** Hydrate prior messages for this document (draftId used for migration/compat). */
   getMessages?(documentId: string, draftId: string): Promise<readonly WrenChatMessage[]>;
 }

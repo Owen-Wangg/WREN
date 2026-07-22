@@ -10,7 +10,7 @@ import { v4 as uuid } from 'uuid';
 import {
   appendAskWrenTurn,
   buildSessionId,
-  loadSession,
+  loadDocumentConversation,
 } from './askWren.js';
 // Shared utilities (parseAuthContext, wrapHandler, CORS)
 const CORS_HEADERS: Record<string, string> = {
@@ -454,6 +454,15 @@ async function loadDraftSegments(
   };
 }
 
+async function listDraftIdsForDocument(documentId: string): Promise<string[]> {
+  const db = await getDataAccess();
+  const rows = await db.query<{ id: string }>(
+    `SELECT id FROM draft WHERE document_id = $1 ORDER BY version_number ASC`,
+    [documentId],
+  );
+  return rows.map((row) => row.id);
+}
+
 async function handleGetAskWrenSession(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const { documentId } = event.pathParameters || {};
@@ -472,13 +481,18 @@ async function handleGetAskWrenSession(event: any): Promise<APIGatewayProxyResul
   const ownership = await assertDocumentOwner(documentId, actor.userId);
   if (!ownership.ok) return ownership.response;
 
-  const sessionId = buildSessionId(actor.userId, documentId, draftId);
-  const session = await loadSession(sessionId);
+  const legacyDraftIds = await listDraftIdsForDocument(documentId);
+  const session = await loadDocumentConversation({
+    userId: actor.userId,
+    documentId,
+    draftId,
+    legacyDraftIds,
+  });
 
   return {
     statusCode: 200,
     body: JSON.stringify({
-      sessionId,
+      sessionId: session?.sessionId ?? buildSessionId(actor.userId, documentId),
       documentId,
       draftId,
       messages: session?.messages ?? [],
@@ -505,6 +519,15 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
 
   const draft = await loadDraftSegments(documentId, draftId, actor.userId);
   if (!draft.ok) return draft.response;
+
+  // Ensure prior turns from older draft-scoped sessions are migrated before append.
+  const legacyDraftIds = await listDraftIdsForDocument(documentId);
+  await loadDocumentConversation({
+    userId: actor.userId,
+    documentId,
+    draftId,
+    legacyDraftIds,
+  });
 
   const { sessionId, reply } = await appendAskWrenTurn({
     userId: actor.userId,
