@@ -69,6 +69,10 @@ export const queryKeys = {
   /** Content types (document types) for a given writing type. */
   contentTypes: (writingTypeId: string) => [ns, 'content-types', writingTypeId] as const,
 
+  /** Custom metadata fields for a document type (New Document form). */
+  metadataFields: (documentTypeId: string) =>
+    [ns, 'metadata-fields', documentTypeId] as const,
+
   /** Organization groupings (id + effective access state) for INHERIT resolution (task 19.1). */
   organizations: () => [ns, 'organizations'] as const,
 

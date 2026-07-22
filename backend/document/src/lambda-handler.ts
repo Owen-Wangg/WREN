@@ -8,13 +8,12 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import { resolveAccess } from '@wren/auth';
-import type { AccessGrant, CustomMetadataField } from '@wren/types';
+import type { AccessGrant } from '@wren/types';
 
 import { MammothDocxExtractor } from './docxExtractor.js';
 import { LiteParsePdfExtractor } from './pdfExtractor.js';
 import { UnsupportedFileFormatError } from './errors.js';
 import { ingestUpload } from './ingestion.js';
-import { evaluateRequiredFields } from './metadataGating.js';
 import { enforceSizeLimit } from './sizeLimit.js';
 import { gateSubmission } from './submissionGating.js';
 import { createDraftRevision } from './draftVersioning.js';
@@ -320,29 +319,9 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  const fieldRows = await db.query(
-    `SELECT id, document_type_id, label, required
-     FROM custom_metadata_field WHERE document_type_id = $1
-     ORDER BY label`,
-    [documentTypeId],
-  );
-  const fields: CustomMetadataField[] = fieldRows.map((row: any) => ({
-    id: row.id,
-    documentTypeId: row.document_type_id,
-    label: row.label,
-    required: Boolean(row.required),
-  }));
-  const metadataGate = evaluateRequiredFields(fields, metadata);
-  if (metadataGate.status === 'missing-required-fields') {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        code: 'MISSING_REQUIRED_FIELDS',
-        message: `Required fields missing: ${metadataGate.missingRequiredFieldLabels.join(', ')}`,
-        missingRequiredFieldIds: metadataGate.missingRequiredFieldIds,
-      }),
-    };
-  }
+  // Required custom-metadata gating is deferred: the student New Document
+  // flow does not collect metadata fields (Department → Document Type →
+  // Name → Upload only). Persist any metadata the client does send.
 
   if (contentTypeId) {
     const contentTypeRows = await db.query(
