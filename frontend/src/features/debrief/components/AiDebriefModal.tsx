@@ -26,6 +26,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { ArrowUp, Minus, Star, TrendingUp, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { AiDisclaimerNotice } from '@/components/ui';
+
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 
 import { useAiDebrief, useRegenerateDebrief } from '../useDebrief';
@@ -176,13 +178,12 @@ export function AiDebriefModal({
               </div>
             )}
 
-            {/* AI Disclaimer */}
-            <div
-              role="note"
-              className="mb-xl rounded-md border border-notice-border bg-notice-surface px-lg py-md text-bodySmall leading-relaxed text-text-secondary"
-            >
-              The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.
-            </div>
+            <AiDisclaimerNotice
+              dismissible
+              dismissStorageKey="ai-debrief-disclaimer-dismissed"
+              message="The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user."
+              className="mb-xl leading-relaxed"
+            />
 
             {debriefQuery.isLoading && (
               <p role="status" className="text-bodySmall text-text-secondary">

@@ -11,6 +11,8 @@
 import { ArrowUp, Minus, Star, TrendingUp } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
+import { AiDisclaimerNotice } from '@/components/ui';
+
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
 
@@ -18,6 +20,9 @@ import { useAiDebrief, useRegenerateDebrief } from '../useDebrief';
 
 import type { ProgressPattern } from '../debriefTypes';
 import type { FeedbackItem } from '@wren/types';
+
+const DEBRIEF_DISCLAIMER_MESSAGE =
+  'The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.';
 
 export interface SidebarDebriefPanelProps {
   readonly environmentId: string;
@@ -94,13 +99,12 @@ export function SidebarDebriefPanel({
 
       {/* Scrollable content area */}
       <div className="relative min-h-0 flex-1 overflow-y-auto px-lg py-md">
-        {/* AI Disclaimer */}
-        <div
-          role="note"
-          className="mb-lg rounded-md border border-notice-border bg-notice-surface px-md py-sm text-caption leading-relaxed text-text-secondary"
-        >
-          The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.
-        </div>
+        <AiDisclaimerNotice
+          dismissible
+          dismissStorageKey="ai-debrief-disclaimer-dismissed"
+          message={DEBRIEF_DISCLAIMER_MESSAGE}
+          className="mb-lg text-caption leading-relaxed"
+        />
 
         {(debriefQuery.isLoading || (isGenerating && !debrief)) && (
           <div className="flex flex-col items-center gap-md py-xl text-center">
