@@ -15,9 +15,9 @@
  *
  * Additionally, a client-side `activeRole` override lets testers switch the
  * persona UI (Student / Department Admin / System Admin) without changing DB
- * assignments. Protected routes honor the override; the JWT and APIs do not.
+ * assignments. Route guards use database roles; RoleContext uses `activeRole`.
  */
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { authService } from './defaultAuthService';
 import type { AuthSession } from './authService';
 
@@ -40,7 +40,7 @@ function readStoredRoleOverride(): Role | null {
 export interface AuthUser {
   readonly userId: string;
   readonly email: string;
-  /** Effective roles for UI/routing (may reflect a view-as override). */
+  /** Roles from DATABASE (never from JWT). Used for route access & APIs. */
   readonly roles: Array<'Student' | 'DepartmentAdmin' | 'TechnicalAdmin'>;
   /** Administered departments from DATABASE */
   readonly administeredDepartmentIds: string[];
@@ -53,7 +53,10 @@ export interface AuthContextValue {
   readonly session: AuthSession | null;
   /** Roles returned by `/v1/auth/me` (database), ignoring view-as. */
   readonly dbRoles: Role[];
-  /** Role used for UI routing / RoleContext (override or primary DB role). */
+  /**
+   * Persona currently shown in the UI (Profile "view as"). Does not change
+   * Cognito/DB roles or route allow-lists — only navigation / RoleContext.
+   */
   readonly activeRole: Role;
   /** Client-side persona switch for demos/testing. */
   readonly setActiveRole: (role: Role) => void;
@@ -149,12 +152,6 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
     roleOverride && dbRoles.includes(roleOverride) ? roleOverride : null;
   const activeRole: Role = effectiveOverride ?? dbRoles[0] ?? 'Student';
 
-  const effectiveUser = useMemo((): AuthUser | null => {
-    if (!user) return null;
-    if (!effectiveOverride) return user;
-    return { ...user, roles: [effectiveOverride] };
-  }, [user, effectiveOverride]);
-
   const setActiveRole = (role: Role) => {
     if (user && !user.roles.includes(role)) {
       return;
@@ -170,7 +167,9 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
   const value: AuthContextValue = {
     isLoading,
     isAuthenticated,
-    user: effectiveUser,
+    // Keep full DB roles on `user` so route guards do not kick you to `/`
+    // when switching "view as" while still on an admin URL.
+    user,
     session,
     dbRoles,
     activeRole,
