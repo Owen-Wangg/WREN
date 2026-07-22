@@ -139,7 +139,6 @@ export function SidebarDebriefPanel({
   }, [historyOpen]);
 
   const debrief = debriefQuery.data;
-  const historyVersions = historyQuery.data ?? [];
   const regenerating = isSavingThenRegen || regenerate.isPending;
   const hasFeedback = (debrief?.items.length ?? 0) > 0;
   const viewingHistorical = selectedDraftId != null;
@@ -147,7 +146,23 @@ export function SidebarDebriefPanel({
     hasFeedback && debrief?.generatedAt
       ? formatCompactGeneratedAt(debrief.generatedAt)
       : null;
-  const canOpenHistory = historyVersions.length > 0;
+
+  // Prefer API history; if it isn't available yet, fall back to the loaded debrief
+  // so the title still exposes a version menu whenever feedback exists.
+  const historyVersions =
+    historyQuery.data && historyQuery.data.length > 0
+      ? historyQuery.data
+      : hasFeedback && debrief?.draftId && debrief.draftId !== 'none'
+        ? [
+            {
+              draftId: debrief.draftId,
+              draftVersion: 1,
+              generatedAt: debrief.generatedAt,
+              itemCount: debrief.items.length,
+            },
+          ]
+        : [];
+  const canOpenHistory = hasFeedback || historyVersions.length > 0;
 
   const groupedByCategory = (debrief?.items ?? []).reduce<
     Record<string, FeedbackItem[]>
@@ -219,6 +234,16 @@ export function SidebarDebriefPanel({
               aria-label="Previous AI Debriefs"
               className="absolute left-0 top-full z-20 mt-xs max-h-64 min-w-[16rem] overflow-y-auto rounded-md border border-border-subtle bg-surface-primary py-xs shadow-md"
             >
+              {historyQuery.isLoading && (
+                <li className="px-md py-sm text-caption text-text-muted">
+                  Loading history…
+                </li>
+              )}
+              {historyQuery.isError && historyVersions.length <= 1 && (
+                <li className="px-md py-sm text-caption text-text-muted">
+                  Previous versions unavailable right now.
+                </li>
+              )}
               {historyVersions.map((version, index) => {
                 const isLatest = index === 0;
                 const isSelected = selectedDraftId
