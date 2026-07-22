@@ -36,9 +36,15 @@ function formatDebriefTimestamp(iso: string): string {
   });
 }
 
-function formatLastGenerated(iso: string): string {
-  const formatted = formatDebriefTimestamp(iso);
-  return formatted ? `Last generated ${formatted}` : '';
+function formatCompactGeneratedAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 export interface SidebarDebriefPanelProps {
@@ -137,9 +143,9 @@ export function SidebarDebriefPanel({
   const regenerating = isSavingThenRegen || regenerate.isPending;
   const hasFeedback = (debrief?.items.length ?? 0) > 0;
   const viewingHistorical = selectedDraftId != null;
-  const lastGeneratedLabel =
+  const lastGeneratedCompact =
     hasFeedback && debrief?.generatedAt
-      ? formatLastGenerated(debrief.generatedAt)
+      ? formatCompactGeneratedAt(debrief.generatedAt)
       : null;
   const canOpenHistory = historyVersions.length > 0;
 
@@ -160,8 +166,8 @@ export function SidebarDebriefPanel({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header with regenerate button */}
-      <div className="flex items-center justify-between gap-sm border-b border-border-subtle px-lg py-md">
+      {/* Header: title left, regenerate + timestamp stacked right */}
+      <div className="flex items-start justify-between gap-md border-b border-border-subtle px-lg py-md">
         <div className="relative min-w-0" ref={historyMenuRef}>
           <button
             type="button"
@@ -196,13 +202,13 @@ export function SidebarDebriefPanel({
             )}
           </button>
           {viewingHistorical ? (
-            <p className="text-bodySmall text-text-secondary">
+            <p className="mt-xs text-caption text-text-secondary whitespace-nowrap">
               Viewing earlier debrief
             </p>
           ) : (
             debrief?.progressSummary &&
             debrief.progressSummary.length > 0 && (
-              <p className="text-bodySmall text-text-secondary">
+              <p className="mt-xs text-caption text-text-secondary whitespace-nowrap">
                 Feedback & your progress
               </p>
             )
@@ -247,15 +253,7 @@ export function SidebarDebriefPanel({
             </ul>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-sm">
-          {lastGeneratedLabel && (
-            <span
-              className="text-caption text-text-muted whitespace-nowrap"
-              title={debrief?.generatedAt}
-            >
-              {lastGeneratedLabel}
-            </span>
-          )}
+        <div className="flex shrink-0 flex-col items-end gap-xs">
           <button
             type="button"
             onClick={() => void runRegenerate()}
@@ -269,6 +267,18 @@ export function SidebarDebriefPanel({
               '↻ Regenerate'
             )}
           </button>
+          {lastGeneratedCompact && (
+            <span
+              className="px-sm text-caption text-text-muted whitespace-nowrap"
+              title={
+                debrief?.generatedAt
+                  ? `Last generated ${formatDebriefTimestamp(debrief.generatedAt)}`
+                  : undefined
+              }
+            >
+              {lastGeneratedCompact}
+            </span>
+          )}
         </div>
       </div>
 
