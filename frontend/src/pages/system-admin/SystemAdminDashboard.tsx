@@ -7,6 +7,8 @@ import { listDepartments, getAnalytics, getModelConfig, updateModelConfig, creat
 import { SystemUsageLimitsForm } from '@/features/system-admin/components/SystemUsageLimitsForm';
 import type { UsageLimits } from '@/features/system-admin/systemAdminSchemas';
 
+type DepartmentWithCount = { id: string; name: string; prompt?: string | null; activeUserCount?: number };
+
 export function SystemAdminDashboard() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
@@ -15,10 +17,11 @@ export function SystemAdminDashboard() {
   const [showCreateDept, setShowCreateDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState('');
 
-  const { data: departments = [], isLoading } = useQuery({
+  const { data: rawDepartments = [], isLoading } = useQuery({
     queryKey: ['system-departments'],
     queryFn: () => listDepartments(),
   });
+  const departments = rawDepartments as DepartmentWithCount[];
 
   // Analytics query not used in render but kept for future use
   useQuery({
@@ -103,13 +106,14 @@ export function SystemAdminDashboard() {
         <div className={`gap-6 ${expandedSection ? 'space-y-6' : 'grid grid-cols-1 md:grid-cols-2'}`}>
           {/* Model Configuration Card — read-only deploy-time value */}
           {(expandedSection === null || expandedSection === 'model') && (
-            <div
-              className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+            <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <button
+              type="button"
+              className="flex w-full items-start justify-between mb-4 text-left"
               onClick={() =>
                 setExpandedSection(expandedSection === 'model' ? null : 'model')
               }
             >
-            <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Model Configuration</h3>
                 <p className="text-sm text-gray-600 mt-1">Active Bedrock model for all AI feedback generation</p>
@@ -120,7 +124,7 @@ export function SystemAdminDashboard() {
                   expandedSection === 'model' ? 'rotate-180' : ''
                 }`}
               />
-            </div>
+            </button>
 
             {modelConfigData && !modelLoading && expandedSection !== 'model' && (
               <div className="mb-4 space-y-2 text-sm">
@@ -182,23 +186,19 @@ export function SystemAdminDashboard() {
               </div>
             )}
 
-            {expandedSection === null && modelConfigData && (
-              <button className="w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition">
-                View Details
-              </button>
-            )}
             </div>
           )}
 
           {/* Usage Limits Card — lifetime policy editor */}
           {(expandedSection === null || expandedSection === 'limits') && (
-            <div
-              className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+            <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+            <button
+              type="button"
+              className="flex w-full items-start justify-between mb-4 text-left"
               onClick={() =>
                 setExpandedSection(expandedSection === 'limits' ? null : 'limits')
               }
             >
-            <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Usage Limits</h3>
                 <p className="text-sm text-gray-600 mt-1">
@@ -211,7 +211,7 @@ export function SystemAdminDashboard() {
                   expandedSection === 'limits' ? 'rotate-180' : ''
                 }`}
               />
-            </div>
+            </button>
 
             {!usageLimitsLoading && expandedSection !== 'limits' && usageLimits && (
               <div className="mb-4 space-y-2 text-sm">
@@ -229,7 +229,7 @@ export function SystemAdminDashboard() {
             )}
 
             {expandedSection === 'limits' && (
-              <div className="border-t border-gray-200 pt-6" onClick={(e) => e.stopPropagation()}>
+              <div className="border-t border-gray-200 pt-6">
                 {usageLimitsLoading ? (
                   <div>Loading...</div>
                 ) : (
@@ -252,11 +252,6 @@ export function SystemAdminDashboard() {
               </div>
             )}
 
-            {expandedSection === null && (
-              <button className="w-full rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition">
-                View Usage
-              </button>
-            )}
             </div>
           )}
         </div>
@@ -322,8 +317,10 @@ export function SystemAdminDashboard() {
                   {getAccessStateBadge(dept.accessState)}
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Users:</span>
-                  <span className="font-semibold text-gray-900">{dept.userCount}</span>
+                  <span className="text-sm text-gray-600">Active users:</span>
+                  <span className="font-semibold text-gray-900">
+                    {(dept as DepartmentWithCount).activeUserCount ?? 0}
+                  </span>
                 </div>
               </div>
               <button

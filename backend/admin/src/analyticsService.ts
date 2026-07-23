@@ -233,10 +233,12 @@ export async function getAnalytics(
  * weeks, for a single document type.
  *
  * Scoring (all-users aggregate — no per-student column):
- *   resolved            → 100
- *   partially_resolved  →  50
+ *   resolved            → 100  (issue fully addressed)
+ *   partially_resolved  →   0  (treated same as unresolved — not yet fixed)
  *   still_unresolved    →   0
  *   removed / unchanged → excluded (structural change, not a signal)
+ *
+ * Score = percentage of feedback items students fully resolved that week.
  *
  * Only DepartmentAdmin (for their administered departments) and TechnicalAdmin
  * may call this. Same `analytics.view` capability gate as getAnalytics.
@@ -273,10 +275,8 @@ export async function getImprovementTrends(
        ec.name                                                      AS category_name,
        AVG(
          CASE rsh.status
-           WHEN 'resolved'           THEN 100.0
-           WHEN 'partially_resolved' THEN  50.0
-           WHEN 'still_unresolved'   THEN   0.0
-           ELSE NULL
+           WHEN 'resolved' THEN 100.0
+           ELSE 0.0
          END
        )::numeric(5,1)                                             AS avg_score,
        COUNT(CASE WHEN rsh.status IN (

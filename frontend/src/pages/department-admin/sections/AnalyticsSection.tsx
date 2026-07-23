@@ -153,7 +153,10 @@ export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
           </div>
         </div>
         <p className="mb-4 text-sm text-gray-500">
-          Average resolution rate per category per week (0 = unresolved, 100 = fully resolved)
+          Each week, the AI checks whether students fully resolved the feedback flagged in their previous draft.
+          The score is the percentage of issues that were completely addressed — <strong>100</strong> means every flagged issue was fixed,
+          <strong> 0</strong> means none were. Partially addressed issues are counted as unresolved.
+          Only weeks where students submitted revised drafts appear.
         </p>
 
         {/* Custom date range — only shown when Custom is selected */}

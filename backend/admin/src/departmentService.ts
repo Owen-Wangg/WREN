@@ -41,6 +41,7 @@ interface DepartmentRow {
   readonly id: string;
   readonly name: string;
   readonly prompt: string | null;
+  readonly active_user_count?: string | number;
 }
 
 /** The columns every read/write returns, in the shared DTO's field order. */
@@ -52,6 +53,9 @@ function toDepartment(row: DepartmentRow): Department {
     id: row.id,
     name: row.name,
     prompt: row.prompt,
+    activeUserCount: row.active_user_count !== undefined
+      ? parseInt(String(row.active_user_count), 10)
+      : undefined,
   });
 }
 
@@ -95,7 +99,13 @@ export async function listDepartments(
   db: QueryExecutor,
 ): Promise<Department[]> {
   const rows = await db.query<DepartmentRow>(
-    `SELECT ${RETURNING} FROM department ORDER BY name ASC`,
+    `SELECT d.id, d.name, d.prompt,
+            COUNT(DISTINCT doc.owner_user_id)::int AS active_user_count
+     FROM department d
+     LEFT JOIN document_type dt ON dt.department_id = d.id
+     LEFT JOIN document doc ON doc.document_type_id = dt.id
+     GROUP BY d.id, d.name, d.prompt
+     ORDER BY d.name ASC`,
   );
   return rows.map(toDepartment);
 }

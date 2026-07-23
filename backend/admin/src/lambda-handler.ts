@@ -20,7 +20,7 @@ import { getUsageReport } from './usageLimitService';
 import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
 import { getAnalytics, getImprovementTrends } from './analyticsService';
-import { BedrockClient, ListFoundationModelsCommand } from '@aws-sdk/client-bedrock';
+import { BedrockClient, ListInferenceProfilesCommand } from '@aws-sdk/client-bedrock';
 import { getHelpfulnessAnalytics } from './helpfulnessAnalyticsService';
 import {
   getPlatformUsagePolicyForAdmin,
@@ -543,26 +543,29 @@ async function fetchAllowedModels(): Promise<{ id: string; label: string }[]> {
 
   try {
     const client = new BedrockClient({ region: process.env.AWS_REGION ?? 'ca-central-1' });
-    const response = await client.send(new ListFoundationModelsCommand({
-      byInferenceType: 'ON_DEMAND',
+
+    // Cross-region inference profiles (us.anthropic.*, us.meta.*) are what the
+    // engine actually invokes — ListInferenceProfiles returns these IDs.
+    const response = await client.send(new ListInferenceProfilesCommand({
+      typeEquals: 'SYSTEM_DEFINED',
     }));
 
-    const models = (response.modelSummaries ?? [])
-      .filter((m) => {
-        const provider = m.providerName?.toLowerCase() ?? '';
-        return provider === 'anthropic' || provider === 'meta';
+    const models = (response.inferenceProfileSummaries ?? [])
+      .filter((p) => {
+        const id = p.inferenceProfileId?.toLowerCase() ?? '';
+        return id.startsWith('us.anthropic.') || id.startsWith('us.meta.');
       })
-      .filter((m) => m.modelId && m.modelName)
-      .map((m) => ({
-        id: m.modelId!,
-        label: `${m.modelName!} (${m.providerName})`,
+      .filter((p) => p.inferenceProfileId && p.inferenceProfileName)
+      .map((p) => ({
+        id: p.inferenceProfileId!,
+        label: p.inferenceProfileName!,
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
 
     cachedAllowedModels = models.length > 0 ? models : FALLBACK_MODELS;
     return cachedAllowedModels;
   } catch (err) {
-    console.warn('Failed to list Bedrock models, using fallback list:', err);
+    console.warn('Failed to list Bedrock inference profiles, using fallback list:', err);
     return FALLBACK_MODELS;
   }
 }

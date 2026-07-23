@@ -554,16 +554,93 @@ def insert_feedback_items(
         raise
 
 
+def judge_resolutions_with_llm(
+    items_to_judge: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, ResolutionStatus]:
+    """Batch-evaluate whether students addressed specific feedback items.
+
+    Makes a single Bedrock call for all changed-span items, returning a map of
+    item_id -> ResolutionStatus. Falls back to STILL_UNRESOLVED on any failure.
+
+    items_to_judge: list of { id, question_text, region_text }
+    """
+    if not items_to_judge:
+        return {}
+
+    try:
+        bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
+        model_id = config.get('bedrock_model_id') or os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
+
+        items_json = json.dumps([
+            {
+                'id': item['id'],
+                'feedback': item['question_text'],
+                'revised_text': item['region_text'],
+            }
+            for item in items_to_judge
+        ], indent=2)
+
+        system_text = (
+            'You evaluate whether a student addressed specific writing feedback when revising their draft.\n'
+            'For each item in the JSON array, reply with exactly one verdict: "resolved", "partial", or "unresolved".\n'
+            '  resolved   - the student clearly and fully addressed the feedback in the revised text\n'
+            '  partial    - the student made some progress but the issue is not fully fixed\n'
+            '  unresolved - the student did not address the feedback\n'
+            'Reply as a JSON array of objects with "id" and "verdict" fields only. No other text.'
+        )
+
+        user_text = f'Evaluate each feedback item:\n\n{items_json}'
+
+        body = {
+            'anthropic_version': 'bedrock-2023-05-31',
+            'max_tokens': 1024,
+            'temperature': 0,
+            'system': system_text,
+            'messages': [{'role': 'user', 'content': user_text}],
+        }
+
+        response = bedrock_client.invoke_model(
+            modelId=model_id,
+            body=json.dumps(body),
+        )
+        raw = json.loads(response['body'].read())
+        text = raw.get('content', [{}])[0].get('text', '').strip()
+
+        # Strip markdown fences if present
+        if text.startswith('```'):
+            text = text.split('\n', 1)[-1].rsplit('```', 1)[0].strip()
+
+        verdicts = json.loads(text)
+        result: dict[str, ResolutionStatus] = {}
+        for v in verdicts:
+            item_id = v.get('id')
+            verdict = str(v.get('verdict', '')).lower()
+            if verdict == 'resolved':
+                result[item_id] = ResolutionStatus.RESOLVED
+            elif verdict == 'partial':
+                result[item_id] = ResolutionStatus.PARTIALLY_RESOLVED
+            else:
+                result[item_id] = ResolutionStatus.STILL_UNRESOLVED
+        return result
+
+    except Exception as e:
+        logger.warning(f"LLM resolution judge failed, defaulting to still_unresolved: {str(e)}")
+        return {}
+
+
 def persist_resolution_status(
     document_id: str,
     new_draft_id: str,
     new_segments: list[dict[str, Any]],
+    config: dict[str, Any],
     conn: psycopg.Connection,
 ) -> None:
     """Compare prior feedback items against the new draft and write resolution_status_history rows.
 
-    Only runs when a prior draft exists for this document. Structural (non-inline)
-    items get 'still_unresolved' by default — they have no anchor to diff against.
+    Uses a single batched LLM call to evaluate whether students addressed each
+    feedback item whose anchored text changed. Structural items and unchanged/removed
+    anchors are handled structurally without an LLM call.
     """
     try:
         with conn.cursor() as cur:
@@ -583,9 +660,9 @@ def persist_resolution_status(
             prev_draft_id, prev_segments_raw = prev_row
             prev_segments = json.loads(prev_segments_raw) if isinstance(prev_segments_raw, str) else prev_segments_raw
 
-            # Load prior inline feedback items with their anchors
+            # Load prior feedback items with anchors AND question_text for the judge
             cur.execute("""
-                SELECT fi.id, fi.error_category_id, fi.kind,
+                SELECT fi.id, fi.error_category_id, fi.kind, fi.question_text,
                        a.paragraph_index, a.start_offset, a.end_offset, a.content_fingerprint
                 FROM feedback_item fi
                 LEFT JOIN anchor a ON a.feedback_item_id = fi.id AND a.draft_id = %s
@@ -604,21 +681,22 @@ def persist_resolution_status(
 
         diff = DiffEngine().compute(prev_segs, curr_segs)
 
-        # Build TrackerFeedbackItems for inline items that have anchors
         from wren_engine.anchor_service import Anchor, AnchorState
+        from wren_engine.progress_tracker import JudgeInput
         tracker_items: list[TrackerFeedbackItem] = []
         structural_ids: list[tuple[str, str]] = []
+        question_map: dict[str, str] = {}
 
         for row in prior_items:
-            item_id, category_id, kind = row[0], row[1], row[2]
-            para_idx, start_off, end_off, fp_hex = row[3], row[4], row[5], row[6]
+            item_id, category_id, kind, question_text = row[0], row[1], row[2], row[3]
+            para_idx, start_off, end_off, fp_hex = row[4], row[5], row[6], row[7]
+
+            question_map[item_id] = question_text or ''
 
             if kind == 'structural' or para_idx is None:
                 structural_ids.append((item_id, category_id))
                 continue
 
-            # Recompute fingerprint from previous draft text so AnchorService
-            # can do a proper context-aware remap (the DB only stores a short hex).
             prev_para_text = prev_segs[para_idx].text if para_idx < len(prev_segs) else ''
             anchor = Anchor.create(
                 paragraph_text=prev_para_text,
@@ -634,19 +712,45 @@ def persist_resolution_status(
                 remap=remap,
             ))
 
-        # Simple judge: always 'still_unresolved' for changed spans.
-        # A real LLM judge is a future enhancement; this gives meaningful
-        # signal (resolved = anchor gone, unchanged = no edit, unresolved = edited).
-        from wren_engine.progress_tracker import JudgeInput
-        def simple_judge(judge_input: JudgeInput) -> ResolutionStatus:
+        # First pass: structural classification (removed/unchanged) — no LLM needed.
+        # Collect items where the span actually changed — those need the LLM judge.
+        from wren_engine.anchor_service import Remapped, Removed
+        from wren_engine.models import ChangeKind
+
+        changed_items: list[dict[str, Any]] = []
+
+        def collecting_judge(judge_input: JudgeInput) -> ResolutionStatus:
+            # Build the region text for this item to pass to the batch judge.
+            changed_items.append({
+                'id': judge_input.item.item_id,
+                'question_text': question_map.get(judge_input.item.item_id, ''),
+                'region_text': judge_input.region_text,
+            })
+            # Placeholder — real verdict comes from the batch call below.
             return ResolutionStatus.STILL_UNRESOLVED
 
-        updates = ProgressTracker().reevaluate(tracker_items, diff, simple_judge)
+        preliminary_updates = ProgressTracker().reevaluate(tracker_items, diff, collecting_judge)
 
-        # Write resolution_status_history rows
+        # Batch LLM call for all changed spans — one Bedrock invocation total.
+        llm_verdicts = judge_resolutions_with_llm(changed_items, config)
+
+        # Final updates: replace placeholder verdicts with LLM verdicts where available.
+        final_updates = []
+        for u in preliminary_updates:
+            if u.status == ResolutionStatus.STILL_UNRESOLVED and u.item_id in llm_verdicts:
+                from wren_engine.progress_tracker import ResolutionUpdate
+                final_updates.append(ResolutionUpdate(
+                    item_id=u.item_id,
+                    category_id=u.category_id,
+                    status=llm_verdicts[u.item_id],
+                ))
+            else:
+                # RESOLVED/UNCHANGED/REMOVED handled structurally — keep as-is.
+                final_updates.append(u)
+
         rows_to_insert = [
             (u.item_id, new_draft_id, u.status.value)
-            for u in updates
+            for u in final_updates
         ] + [
             (item_id, new_draft_id, 'still_unresolved')
             for item_id, _ in structural_ids
@@ -660,7 +764,9 @@ def persist_resolution_status(
                     ON CONFLICT (feedback_item_id, draft_id) DO NOTHING
                 """, rows_to_insert)
             conn.commit()
-            logger.info(f"Wrote {len(rows_to_insert)} resolution_status_history rows for draft {new_draft_id}")
+            judged = len(changed_items)
+            logger.info(f"Wrote {len(rows_to_insert)} resolution_status_history rows "
+                        f"({judged} LLM-judged, {len(rows_to_insert) - judged} structural) for draft {new_draft_id}")
 
     except Exception as e:
         logger.error(f"Error persisting resolution status: {str(e)}", exc_info=True)
@@ -760,7 +866,7 @@ def process_feedback_request(
 
         # Step 9: Compute and persist resolution status for prior feedback items
         logger.info("Persisting resolution status history...")
-        persist_resolution_status(document_id, draft_id, segments, conn)
+        persist_resolution_status(document_id, draft_id, segments, config, conn)
 
         logger.info(f"Feedback job {job_id} completed: {item_count} items inserted")
 

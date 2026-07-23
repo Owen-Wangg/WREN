@@ -357,8 +357,8 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     }
   }
 
-  // Build progress summary by comparing category counts across the two most recent drafts.
-  // Only populated when >= 2 drafts exist for this document (Requirement 18, REQ-PROGRESS-ACK-01).
+  // Build progress summary — uses resolution_status_history (accurate) when available,
+  // falls back to feedback item count comparison (proxy) for cold-start drafts.
   type ProgressPattern = { category: string; tendency: 'improving' | 'persistent' | 'emerging'; description: string };
   const progressSummary: ProgressPattern[] = [];
 
@@ -370,46 +370,91 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   if (draftRows.length >= 2) {
     const [currentDraft, previousDraft] = draftRows;
 
-    const countRows = await db.query<{ draft_id: string; error_category_id: string; cnt: string }>(
-      `SELECT source_draft_id AS draft_id, error_category_id, COUNT(*) AS cnt
-       FROM feedback_item
-       WHERE source_draft_id = ANY($1)
-       GROUP BY source_draft_id, error_category_id`,
-      [[currentDraft.id, previousDraft.id]],
+    // Check if resolution history exists for the current draft.
+    const resolutionRows = await db.query<{
+      error_category_id: string;
+      resolved: string;
+      total: string;
+    }>(
+      `SELECT fi.error_category_id,
+              COUNT(*) FILTER (WHERE rsh.status = 'resolved') AS resolved,
+              COUNT(*) AS total
+       FROM resolution_status_history rsh
+       JOIN feedback_item fi ON fi.id = rsh.feedback_item_id
+       WHERE rsh.draft_id = $1
+         AND rsh.status IN ('resolved', 'partially_resolved', 'still_unresolved')
+       GROUP BY fi.error_category_id`,
+      [currentDraft.id],
     );
 
-    const current: Record<string, number> = {};
-    const previous: Record<string, number> = {};
-    for (const r of countRows) {
-      const map = r.draft_id === currentDraft.id ? current : previous;
-      map[r.error_category_id] = parseInt(r.cnt, 10);
-    }
+    if (resolutionRows.length > 0) {
+      // Resolution-based: accurate — did the student actually fix the flagged issues?
+      for (const r of resolutionRows) {
+        const name = categoryNames[r.error_category_id];
+        if (!name) continue;
+        const resolved = parseInt(r.resolved, 10);
+        const total = parseInt(r.total, 10);
+        const pct = total > 0 ? Math.round((resolved / total) * 100) : 0;
 
-    const allCategoryIds = new Set([...Object.keys(current), ...Object.keys(previous)]);
-    for (const catId of allCategoryIds) {
-      const name = categoryNames[catId];
-      if (!name) continue;
-      const curr = current[catId] ?? 0;
-      const prev = previous[catId] ?? 0;
+        let tendency: 'improving' | 'persistent' | 'emerging';
+        let description: string;
 
-      let tendency: 'improving' | 'persistent' | 'emerging';
-      let description: string;
+        if (pct >= 70) {
+          tendency = 'improving';
+          description = `You resolved ${resolved} of ${total} ${name} issue${total !== 1 ? 's' : ''} (${pct}%) — keep it up.`;
+        } else if (pct >= 30) {
+          tendency = 'persistent';
+          description = `You partially addressed ${name} — ${resolved} of ${total} issue${total !== 1 ? 's' : ''} resolved (${pct}%). Worth more focus.`;
+        } else {
+          tendency = 'persistent';
+          description = `${name} issues from your previous draft remain unaddressed — ${resolved} of ${total} resolved (${pct}%).`;
+        }
 
-      if (prev === 0 && curr > 0) {
-        tendency = 'emerging';
-        description = `${name} is a new pattern in your latest draft.`;
-      } else if (curr < prev) {
-        tendency = 'improving';
-        description = `${name} issues decreased from ${prev} to ${curr} — keep it up.`;
-      } else if (curr > prev) {
-        tendency = 'persistent';
-        description = `${name} issues increased from ${prev} to ${curr} — worth focusing on.`;
-      } else {
-        tendency = 'persistent';
-        description = `${name} remains at ${curr} — consistent pattern across drafts.`;
+        progressSummary.push({ category: name, tendency, description });
+      }
+    } else {
+      // Count-based fallback: proxy signal for when resolution history isn't available yet.
+      const countRows = await db.query<{ draft_id: string; error_category_id: string; cnt: string }>(
+        `SELECT source_draft_id AS draft_id, error_category_id, COUNT(*) AS cnt
+         FROM feedback_item
+         WHERE source_draft_id = ANY($1)
+         GROUP BY source_draft_id, error_category_id`,
+        [[currentDraft.id, previousDraft.id]],
+      );
+
+      const current: Record<string, number> = {};
+      const previous: Record<string, number> = {};
+      for (const r of countRows) {
+        const map = r.draft_id === currentDraft.id ? current : previous;
+        map[r.error_category_id] = parseInt(r.cnt, 10);
       }
 
-      progressSummary.push({ category: name, tendency, description });
+      const allCategoryIds = new Set([...Object.keys(current), ...Object.keys(previous)]);
+      for (const catId of allCategoryIds) {
+        const name = categoryNames[catId];
+        if (!name) continue;
+        const curr = current[catId] ?? 0;
+        const prev = previous[catId] ?? 0;
+
+        let tendency: 'improving' | 'persistent' | 'emerging';
+        let description: string;
+
+        if (prev === 0 && curr > 0) {
+          tendency = 'emerging';
+          description = `${name} is a new pattern in your latest draft.`;
+        } else if (curr < prev) {
+          tendency = 'improving';
+          description = `${name} issues decreased from ${prev} to ${curr} — keep it up.`;
+        } else if (curr > prev) {
+          tendency = 'persistent';
+          description = `${name} issues increased from ${prev} to ${curr} — worth focusing on.`;
+        } else {
+          tendency = 'persistent';
+          description = `${name} remains at ${curr} — consistent pattern across drafts.`;
+        }
+
+        progressSummary.push({ category: name, tendency, description });
+      }
     }
 
     // Sort: improving first, then persistent, then emerging
