@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts';
 
-import { useGetHelpfulnessAnalytics } from '@/hooks/useDepartmentAdmin';
+import { useGetHelpfulnessAnalytics, useGetImprovementTrends } from '@/hooks/useDepartmentAdmin';
 
 export interface FeedbackCategory {
   id: string;
@@ -12,67 +13,21 @@ export interface FeedbackCategory {
 }
 
 interface AnalyticsSectionProps {
-  feedbackCategories: FeedbackCategory[];
   documentTypeId: string;
 }
-
-// Mock analytics data - showing improvement over time per feedback category
-const analyticsData = [
-  {
-    week: 'Week 1',
-    'Spelling/Grammar': 65,
-    'Tone': 60,
-    'Clarity': 55,
-    'Consistency/Coherence': 50,
-    'Persuasiveness': 58,
-    'Objectivity/Neutrality': 62,
-    'Organization': 70,
-  },
-  {
-    week: 'Week 2',
-    'Spelling/Grammar': 72,
-    'Tone': 68,
-    'Clarity': 62,
-    'Consistency/Coherence': 60,
-    'Persuasiveness': 65,
-    'Objectivity/Neutrality': 68,
-    'Organization': 75,
-  },
-  {
-    week: 'Week 3',
-    'Spelling/Grammar': 78,
-    'Tone': 75,
-    'Clarity': 70,
-    'Consistency/Coherence': 72,
-    'Persuasiveness': 75,
-    'Objectivity/Neutrality': 76,
-    'Organization': 80,
-  },
-  {
-    week: 'Week 4',
-    'Spelling/Grammar': 82,
-    'Tone': 80,
-    'Clarity': 77,
-    'Consistency/Coherence': 80,
-    'Persuasiveness': 82,
-    'Objectivity/Neutrality': 82,
-    'Organization': 85,
-  },
-  {
-    week: 'Week 5',
-    'Spelling/Grammar': 87,
-    'Tone': 85,
-    'Clarity': 82,
-    'Consistency/Coherence': 85,
-    'Persuasiveness': 87,
-    'Objectivity/Neutrality': 86,
-    'Organization': 88,
-  },
-];
 
 const colors = ['#1f2937', '#6366f1', '#ec4899', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444'];
 
 const DONUT_COLORS = { helpful: '#10b981', notHelpful: '#e5e7eb' };
+
+type RangePreset = '4w' | '12w' | 'custom' | 'all';
+
+const PRESETS: { key: RangePreset; label: string }[] = [
+  { key: '4w',  label: 'Last 4 weeks'  },
+  { key: '12w', label: 'Last 12 weeks' },
+  { key: 'all', label: 'All time'      },
+  { key: 'custom', label: 'Custom'     },
+];
 
 function relativeTime(isoString: string): string {
   const diffMs = Date.now() - new Date(isoString).getTime();
@@ -84,8 +39,14 @@ function relativeTime(isoString: string): string {
   return diffMonths === 1 ? '1 month ago' : `${diffMonths} months ago`;
 }
 
-export function AnalyticsSection({ feedbackCategories, documentTypeId }: AnalyticsSectionProps) {
+export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
   const { data: helpfulness, isLoading: helpfulnessLoading } = useGetHelpfulnessAnalytics(documentTypeId);
+  const { data: trendsData, isLoading: trendsLoading } = useGetImprovementTrends(documentTypeId);
+
+  // ── Date filter state ─────────────────────────────────────────────────────
+  const [preset, setPreset] = useState<RangePreset>('12w');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo]     = useState('');
 
   const helpfulPct = helpfulness && helpfulness.total > 0
     ? Math.round((helpfulness.helpful / helpfulness.total) * 100)
@@ -98,6 +59,64 @@ export function AnalyticsSection({ feedbackCategories, documentTypeId }: Analyti
       ]
     : [];
 
+  // ── Filter trend points by selected range ─────────────────────────────────
+  const filteredPoints = (() => {
+    const all = trendsData?.trends ?? [];
+    if (preset === 'all') return all;
+
+    let cutoff: Date | null = null;
+    if (preset === '4w') {
+      cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 28);
+    } else if (preset === '12w') {
+      cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 84);
+    } else if (preset === 'custom' && customFrom) {
+      cutoff = new Date(customFrom);
+    }
+
+    const until = preset === 'custom' && customTo ? new Date(customTo) : null;
+
+    return all.filter((p) => {
+      const d = new Date(p.weekStart);
+      if (cutoff && d < cutoff) return false;
+      if (until && d > until) return false;
+      return true;
+    });
+  })();
+
+  // Transform flat trend points → [{ week, [categoryName]: score }, ...]
+  const { chartData, categoryNames } = (() => {
+    const points = filteredPoints;
+    const weekOrder: string[] = [];
+    const weekMap = new Map<string, Record<string, number>>();
+    const nameSet = new Set<string>();
+
+    for (const p of points) {
+      nameSet.add(p.categoryName);
+      if (!weekMap.has(p.week)) {
+        weekOrder.push(p.week);
+        weekMap.set(p.week, { week: p.week as unknown as number } as Record<string, number>);
+      }
+      weekMap.get(p.week)![p.categoryName] = Math.round(p.score);
+    }
+
+    return {
+      chartData: weekOrder.map((w) => weekMap.get(w)!),
+      categoryNames: Array.from(nameSet),
+    };
+  })();
+
+  // Summary: latest and first week within the filtered window
+  const summaryStats = categoryNames.map((name, idx) => {
+    const allForCat = filteredPoints.filter((p) => p.categoryName === name);
+    const latest = allForCat.at(-1);
+    const first  = allForCat.at(0);
+    const score  = latest?.score != null ? Math.round(latest.score) : null;
+    const improvement = latest && first ? Math.round(latest.score - first.score) : null;
+    return { name, score, improvement, idx };
+  });
+
   return (
     <div>
       <div className="mb-8">
@@ -109,53 +128,112 @@ export function AnalyticsSection({ feedbackCategories, documentTypeId }: Analyti
 
       {/* Improvement Trends Chart */}
       <div className="rounded-lg border border-gray-200 bg-white p-6">
-        <h2 className="mb-4 text-lg font-semibold text-gray-900">Student Improvement Trends</h2>
-        <p className="mb-6 text-sm text-gray-600">
-          Average improvement scores by feedback category (scale: 0-100)
+        {/* Header row: title + preset chips */}
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-gray-900">Student Improvement Trends</h2>
+          <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1">
+            {PRESETS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setPreset(key)}
+                className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
+                  preset === key
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="mb-4 text-sm text-gray-500">
+          Average resolution rate per category per week (0 = unresolved, 100 = fully resolved)
         </p>
 
-        <ResponsiveContainer width="100%" height={400}>
-          <LineChart data={analyticsData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="week" />
-            <YAxis domain={[0, 100]} />
-            <Tooltip formatter={(value) => `${value}%`} />
-            <Legend />
-            {feedbackCategories.map((category, idx) => (
-              <Line
-                key={category.id}
-                type="monotone"
-                dataKey={category.title}
-                stroke={colors[idx % colors.length]}
-                strokeWidth={2}
-                dot={{ fill: colors[idx % colors.length], r: 4 }}
-                connectNulls
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
+        {/* Custom date range — only shown when Custom is selected */}
+        {preset === 'custom' && (
+          <div className="mb-5 flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+            <span className="text-xs font-semibold text-gray-500">From</span>
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+            />
+            <span className="text-xs font-semibold text-gray-500">To</span>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+            />
+            {(customFrom || customTo) && (
+              <button
+                type="button"
+                onClick={() => { setCustomFrom(''); setCustomTo(''); }}
+                className="text-xs text-gray-400 hover:text-gray-600"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
+
+        {trendsLoading ? (
+          <p className="text-sm text-gray-500">Loading trends…</p>
+        ) : chartData.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            No improvement data yet. Trends appear once students start submitting revised drafts.
+          </p>
+        ) : (
+          <ResponsiveContainer width="100%" height={400}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="week" />
+              <YAxis domain={[0, 100]} />
+              <Tooltip formatter={(value) => `${value}%`} />
+              <Legend />
+              {categoryNames.map((name, idx) => (
+                <Line
+                  key={name}
+                  type="monotone"
+                  dataKey={name}
+                  stroke={colors[idx % colors.length]}
+                  strokeWidth={2}
+                  dot={{ fill: colors[idx % colors.length], r: 4 }}
+                  connectNulls
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* Summary Stats */}
-      <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        {feedbackCategories.map((category) => {
-          const lastDataPoint = analyticsData[analyticsData.length - 1];
-          const score = lastDataPoint[category.title as keyof typeof lastDataPoint] || 0;
-          const firstDataPoint = analyticsData[0];
-          const initialScore = firstDataPoint[category.title as keyof typeof firstDataPoint] || 0;
-          const improvement = (score as number) - (initialScore as number);
-
-          return (
-            <div key={category.id} className="rounded-lg border border-gray-200 bg-white p-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase">{category.title}</p>
-              <p className="mt-2 text-2xl font-bold text-gray-900">{score}%</p>
-              <p className={`mt-1 text-sm font-medium ${improvement >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {improvement >= 0 ? '+' : ''}{improvement}% from start
+      {summaryStats.length > 0 && (
+        <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+          {summaryStats.map(({ name, score, improvement, idx }) => (
+            <div key={name} className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase"
+                style={{ color: colors[idx % colors.length] }}>
+                {name}
               </p>
+              <p className="mt-2 text-2xl font-bold text-gray-900">
+                {score != null ? `${score}%` : '—'}
+              </p>
+              {improvement != null && (
+                <p className={`mt-1 text-sm font-medium ${improvement >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {improvement >= 0 ? '+' : ''}{improvement}% from start
+                </p>
+              )}
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* AI Debrief Helpfulness */}
       <div className="mt-10">

@@ -1,24 +1,22 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Settings, LineChart, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, LineChart } from 'lucide-react';
 
 import {
   listDocumentTypes,
-  listErrorCategories,
   setDocumentTypeAccessState,
 } from '@/features/department-admin/departmentAdminApi';
-import { FeedbackTypeSection } from './sections/FeedbackTypeSection';
-import { ManagePromptSection } from './sections/ManagePromptSection';
+import { EvaluationRubricSection } from './sections/EvaluationRubricSection';
 import { AnalyticsSection } from './sections/AnalyticsSection';
 
-type SidebarTab = 'feedback-types' | 'manage-prompt' | 'analytics';
+type SidebarTab = 'evaluation-rubric' | 'analytics';
 
 export function DocumentTypeDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { documentTypeId } = useParams<{ documentTypeId: string }>();
-  const [activeTab, setActiveTab] = useState<SidebarTab>('feedback-types');
+  const [activeTab, setActiveTab] = useState<SidebarTab>('evaluation-rubric');
   const [accessError, setAccessError] = useState<string | null>(null);
 
   const { data: documentTypes } = useQuery({
@@ -49,22 +47,9 @@ export function DocumentTypeDetailPage() {
 
   const isLocked = documentType.accessState === 'LOCKED';
 
-  const { data: errorCategories = [] } = useQuery({
-    queryKey: ['error-categories', documentTypeId],
-    queryFn: () => listErrorCategories(documentTypeId!),
-    enabled: !!documentTypeId,
-  });
-
-  const feedbackCategories = errorCategories.map((c) => ({
-    id: c.id,
-    title: c.name,
-    description: '',
-  }));
-
-  const sidebarItems = [
-    { id: 'feedback-types' as const, label: 'Feedback Types', icon: CheckCircle2 },
-    { id: 'manage-prompt' as const, label: 'Manage Prompt', icon: Settings },
-    { id: 'analytics' as const, label: 'Analytics', icon: LineChart },
+  const sidebarItems: { id: SidebarTab; label: string; icon: React.ElementType }[] = [
+    { id: 'evaluation-rubric', label: 'Evaluation Rubric', icon: BookOpen },
+    { id: 'analytics', label: 'Analytics', icon: LineChart },
   ];
 
   return (
@@ -130,21 +115,15 @@ export function DocumentTypeDetailPage() {
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
         <div className="p-8">
-          {activeTab === 'feedback-types' && (
-            <FeedbackTypeSection
-              documentTypeId={documentTypeId || ''}
-            />
-          )}
-          {activeTab === 'manage-prompt' && (
-            <ManagePromptSection
+          {activeTab === 'evaluation-rubric' && (
+            <EvaluationRubricSection
+              documentTypeId={documentTypeId ?? ''}
               documentTypeName={documentType.name}
-              documentTypeId={documentTypeId || ''}
             />
           )}
           {activeTab === 'analytics' && (
             <AnalyticsSection
-              feedbackCategories={feedbackCategories}
-              documentTypeId={documentTypeId || ''}
+              documentTypeId={documentTypeId ?? ''}
             />
           )}
         </div>

@@ -6,7 +6,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { signIn, user, isLoading, activeRole } = useAuth();
+  const { signIn, user, isLoading, dbRoles } = useAuth();
   const [isWaitingForRedirect, setIsWaitingForRedirect] = useState(false);
 
   const handleLoginSuccess = async (email: string, password: string) => {
@@ -23,17 +23,15 @@ export function LoginPage() {
   useEffect(() => {
     // Redirect once user is populated from auth context
     if (isWaitingForRedirect && !isLoading && user) {
-      // Prefer the Profile "view as" choice when set; otherwise primary DB role.
-      const role = activeRole;
-      if (role === 'TechnicalAdmin') {
+      if (dbRoles.includes('TechnicalAdmin')) {
         navigate('/system-admin', { replace: true });
-      } else if (role === 'DepartmentAdmin') {
+      } else if (dbRoles.includes('DepartmentAdmin')) {
         navigate('/dept-admin', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
       }
     }
-  }, [isWaitingForRedirect, user, isLoading, activeRole, navigate]);
+  }, [isWaitingForRedirect, user, isLoading, dbRoles, navigate]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-muted">

@@ -15,6 +15,7 @@ import {
   revokeAccessGrant,
   getAnalytics,
   getHelpfulnessAnalytics,
+  getImprovementTrends,
 } from '@/services/api/departmentAdminApi';
 import { useApiClient } from '@/services/apiClient';
 
@@ -85,6 +86,19 @@ export function useGetAnalytics(documentTypeId?: string) {
     queryKey: queryKeys.departmentAnalytics(documentTypeId),
     queryFn: () => getAnalytics(client, documentTypeId),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Query hook: per-category improvement trends for a document type.
+ */
+export function useGetImprovementTrends(documentTypeId: string) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: queryKeys.improvementTrends(documentTypeId),
+    queryFn: () => getImprovementTrends(client, documentTypeId),
+    staleTime: 60_000,
+    enabled: !!documentTypeId,
   });
 }
 

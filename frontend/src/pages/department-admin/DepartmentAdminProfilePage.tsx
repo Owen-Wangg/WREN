@@ -21,7 +21,9 @@ export function DepartmentAdminProfilePage() {
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-semibold text-gray-900">Name</label>
-              <p className="mt-1 text-gray-700">{user?.email ?? 'Department Administrator'}</p>
+              <p className="mt-1 text-gray-700">
+                {user ? `${user.firstName} ${user.lastName}`.trim() || 'Department Administrator' : 'Department Administrator'}
+              </p>
             </div>
 
             <div>

@@ -20,7 +20,9 @@ export function SystemAdminProfilePage() {
         <div className="space-y-6">
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">Name</label>
-            <p className="text-gray-700">{user?.email ?? 'System Administrator'}</p>
+            <p className="text-gray-700">
+              {user ? `${user.firstName} ${user.lastName}`.trim() || 'System Administrator' : 'System Administrator'}
+            </p>
           </div>
 
           <div>

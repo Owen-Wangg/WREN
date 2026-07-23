@@ -21,6 +21,14 @@ from wren_engine.prompt_assembly import (
     DocumentTypePromptConfig,
     UntrustedContent,
 )
+from wren_engine.diff_engine import DiffEngine
+from wren_engine.anchor_service import AnchorService
+from wren_engine.progress_tracker import (
+    FeedbackItem as TrackerFeedbackItem,
+    ProgressTracker,
+    ResolutionStatus,
+)
+from wren_engine.models import Segment, Span
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -148,7 +156,10 @@ def load_draft_segments(draft_id: str, conn: psycopg.Connection) -> list[dict[st
 
 
 def load_document_type_meta(document_type_id: str, conn: psycopg.Connection) -> dict[str, Any]:
-    """Return { name, category_names: list[str], category_ids: list[str] } for a document type."""
+    """Return { name, category_names, category_ids, category_guidance } for a document type.
+
+    category_guidance maps category_id -> internal_guidance (may be None).
+    """
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -159,21 +170,23 @@ def load_document_type_meta(document_type_id: str, conn: psycopg.Connection) -> 
             doc_type_name = row[0] if row else "Unknown Document Type"
 
             cur.execute(
-                "SELECT id, name FROM error_category WHERE document_type_id = %s ORDER BY name ASC",
+                "SELECT id, name, internal_guidance FROM error_category WHERE document_type_id = %s ORDER BY name ASC",
                 (document_type_id,),
             )
             cat_rows = cur.fetchall()
             category_ids = [r[0] for r in cat_rows]
             category_names = [r[1] for r in cat_rows]
+            category_guidance = {r[0]: r[2] for r in cat_rows}
 
         return {
             "name": doc_type_name,
             "category_ids": category_ids,
             "category_names": category_names,
+            "category_guidance": category_guidance,
         }
     except Exception as e:
         logger.error(f"Error loading document type meta: {str(e)}")
-        return {"name": "Unknown Document Type", "category_ids": [], "category_names": []}
+        return {"name": "Unknown Document Type", "category_ids": [], "category_names": [], "category_guidance": {}}
 
 
 def load_department_prompt(document_type_id: str, conn: psycopg.Connection) -> str:
@@ -248,29 +261,57 @@ def assemble_prompt(
 
     type_instructions = '\n\n'.join(type_instruction_parts)
 
-    # Tone/density become free-text fields in the grounding note
+    # Tone description goes into the grounding note as plain text.
     tone_desc = config.get('tone_description', '')
-    density_desc = config.get('density_description', '')
-    grounding_parts = []
-    if tone_desc:
-        grounding_parts.append(f"Tone: {tone_desc}")
-    if density_desc:
-        grounding_parts.append(f"Density: {density_desc}")
-    grounding_note = '\n'.join(grounding_parts)
+    grounding_note = f"Tone: {tone_desc}" if tone_desc else ''
+
+    # Parse per-category overrides stored as JSON in density_description.
+    # Shape: { "v": 1, "overrides": { "<categoryId>": { "definition": str, "criteria": str, "frameworkKey": str } } }
+    # Fallback: treat as plain text for legacy rows.
+    raw_density = config.get('density_description', '') or ''
+    category_overrides: dict[str, dict] = {}
+    if raw_density.strip().startswith('{'):
+        try:
+            parsed = json.loads(raw_density)
+            if parsed.get('v') == 1:
+                category_overrides = parsed.get('overrides', {})
+        except (json.JSONDecodeError, AttributeError):
+            pass
 
     # Build an explicit id→name taxonomy the model must use for error_category_id.
-    # The output schema requires UUIDs; giving the model both id and name means it
-    # can classify semantically by name but output the correct UUID.
+    # Append per-category definition and success criteria where the admin has set them,
+    # falling back to internal_guidance from the DB row.
     category_ids = doc_type_meta.get('category_ids', [])
     category_names_list = doc_type_meta.get('category_names', [])
-    taxonomy_lines = [
-        f"  {cid}: {cname}"
-        for cid, cname in zip(category_ids, category_names_list)
-        if cid and cname
-    ]
+    category_guidance = doc_type_meta.get('category_guidance', {})
+
+    taxonomy_lines = []
+    criteria_blocks = []
+    for cid, cname in zip(category_ids, category_names_list):
+        if not cid or not cname:
+            continue
+        taxonomy_lines.append(f"  {cid}: {cname}")
+        override = category_overrides.get(cid, {})
+        definition = (override.get('definition') or '').strip()
+        criteria = (override.get('criteria') or '').strip()
+        db_guidance = (category_guidance.get(cid) or '').strip()
+        # Use admin-supplied definition first, then DB internal_guidance as fallback
+        effective_definition = definition or db_guidance
+        if effective_definition or criteria:
+            block_parts = [f"[{cname}]"]
+            if effective_definition:
+                block_parts.append(f"  Definition: {effective_definition}")
+            if criteria:
+                block_parts.append(f"  Success criteria: {criteria}")
+            criteria_blocks.append('\n'.join(block_parts))
+
     if taxonomy_lines:
         taxonomy_block = "Feedback taxonomy (use the UUID as error_category_id):\n" + "\n".join(taxonomy_lines)
         type_instructions = taxonomy_block + ("\n\n" + type_instructions if type_instructions else "")
+
+    if criteria_blocks:
+        criteria_section = "Per-category evaluation criteria:\n" + "\n\n".join(criteria_blocks)
+        type_instructions = (type_instructions + "\n\n" + criteria_section) if type_instructions else criteria_section
 
     doc_type_config = DocumentTypePromptConfig(
         document_type_name=doc_type_meta.get('name', 'Unknown Document Type'),
@@ -504,6 +545,119 @@ def insert_feedback_items(
         raise
 
 
+def persist_resolution_status(
+    document_id: str,
+    new_draft_id: str,
+    new_segments: list[dict[str, Any]],
+    conn: psycopg.Connection,
+) -> None:
+    """Compare prior feedback items against the new draft and write resolution_status_history rows.
+
+    Only runs when a prior draft exists for this document. Structural (non-inline)
+    items get 'still_unresolved' by default — they have no anchor to diff against.
+    """
+    try:
+        with conn.cursor() as cur:
+            # Find the most recently created draft before new_draft_id
+            cur.execute("""
+                SELECT d.id, d.segments
+                FROM draft d
+                WHERE d.document_id = %s
+                  AND d.id != %s
+                ORDER BY d.created_at DESC
+                LIMIT 1
+            """, (document_id, new_draft_id))
+            prev_row = cur.fetchone()
+            if not prev_row:
+                return  # First draft — no history to compare against
+
+            prev_draft_id, prev_segments_raw = prev_row
+            prev_segments = json.loads(prev_segments_raw) if isinstance(prev_segments_raw, str) else prev_segments_raw
+
+            # Load prior inline feedback items with their anchors
+            cur.execute("""
+                SELECT fi.id, fi.error_category_id, fi.kind,
+                       a.paragraph_index, a.start_offset, a.end_offset, a.content_fingerprint
+                FROM feedback_item fi
+                LEFT JOIN anchor a ON a.feedback_item_id = fi.id AND a.draft_id = %s
+                WHERE fi.source_draft_id = %s
+            """, (prev_draft_id, prev_draft_id))
+            prior_items = cur.fetchall()
+
+            if not prior_items:
+                return
+
+        # Build Segment lists for diff engine
+        prev_segs = [Segment(index=s.get('index', i), text=s.get('text', ''))
+                     for i, s in enumerate(prev_segments)]
+        curr_segs = [Segment(index=s.get('index', i), text=s.get('text', ''))
+                     for i, s in enumerate(new_segments)]
+
+        diff = DiffEngine().compute(prev_segs, curr_segs)
+
+        # Build TrackerFeedbackItems for inline items that have anchors
+        from wren_engine.anchor_service import Anchor, AnchorState
+        tracker_items: list[TrackerFeedbackItem] = []
+        structural_ids: list[tuple[str, str]] = []
+
+        for row in prior_items:
+            item_id, category_id, kind = row[0], row[1], row[2]
+            para_idx, start_off, end_off, fp_hex = row[3], row[4], row[5], row[6]
+
+            if kind == 'structural' or para_idx is None:
+                structural_ids.append((item_id, category_id))
+                continue
+
+            # Recompute fingerprint from previous draft text so AnchorService
+            # can do a proper context-aware remap (the DB only stores a short hex).
+            prev_para_text = prev_segs[para_idx].text if para_idx < len(prev_segs) else ''
+            anchor = Anchor.create(
+                paragraph_text=prev_para_text,
+                paragraph_index=para_idx,
+                start_offset=start_off or 0,
+                end_offset=end_off or 0,
+                feedback_item_id=item_id,
+            )
+            remap = AnchorService().remap([anchor], diff)[0]
+            tracker_items.append(TrackerFeedbackItem(
+                item_id=item_id,
+                category_id=category_id,
+                remap=remap,
+            ))
+
+        # Simple judge: always 'still_unresolved' for changed spans.
+        # A real LLM judge is a future enhancement; this gives meaningful
+        # signal (resolved = anchor gone, unchanged = no edit, unresolved = edited).
+        from wren_engine.progress_tracker import JudgeInput
+        def simple_judge(judge_input: JudgeInput) -> ResolutionStatus:
+            return ResolutionStatus.STILL_UNRESOLVED
+
+        updates = ProgressTracker().reevaluate(tracker_items, diff, simple_judge)
+
+        # Write resolution_status_history rows
+        rows_to_insert = [
+            (u.item_id, new_draft_id, u.status.value)
+            for u in updates
+        ] + [
+            (item_id, new_draft_id, 'still_unresolved')
+            for item_id, _ in structural_ids
+        ]
+
+        if rows_to_insert:
+            with conn.cursor() as cur:
+                cur.executemany("""
+                    INSERT INTO resolution_status_history (feedback_item_id, draft_id, status, evaluated_at)
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (feedback_item_id, draft_id) DO NOTHING
+                """, rows_to_insert)
+            conn.commit()
+            logger.info(f"Wrote {len(rows_to_insert)} resolution_status_history rows for draft {new_draft_id}")
+
+    except Exception as e:
+        logger.error(f"Error persisting resolution status: {str(e)}", exc_info=True)
+        # Non-fatal: don't fail the whole feedback job over analytics tracking
+
+
 def update_aggregate_counters(document_type_id: str, feedback_count: int, conn: psycopg.Connection) -> None:
     """Update aggregate counters for analytics."""
     try:
@@ -594,6 +748,10 @@ def process_feedback_request(
 
         logger.info("Updating aggregate counters...")
         update_aggregate_counters(writing_type_id, item_count, conn)
+
+        # Step 9: Compute and persist resolution status for prior feedback items
+        logger.info("Persisting resolution status history...")
+        persist_resolution_status(document_id, draft_id, segments, conn)
 
         logger.info(f"Feedback job {job_id} completed: {item_count} items inserted")
 

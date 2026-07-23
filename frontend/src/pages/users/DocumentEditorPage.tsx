@@ -347,17 +347,20 @@ export function DocumentEditorPage() {
                 Open {appConfig.appName} and AI Debrief
               </button>
 
-              {/* Divider between feedback and file actions */}
+              {/* Divider between feedback and revision actions */}
               <hr className="my-xs border-border-subtle" />
 
-              {/* File actions */}
-              <button
-                type="button"
-                onClick={handleDownload}
-                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted"
-              >
-                Download Document
-              </button>
+              {/* Revision paths */}
+              <div className="flex flex-col gap-xs">
+                <p className="text-caption font-semibold text-text-primary">Revise your draft</p>
+                <p className="text-caption text-text-muted leading-relaxed">
+                  <strong>Edit inline</strong>: make changes directly in the editor, then click <strong>Regenerate</strong> in the AI Debrief panel to get updated feedback.
+                </p>
+                <p className="text-caption text-text-muted leading-relaxed">
+                  <strong>Upload a new draft</strong>: revise in your word processor and upload below; feedback will regenerate automatically.
+                </p>
+              </div>
+
               <input
                 ref={fileInputRef}
                 type="file"
@@ -373,14 +376,21 @@ export function DocumentEditorPage() {
               >
                 {resubmitDraftMutation.isPending ? 'Uploading…' : 'Upload New Draft'}
               </button>
-              <p className="text-caption text-text-muted leading-relaxed">
-                Upload a revised .docx or .pdf for this document.
-              </p>
               {resubmitDraftMutation.isError && (
                 <p role="alert" className="text-bodySmall text-signal-critical">
                   {errorMessageFromUnknown(resubmitDraftMutation.error)}
                 </p>
               )}
+
+              <hr className="my-xs border-border-subtle" />
+
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted"
+              >
+                Download Document
+              </button>
             </nav>
           </div>
 

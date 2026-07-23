@@ -133,6 +133,10 @@ export const queryKeys = {
   helpfulnessAnalytics: (documentTypeId: string) =>
     [ns, 'department-admin', 'helpfulness-analytics', documentTypeId] as const,
 
+  /** Per-category improvement trends for a specific document type. */
+  improvementTrends: (documentTypeId: string) =>
+    [ns, 'department-admin', 'improvement-trends', documentTypeId] as const,
+
   /** Department-wide (tier 1) reference materials. */
   departmentReferenceMaterial: (departmentId: string) =>
     [ns, 'departments', departmentId, 'reference-material'] as const,

@@ -11,7 +11,7 @@ import {
   createDocumentType,
   setDocumentTypeAccessState,
 } from './documentTypeService';
-import { listErrorCategories, createErrorCategory } from './errorCategoryService';
+import { listErrorCategories, createErrorCategory, updateErrorCategory, deleteErrorCategory } from './errorCategoryService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { listContentTypes } from './contentTypeService';
 import { searchUsers } from './userService';
@@ -19,7 +19,7 @@ import { assignRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
 import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
-import { getAnalytics } from './analyticsService';
+import { getAnalytics, getImprovementTrends } from './analyticsService';
 import { getHelpfulnessAnalytics } from './helpfulnessAnalyticsService';
 import {
   getPlatformUsagePolicyForAdmin,
@@ -83,6 +83,12 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     if (resource === '/v1/document-types/{documentTypeId}/error-categories' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateErrorCategory(event));
     }
+    if (resource === '/v1/document-types/{documentTypeId}/error-categories/{categoryId}' && httpMethod === 'PATCH') {
+      return await wrapHandler(() => handleUpdateErrorCategory(event));
+    }
+    if (resource === '/v1/document-types/{documentTypeId}/error-categories/{categoryId}' && httpMethod === 'DELETE') {
+      return await wrapHandler(() => handleDeleteErrorCategory(event));
+    }
     if (resource === '/v1/document-types/{documentTypeId}/config' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetDocumentTypeConfig(event));
     }
@@ -112,6 +118,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/analytics/feedback-helpfulness' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetHelpfulnessAnalytics(event));
+    }
+    if (resource === '/v1/analytics/improvement-trends' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetImprovementTrends(event));
     }
     if (resource === '/v1/analytics/summary' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetAnalyticsSummary(event));
@@ -353,6 +362,20 @@ async function handleGetAnalytics(event: any): Promise<APIGatewayProxyResult> {
   };
 }
 
+async function handleGetImprovementTrends(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.queryStringParameters || {};
+  if (!documentTypeId) {
+    return { statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'documentTypeId is required' }) };
+  }
+  const result = await getImprovementTrends(actor, documentTypeId, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(result),
+  };
+}
+
 async function handleGetAnalyticsSummary(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   requireTechnicalAdmin(actor);
@@ -486,6 +509,29 @@ async function handleCreateErrorCategory(event: any): Promise<APIGatewayProxyRes
   return {
     statusCode: 201,
     body: JSON.stringify(category),
+  };
+}
+
+async function handleUpdateErrorCategory(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { categoryId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const category = await updateErrorCategory(actor, categoryId, body, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(category),
+  };
+}
+
+async function handleDeleteErrorCategory(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { categoryId } = event.pathParameters || {};
+  await deleteErrorCategory(actor, categoryId, db);
+  return {
+    statusCode: 204,
+    body: '',
   };
 }
 

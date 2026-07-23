@@ -10,8 +10,8 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     const db = await getDataAccess();
 
     // Query for user by ID
-    const userResult = await db.query<{ id: string; email: string }>(
-      'SELECT id, email FROM app_user WHERE id = $1',
+    const userResult = await db.query<{ id: string; email: string; first_name: string; last_name: string }>(
+      'SELECT id, email, first_name, last_name FROM app_user WHERE id = $1',
       [authContext.userId],
     );
 
@@ -41,6 +41,8 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       body: JSON.stringify({
         userId: user.id,
         email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
         roles,
         administeredDepartmentIds,
       }),

@@ -292,6 +292,11 @@ export function SidebarDebriefPanel({
               '↻ Regenerate'
             )}
           </button>
+          {!regenerating && (
+            <span className="px-sm text-caption text-text-muted whitespace-nowrap text-right leading-tight">
+              Saves inline edits &amp;<br />regenerates feedback
+            </span>
+          )}
           {lastGeneratedCompact && (
             <span
               className="px-sm text-caption text-text-muted whitespace-nowrap"

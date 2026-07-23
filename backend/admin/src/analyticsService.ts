@@ -39,6 +39,19 @@ import {
   type AuthContext,
 } from '@wren/types';
 
+export interface CategoryTrendPoint {
+  readonly week: string;         // ISO week label e.g. "2024-W03"
+  readonly weekStart: string;    // ISO date of Monday that starts the week
+  readonly categoryId: string;
+  readonly categoryName: string;
+  readonly score: number;        // 0–100: avg resolution score for that week
+  readonly sampleSize: number;   // how many resolution events contributed
+}
+
+export interface ImprovementTrendsResult {
+  readonly trends: CategoryTrendPoint[];
+}
+
 import { requireCapability } from './capabilityGuard';
 import type { QueryExecutor } from './db';
 import { listDocumentTypes } from './documentTypeService';
@@ -213,4 +226,82 @@ export async function getAnalytics(
   requireCapability(actor, { capability: 'analytics.view', scope: { kind: 'platform' } });
   // Unreachable: requireCapability always throws for a Student/no-role actor.
   return analyticsResultSchema.parse({ totals: [] });
+}
+
+/**
+ * Improvement trends: per-category resolution rates bucketed into calendar
+ * weeks, for a single document type.
+ *
+ * Scoring (all-users aggregate — no per-student column):
+ *   resolved            → 100
+ *   partially_resolved  →  50
+ *   still_unresolved    →   0
+ *   removed / unchanged → excluded (structural change, not a signal)
+ *
+ * Only DepartmentAdmin (for their administered departments) and TechnicalAdmin
+ * may call this. Same `analytics.view` capability gate as getAnalytics.
+ */
+export async function getImprovementTrends(
+  actor: AuthContext,
+  documentTypeId: string,
+  db: QueryExecutor,
+): Promise<ImprovementTrendsResult> {
+  // Authorization: same gate as getAnalytics
+  const departmentId = await findDepartmentId(documentTypeId, db);
+  if (departmentId === null) {
+    throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
+  }
+  requireCapability(actor, {
+    capability: 'analytics.view',
+    scope: { kind: 'documentType', documentTypeId, departmentId },
+  });
+
+  // Aggregate resolution events by ISO week + error category.
+  // We never expose individual student rows — all GROUP BY aggregation.
+  const rows = await db.query<{
+    week_label: string;
+    week_start: string;
+    category_id: string;
+    category_name: string;
+    avg_score: number;
+    sample_size: number;
+  }>(
+    `SELECT
+       to_char(date_trunc('week', rsh.evaluated_at), 'IYYY-"W"IW') AS week_label,
+       date_trunc('week', rsh.evaluated_at)::date::text            AS week_start,
+       ec.id                                                        AS category_id,
+       ec.name                                                      AS category_name,
+       AVG(
+         CASE rsh.status
+           WHEN 'resolved'           THEN 100.0
+           WHEN 'partially_resolved' THEN  50.0
+           WHEN 'still_unresolved'   THEN   0.0
+           ELSE NULL
+         END
+       )::numeric(5,1)                                             AS avg_score,
+       COUNT(CASE WHEN rsh.status IN (
+         'resolved','partially_resolved','still_unresolved'
+       ) THEN 1 END)::int                                          AS sample_size
+     FROM resolution_status_history rsh
+     JOIN feedback_item             fi  ON fi.id  = rsh.feedback_item_id
+     JOIN error_category            ec  ON ec.id  = fi.error_category_id
+     WHERE ec.document_type_id = $1
+     GROUP BY 1, 2, 3, 4
+     HAVING COUNT(CASE WHEN rsh.status IN (
+       'resolved','partially_resolved','still_unresolved'
+     ) THEN 1 END) > 0
+     ORDER BY 2 ASC, 4 ASC`,
+    [documentTypeId],
+  );
+
+  const trends: CategoryTrendPoint[] = rows.map((r) => ({
+    week: r.week_label,
+    weekStart: r.week_start,
+    categoryId: r.category_id,
+    categoryName: r.category_name,
+    score: Number(r.avg_score),
+    sampleSize: r.sample_size,
+  }));
+
+  return { trends };
 }

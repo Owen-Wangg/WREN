@@ -218,6 +218,34 @@ const helpfulnessAnalyticsSchema = z.object({
  * Get helpfulness-rating analytics for a specific document type.
  * Returns the donut breakdown (helpful/not) and recent anonymous comments.
  */
+export interface CategoryTrendPoint {
+  week: string;
+  weekStart: string;
+  categoryId: string;
+  categoryName: string;
+  score: number;
+  sampleSize: number;
+}
+
+export async function getImprovementTrends(
+  client: HttpClient,
+  documentTypeId: string,
+): Promise<{ trends: CategoryTrendPoint[] }> {
+  const schema = z.object({
+    trends: z.array(z.object({
+      week: z.string(),
+      weekStart: z.string(),
+      categoryId: z.string(),
+      categoryName: z.string(),
+      score: z.number(),
+      sampleSize: z.number(),
+    })),
+  });
+  return client.request(`${ANALYTICS_PATH}/improvement-trends?documentTypeId=${documentTypeId}`, {
+    schema,
+  });
+}
+
 export async function getHelpfulnessAnalytics(
   client: HttpClient,
   documentTypeId: string,

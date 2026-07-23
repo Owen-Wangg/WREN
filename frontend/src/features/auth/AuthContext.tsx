@@ -25,6 +25,8 @@ import type { Role } from '@wren/types';
 
 const ROLE_OVERRIDE_KEY = 'wren_role_override';
 
+const ROLE_PRIORITY: Role[] = ['TechnicalAdmin', 'DepartmentAdmin', 'Student'];
+
 function readStoredRoleOverride(): Role | null {
   try {
     const raw = localStorage.getItem(ROLE_OVERRIDE_KEY);
@@ -37,9 +39,15 @@ function readStoredRoleOverride(): Role | null {
   return null;
 }
 
+function highestRole(roles: Role[]): Role {
+  return ROLE_PRIORITY.find(r => roles.includes(r)) ?? 'Student';
+}
+
 export interface AuthUser {
   readonly userId: string;
   readonly email: string;
+  readonly firstName: string;
+  readonly lastName: string;
   /** Roles from DATABASE (never from JWT). Used for route access & APIs. */
   readonly roles: Array<'Student' | 'DepartmentAdmin' | 'TechnicalAdmin'>;
   /** Administered departments from DATABASE */
@@ -119,6 +127,13 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
     if (userFromDb) {
       setUser(userFromDb);
       setIsAuthenticated(true);
+      // Clear any stale persona override so login always starts at the highest role.
+      setRoleOverride(null);
+      try {
+        localStorage.removeItem(ROLE_OVERRIDE_KEY);
+      } catch {
+        // ignore
+      }
     } else {
       authService.signOut();
       throw new Error('Failed to load user identity from database');
@@ -150,7 +165,7 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
   // Ignore a stale localStorage override that is not actually assigned.
   const effectiveOverride =
     roleOverride && dbRoles.includes(roleOverride) ? roleOverride : null;
-  const activeRole: Role = effectiveOverride ?? dbRoles[0] ?? 'Student';
+  const activeRole: Role = effectiveOverride ?? highestRole(dbRoles);
 
   const setActiveRole = (role: Role) => {
     if (user && !user.roles.includes(role)) {
@@ -215,6 +230,8 @@ async function fetchUserIdentity(apiBaseUrl: string, accessToken: string): Promi
     return {
       userId: data.userId,
       email: data.email,
+      firstName: data.firstName ?? '',
+      lastName: data.lastName ?? '',
       roles: data.roles,
       administeredDepartmentIds: data.administeredDepartmentIds || [],
     };

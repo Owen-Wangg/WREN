@@ -73,6 +73,24 @@ export async function createErrorCategory(documentTypeId: string, name: string) 
   });
 }
 
+export async function updateErrorCategory(documentTypeId: string, categoryId: string, name: string) {
+  return apiClient.request(
+    `/v1/document-types/${documentTypeId}/error-categories/${categoryId}`,
+    {
+      method: 'PATCH',
+      body: { name },
+      schema: errorCategorySchema,
+    },
+  );
+}
+
+export async function deleteErrorCategory(documentTypeId: string, categoryId: string) {
+  return apiClient.request(
+    `/v1/document-types/${documentTypeId}/error-categories/${categoryId}`,
+    { method: 'DELETE' },
+  );
+}
+
 export async function deleteDocumentType(documentTypeId: string) {
   return apiClient.request(`/v1/document-types/${documentTypeId}`, {
     method: 'DELETE',

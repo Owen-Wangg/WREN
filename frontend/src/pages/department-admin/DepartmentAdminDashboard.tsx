@@ -6,7 +6,6 @@ import { Trash2 } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { listDepartments, listDocumentTypes, createDocumentType } from '@/features/department-admin/departmentAdminApi';
 import { ApiError } from '@/services';
-import { ManageFeedbackCategoriesModal, type FeedbackCategory } from './ManageFeedbackCategoriesModal';
 
 function createErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -28,16 +27,6 @@ export function DepartmentAdminDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [feedbackCategories, setFeedbackCategories] = useState<FeedbackCategory[]>([
-    { id: '1', title: 'Spelling/Grammar', description: 'Spelling errors, grammatical mistakes, and punctuation issues' },
-    { id: '2', title: 'Tone', description: 'Formality, professionalism, and authority of language appropriate for legal writing' },
-    { id: '3', title: 'Clarity', description: 'How clear, precise, and understandable the writing is; avoiding ambiguity' },
-    { id: '4', title: 'Consistency/Coherence', description: 'Logical consistency, coherent arguments, and maintaining parallel structure' },
-    { id: '5', title: 'Persuasiveness', description: 'Strength of arguments, evidence support, and persuasive impact' },
-    { id: '6', title: 'Objectivity/Neutrality', description: 'Maintaining neutral language and avoiding bias in legal writing' },
-    { id: '7', title: 'Organization', description: 'Structure, logical flow, proper section organization, and document layout' },
-  ]);
 
   const { data: allDepartments = [], isLoading: deptLoading } = useQuery({
     queryKey: ['dept-admin-departments'],
@@ -97,21 +86,6 @@ export function DepartmentAdminDashboard() {
     docType.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleAddCategory = (category: Omit<FeedbackCategory, 'id'>) => {
-    const newId = Math.random().toString(36).substr(2, 9);
-    setFeedbackCategories([...feedbackCategories, { id: newId, ...category }]);
-  };
-
-  const handleUpdateCategory = (id: string, category: Omit<FeedbackCategory, 'id'>) => {
-    setFeedbackCategories(
-      feedbackCategories.map((cat) => (cat.id === id ? { id, ...category } : cat))
-    );
-  };
-
-  const handleDeleteCategory = (id: string) => {
-    setFeedbackCategories(feedbackCategories.filter((cat) => cat.id !== id));
-  };
-
   return (
     <div className="p-8">
       {/* Department Banner */}
@@ -127,12 +101,6 @@ export function DepartmentAdminDashboard() {
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-gray-900">Document Types</h1>
           <div className="flex gap-3">
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="rounded-lg border border-gray-300 px-4 py-2 font-semibold text-gray-900 hover:bg-gray-100"
-            >
-              Manage Feedback Categories
-            </button>
             <button
               onClick={() => setShowCreateDocType(true)}
               className="rounded-lg bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-gray-800"
@@ -203,15 +171,6 @@ export function DepartmentAdminDashboard() {
           </div>
         )}
       </div>
-
-      <ManageFeedbackCategoriesModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        categories={feedbackCategories}
-        onAddCategory={handleAddCategory}
-        onUpdateCategory={handleUpdateCategory}
-        onDeleteCategory={handleDeleteCategory}
-      />
 
       {/* Create Document Type Dialog */}
       {showCreateDocType && (

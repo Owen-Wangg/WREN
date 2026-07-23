@@ -6,7 +6,9 @@ export function ProfilePage() {
   const navigate = useNavigate();
   const { user, signOut, activeRole } = useAuth();
 
-  const displayName = user?.email ?? 'Student User';
+  const displayName = user
+    ? `${user.firstName} ${user.lastName}`.trim() || user.email
+    : 'Student User';
   const initial = displayName.charAt(0).toUpperCase();
 
   const handleSignOut = async () => {
