@@ -8,7 +8,10 @@ import {
 } from '@/features/dashboard/useDashboard';
 import { createDocument, getPresignedUrl } from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
+import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
+import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
+import type { JSONContent } from '@tiptap/react';
 
 function contentTypeForFile(file: File): string {
   if (file.type) return file.type;
@@ -88,16 +91,33 @@ export function NewDocumentPage() {
         // Non-fatal: student can manually trigger from the editor if this fails.
       });
 
-      return { doc, org, docType };
+      // Parse docx client-side so the editor shows the formatted document
+      // (headings, bold, paragraph breaks) rather than plain-text segments.
+      let initialContent: JSONContent | undefined;
+      try {
+        const bytes = new Uint8Array(await referenceFile.arrayBuffer());
+        const name = referenceFile.name.toLowerCase();
+        if (name.endsWith('.docx')) {
+          initialContent = await docxBytesToTiptapContent(bytes);
+        } else if (name.endsWith('.pdf')) {
+          initialContent = await pdfBytesToTiptapContent(bytes);
+        }
+      } catch {
+        // Non-fatal: editor will fall back to plain-text segments from the API.
+      }
+
+      return { doc, org, docType, initialContent };
     },
-    onSuccess: ({ doc, org, docType }) => {
+    onSuccess: ({ doc, org, docType, initialContent }) => {
       navigate(`/dashboard/document/${doc.id}`, {
         state: {
           organizationName: org?.name,
           contentType: docType?.name,
           documentName: doc.name,
-          // Signal editor to poll feedback; draft content loads from the API.
           feedbackQueued: true,
+          // Rich TipTap content parsed client-side (docx only).
+          // Editor uses this over plain-text segments from the API.
+          ...(initialContent ? { initialContent } : {}),
         },
       });
     },

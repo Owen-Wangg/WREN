@@ -105,6 +105,12 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
             """, (document_type_id,))
 
             result = cur.fetchone()
+
+            # Load the runtime model override from platform_usage_policy (set by TechnicalAdmin).
+            cur.execute('SELECT bedrock_model_id FROM platform_usage_policy WHERE id = 1')
+            policy_row = cur.fetchone()
+            bedrock_model_id = policy_row[0] if policy_row and policy_row[0] else None
+
             if result:
                 return {
                     'type_prompt_text': result[0],
@@ -117,6 +123,7 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
                     'restrictions_description': result[7],
                     'notes_description': result[8],
                     'temperature': 0.7,
+                    'bedrock_model_id': bedrock_model_id,
                 }
 
             # Return default config if no row exists yet for this document type
@@ -131,6 +138,7 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
                 'restrictions_description': None,
                 'notes_description': None,
                 'temperature': 0.7,
+                'bedrock_model_id': bedrock_model_id,
             }
     except Exception as e:
         logger.error(f"Error loading prompt config: {str(e)}")
@@ -351,7 +359,8 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
     """
     try:
         bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
-        model_id = os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
+        # DB override takes precedence over the deploy-time env var.
+        model_id = config.get('bedrock_model_id') or os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
 
         sentinel = "\n\n---\n\n"
         if sentinel in prompt:

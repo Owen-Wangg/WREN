@@ -39,10 +39,17 @@ export interface ConversationSession {
 }
 
 const SYSTEM_PROMPT = `You are WREN, a Socratic writing coach. The student is asking about their own draft.
-Reply with ONE short guiding question or observation that helps them think about their writing.
+
+Your response should do TWO things:
+1. Give a short, specific observation grounded in the draft. Quote a short phrase (5–15 words) directly from the student's text — use quotation marks and include the location hint in parentheses, e.g. "the tribunal must consider" (early in the draft). Pick the quote that best anchors your point.
+2. Follow with ONE guiding question that prompts the student to think and act on that observation themselves.
+
+Keep the total response to 3–5 sentences. Be direct and substantive — vague observations or open-ended questions with no grounding are not helpful.
+
 NEVER provide replacement prose, rewrites, corrected sentences, or text they could paste into the document.
 NEVER say "try this wording", "here is a revised version", or explain how to rewrite a passage by supplying the rewrite.
-Stay specific to the draft context when possible.`;
+NEVER reference paragraph numbers like [p0] or [p1] — use the location hints provided instead.
+Stay specific to what is actually in the draft.`;
 
 const REWRITE_PATTERNS: RegExp[] = [
   /\bhere(?:'s| is)\s+(?:a |the )?(?:revised|rewritten|corrected|better)\b/i,
@@ -191,24 +198,86 @@ export async function loadDocumentConversation(input: {
   return migrated;
 }
 
+function locationHint(index: number, total: number): string {
+  const position = total <= 1 ? 0 : index / (total - 1);
+  if (position < 0.25) return 'early in the draft';
+  if (position < 0.55) return 'mid-draft';
+  if (position < 0.8) return 'toward the end';
+  return 'near the end';
+}
+
 function formatDraftContext(
   segments: Array<{ index?: number; text?: string }>,
 ): string {
   if (!segments.length) return '(Draft has no paragraph text yet.)';
-  return segments
-    .map((s, i) => `[p${s.index ?? i}] ${(s.text ?? '').trim()}`)
-    .filter((line) => line.length > 4)
-    .slice(0, 40)
+  const filtered = segments
+    .map((s, i) => ({ text: (s.text ?? '').trim(), i }))
+    .filter(({ text }) => text.length > 4)
+    .slice(0, 40);
+  return filtered
+    .map(({ text, i }) => `[${locationHint(i, filtered.length)}] ${text}`)
     .join('\n');
+}
+
+export interface DocumentTypeContext {
+  documentTypeName?: string;
+  purpose?: string;
+  restrictions?: string;
+  notes?: string;
+  categories?: Array<{ name: string; definition?: string; criteria?: string }>;
+}
+
+function buildSystemPrompt(docTypeCtx?: DocumentTypeContext): string {
+  const parts: string[] = [SYSTEM_PROMPT];
+
+  if (!docTypeCtx) return parts.join('\n');
+
+  const { documentTypeName, purpose, restrictions, notes, categories } = docTypeCtx;
+
+  const contextLines: string[] = [];
+
+  if (documentTypeName) {
+    contextLines.push(`Document type: ${documentTypeName}`);
+  }
+  if (purpose?.trim()) {
+    contextLines.push(`Purpose: ${purpose.trim()}`);
+  }
+  if (restrictions?.trim()) {
+    contextLines.push(`Common mistakes to avoid: ${restrictions.trim()}`);
+  }
+  if (notes?.trim()) {
+    contextLines.push(`Additional context: ${notes.trim()}`);
+  }
+
+  if (categories && categories.length > 0) {
+    const catLines = categories.map((c) => {
+      const parts = [`- ${c.name}`];
+      if (c.definition?.trim()) parts.push(`  Definition: ${c.definition.trim()}`);
+      if (c.criteria?.trim()) parts.push(`  Success criteria: ${c.criteria.trim()}`);
+      return parts.join('\n');
+    });
+    contextLines.push(`Evaluation criteria for this document type:\n${catLines.join('\n')}`);
+  }
+
+  if (contextLines.length > 0) {
+    parts.push(
+      '\nDocument type context (use this to ground your Socratic questions in the specific expectations for this assignment):',
+      contextLines.join('\n'),
+    );
+  }
+
+  return parts.join('\n');
 }
 
 export async function generateAskWrenReply(input: {
   userText: string;
   priorMessages: ChatMessage[];
   draftSegments: Array<{ index?: number; text?: string }>;
+  documentTypeContext?: DocumentTypeContext;
+  modelId?: string;
 }): Promise<string> {
   const modelId =
-    process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+    input.modelId ?? process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
 
   const history = input.priorMessages.slice(-12).map((m) => ({
     role: m.role === 'wren' ? ('assistant' as const) : ('user' as const),
@@ -227,7 +296,7 @@ export async function generateAskWrenReply(input: {
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: 512,
     temperature: 0.4,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(input.documentTypeContext),
     messages: [...history, { role: 'user', content: userContent }],
   };
 
@@ -252,6 +321,8 @@ export async function appendAskWrenTurn(input: {
   draftId: string;
   userText: string;
   draftSegments: Array<{ index?: number; text?: string }>;
+  documentTypeContext?: DocumentTypeContext;
+  modelId?: string;
 }): Promise<{ sessionId: string; userMessage: ChatMessage; reply: ChatMessage }> {
   const sessionId = buildSessionId(input.userId, input.documentId);
   const existing = await loadDocumentConversation({
@@ -274,6 +345,8 @@ export async function appendAskWrenTurn(input: {
     userText: userMessage.text,
     priorMessages: prior,
     draftSegments: input.draftSegments,
+    documentTypeContext: input.documentTypeContext,
+    modelId: input.modelId,
   });
 
   const reply: ChatMessage = {

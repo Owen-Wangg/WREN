@@ -24,6 +24,8 @@ import type { Document } from '@wren/types';
 
 export interface WritingEnvironmentCardProps {
   readonly document: Document;
+  /** Resolved document type name for display on the card. */
+  readonly documentTypeName?: string;
   /** Optional open handler; when supplied the title becomes an activating control. */
   readonly onOpen?: (document: Document) => void;
   /** Optional delete handler; when supplied a trash icon is shown. */
@@ -32,6 +34,7 @@ export interface WritingEnvironmentCardProps {
 
 export function WritingEnvironmentCard({
   document,
+  documentTypeName,
   onOpen,
   onDelete,
 }: WritingEnvironmentCardProps) {
@@ -91,6 +94,11 @@ export function WritingEnvironmentCard({
           {topic && (
             <p className="text-bodySmall text-text-primary">
               <span className="font-bold">Content:</span> {topic}
+            </p>
+          )}
+          {documentTypeName && (
+            <p className="text-bodySmall text-text-primary">
+              <span className="font-bold">Document Type:</span> {documentTypeName}
             </p>
           )}
           <p className="text-bodySmall text-text-primary">

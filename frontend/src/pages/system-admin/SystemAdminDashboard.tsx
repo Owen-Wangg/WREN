@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Trash2, ChevronDown } from 'lucide-react';
 
-import { listDepartments, getAnalytics, getModelConfig, createDepartment, getPlatformUsageLimits, updatePlatformUsageLimits } from '@/features/system-admin/systemAdminApi';
+import { listDepartments, getAnalytics, getModelConfig, updateModelConfig, createDepartment, getPlatformUsageLimits, updatePlatformUsageLimits } from '@/features/system-admin/systemAdminApi';
 import { SystemUsageLimitsForm } from '@/features/system-admin/components/SystemUsageLimitsForm';
 import type { UsageLimits } from '@/features/system-admin/systemAdminSchemas';
 
@@ -31,7 +31,15 @@ export function SystemAdminDashboard() {
     queryFn: () => getModelConfig(),
   });
 
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
   const queryClient = useQueryClient();
+
+  const saveModelMutation = useMutation({
+    mutationFn: (modelId: string) => updateModelConfig(modelId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['system-model-config'] });
+    },
+  });
 
   const createDeptMutation = useMutation({
     mutationFn: (name: string) => createDepartment(name),
@@ -104,7 +112,7 @@ export function SystemAdminDashboard() {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Model Configuration</h3>
-                <p className="text-sm text-gray-600 mt-1">Deploy-time Bedrock model (read-only)</p>
+                <p className="text-sm text-gray-600 mt-1">Active Bedrock model for all AI feedback generation</p>
               </div>
               <ChevronDown
                 size={20}
@@ -126,21 +134,47 @@ export function SystemAdminDashboard() {
             )}
 
             {expandedSection === 'model' && (
-              <div className="border-t border-gray-200 pt-6 space-y-3">
+              <div className="border-t border-gray-200 pt-6 space-y-4">
                 {modelLoading ? (
-                  <div>Loading...</div>
+                  <p className="text-sm text-gray-500">Loading…</p>
                 ) : modelConfigData ? (
                   <>
-                    <div className="flex justify-between gap-4 text-sm">
-                      <span className="text-gray-600">Active model ID</span>
-                      <span className="font-semibold text-gray-900 text-right break-all">
-                        {modelConfigData.modelId}
-                      </span>
+                    <div className="space-y-1">
+                      <label className="block text-sm font-semibold text-gray-900">
+                        Active model
+                      </label>
+                      <select
+                        value={selectedModelId || modelConfigData.modelId}
+                        onChange={(e) => setSelectedModelId(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+                      >
+                        {(modelConfigData.allowedModels ?? [{ id: modelConfigData.modelId, label: modelConfigData.modelId }]).map((m) => (
+                          <option key={m.id} value={m.id}>{m.label}</option>
+                        ))}
+                      </select>
                     </div>
-                    <p className="text-sm text-gray-600 rounded-lg bg-gray-50 p-3">
-                      {modelConfigData.note ??
-                        'This value comes from BEDROCK_MODEL_ID at deploy time. Runtime changes are not supported.'}
+                    <p className="text-xs text-amber-700 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                      Changing the model affects all AI feedback generation immediately. Existing feedback is unaffected.
                     </p>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        disabled={
+                          saveModelMutation.isPending ||
+                          (selectedModelId || modelConfigData.modelId) === modelConfigData.modelId && !selectedModelId
+                        }
+                        onClick={() => saveModelMutation.mutate(selectedModelId || modelConfigData.modelId)}
+                        className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {saveModelMutation.isPending ? 'Saving…' : 'Save'}
+                      </button>
+                      {saveModelMutation.isSuccess && (
+                        <span className="text-sm font-semibold text-green-600">Saved</span>
+                      )}
+                      {saveModelMutation.isError && (
+                        <span className="text-sm font-semibold text-red-600">Failed to save</span>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <p className="text-sm text-red-600">Could not load model configuration.</p>

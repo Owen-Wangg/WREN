@@ -17,6 +17,7 @@
  *    copy-pasted inline here (steering §3, §11).
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { ArrowUp } from 'lucide-react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
 import { appConfig } from '@/config/env';
@@ -31,6 +32,52 @@ import {
   writingProgressLabel,
   type WritingProgressInput,
 } from '../writingProgress';
+
+// Matches: "quoted text" (location hint) — produced by the WREN system prompt.
+const QUOTE_PATTERN = /"([^"]{5,120})"\s*\(([^)]{3,40})\)/g;
+
+/**
+ * Render assistant message text, turning quoted phrases into clickable spans
+ * that highlight the quoted text in the editor via onHighlightText.
+ */
+function renderMessageText(
+  text: string,
+  onHighlightText?: (text: string) => void,
+): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  QUOTE_PATTERN.lastIndex = 0;
+
+  while ((match = QUOTE_PATTERN.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push(text.slice(last, match.index));
+    }
+    const quote = match[1];
+    const location = match[2];
+    parts.push(
+      <button
+        key={match.index}
+        type="button"
+        title={`Click to highlight in document (${location})`}
+        onClick={() => onHighlightText?.(quote)}
+        className="inline cursor-pointer rounded px-[2px] font-medium underline decoration-dotted underline-offset-2 hover:bg-accent-primary/10 hover:text-accent-primary transition-colors"
+      >
+        &ldquo;{quote}&rdquo;
+        <span className="ml-1 text-[10px] font-normal text-text-muted not-italic">
+          ({location})
+        </span>
+      </button>,
+    );
+    last = match.index + match[0].length;
+  }
+
+  if (last < text.length) {
+    parts.push(text.slice(last));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
 
 function conversationCacheKey(documentId: string): string {
   return `ask-wren-messages:${documentId}`;
@@ -114,6 +161,8 @@ export interface WrenChatPanelProps {
   readonly className?: string;
   /** Called when coach response includes a highlight anchor. */
   readonly onHighlight?: (anchorId: string) => void;
+  /** Called when the student clicks a quoted phrase to highlight it in the editor. */
+  readonly onHighlightText?: (text: string) => void;
 }
 
 export function WrenChatPanel({
@@ -125,11 +174,14 @@ export function WrenChatPanel({
   askWrenService,
   className,
   onHighlight,
+  onHighlightText,
 }: WrenChatPanelProps) {
   const [messages, setMessages] = useState<readonly WrenChatMessage[]>(() =>
     documentId ? (readCachedMessages(documentId, draftId) ?? []) : [],
   );
   const [error, setError] = useState<string | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const bottomRef = useRef<HTMLLIElement | null>(null);
 
   const computedProgressPercent = useMemo(() => {
     if (!progressSignals) {
@@ -194,6 +246,10 @@ export function WrenChatPanel({
     };
   }, [askWrenService, documentId, draftId]);
 
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isTyping]);
+
   const onSubmit = async ({ text }: AskWrenMessageFormValues) => {
     if (!draftId || draftId === 'draft-pending') {
       setError('Save a draft before asking about this document.');
@@ -215,11 +271,13 @@ export function WrenChatPanel({
     reset();
 
     try {
+      setIsTyping(true);
       const reply = await askWrenService.sendMessage({
         documentId,
         draftId,
         text,
       });
+      setIsTyping(false);
       setMessages((prev) => {
         const next = [...prev, reply];
         writeCachedMessages(documentId, next);
@@ -229,6 +287,7 @@ export function WrenChatPanel({
         onHighlight?.(reply.highlightAnchorId);
       }
     } catch (cause) {
+      setIsTyping(false);
       setError(
         cause instanceof Error
           ? cause.message
@@ -240,56 +299,67 @@ export function WrenChatPanel({
   return (
     <aside
       aria-label={`Ask ${appConfig.appName}`}
-      className={[
-        'flex h-full w-[320px] shrink-0 flex-col gap-md rounded-md border border-border-subtle bg-surface-panel p-lg',
-        className,
-      ]
+      className={['flex h-full flex-col bg-surface-primary', className]
         .filter(Boolean)
         .join(' ')}
     >
-      <h2 className="text-heading3 font-sans font-semibold text-text-primary">
-        Ask {appConfig.appName}
-      </h2>
-
-      <div className="flex flex-col gap-xs">
-        <div className="flex items-baseline justify-between gap-sm">
-          <span className="text-bodySmall font-sans font-semibold text-text-primary">
-            Draft version {draftVersion}
-          </span>
+      {/* Header */}
+      <div className="shrink-0 border-b border-border-subtle px-lg py-md">
+        <div className="flex items-center justify-between">
+          <h2 className="text-heading3 font-sans font-semibold text-text-primary">
+            Ask {appConfig.appName}
+          </h2>
           <span className="text-caption text-text-muted">
+            Draft v{draftVersion}
+          </span>
+        </div>
+
+        {/* Progress bar */}
+        <div className="mt-sm flex items-center gap-sm">
+          <div className="h-[4px] flex-1 overflow-hidden rounded-full bg-surface-subtle">
+            <div
+              className="h-full rounded-full bg-signal-positive transition-all duration-500"
+              style={{ width: `${Math.max(0, Math.min(100, computedProgressPercent))}%` }}
+              role="progressbar"
+              aria-valuenow={computedProgressPercent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Writing progress"
+            />
+          </div>
+          <span className="shrink-0 text-caption text-text-muted">
             {writingProgressLabel(computedProgressPercent)}
           </span>
         </div>
-        <div className="h-[6px] w-full overflow-hidden rounded-full bg-surface-subtle">
-          <div
-            className="h-full rounded-full bg-signal-positive transition-all duration-300"
-            style={{ width: `${Math.max(0, Math.min(100, computedProgressPercent))}%` }}
-            role="progressbar"
-            aria-valuenow={computedProgressPercent}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label="Writing progress"
-          />
-        </div>
       </div>
 
-      <AiDisclaimerNotice
-        dismissible
-        dismissStorageKey="ask-chat-ai-disclaimer-dismissed"
-        dismissScopeId={documentId}
-        message={`${appConfig.appName} responds with guiding questions to help you think through your own writing. It will not rewrite your text or provide replacement prose.`}
-      />
+      {/* Disclaimer — compact, dismissible */}
+      <div className="shrink-0 px-lg pt-md">
+        <AiDisclaimerNotice
+          dismissible
+          dismissStorageKey="ask-chat-ai-disclaimer-dismissed"
+          dismissScopeId={documentId}
+          message={`${appConfig.appName} responds with guiding questions to help you think through your own writing. It will not rewrite your text or provide replacement prose.`}
+        />
+      </div>
 
+      {/* Message list */}
       <ul
         aria-label="Conversation"
-        className="flex flex-1 flex-col gap-sm overflow-y-auto"
+        className="flex flex-1 flex-col gap-sm overflow-y-auto px-lg py-md"
       >
         {hydrating && messages.length === 0 && (
-          <li className="text-bodySmall text-text-secondary">Loading conversation…</li>
+          <li className="text-caption text-text-muted">Loading…</li>
         )}
         {!hydrating && messages.length === 0 && (
-          <li className="text-bodySmall text-text-secondary">
-            Ask a question about this draft to get started.
+          <li className="flex flex-col gap-xs rounded-lg bg-surface-muted/50 px-md py-sm">
+            <span className="text-bodySmall font-semibold text-text-primary">
+              What would you like to explore?
+            </span>
+            <span className="text-caption text-text-muted leading-relaxed">
+              Ask about a specific section, your argument structure, or anything
+              else on your mind about this draft.
+            </span>
           </li>
         )}
         {messages.map((message) => (
@@ -297,41 +367,70 @@ export function WrenChatPanel({
             key={message.id}
             data-role={message.role}
             className={[
-              'max-w-[85%] rounded-md px-md py-sm text-bodySmall',
+              'max-w-[88%] rounded-2xl px-md py-sm text-bodySmall leading-relaxed',
               message.role === 'user'
-                ? 'self-end bg-surface-subtle text-text-primary'
-                : 'self-start bg-notice-surface text-text-secondary',
+                ? 'self-end rounded-br-sm bg-accent-primary text-text-on-accent'
+                : 'self-start rounded-bl-sm bg-surface-muted text-text-primary',
             ].join(' ')}
           >
-            {message.text}
+            {message.role === 'wren'
+              ? renderMessageText(message.text, onHighlightText)
+              : message.text}
           </li>
         ))}
+
+        {/* Typing indicator */}
+        {isTyping && (
+          <li className="self-start rounded-2xl rounded-bl-sm bg-surface-muted px-md py-sm">
+            <span className="flex items-center gap-[3px]">
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  className="h-[6px] w-[6px] rounded-full bg-text-muted"
+                  style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
+                />
+              ))}
+            </span>
+          </li>
+        )}
+
+        {/* Scroll anchor */}
+        <li ref={bottomRef} aria-hidden="true" />
       </ul>
 
       {error && (
-        <p role="alert" className="text-bodySmall text-signal-critical">
+        <p role="alert" className="shrink-0 px-lg pb-xs text-caption text-signal-critical">
           {error}
         </p>
       )}
 
-      <form className="flex gap-sm" noValidate onSubmit={handleSubmit(onSubmit)}>
+      {/* Input bar */}
+      <form
+        className="shrink-0 border-t border-border-subtle px-lg py-md"
+        noValidate
+        onSubmit={handleSubmit(onSubmit)}
+      >
         <label htmlFor="ask-wren-input" className="sr-only">
           Ask {appConfig.appName} a question about this draft
         </label>
-        <input
-          id="ask-wren-input"
-          type="text"
-          placeholder="Ask a question about this draft…"
-          className="flex-1 rounded-md border border-border-subtle bg-surface-primary px-md py-sm text-bodySmall text-text-primary placeholder:text-text-primary/50"
-          {...register('text')}
-        />
-        <button
-          type="submit"
-          disabled={isSubmitting || draftId === 'draft-pending'}
-          className="rounded-md bg-accent-primary px-md py-sm text-bodySmall font-sans font-semibold text-text-on-accent disabled:opacity-60"
-        >
-          Send
-        </button>
+        <div className="flex items-end gap-sm rounded-xl border border-border-subtle bg-surface-primary px-md py-sm focus-within:border-accent-primary focus-within:ring-1 focus-within:ring-accent-primary/30 transition-colors">
+          <input
+            id="ask-wren-input"
+            type="text"
+            placeholder={`Ask ${appConfig.appName} about this draft…`}
+            autoComplete="off"
+            className="flex-1 bg-transparent text-bodySmall text-text-primary placeholder:text-text-muted outline-none"
+            {...register('text')}
+          />
+          <button
+            type="submit"
+            disabled={isSubmitting || draftId === 'draft-pending'}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary text-text-on-accent transition-opacity disabled:opacity-40"
+            aria-label="Send message"
+          >
+            <ArrowUp size={14} strokeWidth={2.5} />
+          </button>
+        </div>
       </form>
     </aside>
   );

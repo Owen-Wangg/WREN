@@ -11,6 +11,7 @@ import {
   appendAskWrenTurn,
   buildSessionId,
   loadDocumentConversation,
+  type DocumentTypeContext,
 } from './askWren.js';
 import {
   assertAskMessageAllowed,
@@ -734,6 +735,76 @@ async function handleGetAskWrenSession(event: any): Promise<APIGatewayProxyResul
   };
 }
 
+async function loadDocumentTypeContext(
+  documentId: string,
+): Promise<DocumentTypeContext | undefined> {
+  try {
+    const db = await getDataAccess();
+
+    // Get document_type_id for this document
+    const docRows = await db.query<{ document_type_id: string; name: string }>(
+      `SELECT dt.id AS document_type_id, dt.name
+       FROM document d
+       JOIN document_type dt ON dt.id = d.document_type_id
+       WHERE d.id = $1`,
+      [documentId],
+    );
+    if (!docRows[0]) return undefined;
+    const { document_type_id, name: documentTypeName } = docRows[0];
+
+    // Load config fields
+    const configRows = await db.query<{
+      type_prompt_text: string | null;
+      restrictions_description: string | null;
+      notes_description: string | null;
+      density_description: string | null;
+      category_priority: string[] | null;
+    }>(
+      `SELECT type_prompt_text, restrictions_description, notes_description,
+              density_description, category_priority
+       FROM document_type_config WHERE document_type_id = $1`,
+      [document_type_id],
+    );
+    const config = configRows[0];
+
+    // Parse per-category overrides from densityDescription JSON
+    let overrides: Record<string, { definition?: string; criteria?: string }> = {};
+    if (config?.density_description) {
+      try {
+        const parsed = JSON.parse(config.density_description);
+        if (parsed?.v === 1) overrides = parsed.overrides ?? {};
+      } catch { /* legacy plain text — ignore */ }
+    }
+
+    // Load active categories
+    const categoryPriority: string[] = config?.category_priority ?? [];
+    const catRows = await db.query<{ id: string; name: string }>(
+      `SELECT id, name FROM error_category WHERE document_type_id = $1 ORDER BY name ASC`,
+      [document_type_id],
+    );
+    const activeCats = catRows.filter(
+      (c) => categoryPriority.length === 0 || categoryPriority.includes(c.id),
+    );
+
+    const categories = activeCats.map((c) => ({
+      name: c.name,
+      definition: overrides[c.id]?.definition ?? undefined,
+      criteria: overrides[c.id]?.criteria ?? undefined,
+    }));
+
+    return {
+      documentTypeName,
+      purpose: config?.type_prompt_text ?? undefined,
+      restrictions: config?.restrictions_description ?? undefined,
+      notes: config?.notes_description ?? undefined,
+      categories,
+    };
+  } catch (err) {
+    console.warn('Failed to load document type context for Ask WREN:', err);
+    return undefined;
+  }
+}
+
 async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const { documentId } = event.pathParameters || {};
@@ -767,13 +838,37 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
   const userMessageCount = (conversation?.messages ?? []).filter((m) => m.role === 'user').length;
   await assertAskMessageAllowed(userMessageCount, db);
 
+  const documentTypeContext = await loadDocumentTypeContext(documentId);
+
+  // Read model override from platform_usage_policy; fall back to env var.
+  const policyRows = await db.query<{ bedrock_model_id: string | null }>(
+    'SELECT bedrock_model_id FROM platform_usage_policy WHERE id = 1',
+  );
+  const modelId = policyRows[0]?.bedrock_model_id ?? undefined;
+
   const { sessionId, reply } = await appendAskWrenTurn({
     userId: actor.userId,
     documentId,
     draftId,
     userText: text,
     draftSegments: draft.segments,
+    documentTypeContext,
+    modelId,
   });
+
+  // Transition status to 'Polishing' on the student's first Ask WREN message.
+  // Only fires once — the WHERE clause guards against re-updating already-Polishing docs.
+  if (userMessageCount === 0) {
+    try {
+      await db.query(
+        `UPDATE document SET status = 'Polishing' WHERE id = $1 AND status = 'Still Drafting'`,
+        [documentId],
+      );
+    } catch (err) {
+      // Non-fatal — don't fail the chat turn over a status update.
+      console.warn('Failed to update document status to Polishing:', err);
+    }
+  }
 
   return {
     statusCode: 200,

@@ -486,6 +486,12 @@ export function DocumentEditorPage() {
                 setHighlightedQuotedText(undefined);
                 setShowCoachHighlights(true);
               }}
+              onHighlightText={(text) => {
+                setHighlightedAnchorId(undefined);
+                setHighlightedQuotedText(text);
+                setActiveQuoteId(`chat-quote:${text}`);
+                setShowCoachHighlights(true);
+              }}
               activeQuoteId={activeQuoteId}
               onQuoteClick={(selection) => {
                 if (activeQuoteId === selection.feedbackItemId) {

@@ -9,7 +9,7 @@ import {
   filterDocuments,
   type StatusFilterValue,
 } from '@/features/dashboard/documentFilters';
-import { useDocuments, useOrganizations } from '@/features/dashboard/useDashboard';
+import { useDocuments, useWritingTypes } from '@/features/dashboard/useDashboard';
 import { useDeleteDocument } from '@/hooks/useDocument';
 import { AiDisclaimerNotice } from '@/components/ui';
 import { apiClient } from '@/services';
@@ -25,13 +25,21 @@ export function DashboardPage() {
   const [writingTypeFilter, setWritingTypeFilter] = useState<string>(ALL_WRITING_TYPES);
 
   const documentsQuery = useDocuments(apiClient);
-  const organizationsQuery = useOrganizations(apiClient);
+  const writingTypesQuery = useWritingTypes(apiClient);
   const documents = documentsQuery.data ?? [];
-  const organizations = organizationsQuery.data ?? [];
+
+  // Build id→name map and derive only the types present in this student's docs
+  const writingTypeMap = new Map(
+    (writingTypesQuery.data ?? []).map((wt) => [wt.id, wt.name]),
+  );
+  const presentTypeIds = [...new Set(documents.map((d) => d.documentTypeId))];
+  const presentWritingTypes = presentTypeIds
+    .map((id) => ({ id, name: writingTypeMap.get(id) ?? id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const filteredByType = writingTypeFilter === ALL_WRITING_TYPES
     ? documents
-    : documents.filter((doc) => doc.metadata['Writing Type'] === writingTypeFilter);
+    : documents.filter((doc) => doc.documentTypeId === writingTypeFilter);
 
   const filteredDocuments = filterDocuments(filteredByType, { search, status });
 
@@ -61,7 +69,7 @@ export function DashboardPage() {
               htmlFor="writing-type-filter"
               className="text-bodySmall font-sans font-medium text-text-secondary"
             >
-              Writing Type
+              Document Type
             </label>
             <select
               id="writing-type-filter"
@@ -69,10 +77,10 @@ export function DashboardPage() {
               onChange={(e) => setWritingTypeFilter(e.target.value)}
               className="rounded-md border border-border-subtle bg-surface-primary px-md py-xs text-bodySmall text-text-primary"
             >
-              <option value={ALL_WRITING_TYPES}>All Writing Types</option>
-              {organizations.map((org) => (
-                <option key={org.id} value={org.name}>
-                  {org.name}
+              <option value={ALL_WRITING_TYPES}>All Document Types</option>
+              {presentWritingTypes.map((wt) => (
+                <option key={wt.id} value={wt.id}>
+                  {wt.name}
                 </option>
               ))}
             </select>
@@ -118,6 +126,7 @@ export function DashboardPage() {
                   <WritingEnvironmentCard
                     key={document.id}
                     document={document}
+                    documentTypeName={writingTypeMap.get(document.documentTypeId)}
                     onOpen={handleOpenDocument}
                     onDelete={handleDeleteDocument}
                   />

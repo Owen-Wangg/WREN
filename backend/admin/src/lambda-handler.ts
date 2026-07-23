@@ -20,6 +20,7 @@ import { getUsageReport } from './usageLimitService';
 import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
 import { getAnalytics, getImprovementTrends } from './analyticsService';
+import { BedrockClient, ListFoundationModelsCommand } from '@aws-sdk/client-bedrock';
 import { getHelpfulnessAnalytics } from './helpfulnessAnalyticsService';
 import {
   getPlatformUsagePolicyForAdmin,
@@ -535,17 +536,65 @@ async function handleDeleteErrorCategory(event: any): Promise<APIGatewayProxyRes
   };
 }
 
+let cachedAllowedModels: { id: string; label: string }[] | null = null;
+
+async function fetchAllowedModels(): Promise<{ id: string; label: string }[]> {
+  if (cachedAllowedModels) return cachedAllowedModels;
+
+  try {
+    const client = new BedrockClient({ region: process.env.AWS_REGION ?? 'ca-central-1' });
+    const response = await client.send(new ListFoundationModelsCommand({
+      byInferenceType: 'ON_DEMAND',
+    }));
+
+    const models = (response.modelSummaries ?? [])
+      .filter((m) => {
+        const provider = m.providerName?.toLowerCase() ?? '';
+        return provider === 'anthropic' || provider === 'meta';
+      })
+      .filter((m) => m.modelId && m.modelName)
+      .map((m) => ({
+        id: m.modelId!,
+        label: `${m.modelName!} (${m.providerName})`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    cachedAllowedModels = models.length > 0 ? models : FALLBACK_MODELS;
+    return cachedAllowedModels;
+  } catch (err) {
+    console.warn('Failed to list Bedrock models, using fallback list:', err);
+    return FALLBACK_MODELS;
+  }
+}
+
+// Fallback in case Bedrock ListFoundationModels is unavailable or returns nothing.
+const FALLBACK_MODELS = [
+  { id: 'us.anthropic.claude-sonnet-4-6',         label: 'Claude Sonnet 4.6 — Anthropic' },
+  { id: 'us.anthropic.claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5 — Anthropic' },
+  { id: 'us.anthropic.claude-opus-4-8',            label: 'Claude Opus 4.8 — Anthropic' },
+  { id: 'us.anthropic.claude-sonnet-5',            label: 'Claude Sonnet 5 — Anthropic' },
+];
+
 async function handleGetModelConfig(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   requireTechnicalAdmin(actor);
 
-  const modelId = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+  const db = await getDataAccess();
+  const rows = await db.query<{ bedrock_model_id: string | null }>(
+    'SELECT bedrock_model_id FROM platform_usage_policy WHERE id = 1',
+  );
+  const dbModelId = rows[0]?.bedrock_model_id ?? null;
+  const envModelId = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+  const modelId = dbModelId ?? envModelId;
+
+  const allowedModels = await fetchAllowedModels();
+
   return {
     statusCode: 200,
     body: JSON.stringify({
       modelId,
-      writable: false,
-      note: 'Model ID is set by BEDROCK_MODEL_ID at deploy time; runtime updates are not supported.',
+      writable: true,
+      allowedModels,
     }),
   };
 }
@@ -568,13 +617,40 @@ async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResul
   const actor = parseAuthContext(event);
   requireTechnicalAdmin(actor);
 
-  // Do not acknowledge a write that never persists — return 501 explicitly.
+  const body = event.body ? JSON.parse(event.body) : {};
+  const { modelId } = body;
+
+  if (!modelId || typeof modelId !== 'string') {
+    return withCors({
+      statusCode: 400,
+      body: JSON.stringify({ code: 'BAD_REQUEST', message: 'modelId is required' }),
+    });
+  }
+
+  const allowedModels = await fetchAllowedModels();
+  const allowed = allowedModels.map((m) => m.id);
+  if (!allowed.includes(modelId)) {
+    return withCors({
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: `Model '${modelId}' is not in the allowed list.`,
+      }),
+    });
+  }
+
+  const db = await getDataAccess();
+  await db.query(
+    'UPDATE platform_usage_policy SET bedrock_model_id = $1 WHERE id = 1',
+    [modelId],
+  );
+
   return {
-    statusCode: 501,
+    statusCode: 200,
     body: JSON.stringify({
-      code: 'NOT_IMPLEMENTED',
-      message:
-        'Model configuration cannot be changed at runtime. Update BEDROCK_MODEL_ID and redeploy the compute stack.',
+      modelId,
+      writable: true,
+      allowedModels,
     }),
   };
 }

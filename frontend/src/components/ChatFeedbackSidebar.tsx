@@ -26,6 +26,8 @@ export interface ChatFeedbackSidebarProps {
   /** Persist editor content as a new draft before AI Debrief regenerate. */
   readonly onBeforeRegenerate?: () => Promise<void>;
   readonly onHighlight?: (anchorId: string) => void;
+  /** Called when the student clicks a quoted phrase in the chat to highlight it in the editor. */
+  readonly onHighlightText?: (text: string) => void;
   /** Feedback item id of the quote currently highlighted in the editor. */
   readonly activeQuoteId?: string;
   readonly onQuoteClick?: (selection: {
@@ -48,6 +50,7 @@ export function ChatFeedbackSidebar({
   isGeneratingFeedback = false,
   onBeforeRegenerate,
   onHighlight,
+  onHighlightText,
   activeQuoteId,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
@@ -120,6 +123,7 @@ export function ChatFeedbackSidebar({
             askWrenService={askWrenService}
             className="h-full w-full"
             onHighlight={onHighlight}
+            onHighlightText={onHighlightText}
           />
         </div>
         <div

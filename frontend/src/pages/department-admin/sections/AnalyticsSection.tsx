@@ -85,7 +85,7 @@ export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
     });
   })();
 
-  // Transform flat trend points → [{ week, [categoryName]: score }, ...]
+  // Transform flat trend points → [{ weekLabel, [categoryName]: score }, ...]
   const { chartData, categoryNames } = (() => {
     const points = filteredPoints;
     const weekOrder: string[] = [];
@@ -96,7 +96,11 @@ export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
       nameSet.add(p.categoryName);
       if (!weekMap.has(p.week)) {
         weekOrder.push(p.week);
-        weekMap.set(p.week, { week: p.week as unknown as number } as Record<string, number>);
+        const label = new Date(p.weekStart).toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+        });
+        weekMap.set(p.week, { weekLabel: label } as unknown as Record<string, number>);
       }
       weekMap.get(p.week)![p.categoryName] = Math.round(p.score);
     }
@@ -193,7 +197,7 @@ export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
           <ResponsiveContainer width="100%" height={400}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="week" />
+              <XAxis dataKey="weekLabel" />
               <YAxis domain={[0, 100]} />
               <Tooltip formatter={(value) => `${value}%`} />
               <Legend />

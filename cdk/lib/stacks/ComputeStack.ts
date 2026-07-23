@@ -323,6 +323,12 @@ export class ComputeStack extends Stack {
       resources: [`arn:aws:cognito-idp:${this.region}:${this.account}:userpool/${props.userPoolId}`],
     }));
 
+    // Admin Lambda: Bedrock ListFoundationModels for the model config UI.
+    this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["bedrock:ListFoundationModels"],
+      resources: ["*"],
+    }));
+
     // Feedback Engine: Bedrock invoke (scoped to account, model-agnostic for cross-region inference).
     this.feedbackEngineFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: [

@@ -204,11 +204,19 @@ export async function assignRole(input: {
 /* Model Configuration — read-only deploy-time value */
 /* -------------------------------------------------------------------------- */
 
+const allowedModelSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+});
+
 const modelConfigSchema = z.object({
   modelId: z.string(),
   writable: z.boolean().optional(),
   note: z.string().optional(),
+  allowedModels: z.array(allowedModelSchema).optional(),
 });
+
+export type ModelConfig = z.infer<typeof modelConfigSchema>;
 
 export async function getModelConfig() {
   return apiClient.request('/v1/admin/config/model', { schema: modelConfigSchema });
