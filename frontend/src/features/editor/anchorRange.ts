@@ -105,20 +105,42 @@ function findQuotedTextInBlock(
   contentStart: number,
   quotedText: string,
 ): DocumentRange | null {
-  const fullNormalized = quotedText.trim().replace(/\s+/g, ' ');
-  const candidates = quoteSearchCandidates(quotedText);
+  const normalize = (value: string) =>
+    value
+      .replace(/[\u201C\u201D\u2018\u2019]/g, (ch) =>
+        ch === '\u2018' || ch === '\u2019' ? "'" : '"',
+      )
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const blockNormalized = normalize(blockText);
+  const fullNormalized = normalize(quotedText);
+  if (!fullNormalized) return null;
+
+  const candidates = quoteSearchCandidates(fullNormalized);
 
   for (const candidate of candidates) {
-    let idx = blockText.indexOf(candidate);
+    let idx = blockNormalized.indexOf(candidate);
     let matchedCaseInsensitive = false;
     if (idx < 0) {
-      idx = blockText.toLowerCase().indexOf(candidate.toLowerCase());
+      idx = blockNormalized.toLowerCase().indexOf(candidate.toLowerCase());
       matchedCaseInsensitive = idx >= 0;
     }
     if (idx < 0) continue;
 
-    let end = idx + candidate.length;
-    // Expand through a truncated final stem ("describ" → "described").
+    // Map normalized index back onto original block text by walking both.
+    // For typical ASCII drafts the lengths match; if they diverge, fall back
+    // to searching the raw block for the candidate.
+    let rawIdx = blockText.indexOf(candidate);
+    if (rawIdx < 0) {
+      rawIdx = blockText.toLowerCase().indexOf(candidate.toLowerCase());
+    }
+    if (rawIdx < 0) {
+      // Use normalized index when punctuation-only differences exist.
+      rawIdx = idx;
+    }
+
+    let end = rawIdx + candidate.length;
     if (candidate !== fullNormalized) {
       const stem = fullNormalized.split(' ').pop() ?? '';
       if (stem) {
@@ -127,10 +149,10 @@ function findQuotedTextInBlock(
         if (expansion) end += expansion[0].length;
       }
     } else if (matchedCaseInsensitive) {
-      // Keep the matched length as-is for exact (case-insensitive) hits.
+      // Keep matched length.
     }
 
-    return { from: contentStart + idx, to: contentStart + end };
+    return { from: contentStart + rawIdx, to: contentStart + end };
   }
   return null;
 }
@@ -147,6 +169,62 @@ export function findQuotedTextRange(
     if (result || !BLOCK_NODE_TYPES.has(node.type.name)) return;
     const found = findQuotedTextInBlock(node.textContent, offset + 1, quotedText);
     if (found) result = found;
+  });
+  return result;
+}
+
+/**
+ * Map coarse Ask-WREN location hints ("early in the draft", "toward the end")
+ * onto a paragraph index band for preferred matching.
+ */
+export function paragraphBandForLocationHint(
+  hint: string | null | undefined,
+  paragraphCount: number,
+): { start: number; end: number } | null {
+  if (!hint || paragraphCount <= 0) return null;
+  const h = hint.toLowerCase();
+  if (h.includes('early') || h.includes('beginning') || h.includes('start')) {
+    return { start: 0, end: Math.max(1, Math.ceil(paragraphCount * 0.35)) };
+  }
+  if (h.includes('mid')) {
+    const start = Math.floor(paragraphCount * 0.25);
+    const end = Math.max(start + 1, Math.ceil(paragraphCount * 0.7));
+    return { start, end };
+  }
+  if (
+    h.includes('toward the end') ||
+    h.includes('near the end') ||
+    h.includes('later')
+  ) {
+    return { start: Math.floor(paragraphCount * 0.55), end: paragraphCount };
+  }
+  return null;
+}
+
+function countTopLevelBlocks(doc: ProseMirrorNode): number {
+  let count = 0;
+  doc.forEach((node) => {
+    if (BLOCK_NODE_TYPES.has(node.type.name)) count += 1;
+  });
+  return count;
+}
+
+/** Prefer locating the quote inside a location-hint paragraph band. */
+export function findQuotedTextRangeInBand(
+  doc: ProseMirrorNode,
+  quotedText: string,
+  band: { start: number; end: number },
+): DocumentRange | null {
+  if (!quotedText.trim()) return null;
+  let result: DocumentRange | null = null;
+  let blockIndex = 0;
+  doc.forEach((node, offset) => {
+    if (result || !BLOCK_NODE_TYPES.has(node.type.name)) return;
+    if (blockIndex >= band.start && blockIndex < band.end) {
+      const found = findQuotedTextInBlock(node.textContent, offset + 1, quotedText);
+      if (found) result = found;
+    }
+    blockIndex += 1;
   });
   return result;
 }
@@ -200,7 +278,7 @@ function expandRangeToWordBoundaries(
 }
 
 /**
- * Resolve the best highlight span for an AI Debrief quote click.
+ * Resolve the best highlight span for an AI Debrief / Ask LEON quote click.
  * Prefers the visible quoted text (so the yellow mark matches what the
  * student clicked); falls back to the stored anchor when text can't be found.
  * Always snaps to word boundaries so highlights never end mid-word.
@@ -210,6 +288,8 @@ export function resolveDebriefHighlightRange(
   options: {
     readonly anchor?: AnchorSpan | null;
     readonly quotedText?: string | null;
+    /** Coarse location hint from Ask LEON, e.g. "toward the end". */
+    readonly locationHint?: string | null;
   },
 ): DocumentRange | null {
   const quoted = options.quotedText?.trim() ?? '';
@@ -218,6 +298,15 @@ export function resolveDebriefHighlightRange(
   if (quoted) {
     if (options.anchor) {
       range = findQuotedTextInParagraph(doc, options.anchor.paragraphIndex, quoted);
+    }
+    if (!range && options.locationHint) {
+      const band = paragraphBandForLocationHint(
+        options.locationHint,
+        countTopLevelBlocks(doc),
+      );
+      if (band) {
+        range = findQuotedTextRangeInBand(doc, quoted, band);
+      }
     }
     if (!range) {
       range = findQuotedTextRange(doc, quoted);

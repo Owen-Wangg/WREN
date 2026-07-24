@@ -33,16 +33,25 @@ import {
   type WritingProgressInput,
 } from '../writingProgress';
 
-// Matches: "quoted text" (location hint) — produced by the WREN system prompt.
-const QUOTE_PATTERN = /"([^"]{5,120})"\s*\(([^)]{3,40})\)/g;
+// Matches: "quoted text" (location hint) — straight or curly quotes.
+const QUOTE_PATTERN = /(["“])([^"”]{5,160})(["”])\s*\(([^)]{3,60})\)/g;
+
+export type ChatQuoteSelection = {
+  readonly quotedText: string;
+  readonly locationHint?: string;
+  readonly quoteKey: string;
+};
 
 /**
  * Render assistant message text, turning quoted phrases into clickable spans
- * that highlight the quoted text in the editor via onHighlightText.
+ * styled like AI Debrief quotes (highlight + jump via onChatQuoteClick).
  */
 function renderMessageText(
   text: string,
-  onHighlightText?: (text: string) => void,
+  options: {
+    onChatQuoteClick?: (selection: ChatQuoteSelection) => void;
+    activeQuoteId?: string;
+  },
 ): React.ReactNode {
   const parts: React.ReactNode[] = [];
   let last = 0;
@@ -53,18 +62,32 @@ function renderMessageText(
     if (match.index > last) {
       parts.push(text.slice(last, match.index));
     }
-    const quote = match[1];
-    const location = match[2];
+    const quote = match[2] ?? '';
+    const location = match[4] ?? '';
+    const quoteKey = `chat-quote:${match.index}:${quote}`;
+    const isActive = options.activeQuoteId === quoteKey;
     parts.push(
       <button
         key={match.index}
         type="button"
-        title={`Click to highlight in document (${location})`}
-        onClick={() => onHighlightText?.(quote)}
-        className="inline cursor-pointer rounded px-[2px] font-medium underline decoration-dotted underline-offset-2 hover:bg-accent-primary/10 hover:text-accent-primary transition-colors"
+        title={`Jump to this passage in the document (${location})`}
+        aria-pressed={isActive}
+        onClick={() =>
+          options.onChatQuoteClick?.({
+            quotedText: quote,
+            locationHint: location,
+            quoteKey,
+          })
+        }
+        className={[
+          'mx-[1px] inline max-w-full cursor-pointer rounded-sm border-l-2 px-1.5 py-[1px] text-left italic leading-snug break-words transition-colors',
+          isActive
+            ? 'border-accent-primary bg-accent-primary/10 font-medium text-text-primary'
+            : 'border-accent-primary/40 bg-accent-primary/5 text-text-primary hover:border-accent-primary hover:bg-accent-primary/10',
+        ].join(' ')}
       >
         &ldquo;{quote}&rdquo;
-        <span className="ml-1 text-[10px] font-normal text-text-muted not-italic">
+        <span className="ml-1 not-italic text-[10px] font-normal text-text-muted">
           ({location})
         </span>
       </button>,
@@ -140,8 +163,37 @@ function mergeMessagesById(
       merged.push(message);
     }
   }
-  merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  // Preserve encounter order (server append order / optimistic append).
+  // Do NOT re-sort by createdAt — client/server clock skew can put a reply
+  // before its question when optimistic local timestamps are ahead of AWS.
   return merged;
+}
+
+/**
+ * Soft repair for already-cached inverted turns: a coach reply immediately
+ * followed by a user message whose timestamp is *after* the reply usually
+ * means clock-skew sort put "answer then question". Swap those pairs when
+ * the user message is still an optimistic `local-*` row (safe signal).
+ */
+function repairOptimisticInversions(
+  messages: readonly WrenChatMessage[],
+): WrenChatMessage[] {
+  const out = [...messages];
+  for (let i = 0; i < out.length - 1; i += 1) {
+    const a = out[i];
+    const b = out[i + 1];
+    if (!a || !b) continue;
+    if (
+      a.role === 'wren' &&
+      b.role === 'user' &&
+      b.id.startsWith('local-') &&
+      !a.id.startsWith('local-')
+    ) {
+      out[i] = b;
+      out[i + 1] = a;
+    }
+  }
+  return out;
 }
 
 /**
@@ -168,7 +220,7 @@ function reconcileWithServer(
     }
   }
 
-  return mergeMessagesById(server, pendingLocals);
+  return repairOptimisticInversions(mergeMessagesById(server, pendingLocals));
 }
 
 /** Drop stale optimistic rows already mirrored by a server id in the same list. */
@@ -176,7 +228,7 @@ function sanitizeConversation(
   messages: readonly WrenChatMessage[],
 ): WrenChatMessage[] {
   const confirmed = messages.filter((m) => !m.id.startsWith('local-'));
-  return reconcileWithServer(confirmed, messages);
+  return repairOptimisticInversions(reconcileWithServer(confirmed, messages));
 }
 
 export type WrenChatProgressSignals = Omit<WritingProgressInput, 'hasAskedCoach'>;
@@ -196,7 +248,14 @@ export interface WrenChatPanelProps {
   readonly className?: string;
   /** Called when coach response includes a highlight anchor. */
   readonly onHighlight?: (anchorId: string) => void;
-  /** Called when the student clicks a quoted phrase to highlight it in the editor. */
+  /**
+   * Called when the student clicks a quoted phrase in chat — highlights and
+   * scrolls to the matching draft span (same path as AI Debrief quotes).
+   */
+  readonly onChatQuoteClick?: (selection: ChatQuoteSelection) => void;
+  /** Active chat/debrief quote id for pressed-state styling. */
+  readonly activeQuoteId?: string;
+  /** @deprecated Prefer `onChatQuoteClick`. */
   readonly onHighlightText?: (text: string) => void;
 }
 
@@ -209,6 +268,8 @@ export function WrenChatPanel({
   askWrenService,
   className,
   onHighlight,
+  onChatQuoteClick,
+  activeQuoteId,
   onHighlightText,
 }: WrenChatPanelProps) {
   const [messages, setMessages] = useState<readonly WrenChatMessage[]>(() =>
@@ -318,8 +379,11 @@ export function WrenChatPanel({
       });
       setIsTyping(false);
       setMessages((prev) => {
-        // Dedupe by id in case a concurrent hydrate already included this reply.
-        const next = mergeMessagesById(prev, [reply]);
+        // Append the reply after existing messages (including the optimistic
+        // user turn). Avoid timestamp re-sorting — that caused answers to
+        // appear above their questions under client/server clock skew.
+        const withoutDup = prev.filter((m) => m.id !== reply.id);
+        const next = repairOptimisticInversions([...withoutDup, reply]);
         writeCachedMessages(documentId, next);
         return next;
       });
@@ -414,7 +478,16 @@ export function WrenChatPanel({
             ].join(' ')}
           >
             {message.role === 'wren'
-              ? renderMessageText(message.text, onHighlightText)
+              ? renderMessageText(message.text, {
+                  activeQuoteId,
+                  onChatQuoteClick: (selection) => {
+                    if (onChatQuoteClick) {
+                      onChatQuoteClick(selection);
+                      return;
+                    }
+                    onHighlightText?.(selection.quotedText);
+                  },
+                })
               : message.text}
           </li>
         ))}

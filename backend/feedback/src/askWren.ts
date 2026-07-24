@@ -206,6 +206,127 @@ function locationHint(index: number, total: number): string {
   return 'near the end';
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function expandToWordBoundaries(
+  text: string,
+  startOffset: number,
+  endOffset: number,
+): { start: number; end: number } {
+  let start = Math.max(0, Math.min(startOffset, text.length));
+  let end = Math.max(start, Math.min(endOffset, text.length));
+  while (start > 0 && /\w/.test(text[start - 1] ?? '')) start -= 1;
+  while (end < text.length && /\w/.test(text[end] ?? '')) end += 1;
+  return { start, end };
+}
+
+/**
+ * Locate a (possibly truncated) model quote in a paragraph and expand to whole
+ * words — same approach as AI Debrief quote rebuild.
+ */
+function resolveExactQuoteInParagraph(
+  paragraphText: string,
+  quotedText: string,
+): string | null {
+  const fullNormalized = quotedText.trim().replace(/\s+/g, ' ');
+  if (!fullNormalized || !paragraphText) return null;
+
+  const candidates = [fullNormalized];
+  const words = fullNormalized.split(' ');
+  if (words.length > 2) {
+    const last = words[words.length - 1] ?? '';
+    const looksTruncated =
+      last.length > 0 && last.length < 6 && !/[.!?,"')\]]$/.test(last);
+    if (looksTruncated) {
+      candidates.push(words.slice(0, -1).join(' '));
+    }
+  }
+
+  for (const candidate of candidates) {
+    let idx = paragraphText.indexOf(candidate);
+    if (idx < 0) {
+      idx = paragraphText.toLowerCase().indexOf(candidate.toLowerCase());
+    }
+    if (idx < 0) continue;
+
+    let end = idx + candidate.length;
+    if (candidate !== fullNormalized) {
+      const stem = fullNormalized.split(' ').pop() ?? '';
+      if (stem) {
+        const rest = paragraphText.slice(end);
+        const expansion = rest.match(new RegExp(`^${escapeRegExp(stem)}\\w*`, 'i'));
+        if (expansion) end += expansion[0].length;
+      }
+    }
+
+    const expanded = expandToWordBoundaries(paragraphText, idx, end);
+    return paragraphText.slice(expanded.start, expanded.end);
+  }
+  return null;
+}
+
+function paragraphBandForLocationHint(
+  hint: string,
+  paragraphCount: number,
+): { start: number; end: number } | null {
+  if (paragraphCount <= 0) return null;
+  const h = hint.toLowerCase();
+  if (h.includes('early') || h.includes('beginning') || h.includes('start')) {
+    return { start: 0, end: Math.max(1, Math.ceil(paragraphCount * 0.35)) };
+  }
+  if (h.includes('mid')) {
+    const start = Math.floor(paragraphCount * 0.25);
+    const end = Math.max(start + 1, Math.ceil(paragraphCount * 0.7));
+    return { start, end };
+  }
+  if (h.includes('toward the end') || h.includes('near the end') || h.includes('later')) {
+    return {
+      start: Math.floor(paragraphCount * 0.55),
+      end: paragraphCount,
+    };
+  }
+  return null;
+}
+
+/**
+ * Rewrite `"quote" (location)` spans in an Ask reply so displayed quotes are
+ * word-complete spans pulled from the draft (parity with AI Debrief).
+ */
+export function expandQuotesAgainstDraft(
+  replyText: string,
+  segments: Array<{ index?: number; text?: string }>,
+): string {
+  const paragraphs = segments
+    .map((s) => (typeof s.text === 'string' ? s.text : ''))
+    .filter((t) => t.trim().length > 0);
+  if (!paragraphs.length) return replyText;
+
+  const pattern = /(["“])([^"”]{5,160})(["”])\s*\(([^)]{3,60})\)/g;
+  return replyText.replace(pattern, (full, open, quote, close, location) => {
+    const band = paragraphBandForLocationHint(String(location), paragraphs.length);
+    const order: number[] = [];
+    if (band) {
+      for (let i = band.start; i < band.end; i += 1) order.push(i);
+    }
+    for (let i = 0; i < paragraphs.length; i += 1) {
+      if (!order.includes(i)) order.push(i);
+    }
+
+    for (const idx of order) {
+      const resolved = resolveExactQuoteInParagraph(paragraphs[idx] ?? '', String(quote));
+      if (resolved && resolved !== quote) {
+        return `${open}${resolved}${close} (${location})`;
+      }
+      if (resolved) {
+        return full;
+      }
+    }
+    return full;
+  });
+}
+
 function formatDraftContext(
   segments: Array<{ index?: number; text?: string }>,
 ): string {
@@ -341,13 +462,14 @@ export async function appendAskWrenTurn(input: {
   };
 
   const prior = existing?.messages ?? [];
-  const replyText = await generateAskWrenReply({
+  const rawReplyText = await generateAskWrenReply({
     userText: userMessage.text,
     priorMessages: prior,
     draftSegments: input.draftSegments,
     documentTypeContext: input.documentTypeContext,
     modelId: input.modelId,
   });
+  const replyText = expandQuotesAgainstDraft(rawReplyText, input.draftSegments);
 
   const reply: ChatMessage = {
     id: randomUUID(),

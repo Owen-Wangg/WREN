@@ -54,8 +54,10 @@ export interface AnchoredFeedbackEditorProps
   readonly categoryLabels?: Readonly<Record<string, string>>;
   /** Anchor ID to highlight when student clicks a quote in the AI Debrief. */
   readonly highlightedAnchorId?: string;
-  /** Quoted text from the debrief item — preferred for locating the highlight span. */
+  /** Quoted text from the debrief / Ask LEON item — preferred for locating the highlight span. */
   readonly highlightedQuotedText?: string;
+  /** Coarse Ask LEON location hint used to prefer a paragraph band when matching. */
+  readonly highlightedLocationHint?: string;
   /** Show comment marks only after coach has responded (default: false). */
   readonly showCoachHighlights?: boolean;
 }
@@ -86,6 +88,7 @@ export function AnchoredFeedbackEditor({
   className,
   highlightedAnchorId,
   highlightedQuotedText,
+  highlightedLocationHint,
   showCoachHighlights = false,
 }: AnchoredFeedbackEditorProps) {
   const editorRef = useRef<DocumentEditorHandle>(null);
@@ -178,11 +181,13 @@ export function AnchoredFeedbackEditor({
     const range = resolveDebriefHighlightRange(editor.state.doc, {
       anchor: anchor ?? null,
       quotedText: highlightedQuotedText,
+      locationHint: highlightedLocationHint,
     });
     if (!range) {
       console.warn('Could not resolve debrief highlight', {
         highlightedAnchorId,
         highlightedQuotedText,
+        highlightedLocationHint,
       });
       return;
     }
@@ -198,7 +203,7 @@ export function AnchoredFeedbackEditor({
     requestAnimationFrame(() => {
       scrollRangeIntoView(editor, from);
     });
-  }, [highlightedAnchorId, highlightedQuotedText, anchors]);
+  }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, anchors]);
 
   return (
     <div className={['flex h-full gap-0', className].filter(Boolean).join(' ')}>

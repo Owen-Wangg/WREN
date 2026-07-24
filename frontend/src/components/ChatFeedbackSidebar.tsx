@@ -26,9 +26,15 @@ export interface ChatFeedbackSidebarProps {
   /** Persist editor content as a new draft before AI Debrief regenerate. */
   readonly onBeforeRegenerate?: () => Promise<void>;
   readonly onHighlight?: (anchorId: string) => void;
-  /** Called when the student clicks a quoted phrase in the chat to highlight it in the editor. */
+  /** Called when the student clicks a quoted phrase in Ask LEON chat. */
+  readonly onChatQuoteClick?: (selection: {
+    quotedText: string;
+    locationHint?: string;
+    quoteKey: string;
+  }) => void;
+  /** @deprecated Prefer `onChatQuoteClick`. */
   readonly onHighlightText?: (text: string) => void;
-  /** Feedback item id of the quote currently highlighted in the editor. */
+  /** Feedback item / chat quote id currently highlighted in the editor. */
   readonly activeQuoteId?: string;
   readonly onQuoteClick?: (selection: {
     feedbackItemId: string;
@@ -50,6 +56,7 @@ export function ChatFeedbackSidebar({
   isGeneratingFeedback = false,
   onBeforeRegenerate,
   onHighlight,
+  onChatQuoteClick,
   onHighlightText,
   activeQuoteId,
   onQuoteClick,
@@ -123,7 +130,9 @@ export function ChatFeedbackSidebar({
             askWrenService={askWrenService}
             className="h-full w-full"
             onHighlight={onHighlight}
+            onChatQuoteClick={onChatQuoteClick}
             onHighlightText={onHighlightText}
+            activeQuoteId={activeQuoteId}
           />
         </div>
         <div
