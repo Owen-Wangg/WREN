@@ -2130,9 +2130,69 @@ paths:
       summary: Assign role to user (TechAdmin)
       tags: [Roles]
       operationId: assignRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, role, scope]
+              properties:
+                userId:
+                  type: string
+                role:
+                  type: string
+                  enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                scope:
+                  type: object
+                departmentId:
+                  type: string
       responses:
         "200":
           description: Role assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [userId, role]
+                properties:
+                  userId:
+                    type: string
+                  role:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    delete:
+      summary: Revoke role from user (TechAdmin)
+      tags: [Roles]
+      operationId: revokeRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, role, scope]
+              properties:
+                userId:
+                  type: string
+                role:
+                  type: string
+                  enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                scope:
+                  type: object
+                departmentId:
+                  type: string
+      responses:
+        "200":
+          description: Role revoked
           content:
             application/json:
               schema:

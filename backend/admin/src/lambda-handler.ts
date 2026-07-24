@@ -15,7 +15,7 @@ import { listErrorCategories, createErrorCategory, updateErrorCategory, deleteEr
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { listContentTypes } from './contentTypeService';
 import { searchUsers } from './userService';
-import { assignRole } from './roleAssignmentService';
+import { assignRole, revokeRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
 import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
@@ -104,6 +104,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/roles' && httpMethod === 'POST') {
       return await wrapHandler(() => handleAssignRole(event));
+    }
+    if (resource === '/v1/roles' && httpMethod === 'DELETE') {
+      return await wrapHandler(() => handleRevokeRole(event));
     }
     if (resource === '/v1/usage' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetUsage(event));
@@ -294,7 +297,18 @@ async function handleAssignRole(event: any): Promise<APIGatewayProxyResult> {
   await assignRole(actor, body, db);
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true }),
+    body: JSON.stringify({ success: true, userId: body.userId, role: body.role }),
+  };
+}
+
+async function handleRevokeRole(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const body = event.body ? JSON.parse(event.body) : {};
+  await revokeRole(actor, body, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ success: true, userId: body.userId, role: body.role }),
   };
 }
 

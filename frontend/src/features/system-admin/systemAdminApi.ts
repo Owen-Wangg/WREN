@@ -200,6 +200,24 @@ export async function assignRole(input: {
   });
 }
 
+export async function revokeRole(input: {
+  userId: string;
+  role: 'Student' | 'DepartmentAdmin' | 'TechnicalAdmin';
+  departmentId?: string;
+}) {
+  return apiClient.request('/v1/roles', {
+    method: 'DELETE',
+    body: {
+      userId: input.userId,
+      role: input.role,
+      scope: input.departmentId
+        ? { kind: 'department', departmentId: input.departmentId }
+        : { kind: 'platform' },
+      ...(input.departmentId ? { departmentId: input.departmentId } : {}),
+    },
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Model Configuration — read-only deploy-time value */
 /* -------------------------------------------------------------------------- */
@@ -246,6 +264,7 @@ export const systemAdminApi = {
   updatePlatformUsageLimits,
   grantUsageOverride,
   assignRole,
+  revokeRole,
   getModelConfig,
   updateModelConfig,
 };
