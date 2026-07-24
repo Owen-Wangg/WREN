@@ -234,11 +234,11 @@ export async function getAnalytics(
  *
  * Scoring (all-users aggregate — no per-student column):
  *   resolved            → 100  (issue fully addressed)
- *   partially_resolved  →   0  (treated same as unresolved — not yet fixed)
+ *   partially_resolved  →  50  (meaningful progress, not yet fully fixed)
  *   still_unresolved    →   0
  *   removed / unchanged → excluded (structural change, not a signal)
  *
- * Score = percentage of feedback items students fully resolved that week.
+ * Score = weighted average of feedback item resolution that week.
  *
  * Only DepartmentAdmin (for their administered departments) and TechnicalAdmin
  * may call this. Same `analytics.view` capability gate as getAnalytics.
@@ -276,6 +276,7 @@ export async function getImprovementTrends(
        AVG(
          CASE rsh.status
            WHEN 'resolved' THEN 100.0
+           WHEN 'partially_resolved' THEN 50.0
            ELSE 0.0
          END
        )::numeric(5,1)                                             AS avg_score,

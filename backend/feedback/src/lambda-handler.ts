@@ -374,10 +374,12 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     const resolutionRows = await db.query<{
       error_category_id: string;
       resolved: string;
+      partial: string;
       total: string;
     }>(
       `SELECT fi.error_category_id,
               COUNT(*) FILTER (WHERE rsh.status = 'resolved') AS resolved,
+              COUNT(*) FILTER (WHERE rsh.status = 'partially_resolved') AS partial,
               COUNT(*) AS total
        FROM resolution_status_history rsh
        JOIN feedback_item fi ON fi.id = rsh.feedback_item_id
@@ -388,26 +390,29 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     );
 
     if (resolutionRows.length > 0) {
-      // Resolution-based: accurate — did the student actually fix the flagged issues?
+      // Resolution-based: did the student actually fix the flagged issues?
+      // Weighted score: resolved=100, partially_resolved=50, still_unresolved=0
       for (const r of resolutionRows) {
         const name = categoryNames[r.error_category_id];
         if (!name) continue;
         const resolved = parseInt(r.resolved, 10);
+        const partial = parseInt(r.partial, 10);
         const total = parseInt(r.total, 10);
-        const pct = total > 0 ? Math.round((resolved / total) * 100) : 0;
+        const addressed = resolved + partial;
+        const pct = total > 0 ? Math.round(((resolved * 100 + partial * 50) / total / 100) * 100) : 0;
 
         let tendency: 'improving' | 'persistent' | 'emerging';
         let description: string;
 
-        if (pct >= 70) {
+        if (pct >= 40) {
           tendency = 'improving';
-          description = `You resolved ${resolved} of ${total} ${name} issue${total !== 1 ? 's' : ''} (${pct}%) — keep it up.`;
-        } else if (pct >= 30) {
+          description = `You addressed ${addressed} of ${total} ${name} issue${total !== 1 ? 's' : ''} — keep it up.`;
+        } else if (addressed > 0) {
           tendency = 'persistent';
-          description = `You partially addressed ${name} — ${resolved} of ${total} issue${total !== 1 ? 's' : ''} resolved (${pct}%). Worth more focus.`;
+          description = `You partially addressed ${name} — ${addressed} of ${total} issue${total !== 1 ? 's' : ''} showing progress. Worth more focus.`;
         } else {
           tendency = 'persistent';
-          description = `${name} issues from your previous draft remain unaddressed — ${resolved} of ${total} resolved (${pct}%).`;
+          description = `${name} issues from your previous draft remain unaddressed (0 of ${total} resolved).`;
         }
 
         progressSummary.push({ category: name, tendency, description });

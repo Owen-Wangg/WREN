@@ -561,57 +561,69 @@ def judge_resolutions_with_llm(
     """Batch-evaluate whether students addressed specific feedback items.
 
     Makes a single Bedrock call for all changed-span items, returning a map of
-    item_id -> ResolutionStatus. Falls back to STILL_UNRESOLVED on any failure.
+    item_id -> ResolutionStatus. Retries once on parse failure. Falls back to
+    STILL_UNRESOLVED only for items whose verdict couldn't be parsed.
 
-    items_to_judge: list of { id, question_text, region_text }
+    items_to_judge: list of { id, question_text, original_text, region_text }
     """
     if not items_to_judge:
         return {}
 
-    try:
-        bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
-        model_id = config.get('bedrock_model_id') or os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
+    bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
+    model_id = config.get('bedrock_model_id') or os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
 
-        items_json = json.dumps([
-            {
-                'id': item['id'],
-                'feedback': item['question_text'],
-                'revised_text': item['region_text'],
-            }
-            for item in items_to_judge
-        ], indent=2)
-
-        system_text = (
-            'You evaluate whether a student addressed specific writing feedback when revising their draft.\n'
-            'For each item in the JSON array, reply with exactly one verdict: "resolved", "partial", or "unresolved".\n'
-            '  resolved   - the student clearly and fully addressed the feedback in the revised text\n'
-            '  partial    - the student made some progress but the issue is not fully fixed\n'
-            '  unresolved - the student did not address the feedback\n'
-            'Reply as a JSON array of objects with "id" and "verdict" fields only. No other text.'
-        )
-
-        user_text = f'Evaluate each feedback item:\n\n{items_json}'
-
-        body = {
-            'anthropic_version': 'bedrock-2023-05-31',
-            'max_tokens': 1024,
-            'temperature': 0,
-            'system': system_text,
-            'messages': [{'role': 'user', 'content': user_text}],
+    items_json = json.dumps([
+        {
+            'id': item['id'],
+            'feedback_question': item['question_text'],
+            'original_text': item.get('original_text', ''),
+            'revised_text': item['region_text'],
         }
+        for item in items_to_judge
+    ], indent=2)
 
-        response = bedrock_client.invoke_model(
-            modelId=model_id,
-            body=json.dumps(body),
-        )
-        raw = json.loads(response['body'].read())
-        text = raw.get('content', [{}])[0].get('text', '').strip()
+    system_text = (
+        'You evaluate whether a student addressed specific writing feedback when revising their draft.\n'
+        'For each item you receive:\n'
+        '  - "feedback_question": the coaching question that was raised about their writing\n'
+        '  - "original_text": the text that was originally flagged (may be empty for structural feedback)\n'
+        '  - "revised_text": the relevant section from the student\'s revised draft\n\n'
+        'Compare the original to the revision in light of the feedback question. '
+        'Reply with exactly one verdict per item:\n'
+        '  resolved   - the revision clearly and fully addresses the concern raised by the feedback\n'
+        '  partial    - the revision shows meaningful progress toward addressing the feedback, but the concern is not fully resolved\n'
+        '  unresolved - the revision does not address the feedback, or the relevant text is essentially unchanged\n\n'
+        'When in doubt between "partial" and "unresolved", prefer "partial" if the student made any '
+        'relevant change in the direction the feedback suggested.\n'
+        'Reply as a JSON array of objects with "id" and "verdict" fields only. No other text.'
+    )
 
-        # Strip markdown fences if present
+    user_text = f'Evaluate each feedback item:\n\n{items_json}'
+
+    body = {
+        'anthropic_version': 'bedrock-2023-05-31',
+        'max_tokens': 2048,
+        'temperature': 0,
+        'system': system_text,
+        'messages': [{'role': 'user', 'content': user_text}],
+    }
+
+    def _parse_verdicts(text: str) -> dict[str, ResolutionStatus]:
         if text.startswith('```'):
             text = text.split('\n', 1)[-1].rsplit('```', 1)[0].strip()
+        # Try to recover truncated JSON (same approach as parse_feedback_output)
+        try:
+            verdicts = json.loads(text)
+        except json.JSONDecodeError:
+            last_close = text.rfind('}')
+            if last_close > 0:
+                recovered = text[:last_close + 1]
+                if not recovered.rstrip().endswith(']'):
+                    recovered = recovered + ']'
+                verdicts = json.loads(recovered)
+            else:
+                raise
 
-        verdicts = json.loads(text)
         result: dict[str, ResolutionStatus] = {}
         for v in verdicts:
             item_id = v.get('id')
@@ -624,9 +636,37 @@ def judge_resolutions_with_llm(
                 result[item_id] = ResolutionStatus.STILL_UNRESOLVED
         return result
 
-    except Exception as e:
-        logger.warning(f"LLM resolution judge failed, defaulting to still_unresolved: {str(e)}")
-        return {}
+    max_attempts = 2
+    for attempt in range(max_attempts):
+        try:
+            response = bedrock_client.invoke_model(
+                modelId=model_id,
+                body=json.dumps(body),
+            )
+            raw = json.loads(response['body'].read())
+            text = raw.get('content', [{}])[0].get('text', '').strip()
+            result = _parse_verdicts(text)
+            fallback_count = len(items_to_judge) - len(result)
+            if fallback_count > 0:
+                logger.warning(f"LLM judge: {fallback_count}/{len(items_to_judge)} items missing from response")
+            return result
+
+        except json.JSONDecodeError as e:
+            if attempt < max_attempts - 1:
+                logger.warning(f"LLM judge JSON parse failed (attempt {attempt + 1}), retrying: {str(e)}")
+                continue
+            logger.warning(f"LLM judge JSON parse failed after {max_attempts} attempts: {str(e)}")
+            return {}
+
+        except Exception as e:
+            logger.warning(f"LLM resolution judge failed (attempt {attempt + 1}/{max_attempts}): {str(e)}")
+            if attempt < max_attempts - 1:
+                continue
+            logger.warning(f"LLM resolution judge failed after {max_attempts} attempts, "
+                           f"{len(items_to_judge)} items will default to still_unresolved")
+            return {}
+
+    return {}
 
 
 def persist_resolution_status(
@@ -660,10 +700,11 @@ def persist_resolution_status(
             prev_draft_id, prev_segments_raw = prev_row
             prev_segments = json.loads(prev_segments_raw) if isinstance(prev_segments_raw, str) else prev_segments_raw
 
-            # Load prior feedback items with anchors AND question_text for the judge
+            # Load prior feedback items with anchors, question_text, AND quoted_text for the judge
             cur.execute("""
                 SELECT fi.id, fi.error_category_id, fi.kind, fi.question_text,
-                       a.paragraph_index, a.start_offset, a.end_offset, a.content_fingerprint
+                       a.paragraph_index, a.start_offset, a.end_offset, a.content_fingerprint,
+                       fi.quoted_text
                 FROM feedback_item fi
                 LEFT JOIN anchor a ON a.feedback_item_id = fi.id AND a.draft_id = %s
                 WHERE fi.source_draft_id = %s
@@ -684,17 +725,25 @@ def persist_resolution_status(
         from wren_engine.anchor_service import Anchor, AnchorState
         from wren_engine.progress_tracker import JudgeInput
         tracker_items: list[TrackerFeedbackItem] = []
-        structural_ids: list[tuple[str, str]] = []
+        structural_items: list[dict[str, Any]] = []
         question_map: dict[str, str] = {}
+        quoted_text_map: dict[str, str] = {}
 
         for row in prior_items:
             item_id, category_id, kind, question_text = row[0], row[1], row[2], row[3]
             para_idx, start_off, end_off, fp_hex = row[4], row[5], row[6], row[7]
+            item_quoted_text = row[8] if len(row) > 8 else None
 
             question_map[item_id] = question_text or ''
+            quoted_text_map[item_id] = item_quoted_text or ''
 
             if kind == 'structural' or para_idx is None:
-                structural_ids.append((item_id, category_id))
+                structural_items.append({
+                    'id': item_id,
+                    'category_id': category_id,
+                    'question_text': question_text or '',
+                    'quoted_text': item_quoted_text or '',
+                })
                 continue
 
             prev_para_text = prev_segs[para_idx].text if para_idx < len(prev_segs) else ''
@@ -720,10 +769,10 @@ def persist_resolution_status(
         changed_items: list[dict[str, Any]] = []
 
         def collecting_judge(judge_input: JudgeInput) -> ResolutionStatus:
-            # Build the region text for this item to pass to the batch judge.
             changed_items.append({
                 'id': judge_input.item.item_id,
                 'question_text': question_map.get(judge_input.item.item_id, ''),
+                'original_text': quoted_text_map.get(judge_input.item.item_id, ''),
                 'region_text': judge_input.region_text,
             })
             # Placeholder — real verdict comes from the batch call below.
@@ -731,30 +780,43 @@ def persist_resolution_status(
 
         preliminary_updates = ProgressTracker().reevaluate(tracker_items, diff, collecting_judge)
 
-        # Batch LLM call for all changed spans — one Bedrock invocation total.
+        # Add structural items to the judge batch — they have no anchor/diff
+        # but can still be evaluated using quoted_text + full revised draft.
+        full_revised_text = '\n'.join(s.text for s in curr_segs)
+        for si in structural_items:
+            changed_items.append({
+                'id': si['id'],
+                'question_text': si['question_text'],
+                'original_text': si['quoted_text'],
+                'region_text': full_revised_text,
+            })
+
+        # Batch LLM call for all changed spans + structural items.
         llm_verdicts = judge_resolutions_with_llm(changed_items, config)
 
         # Final updates: replace placeholder verdicts with LLM verdicts where available.
+        from wren_engine.progress_tracker import ResolutionUpdate
         final_updates = []
         for u in preliminary_updates:
             if u.status == ResolutionStatus.STILL_UNRESOLVED and u.item_id in llm_verdicts:
-                from wren_engine.progress_tracker import ResolutionUpdate
                 final_updates.append(ResolutionUpdate(
                     item_id=u.item_id,
                     category_id=u.category_id,
                     status=llm_verdicts[u.item_id],
                 ))
             else:
-                # RESOLVED/UNCHANGED/REMOVED handled structurally — keep as-is.
                 final_updates.append(u)
+
+        # Structural items: use LLM verdict if available, otherwise still_unresolved.
+        structural_updates = []
+        for si in structural_items:
+            status = llm_verdicts.get(si['id'], ResolutionStatus.STILL_UNRESOLVED)
+            structural_updates.append((si['id'], new_draft_id, status.value if isinstance(status, ResolutionStatus) else status))
 
         rows_to_insert = [
             (u.item_id, new_draft_id, u.status.value)
             for u in final_updates
-        ] + [
-            (item_id, new_draft_id, 'still_unresolved')
-            for item_id, _ in structural_ids
-        ]
+        ] + structural_updates
 
         if rows_to_insert:
             with conn.cursor() as cur:
