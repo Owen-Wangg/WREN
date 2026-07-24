@@ -121,6 +121,15 @@ export async function assignRole(
   }
 
   // Student / TechnicalAdmin — global roles, scope is NULL.
+  const existing = await db.query<RoleAssignmentRow>(
+    `SELECT id, user_id, role, scope FROM role_assignment
+     WHERE user_id = $1 AND role = $2 AND scope IS NULL`,
+    [userId, role],
+  );
+  if (existing.length > 0) {
+    return;
+  }
+
   const scopeValue = null;
   await db.query(
     `INSERT INTO role_assignment (user_id, role, scope, granted_by) VALUES ($1, $2, $3, $4)`,

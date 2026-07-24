@@ -4,7 +4,7 @@
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt } from './departmentService';
+import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState } from './departmentService';
 import {
   listDocumentTypes,
   listAllDocumentTypes,
@@ -15,7 +15,7 @@ import { listErrorCategories, createErrorCategory, updateErrorCategory, deleteEr
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { listContentTypes } from './contentTypeService';
 import { searchUsers } from './userService';
-import { assignRole } from './roleAssignmentService';
+import { assignRole, revokeRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
 import { grantOverride } from './overrideService';
 import { listMyAccessGrants } from './accessGrantService';
@@ -69,6 +69,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     if (resource === '/v1/departments/{departmentId}/prompt' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateDepartmentPrompt(event));
     }
+    if (resource === '/v1/departments/{departmentId}/access-state' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleSetDepartmentAccessState(event));
+    }
     if (resource === '/v1/document-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocumentTypes(event));
     }
@@ -104,6 +107,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/roles' && httpMethod === 'POST') {
       return await wrapHandler(() => handleAssignRole(event));
+    }
+    if (resource === '/v1/roles' && httpMethod === 'DELETE') {
+      return await wrapHandler(() => handleRevokeRole(event));
     }
     if (resource === '/v1/usage' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetUsage(event));
@@ -266,6 +272,28 @@ async function handleSetDocumentTypeAccessState(event: any): Promise<APIGatewayP
   };
 }
 
+async function handleSetDepartmentAccessState(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const accessState = body.accessState as 'OPEN' | 'LOCKED' | undefined;
+  if (accessState !== 'OPEN' && accessState !== 'LOCKED') {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: "accessState must be 'OPEN' or 'LOCKED'",
+      }),
+    };
+  }
+  const updated = await setDepartmentAccessState(actor, departmentId, accessState, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(updated),
+  };
+}
+
 async function handleSearchUsers(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
@@ -294,7 +322,18 @@ async function handleAssignRole(event: any): Promise<APIGatewayProxyResult> {
   await assignRole(actor, body, db);
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true }),
+    body: JSON.stringify({ success: true, userId: body.userId, role: body.role }),
+  };
+}
+
+async function handleRevokeRole(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const body = event.body ? JSON.parse(event.body) : {};
+  await revokeRole(actor, body, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ success: true, userId: body.userId, role: body.role }),
   };
 }
 

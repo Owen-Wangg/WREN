@@ -83,6 +83,17 @@ export async function updateDepartmentPrompt(departmentId: string, prompt: strin
   });
 }
 
+export async function setDepartmentAccessState(
+  departmentId: string,
+  accessState: 'OPEN' | 'LOCKED',
+) {
+  return apiClient.request(`/v1/departments/${departmentId}/access-state`, {
+    method: 'PUT',
+    body: { accessState },
+    schema: departmentSchema,
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Users — platform-wide search (TechAdmin only) */
 /* -------------------------------------------------------------------------- */
@@ -200,6 +211,24 @@ export async function assignRole(input: {
   });
 }
 
+export async function revokeRole(input: {
+  userId: string;
+  role: 'Student' | 'DepartmentAdmin' | 'TechnicalAdmin';
+  departmentId?: string;
+}) {
+  return apiClient.request('/v1/roles', {
+    method: 'DELETE',
+    body: {
+      userId: input.userId,
+      role: input.role,
+      scope: input.departmentId
+        ? { kind: 'department', departmentId: input.departmentId }
+        : { kind: 'platform' },
+      ...(input.departmentId ? { departmentId: input.departmentId } : {}),
+    },
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Model Configuration — read-only deploy-time value */
 /* -------------------------------------------------------------------------- */
@@ -240,12 +269,14 @@ export const systemAdminApi = {
   listDepartments,
   getDepartment,
   updateDepartmentPrompt,
+  setDepartmentAccessState,
   searchAllUsers,
   getUsageReport,
   getPlatformUsageLimits,
   updatePlatformUsageLimits,
   grantUsageOverride,
   assignRole,
+  revokeRole,
   getModelConfig,
   updateModelConfig,
 };

@@ -14,9 +14,7 @@
  *     `documentType.manageCatalog`: a `DepartmentAdmin` within an administered
  *     Department (Requirement 30.1).
  *   - OPEN / LOCKED access-state control → `documentType.setAccessState`:
- *     `TechnicalAdmin` (any type) or `DepartmentAdmin` within an administered
- *     Department. New catalog rows default to LOCKED; unlocking is a separate
- *     step so types can be prepared before students use them.
+ *     `TechnicalAdmin` only (department-wide). New catalog rows default to OPEN.
  *
  * Every mutation re-checks the capability BEFORE touching the database and
  * denies with no mutation when disallowed (Requirements 36.2, 36.3). All
@@ -76,9 +74,9 @@ async function findDepartmentId(
 
 /**
  * Create a Document Type catalog record within a Department (`DepartmentAdmin`
- * for administered Departments). New records always start with a `LOCKED`
- * access state (the DB default); promoting to OPEN is a separate access-state
- * operation ({@link setDocumentTypeAccessState}).
+ * for administered Departments). New records always start with an `OPEN`
+ * access state (matching the department default); locking is a separate
+ * TechnicalAdmin department-wide operation ({@link setDocumentTypeAccessState}).
  */
 export async function createDocumentType(
   actor: AuthContext,
@@ -95,7 +93,7 @@ export async function createDocumentType(
 
   const rows = await db.query<DocumentTypeRow>(
     `INSERT INTO document_type (department_id, name, access_state, size_limit_words)
-     VALUES ($1, $2, 'LOCKED', $3) RETURNING ${RETURNING}`,
+     VALUES ($1, $2, 'OPEN', $3) RETURNING ${RETURNING}`,
     [departmentId, name, sizeLimitWords ?? null],
   );
 
@@ -108,7 +106,12 @@ export async function getDocumentType(
   db: QueryExecutor,
 ): Promise<DocumentType | null> {
   const rows = await db.query<DocumentTypeRow>(
-    `SELECT ${RETURNING} FROM document_type WHERE id = $1`,
+    `SELECT dt.id, dt.department_id, dt.name,
+            COALESCE(d.access_state, dt.access_state) AS access_state,
+            dt.size_limit_words
+     FROM document_type dt
+     INNER JOIN department d ON d.id = dt.department_id
+     WHERE dt.id = $1`,
     [id],
   );
   const row = rows[0];
@@ -121,7 +124,13 @@ export async function listDocumentTypes(
   db: QueryExecutor,
 ): Promise<DocumentType[]> {
   const rows = await db.query<DocumentTypeRow>(
-    `SELECT ${RETURNING} FROM document_type WHERE department_id = $1 ORDER BY name ASC`,
+    `SELECT dt.id, dt.department_id, dt.name,
+            COALESCE(d.access_state, dt.access_state) AS access_state,
+            dt.size_limit_words
+     FROM document_type dt
+     INNER JOIN department d ON d.id = dt.department_id
+     WHERE dt.department_id = $1
+     ORDER BY dt.name ASC`,
     [departmentId],
   );
   return rows.map(toDocumentType);
@@ -132,7 +141,12 @@ export async function listAllDocumentTypes(
   db: QueryExecutor,
 ): Promise<DocumentType[]> {
   const rows = await db.query<DocumentTypeRow>(
-    `SELECT ${RETURNING} FROM document_type ORDER BY name ASC`,
+    `SELECT dt.id, dt.department_id, dt.name,
+            COALESCE(d.access_state, dt.access_state) AS access_state,
+            dt.size_limit_words
+     FROM document_type dt
+     INNER JOIN department d ON d.id = dt.department_id
+     ORDER BY dt.name ASC`,
     [],
   );
   return rows.map(toDocumentType);
@@ -195,9 +209,9 @@ export async function updateDocumentType(
 }
 
 /**
- * Set a Document Type's access state to OPEN or LOCKED. TechnicalAdmins may
- * set any type; DepartmentAdmins may set types in departments they administer.
- * Throws {@link NotFoundError} when the Document Type does not exist.
+ * Set OPEN/LOCKED for the Document Type's owning Department (TechnicalAdmin
+ * only). Access is department-wide; updates the department and syncs all
+ * document types under it.
  */
 export async function setDocumentTypeAccessState(
   actor: AuthContext,
@@ -210,14 +224,30 @@ export async function setDocumentTypeAccessState(
     throw new NotFoundError(`Document Type '${id}' not found`);
   }
 
+  if (!actor.roles.includes('TechnicalAdmin')) {
+    throw Object.assign(
+      new Error('Only TechnicalAdmin may change department access state'),
+      { statusCode: 403 },
+    );
+  }
+
   requireCapability(actor, {
     capability: 'documentType.setAccessState',
     scope: { kind: 'documentType', documentTypeId: id, departmentId },
   });
 
+  await db.query(
+    `UPDATE department SET access_state = $2 WHERE id = $1`,
+    [departmentId, accessState],
+  );
+  await db.query(
+    `UPDATE document_type SET access_state = $2 WHERE department_id = $1`,
+    [departmentId, accessState],
+  );
+
   const rows = await db.query<DocumentTypeRow>(
-    `UPDATE document_type SET access_state = $2 WHERE id = $1 RETURNING ${RETURNING}`,
-    [id, accessState],
+    `SELECT ${RETURNING} FROM document_type WHERE id = $1`,
+    [id],
   );
   return toDocumentType(rows[0]!);
 }

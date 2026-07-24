@@ -2130,9 +2130,69 @@ paths:
       summary: Assign role to user (TechAdmin)
       tags: [Roles]
       operationId: assignRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, role, scope]
+              properties:
+                userId:
+                  type: string
+                role:
+                  type: string
+                  enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                scope:
+                  type: object
+                departmentId:
+                  type: string
       responses:
         "200":
           description: Role assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [userId, role]
+                properties:
+                  userId:
+                    type: string
+                  role:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    delete:
+      summary: Revoke role from user (TechAdmin)
+      tags: [Roles]
+      operationId: revokeRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, role, scope]
+              properties:
+                userId:
+                  type: string
+                role:
+                  type: string
+                  enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                scope:
+                  type: object
+                departmentId:
+                  type: string
+      responses:
+        "200":
+          description: Role revoked
           content:
             application/json:
               schema:
@@ -2979,6 +3039,79 @@ paths:
                 type: string
 
   # ==================== Department prompt ====================
+  /v1/departments/{departmentId}/access-state:
+    put:
+      summary: Set department-wide student access (OPEN/LOCKED) — TechnicalAdmin only
+      tags: [Departments]
+      operationId: setDepartmentAccessState
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accessState]
+              properties:
+                accessState:
+                  type: string
+                  enum: [OPEN, LOCKED]
+      responses:
+        "200":
+          description: Updated department
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   /v1/departments/{departmentId}/prompt:
     put:
       summary: Update department-level prompt

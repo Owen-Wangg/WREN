@@ -57,7 +57,6 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'documentType.readConfig',
   'documentType.modifyConfig',
   'documentType.manageCatalog',
-  'documentType.setAccessState',
   'topic.manage',
   'department.manage',
   'accessGrant.create',
