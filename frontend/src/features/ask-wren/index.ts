@@ -13,4 +13,5 @@ export {
 export {
   WrenChatPanel,
   type WrenChatPanelProps,
+  type ChatQuoteSelection,
 } from './components/WrenChatPanel';

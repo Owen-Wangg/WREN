@@ -90,6 +90,9 @@ export function DocumentEditorPage() {
   const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
     undefined,
   );
+  const [highlightedLocationHint, setHighlightedLocationHint] = useState<string | undefined>(
+    undefined,
+  );
   const [activeQuoteId, setActiveQuoteId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
   // Start polling immediately if we arrived from a fresh upload (router state
@@ -427,6 +430,7 @@ export function DocumentEditorPage() {
                   categoryLabels={previewCategoryLabels}
                   highlightedAnchorId={highlightedAnchorId}
                   highlightedQuotedText={highlightedQuotedText}
+                  highlightedLocationHint={highlightedLocationHint}
                   showCoachHighlights={showCoachHighlights}
                   onContentChange={(content) => setCurrentContent(content)}
                 />
@@ -484,12 +488,21 @@ export function DocumentEditorPage() {
                 setActiveQuoteId(`ask:${anchorId}`);
                 setHighlightedAnchorId(anchorId);
                 setHighlightedQuotedText(undefined);
+                setHighlightedLocationHint(undefined);
                 setShowCoachHighlights(true);
               }}
-              onHighlightText={(text) => {
+              onChatQuoteClick={(selection) => {
+                if (activeQuoteId === selection.quoteKey) {
+                  setActiveQuoteId(undefined);
+                  setHighlightedAnchorId(undefined);
+                  setHighlightedQuotedText(undefined);
+                  setHighlightedLocationHint(undefined);
+                  return;
+                }
+                setActiveQuoteId(selection.quoteKey);
                 setHighlightedAnchorId(undefined);
-                setHighlightedQuotedText(text);
-                setActiveQuoteId(`chat-quote:${text}`);
+                setHighlightedQuotedText(selection.quotedText);
+                setHighlightedLocationHint(selection.locationHint);
                 setShowCoachHighlights(true);
               }}
               activeQuoteId={activeQuoteId}
@@ -498,11 +511,13 @@ export function DocumentEditorPage() {
                   setActiveQuoteId(undefined);
                   setHighlightedAnchorId(undefined);
                   setHighlightedQuotedText(undefined);
+                  setHighlightedLocationHint(undefined);
                   return;
                 }
                 setActiveQuoteId(selection.feedbackItemId);
                 setHighlightedAnchorId(selection.anchorId);
                 setHighlightedQuotedText(selection.quotedText);
+                setHighlightedLocationHint(undefined);
               }}
             />
           </div>
