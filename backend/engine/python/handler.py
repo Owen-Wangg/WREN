@@ -574,7 +574,7 @@ def judge_resolutions_with_llm(
 
     items_json = json.dumps([
         {
-            'id': item['id'],
+            'id': str(item['id']),
             'feedback_question': item['question_text'],
             'original_text': item.get('original_text', ''),
             'revised_text': item['region_text'],
@@ -739,7 +739,7 @@ def persist_resolution_status(
 
             if kind == 'structural' or para_idx is None:
                 structural_items.append({
-                    'id': item_id,
+                    'id': str(item_id),
                     'category_id': category_id,
                     'question_text': question_text or '',
                     'quoted_text': item_quoted_text or '',
@@ -770,7 +770,7 @@ def persist_resolution_status(
 
         def collecting_judge(judge_input: JudgeInput) -> ResolutionStatus:
             changed_items.append({
-                'id': judge_input.item.item_id,
+                'id': str(judge_input.item.item_id),
                 'question_text': question_map.get(judge_input.item.item_id, ''),
                 'original_text': quoted_text_map.get(judge_input.item.item_id, ''),
                 'region_text': judge_input.region_text,
@@ -798,11 +798,12 @@ def persist_resolution_status(
         from wren_engine.progress_tracker import ResolutionUpdate
         final_updates = []
         for u in preliminary_updates:
-            if u.status == ResolutionStatus.STILL_UNRESOLVED and u.item_id in llm_verdicts:
+            item_id_str = str(u.item_id)
+            if u.status == ResolutionStatus.STILL_UNRESOLVED and item_id_str in llm_verdicts:
                 final_updates.append(ResolutionUpdate(
                     item_id=u.item_id,
                     category_id=u.category_id,
-                    status=llm_verdicts[u.item_id],
+                    status=llm_verdicts[item_id_str],
                 ))
             else:
                 final_updates.append(u)
