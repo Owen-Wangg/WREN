@@ -144,6 +144,41 @@ function mergeMessagesById(
   return merged;
 }
 
+/**
+ * Server messages are source of truth. Keep only in-flight optimistic
+ * `local-*` rows that are not already present on the server (matched by
+ * role + text), so re-hydrate after draft changes never doubles turns.
+ */
+function reconcileWithServer(
+  server: readonly WrenChatMessage[],
+  ...locals: Array<readonly WrenChatMessage[] | null | undefined>
+): WrenChatMessage[] {
+  const pendingLocals: WrenChatMessage[] = [];
+  const seenLocalIds = new Set<string>();
+
+  for (const list of locals) {
+    for (const message of list ?? []) {
+      if (!message.id.startsWith('local-')) continue;
+      if (seenLocalIds.has(message.id)) continue;
+      if (server.some((s) => s.role === message.role && s.text === message.text)) {
+        continue;
+      }
+      seenLocalIds.add(message.id);
+      pendingLocals.push(message);
+    }
+  }
+
+  return mergeMessagesById(server, pendingLocals);
+}
+
+/** Drop stale optimistic rows already mirrored by a server id in the same list. */
+function sanitizeConversation(
+  messages: readonly WrenChatMessage[],
+): WrenChatMessage[] {
+  const confirmed = messages.filter((m) => !m.id.startsWith('local-'));
+  return reconcileWithServer(confirmed, messages);
+}
+
 export type WrenChatProgressSignals = Omit<WritingProgressInput, 'hasAskedCoach'>;
 
 export interface WrenChatPanelProps {
@@ -177,7 +212,9 @@ export function WrenChatPanel({
   onHighlightText,
 }: WrenChatPanelProps) {
   const [messages, setMessages] = useState<readonly WrenChatMessage[]>(() =>
-    documentId ? (readCachedMessages(documentId, draftId) ?? []) : [],
+    documentId
+      ? sanitizeConversation(readCachedMessages(documentId, draftId) ?? [])
+      : [],
   );
   const [error, setError] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
@@ -217,9 +254,11 @@ export function WrenChatPanel({
         return;
       }
 
-      const cached = readCachedMessages(documentId, draftId);
-      if (cached && cached.length > 0 && !cancelled) {
-        setMessages((prev) => mergeMessagesById(prev, cached));
+      const cached = sanitizeConversation(
+        readCachedMessages(documentId, draftId) ?? [],
+      );
+      if (cached.length > 0 && !cancelled) {
+        setMessages((prev) => sanitizeConversation(mergeMessagesById(prev, cached)));
       }
 
       if (!askWrenService.getMessages) {
@@ -229,7 +268,7 @@ export function WrenChatPanel({
       try {
         const prior = await askWrenService.getMessages(documentId, draftId);
         if (!cancelled) {
-          const next = mergeMessagesById(messagesRef.current, cached, prior);
+          const next = reconcileWithServer(prior, messagesRef.current, cached);
           setMessages(next);
           writeCachedMessages(documentId, next);
         }
@@ -247,7 +286,7 @@ export function WrenChatPanel({
   }, [askWrenService, documentId, draftId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    bottomRef.current?.scrollIntoView?.({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
   const onSubmit = async ({ text }: AskWrenMessageFormValues) => {
@@ -279,7 +318,8 @@ export function WrenChatPanel({
       });
       setIsTyping(false);
       setMessages((prev) => {
-        const next = [...prev, reply];
+        // Dedupe by id in case a concurrent hydrate already included this reply.
+        const next = mergeMessagesById(prev, [reply]);
         writeCachedMessages(documentId, next);
         return next;
       });
