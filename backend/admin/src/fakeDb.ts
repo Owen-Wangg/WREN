@@ -21,6 +21,7 @@ interface DepartmentRow {
   id: string;
   name: string;
   prompt: string | null;
+  access_state: 'OPEN' | 'LOCKED';
 }
 
 interface DocumentTypeRow {
@@ -264,6 +265,7 @@ export class FakeDb implements QueryExecutor {
       id: row.id,
       name: row.name ?? 'Seed Dept',
       prompt: row.prompt ?? null,
+      access_state: row.access_state ?? 'OPEN',
     };
     this.departments.set(full.id, full);
     return full;
@@ -273,11 +275,12 @@ export class FakeDb implements QueryExecutor {
   public seedDocumentType(
     row: Partial<DocumentTypeRow> & { id: string; department_id: string },
   ): DocumentTypeRow {
+    const dept = this.departments.get(row.department_id);
     const full: DocumentTypeRow = {
       id: row.id,
       department_id: row.department_id,
       name: row.name ?? 'Seed Type',
-      access_state: row.access_state ?? 'LOCKED',
+      access_state: row.access_state ?? dept?.access_state ?? 'OPEN',
       size_limit_words: row.size_limit_words ?? null,
     };
     this.documentTypes.set(full.id, full);
@@ -623,6 +626,7 @@ export class FakeDb implements QueryExecutor {
         id,
         name: params[1] as string,
         prompt: null,
+        access_state: 'OPEN',
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -634,6 +638,19 @@ export class FakeDb implements QueryExecutor {
         id: params[0] as string,
         name: params[1] as string,
         prompt: null,
+        access_state: 'OPEN',
+      };
+      this.departments.set(row.id, row);
+      return [row] as unknown as Row[];
+    }
+
+    if (sql.startsWith('INSERT INTO department (name) VALUES ($1)')) {
+      this.mutationCount += 1;
+      const row: DepartmentRow = {
+        id: this.nextId('dept'),
+        name: params[0] as string,
+        prompt: null,
+        access_state: 'OPEN',
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -644,14 +661,30 @@ export class FakeDb implements QueryExecutor {
       return (row ? [{ id: row.id }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT id, name, prompt FROM department WHERE id = $1')) {
+    if (
+      sql.startsWith('SELECT id, name, prompt, access_state FROM department WHERE id = $1') ||
+      sql.startsWith('SELECT id, name, prompt FROM department WHERE id = $1')
+    ) {
       const row = this.departments.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT id, name, prompt FROM department ORDER BY name ASC')) {
+    if (
+      sql.startsWith('SELECT id, name, prompt, access_state FROM department ORDER BY name ASC') ||
+      sql.startsWith('SELECT id, name, prompt FROM department ORDER BY name ASC')
+    ) {
       const rows = [...this.departments.values()]
         .map((r) => ({ ...r }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state,')) {
+      const rows = [...this.departments.values()]
+        .map((r) => ({
+          ...r,
+          active_user_count: 0,
+        }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
     }
@@ -676,11 +709,12 @@ export class FakeDb implements QueryExecutor {
 
     if (sql.startsWith('INSERT INTO document_type (department_id, name, access_state, size_limit_words)')) {
       this.mutationCount += 1;
+      const dept = this.departments.get(params[0] as string);
       const row: DocumentTypeRow = {
         id: this.nextId('dt'),
         department_id: params[0] as string,
         name: params[1] as string,
-        access_state: 'LOCKED',
+        access_state: dept?.access_state ?? 'OPEN',
         size_limit_words: (params[2] as number | null) ?? null,
       };
       this.documentTypes.set(row.id, row);
@@ -690,6 +724,51 @@ export class FakeDb implements QueryExecutor {
     if (sql.startsWith('SELECT department_id FROM document_type WHERE id = $1')) {
       const row = this.documentTypes.get(params[0] as string);
       return (row ? [{ department_id: row.department_id }] : []) as unknown as Row[];
+    }
+
+    const withDeptAccess = (r: DocumentTypeRow) => {
+      const dept = this.departments.get(r.department_id);
+      return {
+        ...r,
+        access_state: dept?.access_state ?? r.access_state,
+      };
+    };
+
+    if (
+      sql.includes('COALESCE(d.access_state, dt.access_state) AS access_state') &&
+      sql.includes('FROM document_type dt') &&
+      sql.includes('WHERE dt.id = $1')
+    ) {
+      const row = this.documentTypes.get(params[0] as string);
+      if (!row) return [] as unknown as Row[];
+      const dept = this.departments.get(row.department_id);
+      if (!dept) return [] as unknown as Row[];
+      return [withDeptAccess(row)] as unknown as Row[];
+    }
+
+    if (
+      sql.includes('COALESCE(d.access_state, dt.access_state) AS access_state') &&
+      sql.includes('FROM document_type dt') &&
+      sql.includes('WHERE dt.department_id = $1')
+    ) {
+      const rows = [...this.documentTypes.values()]
+        .filter((r) => r.department_id === (params[0] as string) && this.departments.has(r.department_id))
+        .map(withDeptAccess)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return rows as unknown as Row[];
+    }
+
+    if (
+      sql.includes('COALESCE(d.access_state, dt.access_state) AS access_state') &&
+      sql.includes('FROM document_type dt') &&
+      sql.includes('ORDER BY dt.name ASC') &&
+      !sql.includes('WHERE')
+    ) {
+      const rows = [...this.documentTypes.values()]
+        .filter((r) => this.departments.has(r.department_id))
+        .map(withDeptAccess)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return rows as unknown as Row[];
     }
 
     if (
@@ -711,6 +790,20 @@ export class FakeDb implements QueryExecutor {
         .map((r) => ({ ...r }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('UPDATE document_type SET access_state = $2 WHERE department_id = $1')) {
+      const departmentId = params[0] as string;
+      const accessState = params[1] as string;
+      let touched = false;
+      for (const row of this.documentTypes.values()) {
+        if (row.department_id === departmentId) {
+          row.access_state = accessState;
+          touched = true;
+        }
+      }
+      if (touched) this.mutationCount += 1;
+      return [] as unknown as Row[];
     }
 
     if (sql.startsWith('UPDATE document_type SET')) {

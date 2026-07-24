@@ -4,7 +4,7 @@
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt } from './departmentService';
+import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState } from './departmentService';
 import {
   listDocumentTypes,
   listAllDocumentTypes,
@@ -68,6 +68,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/departments/{departmentId}/prompt' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateDepartmentPrompt(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/access-state' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleSetDepartmentAccessState(event));
     }
     if (resource === '/v1/document-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocumentTypes(event));
@@ -266,6 +269,28 @@ async function handleSetDocumentTypeAccessState(event: any): Promise<APIGatewayP
   return {
     statusCode: 200,
     body: JSON.stringify({ accessState: updated.accessState }),
+  };
+}
+
+async function handleSetDepartmentAccessState(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const accessState = body.accessState as 'OPEN' | 'LOCKED' | undefined;
+  if (accessState !== 'OPEN' && accessState !== 'LOCKED') {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: "accessState must be 'OPEN' or 'LOCKED'",
+      }),
+    };
+  }
+  const updated = await setDepartmentAccessState(actor, departmentId, accessState, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(updated),
   };
 }
 

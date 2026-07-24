@@ -286,8 +286,10 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   }
 
   const dtRows = await db.query(
-    `SELECT id, access_state, size_limit_words
-     FROM document_type WHERE id = $1`,
+    `SELECT dt.id, d.access_state AS access_state, dt.size_limit_words
+     FROM document_type dt
+     INNER JOIN department d ON d.id = dt.department_id
+     WHERE dt.id = $1`,
     [documentTypeId],
   );
   if (dtRows.length === 0) {
@@ -324,7 +326,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       statusCode: 403,
       body: JSON.stringify({
         code: 'ACCESS_REQUEST_REQUIRED',
-        message: 'This document type is locked. Request access from a department admin.',
+        message: 'This department is locked. Request access from a department admin.',
         documentTypeId: submissionGate.documentTypeId,
       }),
     };

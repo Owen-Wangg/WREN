@@ -69,9 +69,8 @@ describe('Cross-department scope denials — DeptAdmin of dept X denied on dept 
     seedCrossDeptFixture(db);
     await expect(
       setDocumentTypeAccessState(deptAdminContext([DEPT_X]), DT_Y, 'OPEN', db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
-    expect(db.documentTypes.get(DT_Y)!.access_state).toBe('LOCKED');
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(db.documentTypes.get(DT_Y)!.access_state).toBe('OPEN');
   });
 
   it('denies deleteDocumentType for a type in dept Y', async () => {

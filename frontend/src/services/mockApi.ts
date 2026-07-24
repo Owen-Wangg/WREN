@@ -1142,8 +1142,8 @@ const v1MockRoutes: MockRoutes = {
   'GET /v1/departments': sampleDepartments,
   'GET /v1/document-types': sampleDocumentTypes,
   'GET /v1/document-types?departmentId=org-law-uuid-0001-000000000001': sampleDocumentTypes,
-  'POST /v1/departments': { id: 'org-new-mock-uuid-0000000001', name: 'New Department' },
-  'POST /v1/document-types': { id: 'dt-new-mock-uuid-0000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'New Document Type', accessState: 'LOCKED', sizeLimitWords: null },
+  'POST /v1/departments': { id: 'org-new-mock-uuid-0000000001', name: 'New Department', accessState: 'OPEN' },
+  'POST /v1/document-types': { id: 'dt-new-mock-uuid-0000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'New Document Type', accessState: 'OPEN', sizeLimitWords: null },
   'GET /v1/access-grants': sampleAccessGrants,
   'POST /v1/access-requests': { requested: true },
   // Content types by document type (matches fetchContentTypes path)
@@ -1349,7 +1349,7 @@ export class MockApiClient implements HttpClient {
     // Dynamic: POST /v1/departments
     if (key === 'POST /v1/departments') {
       const body = options.body as Record<string, unknown> | undefined;
-      const newDept = { id: `dept-mock-${Date.now()}`, name: body?.name ?? 'New Department' };
+      const newDept = { id: `dept-mock-${Date.now()}`, name: body?.name ?? 'New Department', accessState: 'OPEN' as const };
       const deptList = this.routes['GET /v1/departments'] as unknown[];
       deptList.push(newDept);
       if (!options.schema) return newDept as T;
@@ -1358,11 +1358,45 @@ export class MockApiClient implements HttpClient {
       return r.data;
     }
 
+    // Dynamic: PUT /v1/departments/{id}/access-state
+    {
+      const accessMatch = normalizedPath.match(/^\/v1\/departments\/([^/]+)\/access-state$/);
+      if (method === 'PUT' && accessMatch) {
+        const departmentId = accessMatch[1];
+        const body = options.body as { accessState?: 'OPEN' | 'LOCKED' } | undefined;
+        const accessState = body?.accessState === 'LOCKED' ? 'LOCKED' : 'OPEN';
+        const deptList = this.routes['GET /v1/departments'] as Array<{
+          id: string;
+          name: string;
+          accessState?: string;
+        }>;
+        const dept = deptList.find((d) => d.id === departmentId);
+        if (dept) dept.accessState = accessState;
+        const updated = {
+          id: departmentId,
+          name: dept?.name ?? 'Department',
+          accessState,
+        };
+        // Keep document types in this department aligned with the department lock.
+        const typeList = this.routes['GET /v1/document-types'] as Array<{
+          departmentId: string;
+          accessState: string;
+        }>;
+        for (const dt of typeList) {
+          if (dt.departmentId === departmentId) dt.accessState = accessState;
+        }
+        if (!options.schema) return updated as T;
+        const r = options.schema.safeParse(updated);
+        if (!r.success) throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, r.error.issues);
+        return r.data;
+      }
+    }
+
     // Dynamic: POST /v1/document-types
     if (key === 'POST /v1/document-types') {
       const body = options.body as Record<string, unknown> | undefined;
       const deptId = body?.departmentId as string ?? 'org-law-uuid-0001-000000000001';
-      const newType = { id: `dt-mock-${Date.now()}`, departmentId: deptId, name: body?.name ?? 'New Document Type', accessState: 'LOCKED', sizeLimitWords: null };
+      const newType = { id: `dt-mock-${Date.now()}`, departmentId: deptId, name: body?.name ?? 'New Document Type', accessState: 'OPEN', sizeLimitWords: null };
       const typeList = this.routes['GET /v1/document-types'] as unknown[];
       typeList.push(newType);
       // Also append to the per-department query

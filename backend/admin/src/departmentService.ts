@@ -41,11 +41,12 @@ interface DepartmentRow {
   readonly id: string;
   readonly name: string;
   readonly prompt: string | null;
+  readonly access_state?: 'OPEN' | 'LOCKED' | null;
   readonly active_user_count?: string | number;
 }
 
 /** The columns every read/write returns, in the shared DTO's field order. */
-const RETURNING = 'id, name, prompt';
+const RETURNING = 'id, name, prompt, access_state';
 
 /** Map a raw row to the validated shared {@link Department} DTO. */
 function toDepartment(row: DepartmentRow): Department {
@@ -53,6 +54,9 @@ function toDepartment(row: DepartmentRow): Department {
     id: row.id,
     name: row.name,
     prompt: row.prompt,
+    accessState: row.access_state === 'LOCKED' || row.access_state === 'OPEN'
+      ? row.access_state
+      : 'OPEN',
     activeUserCount: row.active_user_count !== undefined
       ? parseInt(String(row.active_user_count), 10)
       : undefined,
@@ -99,12 +103,12 @@ export async function listDepartments(
   db: QueryExecutor,
 ): Promise<Department[]> {
   const rows = await db.query<DepartmentRow>(
-    `SELECT d.id, d.name, d.prompt,
+    `SELECT d.id, d.name, d.prompt, d.access_state,
             COUNT(DISTINCT doc.owner_user_id)::int AS active_user_count
      FROM department d
      LEFT JOIN document_type dt ON dt.department_id = d.id
      LEFT JOIN document doc ON doc.document_type_id = dt.id
-     GROUP BY d.id, d.name, d.prompt
+     GROUP BY d.id, d.name, d.prompt, d.access_state
      ORDER BY d.name ASC`,
   );
   return rows.map(toDepartment);
@@ -165,6 +169,40 @@ export async function updateDepartmentPrompt(
   if (!row) {
     throw new NotFoundError(`Department '${id}' not found`);
   }
+  return toDepartment(row);
+}
+
+/**
+ * Set department-wide student access (OPEN/LOCKED). TechnicalAdmin only.
+ * Also syncs document_type.access_state in the department so catalog reads stay aligned.
+ */
+export async function setDepartmentAccessState(
+  actor: AuthContext,
+  id: string,
+  accessState: 'OPEN' | 'LOCKED',
+  db: QueryExecutor,
+): Promise<Department> {
+  if (!actor.roles.includes('TechnicalAdmin')) {
+    throw Object.assign(new Error('TechnicalAdmin role required'), { statusCode: 403 });
+  }
+  if (accessState !== 'OPEN' && accessState !== 'LOCKED') {
+    throw Object.assign(new Error("accessState must be 'OPEN' or 'LOCKED'"), { statusCode: 400 });
+  }
+
+  const rows = await db.query<DepartmentRow>(
+    `UPDATE department SET access_state = $2 WHERE id = $1 RETURNING ${RETURNING}`,
+    [id, accessState],
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new NotFoundError(`Department '${id}' not found`);
+  }
+
+  await db.query(
+    `UPDATE document_type SET access_state = $2 WHERE department_id = $1`,
+    [id, accessState],
+  );
+
   return toDepartment(row);
 }
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
-import { searchAllUsers, assignRole, revokeRole, updateDepartmentPrompt, getAnalyticsSummary } from '@/features/system-admin/systemAdminApi';
+import { searchAllUsers, assignRole, revokeRole, updateDepartmentPrompt, setDepartmentAccessState, getAnalyticsSummary } from '@/features/system-admin/systemAdminApi';
 import {
   BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -13,7 +13,8 @@ import { systemAdminApi } from '@/features/system-admin/systemAdminApi';
 interface Department {
   id: string;
   name: string;
-  accessState?: string;
+  accessState?: 'OPEN' | 'LOCKED';
+  prompt?: string | null;
 }
 
 interface EditingUser {
@@ -115,6 +116,14 @@ export function DepartmentDetailPage() {
     },
   });
 
+  const accessMutation = useMutation({
+    mutationFn: (accessState: 'OPEN' | 'LOCKED') =>
+      setDepartmentAccessState(departmentId!, accessState),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+    },
+  });
+
   function openEditModal(user: EditingUser) {
     setEditingUser(user);
     setRoleSaveError(null);
@@ -150,6 +159,34 @@ export function DepartmentDetailPage() {
             </button>
 
             <h2 className="mb-6 text-lg font-bold text-gray-900">{department?.name}</h2>
+
+            <div className="mb-6 rounded-lg border border-gray-200 bg-white p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Student access</p>
+                  <p className="text-xs text-gray-500">
+                    {isLocked
+                      ? 'Locked — students need a grant for document types in this department'
+                      : 'Open — any student can create documents in this department'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={!departmentId || accessMutation.isPending}
+                  onClick={() => accessMutation.mutate(isLocked ? 'OPEN' : 'LOCKED')}
+                  className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                    isLocked
+                      ? 'bg-gray-900 text-white hover:bg-gray-800'
+                      : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                  } disabled:opacity-50`}
+                >
+                  {accessMutation.isPending ? 'Saving…' : isLocked ? 'Open' : 'Lock'}
+                </button>
+              </div>
+              {accessMutation.isError && (
+                <p className="mt-2 text-xs text-red-600">Failed to update access. Try again.</p>
+              )}
+            </div>
 
             <div className="mb-6">
               <p className="mb-2 text-xs font-semibold uppercase text-gray-600">Actions</p>

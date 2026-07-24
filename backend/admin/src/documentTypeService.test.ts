@@ -27,7 +27,7 @@ function seedDepartment(db: FakeDb): void {
 }
 
 describe('createDocumentType (Requirement 30.1)', () => {
-  it('lets a DeptAdmin add a catalog record in an administered dept, defaulting to LOCKED', async () => {
+  it('lets a DeptAdmin add a catalog record in an administered dept, defaulting to OPEN', async () => {
     const db = new FakeDb();
     seedDepartment(db);
 
@@ -41,7 +41,7 @@ describe('createDocumentType (Requirement 30.1)', () => {
       id: expect.any(String),
       departmentId: DEPT,
       name: 'Case Brief',
-      accessState: 'LOCKED',
+      accessState: 'OPEN',
       sizeLimitWords: null,
     });
   });
@@ -106,8 +106,10 @@ describe('createDocumentType (Requirement 30.1)', () => {
 describe('read Document Types', () => {
   it('gets by id (null when absent) and lists per department ordered by name', async () => {
     const db = new FakeDb();
+    seedDepartment(db);
     db.seedDocumentType({ id: 'dt-b', department_id: DEPT, name: 'Beta' });
     db.seedDocumentType({ id: 'dt-a', department_id: DEPT, name: 'Alpha' });
+    db.seedDepartment({ id: 'other', name: 'Other' });
     db.seedDocumentType({ id: 'dt-x', department_id: 'other', name: 'Elsewhere' });
 
     expect(await getDocumentType('dt-a', db)).toMatchObject({ id: 'dt-a', name: 'Alpha' });
@@ -130,7 +132,7 @@ describe('updateDocumentType', () => {
       { name: 'New', sizeLimitWords: 8000 },
       db,
     );
-    expect(updated).toMatchObject({ name: 'New', sizeLimitWords: 8000, accessState: 'LOCKED' });
+    expect(updated).toMatchObject({ name: 'New', sizeLimitWords: 8000, accessState: 'OPEN' });
   });
 
   it('throws NotFoundError for an unknown Document Type', async () => {
@@ -163,34 +165,31 @@ describe('updateDocumentType', () => {
 });
 
 describe('setDocumentTypeAccessState (Requirement 28.4 / 33.2)', () => {
-  it('lets a TechnicalAdmin flip between OPEN and LOCKED (platform-level operation)', async () => {
+  it('lets a TechnicalAdmin flip between OPEN and LOCKED (department-wide)', async () => {
     const db = new FakeDb();
     seedDepartment(db);
     db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'T', access_state: 'LOCKED' });
+    db.seedDocumentType({ id: 'dt-2', department_id: DEPT, name: 'U', access_state: 'LOCKED' });
 
     const opened = await setDocumentTypeAccessState(techAdminContext(), 'dt-1', 'OPEN', db);
     expect(opened.accessState).toBe('OPEN');
+    expect(db.departments.get(DEPT)!.access_state).toBe('OPEN');
+    expect(db.documentTypes.get('dt-2')!.access_state).toBe('OPEN');
 
     const locked = await setDocumentTypeAccessState(techAdminContext(), 'dt-1', 'LOCKED', db);
     expect(locked.accessState).toBe('LOCKED');
+    expect(db.departments.get(DEPT)!.access_state).toBe('LOCKED');
+    expect(db.documentTypes.get('dt-2')!.access_state).toBe('LOCKED');
   });
 
-  it('lets a DeptAdmin open a type in an administered department', async () => {
-    const db = new FakeDb();
-    seedDepartment(db);
-    db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'T', access_state: 'LOCKED' });
-    const opened = await setDocumentTypeAccessState(deptAdminContext([DEPT]), 'dt-1', 'OPEN', db);
-    expect(opened.accessState).toBe('OPEN');
-  });
-
-  it('denies a DeptAdmin for a type outside administered departments', async () => {
+  it('denies a DeptAdmin (department lock is TechnicalAdmin-only)', async () => {
     const db = new FakeDb();
     seedDepartment(db);
     db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'T', access_state: 'LOCKED' });
     await expect(
-      setDocumentTypeAccessState(deptAdminContext(['other-dept']), 'dt-1', 'OPEN', db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+      setDocumentTypeAccessState(deptAdminContext([DEPT]), 'dt-1', 'OPEN', db),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(db.departments.get(DEPT)!.access_state).toBe('OPEN');
     expect(db.documentTypes.get('dt-1')!.access_state).toBe('LOCKED');
   });
 
@@ -200,8 +199,7 @@ describe('setDocumentTypeAccessState (Requirement 28.4 / 33.2)', () => {
     db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'T', access_state: 'LOCKED' });
     await expect(
       setDocumentTypeAccessState(studentContext(), 'dt-1', 'OPEN', db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    ).rejects.toMatchObject({ statusCode: 403 });
     expect(db.documentTypes.get('dt-1')!.access_state).toBe('LOCKED');
   });
 
@@ -294,14 +292,11 @@ describe('deleteDocumentType', () => {
     expect(db.documentTypes.has('dt-1')).toBe(true);
   });
 
-  it('denies a TechnicalAdmin (no educational ops) with no mutation', async () => {
+  it('allows a TechnicalAdmin to delete a Document Type (shared catalog capability)', async () => {
     const db = new FakeDb();
     seedDepartment(db);
     db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'Keep' });
-    await expect(
-      deleteDocumentType(techAdminContext(), 'dt-1', db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
-    expect(db.documentTypes.has('dt-1')).toBe(true);
+    await expect(deleteDocumentType(techAdminContext(), 'dt-1', db)).resolves.toBe(true);
+    expect(db.documentTypes.has('dt-1')).toBe(false);
   });
 });

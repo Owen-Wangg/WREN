@@ -71,6 +71,12 @@ export const departmentSchema = z
     id: idSchema,
     name: z.string().min(1),
     prompt: z.string().nullable().optional(),
+    /**
+     * Department-wide student access. OPEN = any student may self-select
+     * document types in this department; LOCKED = grant required. Controlled
+     * by TechnicalAdmin only.
+     */
+    accessState: documentTypeAccessStateSchema.optional(),
     /** Count of distinct users who have uploaded at least one document under this department. */
     activeUserCount: z.number().int().nonnegative().optional(),
   })

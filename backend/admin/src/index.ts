@@ -30,6 +30,7 @@ export {
   listDepartments,
   renameDepartment,
   deleteDepartment,
+  setDepartmentAccessState,
 } from './departmentService';
 export {
   createDocumentType,

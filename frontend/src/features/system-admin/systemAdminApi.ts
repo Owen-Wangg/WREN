@@ -83,6 +83,17 @@ export async function updateDepartmentPrompt(departmentId: string, prompt: strin
   });
 }
 
+export async function setDepartmentAccessState(
+  departmentId: string,
+  accessState: 'OPEN' | 'LOCKED',
+) {
+  return apiClient.request(`/v1/departments/${departmentId}/access-state`, {
+    method: 'PUT',
+    body: { accessState },
+    schema: departmentSchema,
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Users — platform-wide search (TechAdmin only) */
 /* -------------------------------------------------------------------------- */
@@ -258,6 +269,7 @@ export const systemAdminApi = {
   listDepartments,
   getDepartment,
   updateDepartmentPrompt,
+  setDepartmentAccessState,
   searchAllUsers,
   getUsageReport,
   getPlatformUsageLimits,
