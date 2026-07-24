@@ -9,7 +9,6 @@ import {
 import { createDocument, getPresignedUrl } from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
-import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
 import type { JSONContent } from '@tiptap/react';
 
@@ -99,8 +98,6 @@ export function NewDocumentPage() {
         const name = referenceFile.name.toLowerCase();
         if (name.endsWith('.docx')) {
           initialContent = await docxBytesToTiptapContent(bytes);
-        } else if (name.endsWith('.pdf')) {
-          initialContent = await pdfBytesToTiptapContent(bytes);
         }
       } catch {
         // Non-fatal: editor will fall back to plain-text segments from the API.

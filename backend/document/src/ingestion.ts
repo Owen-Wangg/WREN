@@ -125,7 +125,11 @@ export async function ingestUpload(
   let text: string;
   try {
     text = await deps.pdfExtractor.extract(bytes);
-  } catch {
+  } catch (err) {
+    // Log before falling back: a silent bare catch here hides real failures
+    // (e.g. a native-addon load error) behind the generic fallback message.
+    // eslint-disable-next-line no-console
+    console.error('[ingestUpload] PDF extraction threw:', err);
     return { status: 'fallback', reason: FALLBACK_MESSAGE };
   }
 
