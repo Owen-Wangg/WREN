@@ -170,10 +170,10 @@ function mergeMessagesById(
 }
 
 /**
- * Soft repair for already-cached inverted turns: a coach reply immediately
- * followed by a user message whose timestamp is *after* the reply usually
- * means clock-skew sort put "answer then question". Swap those pairs when
- * the user message is still an optimistic `local-*` row (safe signal).
+ * Soft repair for already-cached inverted turns from timestamp sorting.
+ * Only swaps `wren` → `local-user` when that wren has no user immediately
+ * before it (classic skew: answer landed above its optimistic question).
+ * Leaves normal `user → wren → local follow-up` alone while typing.
  */
 function repairOptimisticInversions(
   messages: readonly WrenChatMessage[],
@@ -183,15 +183,13 @@ function repairOptimisticInversions(
     const a = out[i];
     const b = out[i + 1];
     if (!a || !b) continue;
-    if (
-      a.role === 'wren' &&
-      b.role === 'user' &&
-      b.id.startsWith('local-') &&
-      !a.id.startsWith('local-')
-    ) {
-      out[i] = b;
-      out[i + 1] = a;
+    if (a.role !== 'wren' || b.role !== 'user' || !b.id.startsWith('local-')) {
+      continue;
     }
+    const prev = i > 0 ? out[i - 1] : undefined;
+    if (prev?.role === 'user') continue;
+    out[i] = b;
+    out[i + 1] = a;
   }
   return out;
 }
