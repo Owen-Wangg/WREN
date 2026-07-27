@@ -1,11 +1,21 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  GripVertical,
+  House,
+  MessageSquare,
+  Sparkles,
+} from 'lucide-react';
 
 import { AnchoredFeedbackEditorContainer } from '@/features/editor';
 import { createAskWrenService } from '@/features/ask-wren';
-import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
+import {
+  ChatFeedbackSidebar,
+  type DocumentNavMode,
+} from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
 import {
   fetchDocument,
@@ -25,6 +35,12 @@ import { queryKeys } from '@/hooks/queryKeys';
 import type { JSONContent } from '@tiptap/react';
 
 const askWrenService = createAskWrenService(apiClient);
+
+const ACTIVE_NAV_KEY = 'wren-active-sidebar-tab';
+const PANEL_WIDTH_DEFAULT = 360;
+const PANEL_WIDTH_MIN = 280;
+const PANEL_WIDTH_MAX = 520;
+const RAIL_WIDTH_PX = 72;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -77,15 +93,26 @@ function errorMessageFromUnknown(error: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
+function readStoredNavMode(): DocumentNavMode {
+  try {
+    const stored = localStorage.getItem(ACTIVE_NAV_KEY);
+    if (stored === 'home' || stored === 'chat' || stored === 'debrief') return stored;
+  } catch {
+    // ignore
+  }
+  return 'home';
+}
+
 export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
-  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(420);
+
+  const [activeNav, setActiveNav] = useState<DocumentNavMode>(() => readStoredNavMode());
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(PANEL_WIDTH_DEFAULT);
+
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
     undefined,
@@ -115,51 +142,64 @@ export function DocumentEditorPage() {
     routerInitialContent ?? EMPTY_EDITOR_CONTENT,
   );
 
-  const resizeRef = useRef<{ startX: number; startWidth: number; isDragging: boolean } | null>(null);
-  const sidebarDivRef = useRef<HTMLDivElement | null>(null);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const panelDivRef = useRef<HTMLDivElement | null>(null);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    resizeRef.current = {
-      startX: e.clientX,
-      startWidth: rightSidebarWidth,
-      isDragging: true,
-    };
+  const handleNavChange = useCallback((mode: DocumentNavMode) => {
+    setActiveNav(mode);
+    setPanelCollapsed(false);
+    try {
+      localStorage.setItem(ACTIVE_NAV_KEY, mode);
+    } catch {
+      // ignore
+    }
+  }, []);
 
-    const handleMove = (moveEvent: MouseEvent) => {
-      if (!resizeRef.current) return;
-      const delta = moveEvent.clientX - resizeRef.current.startX;
-      const newWidth = Math.max(300, resizeRef.current.startWidth - delta);
+  const handlePanelResizeStart = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      resizeRef.current = {
+        startX: e.clientX,
+        startWidth: panelWidth,
+      };
 
-      if (sidebarDivRef.current) {
-        sidebarDivRef.current.style.width = `${newWidth}px`;
-      }
-    };
+      const handleMove = (moveEvent: MouseEvent) => {
+        if (!resizeRef.current) return;
+        const delta = moveEvent.clientX - resizeRef.current.startX;
+        const next = Math.min(
+          PANEL_WIDTH_MAX,
+          Math.max(PANEL_WIDTH_MIN, resizeRef.current.startWidth + delta),
+        );
+        if (panelDivRef.current) {
+          panelDivRef.current.style.width = `${next}px`;
+        }
+      };
 
-    const handleUp = () => {
-      if (!resizeRef.current || !sidebarDivRef.current) return;
-      const currentWidth = parseInt(sidebarDivRef.current.style.width, 10);
-      setRightSidebarWidth(currentWidth);
-      resizeRef.current.isDragging = false;
+      const handleUp = () => {
+        if (!resizeRef.current || !panelDivRef.current) return;
+        const currentWidth = parseInt(panelDivRef.current.style.width, 10);
+        if (!Number.isNaN(currentWidth)) {
+          setPanelWidth(currentWidth);
+        }
+        resizeRef.current = null;
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleUp);
+      };
 
-      document.removeEventListener('mousemove', handleMove);
-      document.removeEventListener('mouseup', handleUp);
-    };
-
-    document.addEventListener('mousemove', handleMove);
-    document.addEventListener('mouseup', handleUp);
-  }, [rightSidebarWidth]);
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleUp);
+    },
+    [panelWidth],
+  );
 
   const envId = documentId ?? 'doc-1';
 
-  // Fetch real document metadata (name, etc.) from the backend
   const { data: documentData } = useQuery({
     queryKey: ['document', envId],
     queryFn: () => fetchDocument(apiClient, envId),
     enabled: !!documentId,
   });
 
-  // Load the latest draft body when opening from the dashboard (no router state).
   const draftQuery = useQuery({
     queryKey: ['document-draft', envId],
     queryFn: () => fetchLatestDraft(apiClient, envId),
@@ -198,14 +238,12 @@ export function DocumentEditorPage() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  /** Persist TipTap content as a new draft before Regenerate runs feedback. */
   const saveDraftFromEditor = useCallback(async () => {
     const segments = segmentsFromEditorContent(currentContent);
     await createDraft(apiClient, envId, segments);
     await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
   }, [currentContent, envId, queryClient]);
 
-  /** Resubmit = re-upload a .docx/.pdf onto this same document as a new draft. */
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
       const { uploadUrl, key } = await getPresignedUrl(
@@ -245,7 +283,6 @@ export function DocumentEditorPage() {
     resubmitDraftMutation.mutate(file);
   };
 
-  // Poll feedback status after generation is queued
   useEffect(() => {
     if (!isPollingFeedback) return;
 
@@ -287,7 +324,6 @@ export function DocumentEditorPage() {
     };
   }, [isPollingFeedback, envId, queryClient]);
 
-  // Download current editor content as .docx
   const handleDownload = async () => {
     const blob = await tiptapContentToDocxBlob(currentContent);
     const url = URL.createObjectURL(blob);
@@ -298,6 +334,15 @@ export function DocumentEditorPage() {
     URL.revokeObjectURL(url);
   };
 
+  const railItems: Array<{
+    id: DocumentNavMode;
+    label: string;
+    icon: ComponentType<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean | 'true' }>;
+  }> = [
+    { id: 'home', label: 'Home', icon: House },
+    { id: 'chat', label: appConfig.appName, icon: MessageSquare },
+    { id: 'debrief', label: 'AI Debrief', icon: Sparkles },
+  ];
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/30">
@@ -312,108 +357,203 @@ export function DocumentEditorPage() {
         </button>
       </div>
 
-      {/* Main content area */}
       <div className="flex min-h-0 flex-1">
-        {/* Left sidebar */}
-        <aside
-          className={`relative flex shrink-0 flex-col border-r border-border-subtle bg-surface-primary transition-[width] duration-300 ease-in-out ${
-            leftSidebarCollapsed ? 'w-0 overflow-hidden border-r-0' : 'w-[280px]'
-          }`}
+        {/* Icon rail — Teams/Slack style */}
+        <nav
+          aria-label="Document views"
+          className="flex shrink-0 flex-col items-stretch gap-xs border-r border-border-subtle bg-surface-muted/60 py-sm"
+          style={{ width: RAIL_WIDTH_PX }}
         >
-          <div className={`flex flex-1 flex-col p-lg ${leftSidebarCollapsed ? 'invisible' : 'visible'}`} style={{ minWidth: '280px' }}>
-            {/* Document header */}
-            <div className="flex flex-col gap-xs">
-              <span className="text-caption font-sans text-text-muted">
-                {breadcrumb}
-              </span>
-              <h2 className="text-heading3 font-sans font-bold text-text-primary">
-                {documentName}
-              </h2>
-              <p className="text-caption text-text-secondary leading-relaxed">
-                <strong>AI Debrief</strong> gives you a bird's-eye view of your writing: where you're excelling and where you could improve. Click any quote within the AI Debrief content to see it highlighted in your draft.
-              </p>
-              <p className="text-caption text-text-secondary leading-relaxed">
-                <strong>Ask {appConfig.appName}</strong> takes you deeper. Ask specific questions to get guided reflections that help you think critically about your draft.
-              </p>
-            </div>
-
-            <hr className="my-lg border-border-subtle" />
-
-            {/* Action buttons — bottom aligned */}
-            <nav className="mt-auto flex flex-col gap-sm" aria-label="Document actions">
-              {/* Open feedback & chat sidebar */}
+          {railItems.map((item) => {
+            const isActive = activeNav === item.id;
+            const Icon = item.icon;
+            return (
               <button
+                key={item.id}
                 type="button"
-                onClick={() => { setRightSidebarOpen(true); setRightSidebarCollapsed(false); }}
-                className="w-full rounded-md bg-accent-primary px-lg py-sm text-bodySmall font-sans font-semibold text-text-on-accent"
+                onClick={() => handleNavChange(item.id)}
+                aria-pressed={isActive}
+                className={[
+                  'relative flex flex-col items-center gap-[2px] px-xs py-sm text-center transition-colors',
+                  isActive
+                    ? 'text-text-primary'
+                    : 'text-text-muted hover:bg-surface-muted hover:text-text-secondary',
+                ].join(' ')}
               >
-                Open {appConfig.appName} and AI Debrief
+                {isActive && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r-sm bg-accent-primary"
+                  />
+                )}
+                <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
+                <span className="max-w-full truncate px-[2px] text-[10px] font-sans font-medium leading-tight">
+                  {item.label}
+                </span>
               </button>
+            );
+          })}
+        </nav>
 
-              {/* Divider between feedback and revision actions */}
-              <hr className="my-xs border-border-subtle" />
+        {/* Content panel for the selected rail item */}
+        <aside
+          ref={panelDivRef}
+          className={`relative flex shrink-0 flex-col border-r border-border-subtle bg-surface-primary ${
+            panelCollapsed ? 'overflow-hidden border-r-0' : ''
+          }`}
+          style={{ width: panelCollapsed ? 0 : panelWidth }}
+        >
+          <div
+            className={`flex h-full min-h-0 w-full flex-col ${panelCollapsed ? 'invisible' : 'visible'}`}
+            style={{ minWidth: PANEL_WIDTH_MIN }}
+            aria-hidden={panelCollapsed}
+          >
+              {/* Home stays in the tree only when selected; coach panels stay mounted. */}
+              <div
+                className={activeNav === 'home' ? 'flex h-full min-h-0 flex-col' : 'hidden'}
+                hidden={activeNav !== 'home'}
+              >
+                <div className="flex flex-1 flex-col overflow-y-auto p-lg">
+                  <div className="flex flex-col gap-xs">
+                    <span className="text-caption font-sans text-text-muted">{breadcrumb}</span>
+                    <h2 className="text-heading3 font-sans font-bold text-text-primary">
+                      {documentName}
+                    </h2>
+                    <p className="text-caption text-text-secondary leading-relaxed">
+                      Use the rail to open Ask {appConfig.appName} or AI Debrief. Edit inline in
+                      the draft, or upload a revised file below.
+                    </p>
+                  </div>
 
-              {/* Revision paths */}
-              <div className="flex flex-col gap-xs">
-                <p className="text-caption font-semibold text-text-primary">Revise your draft</p>
-                <p className="text-caption text-text-muted leading-relaxed">
-                  <strong>Edit inline</strong>: make changes directly in the editor, then click <strong>Regenerate</strong> in the AI Debrief panel to get updated feedback.
-                </p>
-                <p className="text-caption text-text-muted leading-relaxed">
-                  <strong>Upload a new draft</strong>: revise in your word processor and upload below; feedback will regenerate automatically.
-                </p>
+                  <hr className="my-lg border-border-subtle" />
+
+                  <nav className="mt-auto flex flex-col gap-sm" aria-label="Document actions">
+                    <div className="flex flex-col gap-xs">
+                      <p className="text-caption font-semibold text-text-primary">
+                        Revise your draft
+                      </p>
+                      <p className="text-caption text-text-muted leading-relaxed">
+                        <strong>Edit inline</strong>, then Regenerate in AI Debrief — or{' '}
+                        <strong>upload a new draft</strong> to refresh feedback automatically.
+                      </p>
+                    </div>
+
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                      className="hidden"
+                      onChange={handleResubmitFileChange}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleResubmitClick}
+                      disabled={resubmitDraftMutation.isPending}
+                      className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {resubmitDraftMutation.isPending ? 'Uploading…' : 'Upload New Draft'}
+                    </button>
+                    {resubmitDraftMutation.isError && (
+                      <p role="alert" className="text-bodySmall text-signal-critical">
+                        {errorMessageFromUnknown(resubmitDraftMutation.error)}
+                      </p>
+                    )}
+
+                    <hr className="my-xs border-border-subtle" />
+
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted"
+                    >
+                      Download Document
+                    </button>
+                  </nav>
+                </div>
               </div>
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
-                className="hidden"
-                onChange={handleResubmitFileChange}
-              />
-              <button
-                type="button"
-                onClick={handleResubmitClick}
-                disabled={resubmitDraftMutation.isPending}
-                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:opacity-60 disabled:cursor-not-allowed"
+              <div
+                className={
+                  activeNav === 'chat' || activeNav === 'debrief'
+                    ? 'h-full min-h-0'
+                    : 'hidden'
+                }
+                hidden={activeNav === 'home'}
               >
-                {resubmitDraftMutation.isPending ? 'Uploading…' : 'Upload New Draft'}
-              </button>
-              {resubmitDraftMutation.isError && (
-                <p role="alert" className="text-bodySmall text-signal-critical">
-                  {errorMessageFromUnknown(resubmitDraftMutation.error)}
-                </p>
-              )}
-
-              <hr className="my-xs border-border-subtle" />
-
-              <button
-                type="button"
-                onClick={handleDownload}
-                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted"
-              >
-                Download Document
-              </button>
-            </nav>
-          </div>
-
-          {/* Resize handle on right edge */}
-          <div className="absolute right-0 top-0 flex h-full w-[6px] cursor-col-resize items-center justify-center opacity-0 transition-opacity hover:opacity-100">
-            <GripVertical size={12} className="text-text-muted" />
+                <ChatFeedbackSidebar
+                  documentId={envId}
+                  draftId={draftId}
+                  draftVersion={draftVersion}
+                  activeMode={activeNav}
+                  wordCount={wordCountFromEditorContent(currentContent)}
+                  askWrenService={askWrenService}
+                  isGeneratingFeedback={isPollingFeedback}
+                  onBeforeRegenerate={saveDraftFromEditor}
+                  onHighlight={(anchorId) => {
+                    setActiveQuoteId(`ask:${anchorId}`);
+                    setHighlightedAnchorId(anchorId);
+                    setHighlightedQuotedText(undefined);
+                    setHighlightedLocationHint(undefined);
+                    setShowCoachHighlights(true);
+                  }}
+                  onChatQuoteClick={(selection) => {
+                    if (activeQuoteId === selection.quoteKey) {
+                      setActiveQuoteId(undefined);
+                      setHighlightedAnchorId(undefined);
+                      setHighlightedQuotedText(undefined);
+                      setHighlightedLocationHint(undefined);
+                      return;
+                    }
+                    setActiveQuoteId(selection.quoteKey);
+                    setHighlightedAnchorId(undefined);
+                    setHighlightedQuotedText(selection.quotedText);
+                    setHighlightedLocationHint(selection.locationHint);
+                    setShowCoachHighlights(true);
+                  }}
+                  activeQuoteId={activeQuoteId}
+                  onQuoteClick={(selection) => {
+                    if (activeQuoteId === selection.feedbackItemId) {
+                      setActiveQuoteId(undefined);
+                      setHighlightedAnchorId(undefined);
+                      setHighlightedQuotedText(undefined);
+                      setHighlightedLocationHint(undefined);
+                      return;
+                    }
+                    setActiveQuoteId(selection.feedbackItemId);
+                    setHighlightedAnchorId(selection.anchorId);
+                    setHighlightedQuotedText(selection.quotedText);
+                    setHighlightedLocationHint(undefined);
+                  }}
+                />
+              </div>
           </div>
         </aside>
 
-        {/* Left sidebar collapse/expand toggle */}
+        {/* Panel collapse + resize */}
+        {!panelCollapsed && (
+          <div
+            className="group flex w-1 shrink-0 cursor-col-resize items-center justify-center bg-border-subtle transition-colors hover:bg-accent-primary/80 active:bg-accent-primary"
+            onMouseDown={handlePanelResizeStart}
+            role="separator"
+            aria-label="Drag to resize panel"
+            aria-orientation="vertical"
+          >
+            <GripVertical
+              size={16}
+              className="text-accent-primary opacity-0 transition-opacity group-hover:opacity-100"
+            />
+          </div>
+        )}
         <button
           type="button"
-          onClick={() => setLeftSidebarCollapsed(!leftSidebarCollapsed)}
-          aria-label={leftSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          onClick={() => setPanelCollapsed((c) => !c)}
+          aria-label={panelCollapsed ? 'Expand panel' : 'Collapse panel'}
           className="relative z-10 flex h-full w-[20px] shrink-0 items-center justify-center border-r border-border-subtle bg-surface-primary text-text-muted transition-colors hover:bg-surface-muted hover:text-text-primary"
         >
-          {leftSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          {panelCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
 
-        {/* Editor area — centered with max-width for comfortable reading */}
+        {/* Editor — always visible */}
         <main className="flex min-h-0 flex-1 justify-center overflow-y-auto p-2xl">
           <div className="w-full max-w-[960px]">
             <div className="min-h-full rounded-lg border border-border-subtle/50 bg-surface-primary p-2xl shadow-sm">
@@ -438,90 +578,6 @@ export function DocumentEditorPage() {
             </div>
           </div>
         </main>
-
-        {/* Right panel: Writing Coach & AI Debrief sidebar */}
-        {rightSidebarOpen && !rightSidebarCollapsed && (
-          <div
-            className="w-1 cursor-col-resize bg-border-subtle hover:bg-accent-primary/80 active:bg-accent-primary transition-colors flex items-center justify-center group"
-            onMouseDown={handleResizeStart}
-            role="separator"
-            aria-label="Drag to resize panel"
-            aria-orientation="vertical"
-          >
-            <GripVertical size={18} className="text-accent-primary opacity-30 group-hover:opacity-100 transition-opacity" />
-          </div>
-        )}
-        <div
-          ref={sidebarDivRef}
-          className={`relative flex shrink-0 overflow-hidden border-l border-border-subtle shadow-[-4px_0_12px_rgba(0,0,0,0.05)] ${
-            !rightSidebarOpen ? 'border-l-0' : ''
-          }`}
-          style={{
-            width: rightSidebarOpen ? (rightSidebarCollapsed ? '20px' : `${rightSidebarWidth}px`) : '0px',
-          }}
-        >
-          {rightSidebarOpen && (
-            <button
-              type="button"
-              onClick={() => setRightSidebarCollapsed(!rightSidebarCollapsed)}
-              aria-label={rightSidebarCollapsed ? 'Expand panel' : 'Collapse panel'}
-              className="relative z-10 flex h-full w-[20px] shrink-0 items-center justify-center border-r border-border-subtle bg-surface-primary text-text-muted transition-colors hover:bg-surface-muted hover:text-text-primary"
-            >
-              {rightSidebarCollapsed ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-            </button>
-          )}
-
-          <div
-            className={`flex h-full flex-col bg-surface-primary flex-1 ${
-              rightSidebarCollapsed ? 'hidden' : 'visible'
-            }`}
-          >
-            <ChatFeedbackSidebar
-              documentId={envId}
-              draftId={draftId}
-              draftVersion={draftVersion}
-              wordCount={wordCountFromEditorContent(currentContent)}
-              askWrenService={askWrenService}
-              isGeneratingFeedback={isPollingFeedback}
-              onBeforeRegenerate={saveDraftFromEditor}
-              onHighlight={(anchorId) => {
-                setActiveQuoteId(`ask:${anchorId}`);
-                setHighlightedAnchorId(anchorId);
-                setHighlightedQuotedText(undefined);
-                setHighlightedLocationHint(undefined);
-                setShowCoachHighlights(true);
-              }}
-              onChatQuoteClick={(selection) => {
-                if (activeQuoteId === selection.quoteKey) {
-                  setActiveQuoteId(undefined);
-                  setHighlightedAnchorId(undefined);
-                  setHighlightedQuotedText(undefined);
-                  setHighlightedLocationHint(undefined);
-                  return;
-                }
-                setActiveQuoteId(selection.quoteKey);
-                setHighlightedAnchorId(undefined);
-                setHighlightedQuotedText(selection.quotedText);
-                setHighlightedLocationHint(selection.locationHint);
-                setShowCoachHighlights(true);
-              }}
-              activeQuoteId={activeQuoteId}
-              onQuoteClick={(selection) => {
-                if (activeQuoteId === selection.feedbackItemId) {
-                  setActiveQuoteId(undefined);
-                  setHighlightedAnchorId(undefined);
-                  setHighlightedQuotedText(undefined);
-                  setHighlightedLocationHint(undefined);
-                  return;
-                }
-                setActiveQuoteId(selection.feedbackItemId);
-                setHighlightedAnchorId(selection.anchorId);
-                setHighlightedQuotedText(selection.quotedText);
-                setHighlightedLocationHint(undefined);
-              }}
-            />
-          </div>
-        </div>
       </div>
     </div>
   );
