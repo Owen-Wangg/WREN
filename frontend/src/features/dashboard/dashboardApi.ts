@@ -10,6 +10,7 @@ import {
   accessGrantSchema,
   documentSchema,
   draftSchema,
+  type TipTapDoc,
 } from '@wren/types';
 
 import {
@@ -181,7 +182,7 @@ export function createDocument(
     metadata?: Record<string, string>;
     source: { kind: 'file'; key: string } | { kind: 'paste'; text: string };
     /** Optional TipTap JSON so rich formatting survives reload. */
-    content?: { type: 'doc'; [key: string]: unknown };
+    content?: TipTapDoc;
   },
 ): Promise<Document> {
   return client.request(DOCUMENTS_PATH, {
@@ -221,7 +222,7 @@ export function createDraft(
   client: HttpClient,
   documentId: string,
   segments: Array<{ index: number; text: string }>,
-  content?: { type: 'doc'; [key: string]: unknown },
+  content?: TipTapDoc,
 ): Promise<Draft> {
   return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
     method: 'POST',
@@ -235,7 +236,7 @@ export function createDraftFromSource(
   client: HttpClient,
   documentId: string,
   source: { kind: 'file'; key: string } | { kind: 'paste'; text: string },
-  content?: { type: 'doc'; [key: string]: unknown },
+  content?: TipTapDoc,
 ): Promise<Draft> {
   return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
     method: 'POST',

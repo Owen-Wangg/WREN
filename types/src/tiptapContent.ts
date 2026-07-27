@@ -5,7 +5,7 @@
  * - Strip AI chrome (highlight / comment marks) before persist / export.
  */
 
-import type { Segment } from './schemas';
+import type { Segment, TipTapDoc } from './schemas';
 
 /** Loose TipTap JSON node (avoids depending on @tiptap packages in @wren/types). */
 export type TipTapNode = {
@@ -126,4 +126,13 @@ export function isTipTapDoc(value: unknown): value is TipTapNode {
     !Array.isArray(value) &&
     (value as TipTapNode).type === 'doc'
   );
+}
+
+/**
+ * Narrow unknown/JSONContent-like values to {@link TipTapDoc} for API payloads.
+ * Returns undefined when `type` is not exactly `"doc"`.
+ */
+export function asTipTapDoc(value: unknown): TipTapDoc | undefined {
+  if (!isTipTapDoc(value)) return undefined;
+  return value as TipTapDoc;
 }

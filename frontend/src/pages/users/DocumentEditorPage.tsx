@@ -35,6 +35,7 @@ import { apiClient, ApiError } from '@/services';
 import { queryKeys } from '@/hooks/queryKeys';
 import {
   isTipTapDoc,
+  asTipTapDoc,
   stripAiMarksFromTipTapContent,
   tipTapContentToSegments,
   wordCountFromTipTapContent,
@@ -256,8 +257,10 @@ export function DocumentEditorPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const saveDraftFromEditor = useCallback(async () => {
-    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
-    const segments = segmentsFromEditorContent(cleaned);
+    const cleaned = asTipTapDoc(stripAiMarksFromTipTapContent(currentContent));
+    const segments = cleaned
+      ? tipTapContentToSegments(cleaned)
+      : segmentsFromEditorContent(currentContent);
     await createDraft(apiClient, envId, segments, cleaned);
     await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
   }, [currentContent, envId, queryClient]);
@@ -281,7 +284,7 @@ export function DocumentEditorPage() {
       }
 
       const cleaned = tipTap
-        ? (stripAiMarksFromTipTapContent(tipTap) as JSONContent)
+        ? asTipTapDoc(stripAiMarksFromTipTapContent(tipTap))
         : undefined;
       return createDraftFromSource(
         apiClient,

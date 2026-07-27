@@ -11,7 +11,7 @@ import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
 import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
-import { stripAiMarksFromTipTapContent } from '@wren/types';
+import { stripAiMarksFromTipTapContent, asTipTapDoc } from '@wren/types';
 import type { JSONContent } from '@tiptap/react';
 
 function contentTypeForFile(file: File): string {
@@ -96,7 +96,7 @@ export function NewDocumentPage() {
       }
 
       const cleaned = initialContent
-        ? (stripAiMarksFromTipTapContent(initialContent) as JSONContent)
+        ? asTipTapDoc(stripAiMarksFromTipTapContent(initialContent))
         : undefined;
 
       const doc = await createDocument(apiClient, {
@@ -111,7 +111,12 @@ export function NewDocumentPage() {
         // Non-fatal: student can manually trigger from the editor if this fails.
       });
 
-      return { doc, org, docType, initialContent: cleaned };
+      return {
+        doc,
+        org,
+        docType,
+        initialContent: cleaned as JSONContent | undefined,
+      };
     },
     onSuccess: ({ doc, org, docType, initialContent }) => {
       navigate(`/dashboard/document/${doc.id}`, {
