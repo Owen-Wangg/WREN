@@ -70,7 +70,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         attributes: {
           role: 'textbox',
           'aria-label': ariaLabel ?? 'Document editor',
-          class: ['prose max-w-none focus:outline-none', className]
+          class: ['document-editor-surface prose max-w-none focus:outline-none', className]
             .filter(Boolean)
             .join(' '),
         },

@@ -206,15 +206,15 @@ export function AnchoredFeedbackEditor({
   }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, anchors]);
 
   return (
-    <div className={['flex h-full gap-0', className].filter(Boolean).join(' ')}>
-      <div className="flex flex-1 flex-col overflow-hidden">
+    <div className={['flex h-full min-h-0 gap-0', className].filter(Boolean).join(' ')}>
+      <div className="document-editor-scroll flex min-h-0 flex-1 flex-col">
         <DocumentEditor
           ref={editorRef}
           initialContent={initialContent}
           ariaLabel={ariaLabel}
           onContentChange={onContentChange}
           onCommentActivated={handleCommentActivated}
-          className="flex-1 overflow-y-auto"
+          className="min-h-full"
         />
       </div>
     </div>

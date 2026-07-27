@@ -58,3 +58,55 @@ body {
   color: var(--color-text-primary);
   background-color: var(--color-surface-muted);
 }
+
+/*
+ * Draft reading surface (document editor) — clearer hierarchy and breathing
+ * room for long legal / academic prose.
+ */
+.document-editor-surface {
+  font-family: var(--font-serif);
+  font-size: var(--text-body);
+  line-height: 1.65;
+  color: var(--color-text-primary);
+}
+
+.document-editor-surface:focus {
+  outline: none;
+}
+
+.document-editor-surface p {
+  margin: 0 0 0.9em;
+}
+
+.document-editor-surface h1 {
+  font-family: var(--font-sans);
+  font-size: var(--text-heading2);
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0 0 0.75em;
+}
+
+.document-editor-surface h2 {
+  font-family: var(--font-sans);
+  font-size: var(--text-heading3);
+  font-weight: 650;
+  line-height: 1.3;
+  margin: 1.25em 0 0.5em;
+}
+
+.document-editor-surface h3 {
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 1em 0 0.4em;
+}
+
+.document-editor-surface p:last-child {
+  margin-bottom: 0;
+}
+
+.document-editor-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

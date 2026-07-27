@@ -2,12 +2,12 @@ import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType }
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
-  ChevronLeft,
-  ChevronRight,
   Download,
   GripVertical,
   House,
   MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   Sparkles,
   Upload,
 } from 'lucide-react';
@@ -39,10 +39,10 @@ import type { JSONContent } from '@tiptap/react';
 const askWrenService = createAskWrenService(apiClient);
 
 const ACTIVE_NAV_KEY = 'wren-active-sidebar-tab';
-const PANEL_WIDTH_DEFAULT = 360;
+const PANEL_WIDTH_DEFAULT = 320;
 const PANEL_WIDTH_MIN = 280;
-const PANEL_WIDTH_MAX = 520;
-const RAIL_WIDTH_PX = 56;
+const PANEL_WIDTH_MAX = 480;
+const RAIL_WIDTH_PX = 68;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -112,7 +112,10 @@ export function DocumentEditorPage() {
   const queryClient = useQueryClient();
 
   const [activeNav, setActiveNav] = useState<DocumentNavMode>(() => readStoredNavMode());
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  // Start collapsed on Home so the draft is the hero; Ask/Debrief open the panel.
+  const [panelCollapsed, setPanelCollapsed] = useState(
+    () => readStoredNavMode() === 'home',
+  );
   const [panelWidth, setPanelWidth] = useState(PANEL_WIDTH_DEFAULT);
 
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
@@ -149,7 +152,8 @@ export function DocumentEditorPage() {
 
   const handleNavChange = useCallback((mode: DocumentNavMode) => {
     setActiveNav(mode);
-    setPanelCollapsed(false);
+    // Home keeps the draft full-width; coaching modes open the side panel.
+    setPanelCollapsed(mode === 'home');
     try {
       localStorage.setItem(ACTIVE_NAV_KEY, mode);
     } catch {
@@ -336,6 +340,8 @@ export function DocumentEditorPage() {
     URL.revokeObjectURL(url);
   };
 
+  const wordCount = wordCountFromEditorContent(currentContent);
+
   const railItems: Array<{
     id: DocumentNavMode;
     label: string;
@@ -346,27 +352,59 @@ export function DocumentEditorPage() {
     { id: 'debrief', label: 'AI Debrief', icon: Sparkles },
   ];
 
+  const railButtonClass = (isActive: boolean) =>
+    [
+      'relative flex min-h-11 w-full flex-col items-center justify-center gap-[2px] px-xs py-sm text-center transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-border-strong',
+      isActive
+        ? 'bg-surface-primary text-text-primary'
+        : 'text-text-muted hover:bg-surface-muted hover:text-text-secondary',
+    ].join(' ');
+
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/30">
-      {/* Top bar */}
-      <div className="shrink-0 border-b border-border-subtle bg-surface-primary px-2xl py-sm">
+    <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/40">
+      {/* Top bar — document name lives here so the draft stays the visual hero */}
+      <div className="flex shrink-0 items-center justify-between gap-md border-b border-border-subtle bg-surface-primary px-xl py-sm">
+        <div className="flex min-w-0 items-center gap-md">
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className="shrink-0 text-bodySmall font-sans text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-strong"
+          >
+            <span aria-hidden="true">&larr;</span> Dashboard
+          </button>
+          <span aria-hidden="true" className="text-border-subtle">
+            /
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-bodySmall font-sans font-semibold text-text-primary">
+              {documentName}
+            </p>
+            <p className="truncate text-caption text-text-muted">
+              {breadcrumb !== 'Document' ? `${breadcrumb} · ` : ''}
+              Draft v{draftVersion} · {wordCount.toLocaleString()} words
+            </p>
+          </div>
+        </div>
         <button
           type="button"
-          onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-sm text-bodySmall font-sans text-text-secondary hover:text-text-primary"
+          onClick={() => setPanelCollapsed((c) => !c)}
+          aria-label={panelCollapsed ? 'Show side panel' : 'Hide side panel'}
+          title={panelCollapsed ? 'Show side panel' : 'Hide side panel'}
+          className="inline-flex items-center gap-xs rounded-md border border-border-subtle px-sm py-xs text-caption font-sans text-text-secondary hover:bg-surface-muted hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-strong"
         >
-          <span aria-hidden="true">&larr;</span> Back to Dashboard
+          {panelCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          <span className="hidden sm:inline">{panelCollapsed ? 'Show panel' : 'Hide panel'}</span>
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        {/* Icon rail — Teams/Slack style */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Icon nav — ~44px hit targets, caption labels */}
         <nav
           aria-label="Document views"
-          className="flex shrink-0 flex-col items-stretch border-r border-border-subtle bg-surface-muted/60 py-xs"
+          className="flex shrink-0 flex-col items-stretch border-r border-border-subtle bg-surface-muted/70"
           style={{ width: RAIL_WIDTH_PX }}
         >
-          <div className="flex flex-col items-stretch gap-[2px]">
+          <div className="flex flex-col items-stretch gap-[2px] pt-xs">
             {railItems.map((item) => {
               const isActive = activeNav === item.id;
               const Icon = item.icon;
@@ -376,21 +414,16 @@ export function DocumentEditorPage() {
                   type="button"
                   onClick={() => handleNavChange(item.id)}
                   aria-pressed={isActive}
-                  className={[
-                    'relative flex flex-col items-center gap-[1px] px-[2px] py-sm text-center transition-colors',
-                    isActive
-                      ? 'text-text-primary'
-                      : 'text-text-muted hover:bg-surface-muted hover:text-text-secondary',
-                  ].join(' ')}
+                  className={railButtonClass(isActive)}
                 >
                   {isActive && (
                     <span
                       aria-hidden="true"
-                      className="absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-sm bg-accent-primary"
+                      className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r-sm bg-accent-primary"
                     />
                   )}
-                  <Icon size={18} strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
-                  <span className="max-w-full truncate px-[1px] text-[9px] font-sans font-medium leading-tight">
+                  <Icon size={20} strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
+                  <span className="max-w-full truncate px-[2px] text-caption font-sans font-medium leading-tight">
                     {item.label}
                   </span>
                 </button>
@@ -398,7 +431,10 @@ export function DocumentEditorPage() {
             })}
           </div>
 
-          <div className="mt-auto flex flex-col items-stretch gap-[2px] border-t border-border-subtle pt-xs">
+          <div
+            className="mt-auto flex flex-col items-stretch gap-[2px] border-t border-border-subtle pb-xs pt-xs"
+            aria-label="File actions"
+          >
             <input
               ref={fileInputRef}
               type="file"
@@ -418,10 +454,10 @@ export function DocumentEditorPage() {
               aria-label={
                 resubmitDraftMutation.isPending ? 'Uploading new draft' : 'Upload new draft'
               }
-              className="relative flex flex-col items-center gap-[1px] px-[2px] py-sm text-center text-text-muted transition-colors hover:bg-surface-muted hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-60"
+              className={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
             >
-              <Upload size={18} strokeWidth={1.75} aria-hidden="true" />
-              <span className="max-w-full truncate px-[1px] text-[9px] font-sans font-medium leading-tight">
+              <Upload size={20} strokeWidth={1.75} aria-hidden="true" />
+              <span className="max-w-full truncate px-[2px] text-caption font-sans font-medium leading-tight">
                 {resubmitDraftMutation.isPending ? 'Uploading' : 'Upload'}
               </span>
             </button>
@@ -430,17 +466,17 @@ export function DocumentEditorPage() {
               onClick={handleDownload}
               title="Download document"
               aria-label="Download document"
-              className="relative flex flex-col items-center gap-[1px] px-[2px] py-sm text-center text-text-muted transition-colors hover:bg-surface-muted hover:text-text-secondary"
+              className={railButtonClass(false)}
             >
-              <Download size={18} strokeWidth={1.75} aria-hidden="true" />
-              <span className="max-w-full truncate px-[1px] text-[9px] font-sans font-medium leading-tight">
+              <Download size={20} strokeWidth={1.75} aria-hidden="true" />
+              <span className="max-w-full truncate px-[2px] text-caption font-sans font-medium leading-tight">
                 Download
               </span>
             </button>
           </div>
         </nav>
 
-        {/* Content panel for the selected rail item */}
+        {/* Side panel — coaching / compact home status */}
         <aside
           ref={panelDivRef}
           className={`relative flex shrink-0 flex-col border-r border-border-subtle bg-surface-primary ${
@@ -453,125 +489,124 @@ export function DocumentEditorPage() {
             style={{ minWidth: PANEL_WIDTH_MIN }}
             aria-hidden={panelCollapsed}
           >
-              {/* Home stays in the tree only when selected; coach panels stay mounted. */}
-              <div
-                className={activeNav === 'home' ? 'flex h-full min-h-0 flex-col' : 'hidden'}
-                hidden={activeNav !== 'home'}
-              >
-                <div className="flex flex-1 flex-col overflow-y-auto p-lg">
-                  <div className="flex flex-col gap-xs">
-                    <span className="text-caption font-sans text-text-muted">{breadcrumb}</span>
-                    <h2 className="text-heading3 font-sans font-bold text-text-primary">
-                      {documentName}
-                    </h2>
-                    <p className="text-caption text-text-secondary leading-relaxed">
-                      Use the rail to open Ask {appConfig.appName} or AI Debrief. Edit inline in
-                      the draft, or use Upload / Download at the bottom of the rail.
-                    </p>
+            <div
+              className={activeNav === 'home' ? 'flex h-full min-h-0 flex-col' : 'hidden'}
+              hidden={activeNav !== 'home'}
+            >
+              <div className="flex flex-1 flex-col gap-lg overflow-y-auto p-lg">
+                <div>
+                  <p className="text-caption font-sans font-semibold uppercase tracking-wide text-text-muted">
+                    Overview
+                  </p>
+                  <p className="mt-xs text-bodySmall font-sans text-text-secondary leading-relaxed">
+                    Open Ask {appConfig.appName} or AI Debrief from the left menu. Upload and
+                    download stay at the bottom of that menu.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-sm">
+                  <div className="rounded-md border border-border-subtle bg-surface-muted/50 px-md py-sm">
+                    <p className="text-caption text-text-muted">Draft</p>
+                    <p className="text-bodySmall font-semibold text-text-primary">v{draftVersion}</p>
                   </div>
-
-                  <hr className="my-lg border-border-subtle" />
-
-                  <div className="mt-auto flex flex-col gap-xs">
-                    <p className="text-caption font-semibold text-text-primary">Revise your draft</p>
-                    <p className="text-caption text-text-muted leading-relaxed">
-                      <strong>Edit inline</strong>, then Regenerate in AI Debrief — or{' '}
-                      <strong>upload</strong> a revised file from the rail to refresh feedback.
+                  <div className="rounded-md border border-border-subtle bg-surface-muted/50 px-md py-sm">
+                    <p className="text-caption text-text-muted">Words</p>
+                    <p className="text-bodySmall font-semibold text-text-primary">
+                      {wordCount.toLocaleString()}
                     </p>
-                    {resubmitDraftMutation.isError && (
-                      <p role="alert" className="text-bodySmall text-signal-critical">
-                        {errorMessageFromUnknown(resubmitDraftMutation.error)}
-                      </p>
-                    )}
                   </div>
                 </div>
-              </div>
 
-              <div
-                className={
-                  activeNav === 'chat' || activeNav === 'debrief'
-                    ? 'h-full min-h-0'
-                    : 'hidden'
-                }
-                hidden={activeNav === 'home'}
-              >
-                <ChatFeedbackSidebar
-                  documentId={envId}
-                  draftId={draftId}
-                  draftVersion={draftVersion}
-                  activeMode={activeNav}
-                  wordCount={wordCountFromEditorContent(currentContent)}
-                  askWrenService={askWrenService}
-                  isGeneratingFeedback={isPollingFeedback}
-                  onBeforeRegenerate={saveDraftFromEditor}
-                  onHighlight={(anchorId) => {
-                    setActiveQuoteId(`ask:${anchorId}`);
-                    setHighlightedAnchorId(anchorId);
+                <div className="rounded-md border border-border-subtle px-md py-sm">
+                  <p className="text-caption font-semibold text-text-primary">Revise</p>
+                  <p className="mt-xs text-caption text-text-muted leading-relaxed">
+                    Edit in the document, then Regenerate in AI Debrief — or upload a new file
+                    from the left menu.
+                  </p>
+                </div>
+
+                {resubmitDraftMutation.isError && (
+                  <p role="alert" className="text-bodySmall text-signal-critical">
+                    {errorMessageFromUnknown(resubmitDraftMutation.error)}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div
+              className={
+                activeNav === 'chat' || activeNav === 'debrief' ? 'h-full min-h-0' : 'hidden'
+              }
+              hidden={activeNav === 'home'}
+            >
+              <ChatFeedbackSidebar
+                documentId={envId}
+                draftId={draftId}
+                draftVersion={draftVersion}
+                activeMode={activeNav}
+                wordCount={wordCount}
+                askWrenService={askWrenService}
+                isGeneratingFeedback={isPollingFeedback}
+                onBeforeRegenerate={saveDraftFromEditor}
+                onHighlight={(anchorId) => {
+                  setActiveQuoteId(`ask:${anchorId}`);
+                  setHighlightedAnchorId(anchorId);
+                  setHighlightedQuotedText(undefined);
+                  setHighlightedLocationHint(undefined);
+                  setShowCoachHighlights(true);
+                }}
+                onChatQuoteClick={(selection) => {
+                  if (activeQuoteId === selection.quoteKey) {
+                    setActiveQuoteId(undefined);
+                    setHighlightedAnchorId(undefined);
                     setHighlightedQuotedText(undefined);
                     setHighlightedLocationHint(undefined);
-                    setShowCoachHighlights(true);
-                  }}
-                  onChatQuoteClick={(selection) => {
-                    if (activeQuoteId === selection.quoteKey) {
-                      setActiveQuoteId(undefined);
-                      setHighlightedAnchorId(undefined);
-                      setHighlightedQuotedText(undefined);
-                      setHighlightedLocationHint(undefined);
-                      return;
-                    }
-                    setActiveQuoteId(selection.quoteKey);
+                    return;
+                  }
+                  setActiveQuoteId(selection.quoteKey);
+                  setHighlightedAnchorId(undefined);
+                  setHighlightedQuotedText(selection.quotedText);
+                  setHighlightedLocationHint(selection.locationHint);
+                  setShowCoachHighlights(true);
+                }}
+                activeQuoteId={activeQuoteId}
+                onQuoteClick={(selection) => {
+                  if (activeQuoteId === selection.feedbackItemId) {
+                    setActiveQuoteId(undefined);
                     setHighlightedAnchorId(undefined);
-                    setHighlightedQuotedText(selection.quotedText);
-                    setHighlightedLocationHint(selection.locationHint);
-                    setShowCoachHighlights(true);
-                  }}
-                  activeQuoteId={activeQuoteId}
-                  onQuoteClick={(selection) => {
-                    if (activeQuoteId === selection.feedbackItemId) {
-                      setActiveQuoteId(undefined);
-                      setHighlightedAnchorId(undefined);
-                      setHighlightedQuotedText(undefined);
-                      setHighlightedLocationHint(undefined);
-                      return;
-                    }
-                    setActiveQuoteId(selection.feedbackItemId);
-                    setHighlightedAnchorId(selection.anchorId);
-                    setHighlightedQuotedText(selection.quotedText);
+                    setHighlightedQuotedText(undefined);
                     setHighlightedLocationHint(undefined);
-                  }}
-                />
-              </div>
+                    return;
+                  }
+                  setActiveQuoteId(selection.feedbackItemId);
+                  setHighlightedAnchorId(selection.anchorId);
+                  setHighlightedQuotedText(selection.quotedText);
+                  setHighlightedLocationHint(undefined);
+                }}
+              />
+            </div>
           </div>
         </aside>
 
-        {/* Panel collapse + resize */}
         {!panelCollapsed && (
           <div
-            className="group flex w-1 shrink-0 cursor-col-resize items-center justify-center bg-border-subtle transition-colors hover:bg-accent-primary/80 active:bg-accent-primary"
+            className="group flex w-1 shrink-0 cursor-col-resize items-center justify-center bg-border-subtle/80 transition-colors hover:bg-accent-primary/70 active:bg-accent-primary"
             onMouseDown={handlePanelResizeStart}
             role="separator"
             aria-label="Drag to resize panel"
             aria-orientation="vertical"
           >
             <GripVertical
-              size={16}
-              className="text-accent-primary opacity-0 transition-opacity group-hover:opacity-100"
+              size={14}
+              className="text-text-muted opacity-40 transition-opacity group-hover:opacity-100"
             />
           </div>
         )}
-        <button
-          type="button"
-          onClick={() => setPanelCollapsed((c) => !c)}
-          aria-label={panelCollapsed ? 'Expand panel' : 'Collapse panel'}
-          className="relative z-10 flex h-full w-[20px] shrink-0 items-center justify-center border-r border-border-subtle bg-surface-primary text-text-muted transition-colors hover:bg-surface-muted hover:text-text-primary"
-        >
-          {panelCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-        </button>
 
-        {/* Editor — always visible */}
-        <main className="flex min-h-0 flex-1 justify-center overflow-y-auto p-2xl">
-          <div className="w-full max-w-[960px]">
-            <div className="min-h-full rounded-lg border border-border-subtle/50 bg-surface-primary p-2xl shadow-sm">
+        {/* Editor — sole scroll region for the draft */}
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-xl">
+          <div className="mx-auto flex h-full min-h-0 w-full max-w-[960px] flex-col">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border-subtle/60 bg-surface-primary p-2xl shadow-sm">
               {!editorReady ? (
                 <p role="status" className="text-bodySmall text-text-secondary">
                   Loading document…
@@ -588,6 +623,7 @@ export function DocumentEditorPage() {
                   highlightedLocationHint={highlightedLocationHint}
                   showCoachHighlights={showCoachHighlights}
                   onContentChange={(content) => setCurrentContent(content)}
+                  className="min-h-0 flex-1"
                 />
               )}
             </div>
