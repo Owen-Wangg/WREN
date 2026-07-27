@@ -9,7 +9,6 @@ import {
 import { createDocument, getPresignedUrl } from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
-import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
 import { stripAiMarksFromTipTapContent, asTipTapDoc } from '@wren/types';
 import type { JSONContent } from '@tiptap/react';
@@ -81,18 +80,16 @@ export function NewDocumentPage() {
         throw new Error('File upload to storage failed');
       }
 
-      // Parse client-side so rich TipTap content is persisted on the initial draft.
+      // Parse DOCX client-side for rich TipTap. PDFs use server LiteParse (1C).
       let initialContent: JSONContent | undefined;
-      try {
-        const bytes = new Uint8Array(await referenceFile.arrayBuffer());
-        const name = referenceFile.name.toLowerCase();
-        if (name.endsWith('.docx')) {
+      const name = referenceFile.name.toLowerCase();
+      if (name.endsWith('.docx')) {
+        try {
+          const bytes = new Uint8Array(await referenceFile.arrayBuffer());
           initialContent = await docxBytesToTiptapContent(bytes);
-        } else if (name.endsWith('.pdf')) {
-          initialContent = await pdfBytesToTiptapContent(bytes);
+        } catch {
+          // Non-fatal: editor will fall back to plain-text segments from the API.
         }
-      } catch {
-        // Non-fatal: editor will fall back to plain-text segments from the API.
       }
 
       const cleaned = initialContent
@@ -261,6 +258,11 @@ export function NewDocumentPage() {
               className="rounded-md border border-border-subtle bg-surface-muted px-lg py-sm text-bodySmall text-text-primary file:mr-md file:rounded-md file:border-0 file:bg-surface-primary file:px-md file:py-xs file:text-bodySmall file:font-sans file:text-text-secondary"
               onChange={(e) => setReferenceFile(e.target.files?.[0])}
             />
+            <p className="text-caption text-text-muted leading-relaxed">
+              Prefer a Word document (<strong>.docx</strong>) for the best formatting
+              (headings, lists, tables). PDF upload works, including many scanned
+              files, but layout fidelity is best-effort.
+            </p>
             {referenceFile && (
               <p className="text-bodySmall text-accent-primary">
                 Selected: {referenceFile.name}

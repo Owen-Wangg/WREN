@@ -125,8 +125,11 @@ export class ComputeStack extends Stack {
       entry: path.join(monorepoRoot, "backend/document/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 512,
-      timeout: Duration.seconds(60),
+      // OCR + LiteParse needs headroom (scanned PDFs).
+      // Note: API Gateway REST still caps sync integrations at ~29s — large
+      // scanned uploads may hit that ceiling before this Lambda timeout.
+      memorySize: 2048,
+      timeout: Duration.minutes(3),
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,
@@ -134,11 +137,41 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
+        PDF_OCR_ENABLED: "true",
+        // Bundled next to the handler via commandHooks below.
+        TESSDATA_PREFIX: "/var/task/tessdata",
+        // Optional hook for an external OCR HTTP service (5C).
+        // PDF_OCR_SERVER_URL: "",
       },
       bundling: {
         ...sharedBundling,
         // Native napi binaries for LiteParse must ship with the bundle.
         nodeModules: ["@llamaindex/liteparse"],
+        commandHooks: {
+          beforeBundling(): string[] {
+            return [];
+          },
+          beforeInstall(): string[] {
+            return [];
+          },
+          afterBundling(inputDir: string, outputDir: string): string[] {
+            const tessdataSrc = path.join(
+              inputDir,
+              "backend",
+              "document",
+              "tessdata",
+            );
+            const isWindows = process.platform === "win32";
+            if (isWindows) {
+              return [
+                `if exist "${tessdataSrc}" xcopy /E /I /Y "${tessdataSrc}" "${outputDir}\\tessdata"`,
+              ];
+            }
+            return [
+              `mkdir -p "${outputDir}/tessdata" && cp -R "${tessdataSrc}/." "${outputDir}/tessdata/" || true`,
+            ];
+          },
+        },
       },
     });
 

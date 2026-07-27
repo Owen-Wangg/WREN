@@ -460,10 +460,10 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  // Prefer client TipTap content when provided; still require successful text
-  // extraction as a fallback path for size checks when content is absent.
-  const segments = tipTapContent
-    ? tipTapContentToSegments(tipTapContent)
+  // Prefer client TipTap when provided; otherwise use server PDF TipTap (1C).
+  const storedContent = tipTapContent ?? ingestResult.content;
+  const segments = storedContent
+    ? tipTapContentToSegments(storedContent)
     : ingestResult.segments;
   const sizeResult = enforceSizeLimit(segments, {
     documentTypeSizeLimitWords: sizeLimitWords,
@@ -503,11 +503,11 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     {
       documentId,
       segments,
-      wordCount: tipTapContent
-        ? wordCountFromTipTapContent(tipTapContent)
+      wordCount: storedContent
+        ? wordCountFromTipTapContent(storedContent)
         : sizeResult.measuredWords,
       s3Key,
-      ...(tipTapContent ? { content: tipTapContent } : {}),
+      ...(storedContent ? { content: storedContent } : {}),
     },
     draftRepo,
   );
@@ -747,8 +747,10 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       };
     }
 
-    normalizedSegments = tipTapContent
-      ? tipTapContentToSegments(tipTapContent)
+    // Client TipTap wins; else server PDF TipTap from ingest.
+    storedContent = tipTapContent ?? ingestResult.content;
+    normalizedSegments = storedContent
+      ? tipTapContentToSegments(storedContent)
       : normalizeSegments(ingestResult.segments);
     const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
@@ -764,8 +766,8 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
         }),
       };
     }
-    wordCount = tipTapContent
-      ? wordCountFromTipTapContent(tipTapContent)
+    wordCount = storedContent
+      ? wordCountFromTipTapContent(storedContent)
       : sizeResult.measuredWords;
   } else if (tipTapContent) {
     normalizedSegments = tipTapContentToSegments(tipTapContent);

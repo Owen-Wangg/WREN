@@ -267,7 +267,9 @@ export function DocumentEditorPage() {
 
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
-      const tipTap = await parseUploadToTipTap(file);
+      const isDocx = file.name.toLowerCase().endsWith('.docx');
+      // DOCX: client TipTap. PDF: server LiteParse is source of truth (1C).
+      const tipTap = isDocx ? await parseUploadToTipTap(file) : undefined;
       const { uploadUrl, key } = await getPresignedUrl(
         apiClient,
         file.name,
