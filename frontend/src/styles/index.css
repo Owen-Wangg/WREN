@@ -110,3 +110,15 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+
+/* TipTap mounts a ProseMirror root — stretch it so the page fills the viewport. */
+.document-editor-scroll .tiptap,
+.document-editor-scroll .ProseMirror,
+.document-editor-surface {
+  min-height: 100%;
+}
+
+.document-editor-surface.ProseMirror,
+.ProseMirror.document-editor-surface {
+  outline: none;
+}

@@ -93,6 +93,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       [editor],
     );
 
-    return <EditorContent editor={editor} className={className} />;
+    return (
+      <EditorContent
+        editor={editor}
+        className={['block h-full min-h-full', className].filter(Boolean).join(' ')}
+      />
+    );
   },
 );
