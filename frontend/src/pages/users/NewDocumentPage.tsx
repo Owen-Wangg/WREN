@@ -9,7 +9,9 @@ import {
 import { createDocument, getPresignedUrl } from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
+import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
+import { stripAiMarksFromTipTapContent } from '@wren/types';
 import type { JSONContent } from '@tiptap/react';
 
 function contentTypeForFile(file: File): string {
@@ -79,10 +81,29 @@ export function NewDocumentPage() {
         throw new Error('File upload to storage failed');
       }
 
+      // Parse client-side so rich TipTap content is persisted on the initial draft.
+      let initialContent: JSONContent | undefined;
+      try {
+        const bytes = new Uint8Array(await referenceFile.arrayBuffer());
+        const name = referenceFile.name.toLowerCase();
+        if (name.endsWith('.docx')) {
+          initialContent = await docxBytesToTiptapContent(bytes);
+        } else if (name.endsWith('.pdf')) {
+          initialContent = await pdfBytesToTiptapContent(bytes);
+        }
+      } catch {
+        // Non-fatal: editor will fall back to plain-text segments from the API.
+      }
+
+      const cleaned = initialContent
+        ? (stripAiMarksFromTipTapContent(initialContent) as JSONContent)
+        : undefined;
+
       const doc = await createDocument(apiClient, {
         documentTypeId: selectedDocumentType,
         name: documentName.trim(),
         source: { kind: 'file', key },
+        ...(cleaned ? { content: cleaned } : {}),
       });
 
       // Auto-trigger feedback — fire and forget; editor polls status.
@@ -90,20 +111,7 @@ export function NewDocumentPage() {
         // Non-fatal: student can manually trigger from the editor if this fails.
       });
 
-      // Parse docx client-side so the editor shows the formatted document
-      // (headings, bold, paragraph breaks) rather than plain-text segments.
-      let initialContent: JSONContent | undefined;
-      try {
-        const bytes = new Uint8Array(await referenceFile.arrayBuffer());
-        const name = referenceFile.name.toLowerCase();
-        if (name.endsWith('.docx')) {
-          initialContent = await docxBytesToTiptapContent(bytes);
-        }
-      } catch {
-        // Non-fatal: editor will fall back to plain-text segments from the API.
-      }
-
-      return { doc, org, docType, initialContent };
+      return { doc, org, docType, initialContent: cleaned };
     },
     onSuccess: ({ doc, org, docType, initialContent }) => {
       navigate(`/dashboard/document/${doc.id}`, {
@@ -112,8 +120,6 @@ export function NewDocumentPage() {
           contentType: docType?.name,
           documentName: doc.name,
           feedbackQueued: true,
-          // Rich TipTap content parsed client-side (docx only).
-          // Editor uses this over plain-text segments from the API.
           ...(initialContent ? { initialContent } : {}),
         },
       });

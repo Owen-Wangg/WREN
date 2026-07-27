@@ -106,6 +106,35 @@ body {
   margin-bottom: 0;
 }
 
+.document-editor-surface table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 1em;
+  table-layout: fixed;
+}
+
+.document-editor-surface th,
+.document-editor-surface td {
+  border: 1px solid var(--color-border-subtle);
+  padding: 0.4em 0.55em;
+  vertical-align: top;
+}
+
+.document-editor-surface th {
+  font-weight: 650;
+  background: var(--color-surface-muted);
+}
+
+.document-editor-surface ul,
+.document-editor-surface ol {
+  margin: 0 0 0.9em;
+  padding-left: 1.4em;
+}
+
+.document-editor-surface li {
+  margin: 0.2em 0;
+}
+
 .document-editor-scroll {
   overflow-y: auto;
   overscroll-behavior: contain;

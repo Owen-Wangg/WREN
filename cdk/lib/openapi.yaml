@@ -326,6 +326,14 @@ components:
           type: string
           format: date-time
           description: Timestamp when draft was created
+        content:
+          type: object
+          description: Optional TipTap JSONContent for rich editor reload
+          additionalProperties: true
+          properties:
+            type:
+              type: string
+              enum: [doc]
 
     AnchorState:
       type: string
@@ -1025,9 +1033,14 @@ paths:
                       type: string
                     key:
                       type: string
-      responses:
-        "201":
-          description: Document created (initial draft ingested server-side)
+                content:
+                  type: object
+                  description: Optional TipTap JSONContent so rich formatting is persisted on the initial draft
+                  additionalProperties: true
+                  properties:
+                    type:
+                      type: string
+                      enum: [doc]
           content:
             application/json:
               schema:
@@ -1212,9 +1225,19 @@ paths:
             schema:
               type: object
               description: |
-                Provide either `segments` (editor save) or `source` (file re-upload /
-                paste ingest). When both are present, `source` wins.
+                Provide `content` (TipTap JSON), `segments` (editor save), and/or
+                `source` (file re-upload / paste ingest). When `content` is present,
+                the server derives segments from it. When both `source` and
+                `segments` are present without `content`, `source` wins.
               properties:
+                content:
+                  type: object
+                  description: TipTap JSONContent document (type doc)
+                  additionalProperties: true
+                  properties:
+                    type:
+                      type: string
+                      enum: [doc]
                 segments:
                   type: array
                   items:

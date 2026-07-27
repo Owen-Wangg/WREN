@@ -3,9 +3,10 @@
  * 52.1, 52.2).
  *
  * A controlled-ish rich-text editor built on `@tiptap/react` + StarterKit, with
- * the highlight mark (for AI-Debrief quote highlighting) and the comment mark
+ * Underline + Table extensions for Scope B fidelity, the highlight mark (for
+ * AI-Debrief quote highlighting), and the comment mark
  * (`@sereneinserenade/tiptap-comment-extension`) registered so
- * `<AnchoredFeedbackEditor>` (task 18.2) can attach inline feedback via
+ * `<AnchoredFeedbackEditor>` can attach inline feedback via
  * `setComment`/`unsetComment` without re-configuring the editor.
  *
  * Every comment-mark span carries `data-ai-feedback="true"` so AI-attached
@@ -21,6 +22,10 @@ import { forwardRef, useImperativeHandle } from 'react';
 
 import { CommentExtension } from '@sereneinserenade/tiptap-comment-extension';
 import Highlight from '@tiptap/extension-highlight';
+import { Table } from '@tiptap/extension-table';
+import { TableCell } from '@tiptap/extension-table-cell';
+import { TableHeader } from '@tiptap/extension-table-header';
+import { TableRow } from '@tiptap/extension-table-row';
 import { EditorContent, useEditor, type Editor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 
@@ -59,6 +64,10 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const editor = useEditor({
       extensions: [
         StarterKit,
+        Table.configure({ resizable: false }),
+        TableRow,
+        TableHeader,
+        TableCell,
         Highlight.configure({ multicolor: true }),
         CommentExtension.configure({
           HTMLAttributes: { 'data-ai-feedback': 'true' },
@@ -101,3 +110,5 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     );
   },
 );
+
+DocumentEditor.displayName = 'DocumentEditor';

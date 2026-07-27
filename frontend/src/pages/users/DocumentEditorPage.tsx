@@ -6,8 +6,6 @@ import {
   GripVertical,
   House,
   MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
   Sparkles,
   Upload,
 } from 'lucide-react';
@@ -30,9 +28,17 @@ import { fetchFeedbackStatus, generateFeedback } from '@/features/editor/anchore
 import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
+  docxBytesToTiptapContent,
 } from '@/features/editor/docxContentMapper';
+import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
 import { queryKeys } from '@/hooks/queryKeys';
+import {
+  isTipTapDoc,
+  stripAiMarksFromTipTapContent,
+  tipTapContentToSegments,
+  wordCountFromTipTapContent,
+} from '@wren/types';
 
 import type { JSONContent } from '@tiptap/react';
 
@@ -42,7 +48,7 @@ const ACTIVE_NAV_KEY = 'wren-active-sidebar-tab';
 const PANEL_WIDTH_DEFAULT = 320;
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 480;
-const RAIL_WIDTH_PX = 68;
+const RAIL_WIDTH_PX = 76;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -66,20 +72,23 @@ function contentTypeForFile(file: File): string {
 function segmentsFromEditorContent(
   content: JSONContent,
 ): Array<{ index: number; text: string }> {
-  return (content.content ?? []).map((block, idx) => ({
-    index: idx,
-    text: (block.content ?? [])
-      .filter((n) => n.type === 'text')
-      .map((n) => n.text ?? '')
-      .join(''),
-  }));
+  return tipTapContentToSegments(content);
 }
 
 function wordCountFromEditorContent(content: JSONContent): number {
-  return segmentsFromEditorContent(content).reduce(
-    (total, seg) => total + seg.text.split(/\s+/).filter(Boolean).length,
-    0,
-  );
+  return wordCountFromTipTapContent(content);
+}
+
+async function parseUploadToTipTap(file: File): Promise<JSONContent | undefined> {
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.docx')) return await docxBytesToTiptapContent(bytes);
+    if (name.endsWith('.pdf')) return await pdfBytesToTiptapContent(bytes);
+  } catch {
+    // Non-fatal: server plain-text ingest remains the fallback.
+  }
+  return undefined;
 }
 
 function errorMessageFromUnknown(error: unknown): string {
@@ -212,26 +221,28 @@ export function DocumentEditorPage() {
     enabled: !!documentId,
   });
 
-  const draftContent = useMemo(
-    () => (draftQuery.data ? segmentsToTiptapContent(draftQuery.data.segments) : null),
-    [draftQuery.data],
-  );
+  const draftContent = useMemo(() => {
+    if (!draftQuery.data) return null;
+    if (isTipTapDoc(draftQuery.data.content)) {
+      return draftQuery.data.content as JSONContent;
+    }
+    return segmentsToTiptapContent(draftQuery.data.segments);
+  }, [draftQuery.data]);
 
-  const editorInitialContent = routerInitialContent ?? draftContent ?? EMPTY_EDITOR_CONTENT;
-  const editorReady = Boolean(routerInitialContent) || draftQuery.isSuccess || draftQuery.isError;
-  const editorMountKey = routerInitialContent
-    ? `router-${envId}`
-    : `draft-${draftQuery.data?.id ?? envId}`;
+  // Prefer persisted draft.content over ephemeral router state so reload matches DB.
+  const editorInitialContent = draftContent ?? routerInitialContent ?? EMPTY_EDITOR_CONTENT;
+  const editorReady = draftQuery.isSuccess || draftQuery.isError || Boolean(routerInitialContent);
+  const editorMountKey = `draft-${draftQuery.data?.id ?? envId}-${draftQuery.data?.versionNumber ?? 0}`;
 
   useEffect(() => {
-    if (routerInitialContent) {
-      setCurrentContent(routerInitialContent);
-      return;
-    }
     if (draftContent) {
       setCurrentContent(draftContent);
+      return;
     }
-  }, [routerInitialContent, draftContent]);
+    if (routerInitialContent) {
+      setCurrentContent(routerInitialContent);
+    }
+  }, [draftContent, routerInitialContent]);
 
   const documentName = documentData?.name ?? state?.documentName ?? 'Untitled document';
 
@@ -245,13 +256,15 @@ export function DocumentEditorPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const saveDraftFromEditor = useCallback(async () => {
-    const segments = segmentsFromEditorContent(currentContent);
-    await createDraft(apiClient, envId, segments);
+    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
+    const segments = segmentsFromEditorContent(cleaned);
+    await createDraft(apiClient, envId, segments, cleaned);
     await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
   }, [currentContent, envId, queryClient]);
 
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
+      const tipTap = await parseUploadToTipTap(file);
       const { uploadUrl, key } = await getPresignedUrl(
         apiClient,
         file.name,
@@ -267,9 +280,20 @@ export function DocumentEditorPage() {
         throw new Error('File upload to storage failed');
       }
 
-      return createDraftFromSource(apiClient, envId, { kind: 'file', key });
+      const cleaned = tipTap
+        ? (stripAiMarksFromTipTapContent(tipTap) as JSONContent)
+        : undefined;
+      return createDraftFromSource(
+        apiClient,
+        envId,
+        { kind: 'file', key },
+        cleaned,
+      );
     },
-    onSuccess: () => {
+    onSuccess: (draft) => {
+      if (isTipTapDoc(draft.content)) {
+        setCurrentContent(draft.content as JSONContent);
+      }
       void queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
       setIsPollingFeedback(true);
       void generateFeedback(apiClient, envId).catch(() => {
@@ -331,7 +355,8 @@ export function DocumentEditorPage() {
   }, [isPollingFeedback, envId, queryClient]);
 
   const handleDownload = async () => {
-    const blob = await tiptapContentToDocxBlob(currentContent);
+    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
+    const blob = await tiptapContentToDocxBlob(cleaned);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -363,7 +388,7 @@ export function DocumentEditorPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/40">
       {/* Top bar — document name lives here so the draft stays the visual hero */}
-      <div className="flex shrink-0 items-center justify-between gap-md border-b border-border-subtle bg-surface-primary px-xl py-sm">
+      <div className="flex shrink-0 items-center gap-md border-b border-border-subtle bg-surface-primary px-xl py-sm">
         <div className="flex min-w-0 items-center gap-md">
           <button
             type="button"
@@ -385,16 +410,6 @@ export function DocumentEditorPage() {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setPanelCollapsed((c) => !c)}
-          aria-label={panelCollapsed ? 'Show side panel' : 'Hide side panel'}
-          title={panelCollapsed ? 'Show side panel' : 'Hide side panel'}
-          className="inline-flex items-center gap-xs rounded-md border border-border-subtle px-sm py-xs text-caption font-sans text-text-secondary hover:bg-surface-muted hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-strong"
-        >
-          {panelCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          <span className="hidden sm:inline">{panelCollapsed ? 'Show panel' : 'Hide panel'}</span>
-        </button>
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -457,19 +472,19 @@ export function DocumentEditorPage() {
               className={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
             >
               <Upload size={20} strokeWidth={1.75} aria-hidden="true" />
-              <span className="max-w-full truncate px-[2px] text-caption font-sans font-medium leading-tight">
+              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
                 {resubmitDraftMutation.isPending ? 'Uploading' : 'Upload'}
               </span>
             </button>
             <button
               type="button"
               onClick={handleDownload}
-              title="Download document"
-              aria-label="Download document"
+              title="Download"
+              aria-label="Download"
               className={railButtonClass(false)}
             >
               <Download size={20} strokeWidth={1.75} aria-hidden="true" />
-              <span className="max-w-full truncate px-[2px] text-caption font-sans font-medium leading-tight">
+              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
                 Download
               </span>
             </button>

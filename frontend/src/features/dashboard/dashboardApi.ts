@@ -180,6 +180,8 @@ export function createDocument(
     name: string;
     metadata?: Record<string, string>;
     source: { kind: 'file'; key: string } | { kind: 'paste'; text: string };
+    /** Optional TipTap JSON so rich formatting survives reload. */
+    content?: { type: 'doc'; [key: string]: unknown };
   },
 ): Promise<Document> {
   return client.request(DOCUMENTS_PATH, {
@@ -214,15 +216,16 @@ export function fetchLatestDraft(client: HttpClient, documentId: string): Promis
   });
 }
 
-/** Submits parsed document segments as a new draft version. */
+/** Submits TipTap content (preferred) and/or segments as a new draft version. */
 export function createDraft(
   client: HttpClient,
   documentId: string,
   segments: Array<{ index: number; text: string }>,
+  content?: { type: 'doc'; [key: string]: unknown },
 ): Promise<Draft> {
   return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
     method: 'POST',
-    body: { segments },
+    body: { segments, ...(content ? { content } : {}) },
     schema: draftSchema,
   });
 }
@@ -232,10 +235,11 @@ export function createDraftFromSource(
   client: HttpClient,
   documentId: string,
   source: { kind: 'file'; key: string } | { kind: 'paste'; text: string },
+  content?: { type: 'doc'; [key: string]: unknown },
 ): Promise<Draft> {
   return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
     method: 'POST',
-    body: { source },
+    body: { source, ...(content ? { content } : {}) },
     schema: draftSchema,
   });
 }

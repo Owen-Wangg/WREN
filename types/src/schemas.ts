@@ -353,6 +353,14 @@ export const createDocumentSourceSchema = z
   .strict();
 export type CreateDocumentSource = z.infer<typeof createDocumentSourceSchema>;
 
+/** Loose TipTap document JSON (type: "doc"). Not fully schema-validated. */
+export const tipTapDocSchema = z
+  .object({
+    type: z.literal('doc'),
+  })
+  .passthrough();
+export type TipTapDoc = z.infer<typeof tipTapDocSchema>;
+
 export const createDocumentInputSchema = z
   .object({
     documentTypeId: idSchema,
@@ -360,6 +368,8 @@ export const createDocumentInputSchema = z
     name: z.string().min(1),
     metadata: z.record(z.string(), z.string()).default({}),
     source: createDocumentSourceSchema,
+    /** Optional client-parsed TipTap JSON; server derives segments when present. */
+    content: tipTapDocSchema.optional(),
   })
   .strict();
 export type CreateDocumentInput = z.infer<typeof createDocumentInputSchema>;
@@ -386,6 +396,8 @@ export const draftSchema = z
     segments: z.array(segmentSchema),
     wordCount: z.number().int().nonnegative(),
     createdAt: isoDateTimeSchema,
+    /** TipTap JSONContent when rich formatting was persisted; omit for legacy. */
+    content: tipTapDocSchema.optional(),
   })
   .strict();
 export type Draft = z.infer<typeof draftSchema>;
