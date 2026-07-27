@@ -8,7 +8,13 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import { resolveAccess } from '@wren/auth';
-import type { AccessGrant } from '@wren/types';
+import type { AccessGrant, TipTapDoc } from '@wren/types';
+import {
+  isTipTapDoc,
+  stripAiMarksFromTipTapContent,
+  tipTapContentToSegments,
+  wordCountFromTipTapContent,
+} from '@wren/types';
 
 import { MammothDocxExtractor } from './docxExtractor.js';
 import { LiteParsePdfExtractor } from './pdfExtractor.js';
@@ -116,6 +122,12 @@ function wordCountFromSegments(segments: Array<{ text: string }>): number {
   );
 }
 
+/** Parse and sanitize optional TipTap `content` from a request body. */
+function parseRequestTipTapContent(raw: unknown): TipTapDoc | undefined {
+  if (!isTipTapDoc(raw)) return undefined;
+  return stripAiMarksFromTipTapContent(raw) as TipTapDoc;
+}
+
 /** Map a `document` row to the shared camelCase Document DTO. */
 function toDocumentDto(row: any) {
   const metadata =
@@ -141,6 +153,17 @@ function toDraftDto(row: any) {
   const segments = normalizeSegments(segmentsRaw);
   const s3Key =
     typeof row.s3_key === 'string' && row.s3_key.length > 0 ? row.s3_key : 'inline';
+  const contentRaw =
+    typeof row.content === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(row.content);
+          } catch {
+            return null;
+          }
+        })()
+      : row.content;
+  const content = isTipTapDoc(contentRaw) ? (contentRaw as TipTapDoc) : undefined;
   return {
     id: row.id,
     documentId: row.document_id,
@@ -150,6 +173,7 @@ function toDraftDto(row: any) {
     wordCount:
       typeof row.word_count === 'number' ? row.word_count : wordCountFromSegments(segments),
     createdAt: toIsoDateTime(row.created_at),
+    ...(content ? { content } : {}),
   };
 }
 
@@ -267,6 +291,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   const source = body.source as
     | { kind?: string; text?: string; key?: string }
     | undefined;
+  const tipTapContent = parseRequestTipTapContent(body.content);
 
   if (!documentTypeId || !name) {
     return {
@@ -435,7 +460,12 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  const sizeResult = enforceSizeLimit(ingestResult.segments, {
+  // Prefer client TipTap content when provided; still require successful text
+  // extraction as a fallback path for size checks when content is absent.
+  const segments = tipTapContent
+    ? tipTapContentToSegments(tipTapContent)
+    : ingestResult.segments;
+  const sizeResult = enforceSizeLimit(segments, {
     documentTypeSizeLimitWords: sizeLimitWords,
   });
   if (sizeResult.status === 'over-limit') {
@@ -472,9 +502,12 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   await createDraftRevision(
     {
       documentId,
-      segments: ingestResult.segments,
-      wordCount: sizeResult.measuredWords,
+      segments,
+      wordCount: tipTapContent
+        ? wordCountFromTipTapContent(tipTapContent)
+        : sizeResult.measuredWords,
       s3Key,
+      ...(tipTapContent ? { content: tipTapContent } : {}),
     },
     draftRepo,
   );
@@ -568,7 +601,7 @@ async function handleGetLatestDraft(event: any): Promise<APIGatewayProxyResult> 
   }
 
   const draftQuery = `
-    SELECT id, document_id, version_number, s3_key, segments, word_count, created_at
+    SELECT id, document_id, version_number, s3_key, segments, word_count, created_at, content
     FROM draft
     WHERE document_id = $1
     ORDER BY version_number DESC
@@ -598,15 +631,17 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     | { kind?: string; text?: string; key?: string }
     | undefined;
   const { segments } = body;
+  const tipTapContent = parseRequestTipTapContent(body.content);
   const hasSource = source?.kind === 'file' || source?.kind === 'paste';
   const hasSegments = Array.isArray(segments);
+  const hasContent = !!tipTapContent;
 
-  if (!hasSource && !hasSegments) {
+  if (!hasSource && !hasSegments && !hasContent) {
     return {
       statusCode: 400,
       body: JSON.stringify({
         code: 'BAD_REQUEST',
-        message: 'Provide segments (editor save) or source (file/paste ingest)',
+        message: 'Provide content, segments (editor save), or source (file/paste ingest)',
       }),
     };
   }
@@ -643,6 +678,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   let s3Key = 'inline';
   let normalizedSegments: Array<{ index: number; text: string }>;
   let wordCount: number;
+  let storedContent: TipTapDoc | undefined = tipTapContent;
 
   if (hasSource) {
     let ingestSource:
@@ -711,7 +747,10 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       };
     }
 
-    const sizeResult = enforceSizeLimit(ingestResult.segments, {
+    normalizedSegments = tipTapContent
+      ? tipTapContentToSegments(tipTapContent)
+      : normalizeSegments(ingestResult.segments);
+    const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
     });
     if (sizeResult.status === 'over-limit') {
@@ -725,9 +764,26 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
         }),
       };
     }
-
-    normalizedSegments = normalizeSegments(ingestResult.segments);
-    wordCount = sizeResult.measuredWords;
+    wordCount = tipTapContent
+      ? wordCountFromTipTapContent(tipTapContent)
+      : sizeResult.measuredWords;
+  } else if (tipTapContent) {
+    normalizedSegments = tipTapContentToSegments(tipTapContent);
+    const sizeResult = enforceSizeLimit(normalizedSegments, {
+      documentTypeSizeLimitWords: sizeLimitWords,
+    });
+    if (sizeResult.status === 'over-limit') {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          code: 'OVER_SIZE_LIMIT',
+          message: sizeResult.message,
+          measuredWords: sizeResult.measuredWords,
+          effectiveLimitWords: sizeResult.effectiveLimitWords,
+        }),
+      };
+    }
+    wordCount = wordCountFromTipTapContent(tipTapContent);
   } else {
     normalizedSegments = normalizeSegments(segments);
     wordCount = wordCountFromSegments(normalizedSegments);
@@ -755,6 +811,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       segments: normalizedSegments,
       wordCount,
       s3Key,
+      ...(storedContent ? { content: storedContent } : {}),
     },
     draftRepo,
   );

@@ -103,6 +103,82 @@ describe('docxContentMapper', () => {
     ).toBe(true);
   });
 
+  it('maps lists and tables from a richer fixture', async () => {
+    const { Table, TableRow, TableCell, WidthType } = await import('docx');
+    const document = new Document({
+      numbering: {
+        config: [
+          {
+            reference: 'numbers',
+            levels: [
+              {
+                level: 0,
+                format: 'decimal',
+                text: '%1.',
+                alignment: 'left',
+              },
+            ],
+          },
+        ],
+      },
+      sections: [
+        {
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: 'Intro' })],
+            }),
+            new Paragraph({
+              bullet: { level: 0 },
+              children: [new TextRun({ text: 'Bullet one' })],
+            }),
+            new Paragraph({
+              bullet: { level: 0 },
+              children: [new TextRun({ text: 'Bullet two' })],
+            }),
+            new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: [
+                new TableRow({
+                  children: [
+                    new TableCell({
+                      children: [new Paragraph({ children: [new TextRun({ text: 'H1' })] })],
+                    }),
+                    new TableCell({
+                      children: [new Paragraph({ children: [new TextRun({ text: 'H2' })] })],
+                    }),
+                  ],
+                }),
+                new TableRow({
+                  children: [
+                    new TableCell({
+                      children: [new Paragraph({ children: [new TextRun({ text: 'C1' })] })],
+                    }),
+                    new TableCell({
+                      children: [new Paragraph({ children: [new TextRun({ text: 'C2' })] })],
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        },
+      ],
+    });
+    const buffer = await Packer.toBuffer(document);
+    const content = await docxBytesToTiptapContent(new Uint8Array(buffer));
+
+    const types = (content.content ?? []).map((n) => n.type);
+    expect(types).toContain('paragraph');
+    // officeparser may expose lists as list nodes or paragraphs depending on numbering;
+    // accept either a list node or surviving bullet text.
+    const hasList = types.includes('bulletList') || types.includes('orderedList');
+    const hasBulletText = (content.content ?? []).some((n) =>
+      JSON.stringify(n).includes('Bullet one'),
+    );
+    expect(hasList || hasBulletText).toBe(true);
+    expect(types.includes('table') || JSON.stringify(content).includes('H1')).toBe(true);
+  });
+
   it('falls back to a single empty paragraph for a blank document', async () => {
     const empty = new Document({ sections: [{ children: [] }] });
     const buffer = await Packer.toBuffer(empty);

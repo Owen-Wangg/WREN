@@ -1,23 +1,12 @@
 /**
- * `.docx` ⇄ Tiptap content mapping (task 18.1; Requirements 6.2, 52.1, 52.2).
+ * `.docx` ⇄ Tiptap content mapping (Requirements 6.2, 52.1, 52.2).
  *
- * WREN's document editor is built on a Tiptap (`@tiptap/react` + `@tiptap/starter-kit`,
- * MIT) editing surface, backed by two MIT-licensed conversion libraries:
- *   - `officeparser` (MIT, harshankur/officeParser) parses an uploaded `.docx` into a
- *     structured AST, which this module maps into Tiptap's `JSONContent` document model.
- *   - `docx` (MIT, dolanmiu/docx) generates a `.docx` file from a declarative
- *     Document/Paragraph/TextRun object model, which this module builds from the
- *     editor's `JSONContent` output.
+ * Scope B: paragraphs, headings, bold/italic/underline/strike, lists, tables.
+ * Images / headers / footers remain out of scope.
  *
- * `mammoth.js` (BSD-2-Clause) and Syncfusion Document Editor (commercial) were
- * evaluated and rejected — the OSS deliverable (Requirement 52.1) requires an
- * MIT-only stack end to end.
- *
- * Only the subset of formatting StarterKit ships by default is mapped: paragraphs,
- * headings (levels 1-6), and the bold/italic/underline/strike marks. Requirement 6.2
- * requires paragraph *structure* (boundaries + ordering) to be preserved across the
- * import → edit → export round-trip; this module is the single place that invariant is
- * implemented, so both directions of the mapping stay in sync.
+ * Libraries (MIT):
+ *   - `officeparser` — parse uploaded `.docx` into a structured AST
+ *   - `docx` — generate `.docx` from TipTap JSON
  */
 import type { JSONContent } from '@tiptap/react';
 import {
@@ -25,13 +14,15 @@ import {
   HeadingLevel,
   Packer,
   Paragraph,
+  Table,
+  TableCell,
+  TableRow,
   TextRun,
+  WidthType,
   type ParagraphChild,
+  type Table as DocxTable,
 } from 'docx';
 import { OfficeParser, type OfficeContentNode } from 'officeparser';
-
-/** The subset of Tiptap node types this mapper understands. */
-type SupportedNodeType = 'doc' | 'paragraph' | 'heading' | 'text';
 
 const HEADING_LEVEL_BY_NUMBER: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
   1: HeadingLevel.HEADING_1,
@@ -42,33 +33,18 @@ const HEADING_LEVEL_BY_NUMBER: Record<number, (typeof HeadingLevel)[keyof typeof
   6: HeadingLevel.HEADING_6,
 };
 
-/**
- * Recursively walks an `officeparser` AST node, extracting `heading`/`paragraph`
- * nodes as ordered Tiptap block nodes. Non-text structural nodes (tables, images,
- * lists, etc.) are intentionally out of scope for this task — task 18.1 is limited
- * to plain paragraphs/headings/text formatting, matching what StarterKit renders.
- */
-function officeNodeToTiptapBlocks(node: OfficeContentNode): JSONContent[] {
-  if (node.type === 'heading' || node.type === 'paragraph') {
-    const textNodes = collectTextRuns(node);
-    const block: JSONContent = {
-      type: node.type === 'heading' ? 'heading' : 'paragraph',
-      ...(node.type === 'heading'
-        ? { attrs: { level: node.metadata?.level ?? 1 } }
-        : {}),
-      content: textNodes.length > 0 ? textNodes : undefined,
-    };
-    return [block];
-  }
+function formattingToMarks(
+  formatting: OfficeContentNode['formatting'],
+): JSONContent['marks'] {
+  if (!formatting) return undefined;
 
-  // Container nodes (e.g. the document root) are flattened by recursing into
-  // their children and concatenating the resulting blocks in order, which is
-  // what preserves paragraph ordering end to end.
-  if (node.children && node.children.length > 0) {
-    return node.children.flatMap(officeNodeToTiptapBlocks);
-  }
+  const marks: NonNullable<JSONContent['marks']> = [];
+  if (formatting.bold) marks.push({ type: 'bold' });
+  if (formatting.italic) marks.push({ type: 'italic' });
+  if (formatting.underline) marks.push({ type: 'underline' });
+  if (formatting.strikethrough) marks.push({ type: 'strike' });
 
-  return [];
+  return marks.length > 0 ? marks : undefined;
 }
 
 /** Collects leaf `text` nodes under a paragraph/heading into Tiptap text nodes with marks. */
@@ -90,83 +66,202 @@ function collectTextRuns(node: OfficeContentNode): JSONContent[] {
   if (node.children && node.children.length > 0) {
     node.children.forEach(visit);
   } else if (node.text) {
-    // Fallback: some formats collapse text directly onto the paragraph node.
     runs.push({ type: 'text', text: node.text, marks: formattingToMarks(node.formatting) });
   }
 
   return runs.filter((run) => run.text !== undefined && run.text !== '');
 }
 
-function formattingToMarks(
-  formatting: OfficeContentNode['formatting'],
-): JSONContent['marks'] {
-  if (!formatting) return undefined;
+function paragraphOrHeadingFromOffice(node: OfficeContentNode): JSONContent {
+  const textNodes = collectTextRuns(node);
+  if (node.type === 'heading') {
+    return {
+      type: 'heading',
+      attrs: { level: node.metadata?.level ?? 1 },
+      content: textNodes.length > 0 ? textNodes : undefined,
+    };
+  }
+  return {
+    type: 'paragraph',
+    content: textNodes.length > 0 ? textNodes : undefined,
+  };
+}
 
-  const marks: NonNullable<JSONContent['marks']> = [];
-  if (formatting.bold) marks.push({ type: 'bold' });
-  if (formatting.italic) marks.push({ type: 'italic' });
-  if (formatting.underline) marks.push({ type: 'underline' });
-  if (formatting.strikethrough) marks.push({ type: 'strike' });
+function listItemFromOffice(node: OfficeContentNode): JSONContent {
+  return {
+    type: 'listItem',
+    content: [
+      {
+        type: 'paragraph',
+        content: (() => {
+          const runs = collectTextRuns(node);
+          return runs.length > 0 ? runs : undefined;
+        })(),
+      },
+    ],
+  };
+}
 
-  return marks.length > 0 ? marks : undefined;
+/**
+ * Group consecutive office `list` items into TipTap bulletList / orderedList.
+ * Nested levels become nested lists under the previous item when level increases.
+ */
+function consumeListGroup(
+  nodes: OfficeContentNode[],
+  startIndex: number,
+): { blocks: JSONContent[]; nextIndex: number } {
+  const first = nodes[startIndex]!;
+  const listType =
+    first.metadata && 'listType' in first.metadata && first.metadata.listType === 'ordered'
+      ? 'orderedList'
+      : 'bulletList';
+  const baseLevel =
+    first.metadata && 'level' in first.metadata && typeof first.metadata.level === 'number'
+      ? first.metadata.level
+      : 0;
+
+  const items: JSONContent[] = [];
+  let i = startIndex;
+  while (i < nodes.length && nodes[i]?.type === 'list') {
+    const node = nodes[i]!;
+    const level =
+      node.metadata && 'level' in node.metadata && typeof node.metadata.level === 'number'
+        ? node.metadata.level
+        : 0;
+    const nodeListType =
+      node.metadata && 'listType' in node.metadata && node.metadata.listType === 'ordered'
+        ? 'orderedList'
+        : 'bulletList';
+    if (nodeListType !== listType && level <= baseLevel) break;
+    if (level < baseLevel) break;
+
+    if (level > baseLevel) {
+      const nested = consumeListGroup(nodes, i);
+      const prev = items[items.length - 1];
+      if (prev) {
+        prev.content = [...(prev.content ?? []), ...nested.blocks];
+      } else {
+        items.push({
+          type: 'listItem',
+          content: [{ type: 'paragraph' }, ...nested.blocks],
+        });
+      }
+      i = nested.nextIndex;
+      continue;
+    }
+
+    items.push(listItemFromOffice(node));
+    i += 1;
+  }
+
+  return {
+    blocks: [{ type: listType, content: items }],
+    nextIndex: i,
+  };
+}
+
+function tableFromOffice(node: OfficeContentNode): JSONContent {
+  const rows = (node.children ?? []).filter((child) => child.type === 'row');
+  const tipTapRows: JSONContent[] = rows.map((row, rowIndex) => {
+    const cells = (row.children ?? []).filter((child) => child.type === 'cell');
+    return {
+      type: 'tableRow',
+      content: cells.map((cell) => {
+        const cellBlocks = (cell.children ?? []).flatMap((child) =>
+          officeNodesToTiptapBlocks([child]),
+        );
+        const cellContent =
+          cellBlocks.length > 0
+            ? cellBlocks
+            : [
+                {
+                  type: 'paragraph' as const,
+                  content: (() => {
+                    const runs = collectTextRuns(cell);
+                    return runs.length > 0 ? runs : undefined;
+                  })(),
+                },
+              ];
+        return {
+          type: rowIndex === 0 ? 'tableHeader' : 'tableCell',
+          content: cellContent.filter(
+            (b) => b.type === 'paragraph' || b.type === 'heading' || b.type === 'bulletList' || b.type === 'orderedList',
+          ),
+        };
+      }),
+    };
+  });
+
+  return {
+    type: 'table',
+    content:
+      tipTapRows.length > 0
+        ? tipTapRows
+        : [
+            {
+              type: 'tableRow',
+              content: [
+                { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                { type: 'tableCell', content: [{ type: 'paragraph' }] },
+              ],
+            },
+          ],
+  };
+}
+
+/** Convert a flat sequence of office nodes into TipTap top-level blocks. */
+function officeNodesToTiptapBlocks(nodes: OfficeContentNode[]): JSONContent[] {
+  const blocks: JSONContent[] = [];
+  let i = 0;
+  while (i < nodes.length) {
+    const node = nodes[i]!;
+    if (node.type === 'heading' || node.type === 'paragraph') {
+      blocks.push(paragraphOrHeadingFromOffice(node));
+      i += 1;
+      continue;
+    }
+    if (node.type === 'list') {
+      const group = consumeListGroup(nodes, i);
+      blocks.push(...group.blocks);
+      i = group.nextIndex;
+      continue;
+    }
+    if (node.type === 'table') {
+      blocks.push(tableFromOffice(node));
+      i += 1;
+      continue;
+    }
+    if (node.children && node.children.length > 0) {
+      blocks.push(...officeNodesToTiptapBlocks(node.children));
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return blocks;
+}
+
+/**
+ * Recursively walks an `officeparser` AST node (legacy entry for single roots).
+ */
+function officeNodeToTiptapBlocks(node: OfficeContentNode): JSONContent[] {
+  return officeNodesToTiptapBlocks([node]);
 }
 
 /**
  * Parses a `.docx` file (as bytes) via `officeparser` and returns Tiptap
- * `JSONContent` suitable for `useEditor({ content })`, preserving paragraph
- * boundaries and ordering (Requirement 6.2).
+ * `JSONContent` suitable for `useEditor({ content })`.
  */
 export async function docxBytesToTiptapContent(
   bytes: Uint8Array,
 ): Promise<JSONContent> {
   const ast = await OfficeParser.parseOffice(bytes, { fileType: 'docx' });
-
-  const blocks = ast.content.flatMap(officeNodeToTiptapBlocks);
+  const blocks = officeNodesToTiptapBlocks(ast.content);
 
   return {
     type: 'doc',
-    // A document must contain at least one paragraph for Tiptap's schema.
     content: blocks.length > 0 ? blocks : [{ type: 'paragraph' }],
   };
-}
-
-/**
- * Builds a `.docx` `Blob` from the editor's current `JSONContent`, mapping
- * paragraphs/headings and the bold/italic/underline/strike marks onto `docx`'s
- * Paragraph/TextRun/Document model. Only the node/mark types produced by
- * `@tiptap/starter-kit`'s default configuration are handled (Requirement 6.2,
- * 52.1, 52.2 — this task's scope excludes tables, images, and lists).
- */
-export async function tiptapContentToDocxBlob(
-  content: JSONContent,
-): Promise<Blob> {
-  const paragraphs = tiptapContentToDocxParagraphs(content);
-  const document = new Document({
-    sections: [{ children: paragraphs.length > 0 ? paragraphs : [new Paragraph({})] }],
-  });
-
-  return Packer.toBlob(document);
-}
-
-/** Exposed for the round-trip test — maps Tiptap `JSONContent` to `docx` Paragraphs. */
-export function tiptapContentToDocxParagraphs(content: JSONContent): Paragraph[] {
-  const blocks = content.content ?? [];
-
-  return blocks
-    .filter((node): node is JSONContent & { type: SupportedNodeType } =>
-      node.type === 'paragraph' || node.type === 'heading',
-    )
-    .map((node) => {
-      const children = tiptapInlineContentToRuns(node.content ?? []);
-      if (node.type === 'heading') {
-        const level = Number(node.attrs?.level ?? 1);
-        return new Paragraph({
-          heading: HEADING_LEVEL_BY_NUMBER[level] ?? HeadingLevel.HEADING_1,
-          children,
-        });
-      }
-      return new Paragraph({ children });
-    });
 }
 
 function tiptapInlineContentToRuns(inline: JSONContent[]): ParagraphChild[] {
@@ -184,8 +279,128 @@ function tiptapInlineContentToRuns(inline: JSONContent[]): ParagraphChild[] {
     });
 }
 
-/** Counts ordered paragraph/heading blocks in a Tiptap document — the unit the
- * import/edit/export round-trip must preserve (Requirement 6.2). */
+function blockToDocxParagraph(node: JSONContent): Paragraph {
+  const children = tiptapInlineContentToRuns(node.content ?? []);
+  if (node.type === 'heading') {
+    const level = Number(node.attrs?.level ?? 1);
+    return new Paragraph({
+      heading: HEADING_LEVEL_BY_NUMBER[level] ?? HeadingLevel.HEADING_1,
+      children,
+    });
+  }
+  return new Paragraph({ children });
+}
+
+function listToDocxParagraphs(node: JSONContent, level = 0): Paragraph[] {
+  const ordered = node.type === 'orderedList';
+  const out: Paragraph[] = [];
+  for (const item of node.content ?? []) {
+    if (item.type !== 'listItem') continue;
+    for (const child of item.content ?? []) {
+      if (child.type === 'paragraph' || child.type === 'heading') {
+        out.push(
+          new Paragraph({
+            children: tiptapInlineContentToRuns(child.content ?? []),
+            numbering: ordered
+              ? { reference: 'wren-ordered', level }
+              : undefined,
+            bullet: ordered ? undefined : { level },
+          }),
+        );
+      } else if (child.type === 'bulletList' || child.type === 'orderedList') {
+        out.push(...listToDocxParagraphs(child, level + 1));
+      }
+    }
+  }
+  return out;
+}
+
+function cellBlocksToParagraphs(cell: JSONContent): Paragraph[] {
+  const blocks = cell.content ?? [];
+  if (blocks.length === 0) return [new Paragraph({})];
+  const paragraphs: Paragraph[] = [];
+  for (const block of blocks) {
+    if (block.type === 'paragraph' || block.type === 'heading') {
+      paragraphs.push(blockToDocxParagraph(block));
+    } else if (block.type === 'bulletList' || block.type === 'orderedList') {
+      paragraphs.push(...listToDocxParagraphs(block));
+    }
+  }
+  return paragraphs.length > 0 ? paragraphs : [new Paragraph({})];
+}
+
+function tableToDocx(node: JSONContent): DocxTable {
+  const rows = (node.content ?? []).filter((r) => r.type === 'tableRow');
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: rows.map(
+      (row) =>
+        new TableRow({
+          children: (row.content ?? [])
+            .filter((c) => c.type === 'tableCell' || c.type === 'tableHeader')
+            .map(
+              (cell) =>
+                new TableCell({
+                  children: cellBlocksToParagraphs(cell),
+                }),
+            ),
+        }),
+    ),
+  });
+}
+
+/**
+ * Builds a `.docx` `Blob` from the editor's current `JSONContent`.
+ */
+export async function tiptapContentToDocxBlob(
+  content: JSONContent,
+): Promise<Blob> {
+  const children = tiptapContentToDocxChildren(content);
+  const document = new Document({
+    numbering: {
+      config: [
+        {
+          reference: 'wren-ordered',
+          levels: Array.from({ length: 6 }, (_, level) => ({
+            level,
+            format: 'decimal' as const,
+            text: `%${level + 1}.`,
+            alignment: 'left' as const,
+          })),
+        },
+      ],
+    },
+    sections: [{ children: children.length > 0 ? children : [new Paragraph({})] }],
+  });
+
+  return Packer.toBlob(document);
+}
+
+/** Exposed for tests — maps TipTap `JSONContent` to docx section children. */
+export function tiptapContentToDocxParagraphs(content: JSONContent): Paragraph[] {
+  return tiptapContentToDocxChildren(content).filter(
+    (child): child is Paragraph => child instanceof Paragraph,
+  );
+}
+
+export function tiptapContentToDocxChildren(
+  content: JSONContent,
+): Array<Paragraph | DocxTable> {
+  const blocks = content.content ?? [];
+  const out: Array<Paragraph | DocxTable> = [];
+  for (const node of blocks) {
+    if (node.type === 'paragraph' || node.type === 'heading') {
+      out.push(blockToDocxParagraph(node));
+    } else if (node.type === 'bulletList' || node.type === 'orderedList') {
+      out.push(...listToDocxParagraphs(node));
+    } else if (node.type === 'table') {
+      out.push(tableToDocx(node));
+    }
+  }
+  return out;
+}
+
+/** Counts top-level paragraph/heading blocks (legacy helper for tests). */
 export function countParagraphBlocks(content: JSONContent): number {
   return (content.content ?? []).filter(
     (node) => node.type === 'paragraph' || node.type === 'heading',
@@ -194,7 +409,7 @@ export function countParagraphBlocks(content: JSONContent): number {
 
 /**
  * Maps ordered draft segments (`{ index, text }`) into a TipTap document.
- * Used when loading a persisted draft into the editor.
+ * Used when loading a persisted draft into the editor (legacy / no content).
  */
 export function segmentsToTiptapContent(
   segments: ReadonlyArray<{ index: number; text: string }>,
@@ -211,3 +426,6 @@ export function segmentsToTiptapContent(
     })),
   };
 }
+
+// Keep export for any callers that imported the recursive walker name.
+export { officeNodeToTiptapBlocks };

@@ -113,14 +113,20 @@ export function DashboardPage() {
       {!documentsQuery.isLoading && !documentsQuery.isError && (
         <>
           {documents.length === 0 ? (
-            <AiDisclaimerNotice />
+            <AiDisclaimerNotice
+              dismissible
+              dismissStorageKey="dashboard-ai-disclaimer-dismissed"
+            />
           ) : filteredDocuments.length === 0 ? (
             <p className="text-bodySmall text-text-secondary">
               No documents match your filters.
             </p>
           ) : (
             <>
-              <AiDisclaimerNotice />
+              <AiDisclaimerNotice
+                dismissible
+                dismissStorageKey="dashboard-ai-disclaimer-dismissed"
+              />
               <div className="grid grid-cols-1 gap-lg sm:grid-cols-2 lg:grid-cols-3">
                 {filteredDocuments.map((document) => (
                   <WritingEnvironmentCard

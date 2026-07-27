@@ -206,17 +206,15 @@ export function AnchoredFeedbackEditor({
   }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, anchors]);
 
   return (
-    <div className={['flex h-full gap-0', className].filter(Boolean).join(' ')}>
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <DocumentEditor
-          ref={editorRef}
-          initialContent={initialContent}
-          ariaLabel={ariaLabel}
-          onContentChange={onContentChange}
-          onCommentActivated={handleCommentActivated}
-          className="flex-1 overflow-y-auto"
-        />
-      </div>
+    <div className={['flex min-h-full flex-1 flex-col gap-0', className].filter(Boolean).join(' ')}>
+      <DocumentEditor
+        ref={editorRef}
+        initialContent={initialContent}
+        ariaLabel={ariaLabel}
+        onContentChange={onContentChange}
+        onCommentActivated={handleCommentActivated}
+        className="min-h-full flex-1"
+      />
     </div>
   );
 }

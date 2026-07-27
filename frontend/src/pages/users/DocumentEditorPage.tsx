@@ -1,11 +1,21 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
+import {
+  Download,
+  GripVertical,
+  House,
+  MessageSquare,
+  Sparkles,
+  Upload,
+} from 'lucide-react';
 
 import { AnchoredFeedbackEditorContainer } from '@/features/editor';
 import { createAskWrenService } from '@/features/ask-wren';
-import { ChatFeedbackSidebar } from '@/components/ChatFeedbackSidebar';
+import {
+  ChatFeedbackSidebar,
+  type DocumentNavMode,
+} from '@/components/ChatFeedbackSidebar';
 import { appConfig } from '@/config/env';
 import {
   fetchDocument,
@@ -18,13 +28,28 @@ import { fetchFeedbackStatus, generateFeedback } from '@/features/editor/anchore
 import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
+  docxBytesToTiptapContent,
 } from '@/features/editor/docxContentMapper';
+import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
 import { queryKeys } from '@/hooks/queryKeys';
+import {
+  isTipTapDoc,
+  asTipTapDoc,
+  stripAiMarksFromTipTapContent,
+  tipTapContentToSegments,
+  wordCountFromTipTapContent,
+} from '@wren/types';
 
 import type { JSONContent } from '@tiptap/react';
 
 const askWrenService = createAskWrenService(apiClient);
+
+const ACTIVE_NAV_KEY = 'wren-active-sidebar-tab';
+const PANEL_WIDTH_DEFAULT = 320;
+const PANEL_WIDTH_MIN = 280;
+const PANEL_WIDTH_MAX = 480;
+const RAIL_WIDTH_PX = 76;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -48,20 +73,23 @@ function contentTypeForFile(file: File): string {
 function segmentsFromEditorContent(
   content: JSONContent,
 ): Array<{ index: number; text: string }> {
-  return (content.content ?? []).map((block, idx) => ({
-    index: idx,
-    text: (block.content ?? [])
-      .filter((n) => n.type === 'text')
-      .map((n) => n.text ?? '')
-      .join(''),
-  }));
+  return tipTapContentToSegments(content);
 }
 
 function wordCountFromEditorContent(content: JSONContent): number {
-  return segmentsFromEditorContent(content).reduce(
-    (total, seg) => total + seg.text.split(/\s+/).filter(Boolean).length,
-    0,
-  );
+  return wordCountFromTipTapContent(content);
+}
+
+async function parseUploadToTipTap(file: File): Promise<JSONContent | undefined> {
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.docx')) return await docxBytesToTiptapContent(bytes);
+    if (name.endsWith('.pdf')) return await pdfBytesToTiptapContent(bytes);
+  } catch {
+    // Non-fatal: server plain-text ingest remains the fallback.
+  }
+  return undefined;
 }
 
 function errorMessageFromUnknown(error: unknown): string {
@@ -77,15 +105,29 @@ function errorMessageFromUnknown(error: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
+function readStoredNavMode(): DocumentNavMode {
+  try {
+    const stored = localStorage.getItem(ACTIVE_NAV_KEY);
+    if (stored === 'home' || stored === 'chat' || stored === 'debrief') return stored;
+  } catch {
+    // ignore
+  }
+  return 'home';
+}
+
 export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
-  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(420);
+
+  const [activeNav, setActiveNav] = useState<DocumentNavMode>(() => readStoredNavMode());
+  // Start collapsed on Home so the draft is the hero; Ask/Debrief open the panel.
+  const [panelCollapsed, setPanelCollapsed] = useState(
+    () => readStoredNavMode() === 'home',
+  );
+  const [panelWidth, setPanelWidth] = useState(PANEL_WIDTH_DEFAULT);
+
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
     undefined,
@@ -115,77 +157,93 @@ export function DocumentEditorPage() {
     routerInitialContent ?? EMPTY_EDITOR_CONTENT,
   );
 
-  const resizeRef = useRef<{ startX: number; startWidth: number; isDragging: boolean } | null>(null);
-  const sidebarDivRef = useRef<HTMLDivElement | null>(null);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const panelDivRef = useRef<HTMLDivElement | null>(null);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    resizeRef.current = {
-      startX: e.clientX,
-      startWidth: rightSidebarWidth,
-      isDragging: true,
-    };
+  const handleNavChange = useCallback((mode: DocumentNavMode) => {
+    setActiveNav(mode);
+    // Home keeps the draft full-width; coaching modes open the side panel.
+    setPanelCollapsed(mode === 'home');
+    try {
+      localStorage.setItem(ACTIVE_NAV_KEY, mode);
+    } catch {
+      // ignore
+    }
+  }, []);
 
-    const handleMove = (moveEvent: MouseEvent) => {
-      if (!resizeRef.current) return;
-      const delta = moveEvent.clientX - resizeRef.current.startX;
-      const newWidth = Math.max(300, resizeRef.current.startWidth - delta);
+  const handlePanelResizeStart = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      resizeRef.current = {
+        startX: e.clientX,
+        startWidth: panelWidth,
+      };
 
-      if (sidebarDivRef.current) {
-        sidebarDivRef.current.style.width = `${newWidth}px`;
-      }
-    };
+      const handleMove = (moveEvent: MouseEvent) => {
+        if (!resizeRef.current) return;
+        const delta = moveEvent.clientX - resizeRef.current.startX;
+        const next = Math.min(
+          PANEL_WIDTH_MAX,
+          Math.max(PANEL_WIDTH_MIN, resizeRef.current.startWidth + delta),
+        );
+        if (panelDivRef.current) {
+          panelDivRef.current.style.width = `${next}px`;
+        }
+      };
 
-    const handleUp = () => {
-      if (!resizeRef.current || !sidebarDivRef.current) return;
-      const currentWidth = parseInt(sidebarDivRef.current.style.width, 10);
-      setRightSidebarWidth(currentWidth);
-      resizeRef.current.isDragging = false;
+      const handleUp = () => {
+        if (!resizeRef.current || !panelDivRef.current) return;
+        const currentWidth = parseInt(panelDivRef.current.style.width, 10);
+        if (!Number.isNaN(currentWidth)) {
+          setPanelWidth(currentWidth);
+        }
+        resizeRef.current = null;
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleUp);
+      };
 
-      document.removeEventListener('mousemove', handleMove);
-      document.removeEventListener('mouseup', handleUp);
-    };
-
-    document.addEventListener('mousemove', handleMove);
-    document.addEventListener('mouseup', handleUp);
-  }, [rightSidebarWidth]);
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleUp);
+    },
+    [panelWidth],
+  );
 
   const envId = documentId ?? 'doc-1';
 
-  // Fetch real document metadata (name, etc.) from the backend
   const { data: documentData } = useQuery({
     queryKey: ['document', envId],
     queryFn: () => fetchDocument(apiClient, envId),
     enabled: !!documentId,
   });
 
-  // Load the latest draft body when opening from the dashboard (no router state).
   const draftQuery = useQuery({
     queryKey: ['document-draft', envId],
     queryFn: () => fetchLatestDraft(apiClient, envId),
     enabled: !!documentId,
   });
 
-  const draftContent = useMemo(
-    () => (draftQuery.data ? segmentsToTiptapContent(draftQuery.data.segments) : null),
-    [draftQuery.data],
-  );
+  const draftContent = useMemo(() => {
+    if (!draftQuery.data) return null;
+    if (isTipTapDoc(draftQuery.data.content)) {
+      return draftQuery.data.content as JSONContent;
+    }
+    return segmentsToTiptapContent(draftQuery.data.segments);
+  }, [draftQuery.data]);
 
-  const editorInitialContent = routerInitialContent ?? draftContent ?? EMPTY_EDITOR_CONTENT;
-  const editorReady = Boolean(routerInitialContent) || draftQuery.isSuccess || draftQuery.isError;
-  const editorMountKey = routerInitialContent
-    ? `router-${envId}`
-    : `draft-${draftQuery.data?.id ?? envId}`;
+  // Prefer persisted draft.content over ephemeral router state so reload matches DB.
+  const editorInitialContent = draftContent ?? routerInitialContent ?? EMPTY_EDITOR_CONTENT;
+  const editorReady = draftQuery.isSuccess || draftQuery.isError || Boolean(routerInitialContent);
+  const editorMountKey = `draft-${draftQuery.data?.id ?? envId}-${draftQuery.data?.versionNumber ?? 0}`;
 
   useEffect(() => {
-    if (routerInitialContent) {
-      setCurrentContent(routerInitialContent);
-      return;
-    }
     if (draftContent) {
       setCurrentContent(draftContent);
+      return;
     }
-  }, [routerInitialContent, draftContent]);
+    if (routerInitialContent) {
+      setCurrentContent(routerInitialContent);
+    }
+  }, [draftContent, routerInitialContent]);
 
   const documentName = documentData?.name ?? state?.documentName ?? 'Untitled document';
 
@@ -198,16 +256,18 @@ export function DocumentEditorPage() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  /** Persist TipTap content as a new draft before Regenerate runs feedback. */
   const saveDraftFromEditor = useCallback(async () => {
-    const segments = segmentsFromEditorContent(currentContent);
-    await createDraft(apiClient, envId, segments);
+    const cleaned = asTipTapDoc(stripAiMarksFromTipTapContent(currentContent));
+    const segments = cleaned
+      ? tipTapContentToSegments(cleaned)
+      : segmentsFromEditorContent(currentContent);
+    await createDraft(apiClient, envId, segments, cleaned);
     await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
   }, [currentContent, envId, queryClient]);
 
-  /** Resubmit = re-upload a .docx/.pdf onto this same document as a new draft. */
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
+      const tipTap = await parseUploadToTipTap(file);
       const { uploadUrl, key } = await getPresignedUrl(
         apiClient,
         file.name,
@@ -223,9 +283,20 @@ export function DocumentEditorPage() {
         throw new Error('File upload to storage failed');
       }
 
-      return createDraftFromSource(apiClient, envId, { kind: 'file', key });
+      const cleaned = tipTap
+        ? asTipTapDoc(stripAiMarksFromTipTapContent(tipTap))
+        : undefined;
+      return createDraftFromSource(
+        apiClient,
+        envId,
+        { kind: 'file', key },
+        cleaned,
+      );
     },
-    onSuccess: () => {
+    onSuccess: (draft) => {
+      if (isTipTapDoc(draft.content)) {
+        setCurrentContent(draft.content as JSONContent);
+      }
       void queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
       setIsPollingFeedback(true);
       void generateFeedback(apiClient, envId).catch(() => {
@@ -245,7 +316,6 @@ export function DocumentEditorPage() {
     resubmitDraftMutation.mutate(file);
   };
 
-  // Poll feedback status after generation is queued
   useEffect(() => {
     if (!isPollingFeedback) return;
 
@@ -287,9 +357,9 @@ export function DocumentEditorPage() {
     };
   }, [isPollingFeedback, envId, queryClient]);
 
-  // Download current editor content as .docx
   const handleDownload = async () => {
-    const blob = await tiptapContentToDocxBlob(currentContent);
+    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
+    const blob = await tiptapContentToDocxBlob(cleaned);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -298,230 +368,283 @@ export function DocumentEditorPage() {
     URL.revokeObjectURL(url);
   };
 
+  const wordCount = wordCountFromEditorContent(currentContent);
+
+  const railItems: Array<{
+    id: DocumentNavMode;
+    label: string;
+    icon: ComponentType<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean | 'true' }>;
+  }> = [
+    { id: 'home', label: 'Home', icon: House },
+    { id: 'chat', label: appConfig.appName, icon: MessageSquare },
+    { id: 'debrief', label: 'AI Debrief', icon: Sparkles },
+  ];
+
+  const railButtonClass = (isActive: boolean) =>
+    [
+      'relative flex min-h-11 w-full flex-col items-center justify-center gap-[2px] px-xs py-sm text-center transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-border-strong',
+      isActive
+        ? 'bg-surface-primary text-text-primary'
+        : 'text-text-muted hover:bg-surface-muted hover:text-text-secondary',
+    ].join(' ');
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/30">
-      {/* Top bar */}
-      <div className="shrink-0 border-b border-border-subtle bg-surface-primary px-2xl py-sm">
-        <button
-          type="button"
-          onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-sm text-bodySmall font-sans text-text-secondary hover:text-text-primary"
-        >
-          <span aria-hidden="true">&larr;</span> Back to Dashboard
-        </button>
+    <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/40">
+      {/* Top bar — document name lives here so the draft stays the visual hero */}
+      <div className="flex shrink-0 items-center gap-md border-b border-border-subtle bg-surface-primary px-xl py-sm">
+        <div className="flex min-w-0 items-center gap-md">
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className="shrink-0 text-bodySmall font-sans text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-strong"
+          >
+            <span aria-hidden="true">&larr;</span> Dashboard
+          </button>
+          <span aria-hidden="true" className="text-border-subtle">
+            /
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-bodySmall font-sans font-semibold text-text-primary">
+              {documentName}
+            </p>
+            <p className="truncate text-caption text-text-muted">
+              {breadcrumb !== 'Document' ? `${breadcrumb} · ` : ''}
+              Draft v{draftVersion} · {wordCount.toLocaleString()} words
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Main content area */}
-      <div className="flex min-h-0 flex-1">
-        {/* Left sidebar */}
-        <aside
-          className={`relative flex shrink-0 flex-col border-r border-border-subtle bg-surface-primary transition-[width] duration-300 ease-in-out ${
-            leftSidebarCollapsed ? 'w-0 overflow-hidden border-r-0' : 'w-[280px]'
-          }`}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Icon nav — ~44px hit targets, caption labels */}
+        <nav
+          aria-label="Document views"
+          className="flex shrink-0 flex-col items-stretch border-r border-border-subtle bg-surface-muted/70"
+          style={{ width: RAIL_WIDTH_PX }}
         >
-          <div className={`flex flex-1 flex-col p-lg ${leftSidebarCollapsed ? 'invisible' : 'visible'}`} style={{ minWidth: '280px' }}>
-            {/* Document header */}
-            <div className="flex flex-col gap-xs">
-              <span className="text-caption font-sans text-text-muted">
-                {breadcrumb}
-              </span>
-              <h2 className="text-heading3 font-sans font-bold text-text-primary">
-                {documentName}
-              </h2>
-              <p className="text-caption text-text-secondary leading-relaxed">
-                <strong>AI Debrief</strong> gives you a bird's-eye view of your writing: where you're excelling and where you could improve. Click any quote within the AI Debrief content to see it highlighted in your draft.
-              </p>
-              <p className="text-caption text-text-secondary leading-relaxed">
-                <strong>Ask {appConfig.appName}</strong> takes you deeper. Ask specific questions to get guided reflections that help you think critically about your draft.
-              </p>
-            </div>
-
-            <hr className="my-lg border-border-subtle" />
-
-            {/* Action buttons — bottom aligned */}
-            <nav className="mt-auto flex flex-col gap-sm" aria-label="Document actions">
-              {/* Open feedback & chat sidebar */}
-              <button
-                type="button"
-                onClick={() => { setRightSidebarOpen(true); setRightSidebarCollapsed(false); }}
-                className="w-full rounded-md bg-accent-primary px-lg py-sm text-bodySmall font-sans font-semibold text-text-on-accent"
-              >
-                Open {appConfig.appName} and AI Debrief
-              </button>
-
-              {/* Divider between feedback and revision actions */}
-              <hr className="my-xs border-border-subtle" />
-
-              {/* Revision paths */}
-              <div className="flex flex-col gap-xs">
-                <p className="text-caption font-semibold text-text-primary">Revise your draft</p>
-                <p className="text-caption text-text-muted leading-relaxed">
-                  <strong>Edit inline</strong>: make changes directly in the editor, then click <strong>Regenerate</strong> in the AI Debrief panel to get updated feedback.
-                </p>
-                <p className="text-caption text-text-muted leading-relaxed">
-                  <strong>Upload a new draft</strong>: revise in your word processor and upload below; feedback will regenerate automatically.
-                </p>
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
-                className="hidden"
-                onChange={handleResubmitFileChange}
-              />
-              <button
-                type="button"
-                onClick={handleResubmitClick}
-                disabled={resubmitDraftMutation.isPending}
-                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {resubmitDraftMutation.isPending ? 'Uploading…' : 'Upload New Draft'}
-              </button>
-              {resubmitDraftMutation.isError && (
-                <p role="alert" className="text-bodySmall text-signal-critical">
-                  {errorMessageFromUnknown(resubmitDraftMutation.error)}
-                </p>
-              )}
-
-              <hr className="my-xs border-border-subtle" />
-
-              <button
-                type="button"
-                onClick={handleDownload}
-                className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted"
-              >
-                Download Document
-              </button>
-            </nav>
+          <div className="flex flex-col items-stretch gap-[2px] pt-xs">
+            {railItems.map((item) => {
+              const isActive = activeNav === item.id;
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleNavChange(item.id)}
+                  aria-pressed={isActive}
+                  className={railButtonClass(isActive)}
+                >
+                  {isActive && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r-sm bg-accent-primary"
+                    />
+                  )}
+                  <Icon size={20} strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
+                  <span className="max-w-full truncate px-[2px] text-caption font-sans font-medium leading-tight">
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Resize handle on right edge */}
-          <div className="absolute right-0 top-0 flex h-full w-[6px] cursor-col-resize items-center justify-center opacity-0 transition-opacity hover:opacity-100">
-            <GripVertical size={12} className="text-text-muted" />
+          <div
+            className="mt-auto flex flex-col items-stretch gap-[2px] border-t border-border-subtle pb-xs pt-xs"
+            aria-label="File actions"
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+              className="hidden"
+              onChange={handleResubmitFileChange}
+            />
+            <button
+              type="button"
+              onClick={handleResubmitClick}
+              disabled={resubmitDraftMutation.isPending}
+              title={
+                resubmitDraftMutation.isError
+                  ? errorMessageFromUnknown(resubmitDraftMutation.error)
+                  : 'Upload a revised draft'
+              }
+              aria-label={
+                resubmitDraftMutation.isPending ? 'Uploading new draft' : 'Upload new draft'
+              }
+              className={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
+            >
+              <Upload size={20} strokeWidth={1.75} aria-hidden="true" />
+              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
+                {resubmitDraftMutation.isPending ? 'Uploading' : 'Upload'}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDownload}
+              title="Download"
+              aria-label="Download"
+              className={railButtonClass(false)}
+            >
+              <Download size={20} strokeWidth={1.75} aria-hidden="true" />
+              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
+                Download
+              </span>
+            </button>
+          </div>
+        </nav>
+
+        {/* Side panel — coaching / compact home status */}
+        <aside
+          ref={panelDivRef}
+          className={`relative flex shrink-0 flex-col border-r border-border-subtle bg-surface-primary ${
+            panelCollapsed ? 'overflow-hidden border-r-0' : ''
+          }`}
+          style={{ width: panelCollapsed ? 0 : panelWidth }}
+        >
+          <div
+            className={`flex h-full min-h-0 w-full flex-col ${panelCollapsed ? 'invisible' : 'visible'}`}
+            style={{ minWidth: PANEL_WIDTH_MIN }}
+            aria-hidden={panelCollapsed}
+          >
+            <div
+              className={activeNav === 'home' ? 'flex h-full min-h-0 flex-col' : 'hidden'}
+              hidden={activeNav !== 'home'}
+            >
+              <div className="flex flex-1 flex-col gap-lg overflow-y-auto p-lg">
+                <div>
+                  <p className="text-caption font-sans font-semibold uppercase tracking-wide text-text-muted">
+                    Overview
+                  </p>
+                  <p className="mt-xs text-bodySmall font-sans text-text-secondary leading-relaxed">
+                    Open Ask {appConfig.appName} or AI Debrief from the left menu. Upload and
+                    download stay at the bottom of that menu.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-sm">
+                  <div className="rounded-md border border-border-subtle bg-surface-muted/50 px-md py-sm">
+                    <p className="text-caption text-text-muted">Draft</p>
+                    <p className="text-bodySmall font-semibold text-text-primary">v{draftVersion}</p>
+                  </div>
+                  <div className="rounded-md border border-border-subtle bg-surface-muted/50 px-md py-sm">
+                    <p className="text-caption text-text-muted">Words</p>
+                    <p className="text-bodySmall font-semibold text-text-primary">
+                      {wordCount.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-md border border-border-subtle px-md py-sm">
+                  <p className="text-caption font-semibold text-text-primary">Revise</p>
+                  <p className="mt-xs text-caption text-text-muted leading-relaxed">
+                    Edit in the document, then Regenerate in AI Debrief — or upload a new file
+                    from the left menu.
+                  </p>
+                </div>
+
+                {resubmitDraftMutation.isError && (
+                  <p role="alert" className="text-bodySmall text-signal-critical">
+                    {errorMessageFromUnknown(resubmitDraftMutation.error)}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div
+              className={
+                activeNav === 'chat' || activeNav === 'debrief' ? 'h-full min-h-0' : 'hidden'
+              }
+              hidden={activeNav === 'home'}
+            >
+              <ChatFeedbackSidebar
+                documentId={envId}
+                draftId={draftId}
+                draftVersion={draftVersion}
+                activeMode={activeNav}
+                wordCount={wordCount}
+                askWrenService={askWrenService}
+                isGeneratingFeedback={isPollingFeedback}
+                onBeforeRegenerate={saveDraftFromEditor}
+                onHighlight={(anchorId) => {
+                  setActiveQuoteId(`ask:${anchorId}`);
+                  setHighlightedAnchorId(anchorId);
+                  setHighlightedQuotedText(undefined);
+                  setHighlightedLocationHint(undefined);
+                  setShowCoachHighlights(true);
+                }}
+                onChatQuoteClick={(selection) => {
+                  if (activeQuoteId === selection.quoteKey) {
+                    setActiveQuoteId(undefined);
+                    setHighlightedAnchorId(undefined);
+                    setHighlightedQuotedText(undefined);
+                    setHighlightedLocationHint(undefined);
+                    return;
+                  }
+                  setActiveQuoteId(selection.quoteKey);
+                  setHighlightedAnchorId(undefined);
+                  setHighlightedQuotedText(selection.quotedText);
+                  setHighlightedLocationHint(selection.locationHint);
+                  setShowCoachHighlights(true);
+                }}
+                activeQuoteId={activeQuoteId}
+                onQuoteClick={(selection) => {
+                  if (activeQuoteId === selection.feedbackItemId) {
+                    setActiveQuoteId(undefined);
+                    setHighlightedAnchorId(undefined);
+                    setHighlightedQuotedText(undefined);
+                    setHighlightedLocationHint(undefined);
+                    return;
+                  }
+                  setActiveQuoteId(selection.feedbackItemId);
+                  setHighlightedAnchorId(selection.anchorId);
+                  setHighlightedQuotedText(selection.quotedText);
+                  setHighlightedLocationHint(undefined);
+                }}
+              />
+            </div>
           </div>
         </aside>
 
-        {/* Left sidebar collapse/expand toggle */}
-        <button
-          type="button"
-          onClick={() => setLeftSidebarCollapsed(!leftSidebarCollapsed)}
-          aria-label={leftSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="relative z-10 flex h-full w-[20px] shrink-0 items-center justify-center border-r border-border-subtle bg-surface-primary text-text-muted transition-colors hover:bg-surface-muted hover:text-text-primary"
-        >
-          {leftSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-        </button>
-
-        {/* Editor area — centered with max-width for comfortable reading */}
-        <main className="flex min-h-0 flex-1 justify-center overflow-y-auto p-2xl">
-          <div className="w-full max-w-[960px]">
-            <div className="min-h-full rounded-lg border border-border-subtle/50 bg-surface-primary p-2xl shadow-sm">
-              {!editorReady ? (
-                <p role="status" className="text-bodySmall text-text-secondary">
-                  Loading document…
-                </p>
-              ) : (
-                <AnchoredFeedbackEditorContainer
-                  key={editorMountKey}
-                  environmentId={envId}
-                  ariaLabel="Draft editor"
-                  initialContent={editorInitialContent}
-                  categoryLabels={previewCategoryLabels}
-                  highlightedAnchorId={highlightedAnchorId}
-                  highlightedQuotedText={highlightedQuotedText}
-                  highlightedLocationHint={highlightedLocationHint}
-                  showCoachHighlights={showCoachHighlights}
-                  onContentChange={(content) => setCurrentContent(content)}
-                />
-              )}
-            </div>
-          </div>
-        </main>
-
-        {/* Right panel: Writing Coach & AI Debrief sidebar */}
-        {rightSidebarOpen && !rightSidebarCollapsed && (
+        {!panelCollapsed && (
           <div
-            className="w-1 cursor-col-resize bg-border-subtle hover:bg-accent-primary/80 active:bg-accent-primary transition-colors flex items-center justify-center group"
-            onMouseDown={handleResizeStart}
+            className="group flex w-1 shrink-0 cursor-col-resize items-center justify-center bg-border-subtle/80 transition-colors hover:bg-accent-primary/70 active:bg-accent-primary"
+            onMouseDown={handlePanelResizeStart}
             role="separator"
             aria-label="Drag to resize panel"
             aria-orientation="vertical"
           >
-            <GripVertical size={18} className="text-accent-primary opacity-30 group-hover:opacity-100 transition-opacity" />
-          </div>
-        )}
-        <div
-          ref={sidebarDivRef}
-          className={`relative flex shrink-0 overflow-hidden border-l border-border-subtle shadow-[-4px_0_12px_rgba(0,0,0,0.05)] ${
-            !rightSidebarOpen ? 'border-l-0' : ''
-          }`}
-          style={{
-            width: rightSidebarOpen ? (rightSidebarCollapsed ? '20px' : `${rightSidebarWidth}px`) : '0px',
-          }}
-        >
-          {rightSidebarOpen && (
-            <button
-              type="button"
-              onClick={() => setRightSidebarCollapsed(!rightSidebarCollapsed)}
-              aria-label={rightSidebarCollapsed ? 'Expand panel' : 'Collapse panel'}
-              className="relative z-10 flex h-full w-[20px] shrink-0 items-center justify-center border-r border-border-subtle bg-surface-primary text-text-muted transition-colors hover:bg-surface-muted hover:text-text-primary"
-            >
-              {rightSidebarCollapsed ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-            </button>
-          )}
-
-          <div
-            className={`flex h-full flex-col bg-surface-primary flex-1 ${
-              rightSidebarCollapsed ? 'hidden' : 'visible'
-            }`}
-          >
-            <ChatFeedbackSidebar
-              documentId={envId}
-              draftId={draftId}
-              draftVersion={draftVersion}
-              wordCount={wordCountFromEditorContent(currentContent)}
-              askWrenService={askWrenService}
-              isGeneratingFeedback={isPollingFeedback}
-              onBeforeRegenerate={saveDraftFromEditor}
-              onHighlight={(anchorId) => {
-                setActiveQuoteId(`ask:${anchorId}`);
-                setHighlightedAnchorId(anchorId);
-                setHighlightedQuotedText(undefined);
-                setHighlightedLocationHint(undefined);
-                setShowCoachHighlights(true);
-              }}
-              onChatQuoteClick={(selection) => {
-                if (activeQuoteId === selection.quoteKey) {
-                  setActiveQuoteId(undefined);
-                  setHighlightedAnchorId(undefined);
-                  setHighlightedQuotedText(undefined);
-                  setHighlightedLocationHint(undefined);
-                  return;
-                }
-                setActiveQuoteId(selection.quoteKey);
-                setHighlightedAnchorId(undefined);
-                setHighlightedQuotedText(selection.quotedText);
-                setHighlightedLocationHint(selection.locationHint);
-                setShowCoachHighlights(true);
-              }}
-              activeQuoteId={activeQuoteId}
-              onQuoteClick={(selection) => {
-                if (activeQuoteId === selection.feedbackItemId) {
-                  setActiveQuoteId(undefined);
-                  setHighlightedAnchorId(undefined);
-                  setHighlightedQuotedText(undefined);
-                  setHighlightedLocationHint(undefined);
-                  return;
-                }
-                setActiveQuoteId(selection.feedbackItemId);
-                setHighlightedAnchorId(selection.anchorId);
-                setHighlightedQuotedText(selection.quotedText);
-                setHighlightedLocationHint(undefined);
-              }}
+            <GripVertical
+              size={14}
+              className="text-text-muted opacity-40 transition-opacity group-hover:opacity-100"
             />
           </div>
-        </div>
+        )}
+
+        {/* Editor — Google Docs-style: full-height page, one scroll */}
+        <main className="document-editor-scroll min-h-0 flex-1 bg-surface-muted/50">
+          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary px-2xl py-2xl shadow-sm sm:px-3xl sm:py-3xl">
+            {!editorReady ? (
+              <p role="status" className="text-bodySmall text-text-secondary">
+                Loading document…
+              </p>
+            ) : (
+              <AnchoredFeedbackEditorContainer
+                key={editorMountKey}
+                environmentId={envId}
+                ariaLabel="Draft editor"
+                initialContent={editorInitialContent}
+                categoryLabels={previewCategoryLabels}
+                highlightedAnchorId={highlightedAnchorId}
+                highlightedQuotedText={highlightedQuotedText}
+                highlightedLocationHint={highlightedLocationHint}
+                showCoachHighlights={showCoachHighlights}
+                onContentChange={(content) => setCurrentContent(content)}
+                className="min-h-0 flex-1"
+              />
+            )}
+          </div>
+        </main>
       </div>
     </div>
   );

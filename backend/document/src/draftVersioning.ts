@@ -23,7 +23,7 @@
  * arbitrary (out-of-order) input, and perform no I/O — mirroring the pure
  * `segmentParagraphs` core so they are trivially unit-testable.
  */
-import type { Draft, FeedbackItem, Segment } from '@wren/types';
+import type { Draft, FeedbackItem, Segment, TipTapDoc } from '@wren/types';
 
 import type { DraftRepository } from './draftRepository';
 
@@ -80,6 +80,8 @@ export interface DraftSubmission {
   readonly wordCount: number;
   /** S3 object key where the submitted document bytes are stored. */
   readonly s3Key: string;
+  /** Optional TipTap JSON for rich editor reload. */
+  readonly content?: TipTapDoc;
 }
 
 /** The outcome of recording a submission as a new Draft. */
@@ -123,6 +125,7 @@ export async function createDraftRevision(
     s3Key: submission.s3Key,
     segments: submission.segments,
     wordCount: submission.wordCount,
+    ...(submission.content ? { content: submission.content } : {}),
   });
 
   // Association for re-evaluation (Requirement 8.3): only the FIRST Draft has no

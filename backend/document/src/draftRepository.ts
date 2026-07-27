@@ -29,6 +29,7 @@ import {
   type Draft,
   type FeedbackItem,
   type Segment,
+  type TipTapDoc,
 } from '@wren/types';
 
 /**
@@ -52,6 +53,8 @@ export interface NewDraftInput {
   readonly s3Key: string;
   readonly segments: readonly Segment[];
   readonly wordCount: number;
+  /** Optional TipTap JSONContent for rich editor reload. */
+  readonly content?: TipTapDoc;
 }
 
 /**
@@ -93,6 +96,7 @@ interface DraftRow {
   readonly segments: unknown;
   readonly word_count: number;
   readonly created_at: string | Date;
+  readonly content?: unknown;
 }
 
 /** Raw `feedback_item` row (snake_case columns from PostgreSQL). */
@@ -109,7 +113,7 @@ interface FeedbackItemRow {
 }
 
 const DRAFT_COLUMNS =
-  'id, document_id, version_number, s3_key, segments, word_count, created_at';
+  'id, document_id, version_number, s3_key, segments, word_count, created_at, content';
 
 const FEEDBACK_ITEM_COLUMNS =
   'id, document_id, error_category_id, kind, question_text, ' +
@@ -134,8 +138,23 @@ function parseJsonbColumn(value: unknown): unknown {
   return parsed;
 }
 
+function parseOptionalContent(value: unknown): TipTapDoc | undefined {
+  if (value === null || value === undefined) return undefined;
+  const parsed = parseJsonbColumn(value);
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    !Array.isArray(parsed) &&
+    (parsed as { type?: unknown }).type === 'doc'
+  ) {
+    return parsed as TipTapDoc;
+  }
+  return undefined;
+}
+
 /** Map a raw `draft` row to the validated shared {@link Draft} DTO. */
 function toDraft(row: DraftRow): Draft {
+  const content = parseOptionalContent(row.content);
   return draftSchema.parse({
     id: row.id,
     documentId: row.document_id,
@@ -144,6 +163,7 @@ function toDraft(row: DraftRow): Draft {
     segments: parseJsonbColumn(row.segments),
     wordCount: row.word_count,
     createdAt: toIso(row.created_at),
+    ...(content ? { content } : {}),
   });
 }
 
@@ -182,8 +202,8 @@ export class DbDraftRepository implements DraftRepository {
 
   public async insertDraft(input: NewDraftInput): Promise<Draft> {
     const rows = await this.db.query<DraftRow>(
-      `INSERT INTO draft (document_id, version_number, s3_key, segments, word_count)
-       VALUES ($1, $2, $3, $4::jsonb, $5)
+      `INSERT INTO draft (document_id, version_number, s3_key, segments, word_count, content)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb)
        RETURNING ${DRAFT_COLUMNS}`,
       [
         input.documentId,
@@ -191,6 +211,7 @@ export class DbDraftRepository implements DraftRepository {
         input.s3Key,
         JSON.stringify(input.segments),
         input.wordCount,
+        input.content ? JSON.stringify(input.content) : null,
       ],
     );
     return toDraft(rows[0]!);

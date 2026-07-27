@@ -88,7 +88,10 @@ export function WriterDashboard({
 
   return (
     <div className="flex flex-col gap-xl px-4xl">
-      <AiDisclaimerNotice />
+      <AiDisclaimerNotice
+        dismissible
+        dismissStorageKey="dashboard-ai-disclaimer-dismissed"
+      />
 
       <h1 className="text-title-page font-sans font-bold text-text-primary">
         Writing Environments

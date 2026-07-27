@@ -1,24 +1,22 @@
 /**
- * `<ChatFeedbackSidebar>` — unified right sidebar combining Writing Coach (Ask WREN)
- * and AI Debrief in a tabbed interface.
- *
- * Tabs are full-width button controls with icons + labels, matching the design
- * shown in Ask AWsentral screenshot. Users can switch between Writing Coach chat
- * and AI Debrief feedback. Active tab preference is persisted to localStorage.
- *
- * Task 4: Wires async feedback generation via onDebriefRegenerate callback.
+ * `<ChatFeedbackSidebar>` — Ask LEON + AI Debrief panels for the document
+ * editor left content area. Navigation is owned by the page icon rail;
+ * this component only renders the selected panel (both stay mounted so
+ * Ask chat history survives mode switches).
  */
-import { MessageSquare, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 import { WrenChatPanel, type AskWrenService } from '@/features/ask-wren';
 import { SidebarDebriefPanel, useAiDebrief } from '@/features/debrief';
-import { appConfig } from '@/config/env';
+
+export type DocumentNavMode = 'home' | 'chat' | 'debrief';
 
 export interface ChatFeedbackSidebarProps {
   readonly documentId: string;
   readonly draftId: string;
   readonly draftVersion: number;
+  /** Which coach panel to show (`home` hides both; they stay mounted). */
+  readonly activeMode: DocumentNavMode;
   /** Live word count from the editor (preferred) or latest draft. */
   readonly wordCount?: number;
   readonly askWrenService: AskWrenService;
@@ -43,14 +41,11 @@ export interface ChatFeedbackSidebarProps {
   }) => void;
 }
 
-type TabType = 'chat' | 'debrief';
-
-const ACTIVE_TAB_KEY = 'wren-active-sidebar-tab';
-
 export function ChatFeedbackSidebar({
   documentId,
   draftId,
   draftVersion,
+  activeMode,
   wordCount = 0,
   askWrenService,
   isGeneratingFeedback = false,
@@ -61,7 +56,6 @@ export function ChatFeedbackSidebar({
   activeQuoteId,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('chat');
   const debriefQuery = useAiDebrief(documentId);
 
   const progressSignals = useMemo(() => {
@@ -75,79 +69,40 @@ export function ChatFeedbackSidebar({
     };
   }, [wordCount, draftVersion, debriefQuery.data]);
 
-  useEffect(() => {
-    const stored = localStorage.getItem(ACTIVE_TAB_KEY) as TabType | null;
-    if (stored === 'chat' || stored === 'debrief') {
-      setActiveTab(stored);
-    }
-  }, []);
-
-  const handleTabChange = (tab: TabType) => {
-    setActiveTab(tab);
-    localStorage.setItem(ACTIVE_TAB_KEY, tab);
-  };
+  const showChat = activeMode === 'chat';
+  const showDebrief = activeMode === 'debrief';
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Tab buttons — full width */}
-      <div className="flex border-b border-border-subtle bg-surface-muted/50">
-        <button
-          type="button"
-          onClick={() => handleTabChange('chat')}
-          className={`flex-1 flex items-center justify-center gap-sm px-md py-md text-bodySmall font-sans font-semibold transition-colors ${
-            activeTab === 'chat'
-              ? 'bg-surface-primary text-accent-primary border-b-2 border-accent-primary'
-              : 'text-text-secondary hover:text-text-primary'
-          }`}
-          aria-pressed={activeTab === 'chat'}
-        >
-          <MessageSquare size={18} aria-hidden="true" />
-          {appConfig.appName}
-        </button>
-        <button
-          type="button"
-          onClick={() => handleTabChange('debrief')}
-          className={`flex-1 flex items-center justify-center gap-sm px-md py-md text-bodySmall font-sans font-semibold transition-colors ${
-            activeTab === 'debrief'
-              ? 'bg-surface-primary text-accent-primary border-b-2 border-accent-primary'
-              : 'text-text-secondary hover:text-text-primary'
-          }`}
-          aria-pressed={activeTab === 'debrief'}
-        >
-          <Sparkles size={18} aria-hidden="true" />
-          AI Debrief
-        </button>
+    <div className="flex h-full min-h-0 flex-col">
+      <div
+        className={showChat ? 'h-full min-h-0' : 'hidden'}
+        hidden={!showChat}
+      >
+        <WrenChatPanel
+          documentId={documentId}
+          draftId={draftId}
+          draftVersion={draftVersion}
+          progressSignals={progressSignals}
+          askWrenService={askWrenService}
+          className="h-full w-full"
+          onHighlight={onHighlight}
+          onChatQuoteClick={onChatQuoteClick}
+          onHighlightText={onHighlightText}
+          activeQuoteId={activeQuoteId}
+        />
       </div>
-
-      {/* Tab content — keep both panels mounted so Ask chat state survives tab switches */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <div className={activeTab === 'chat' ? 'h-full' : 'hidden'} hidden={activeTab !== 'chat'}>
-          <WrenChatPanel
-            documentId={documentId}
-            draftId={draftId}
-            draftVersion={draftVersion}
-            progressSignals={progressSignals}
-            askWrenService={askWrenService}
-            className="h-full w-full"
-            onHighlight={onHighlight}
-            onChatQuoteClick={onChatQuoteClick}
-            onHighlightText={onHighlightText}
-            activeQuoteId={activeQuoteId}
-          />
-        </div>
-        <div
-          className={activeTab === 'debrief' ? 'h-full' : 'hidden'}
-          hidden={activeTab !== 'debrief'}
-        >
-          <SidebarDebriefPanel
-            environmentId={documentId}
-            autoRegenerate={false}
-            isGenerating={isGeneratingFeedback}
-            onBeforeRegenerate={onBeforeRegenerate}
-            activeQuoteId={activeQuoteId}
-            onQuoteClick={onQuoteClick}
-          />
-        </div>
+      <div
+        className={showDebrief ? 'h-full min-h-0' : 'hidden'}
+        hidden={!showDebrief}
+      >
+        <SidebarDebriefPanel
+          environmentId={documentId}
+          autoRegenerate={false}
+          isGenerating={isGeneratingFeedback}
+          onBeforeRegenerate={onBeforeRegenerate}
+          activeQuoteId={activeQuoteId}
+          onQuoteClick={onQuoteClick}
+        />
       </div>
     </div>
   );
