@@ -4,10 +4,12 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   ChevronLeft,
   ChevronRight,
+  Download,
   GripVertical,
   House,
   MessageSquare,
   Sparkles,
+  Upload,
 } from 'lucide-react';
 
 import { AnchoredFeedbackEditorContainer } from '@/features/editor';
@@ -40,7 +42,7 @@ const ACTIVE_NAV_KEY = 'wren-active-sidebar-tab';
 const PANEL_WIDTH_DEFAULT = 360;
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 520;
-const RAIL_WIDTH_PX = 72;
+const RAIL_WIDTH_PX = 56;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -361,38 +363,81 @@ export function DocumentEditorPage() {
         {/* Icon rail — Teams/Slack style */}
         <nav
           aria-label="Document views"
-          className="flex shrink-0 flex-col items-stretch gap-xs border-r border-border-subtle bg-surface-muted/60 py-sm"
+          className="flex shrink-0 flex-col items-stretch border-r border-border-subtle bg-surface-muted/60 py-xs"
           style={{ width: RAIL_WIDTH_PX }}
         >
-          {railItems.map((item) => {
-            const isActive = activeNav === item.id;
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleNavChange(item.id)}
-                aria-pressed={isActive}
-                className={[
-                  'relative flex flex-col items-center gap-[2px] px-xs py-sm text-center transition-colors',
-                  isActive
-                    ? 'text-text-primary'
-                    : 'text-text-muted hover:bg-surface-muted hover:text-text-secondary',
-                ].join(' ')}
-              >
-                {isActive && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r-sm bg-accent-primary"
-                  />
-                )}
-                <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
-                <span className="max-w-full truncate px-[2px] text-[10px] font-sans font-medium leading-tight">
-                  {item.label}
-                </span>
-              </button>
-            );
-          })}
+          <div className="flex flex-col items-stretch gap-[2px]">
+            {railItems.map((item) => {
+              const isActive = activeNav === item.id;
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleNavChange(item.id)}
+                  aria-pressed={isActive}
+                  className={[
+                    'relative flex flex-col items-center gap-[1px] px-[2px] py-sm text-center transition-colors',
+                    isActive
+                      ? 'text-text-primary'
+                      : 'text-text-muted hover:bg-surface-muted hover:text-text-secondary',
+                  ].join(' ')}
+                >
+                  {isActive && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-sm bg-accent-primary"
+                    />
+                  )}
+                  <Icon size={18} strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
+                  <span className="max-w-full truncate px-[1px] text-[9px] font-sans font-medium leading-tight">
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-auto flex flex-col items-stretch gap-[2px] border-t border-border-subtle pt-xs">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+              className="hidden"
+              onChange={handleResubmitFileChange}
+            />
+            <button
+              type="button"
+              onClick={handleResubmitClick}
+              disabled={resubmitDraftMutation.isPending}
+              title={
+                resubmitDraftMutation.isError
+                  ? errorMessageFromUnknown(resubmitDraftMutation.error)
+                  : 'Upload a revised draft'
+              }
+              aria-label={
+                resubmitDraftMutation.isPending ? 'Uploading new draft' : 'Upload new draft'
+              }
+              className="relative flex flex-col items-center gap-[1px] px-[2px] py-sm text-center text-text-muted transition-colors hover:bg-surface-muted hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Upload size={18} strokeWidth={1.75} aria-hidden="true" />
+              <span className="max-w-full truncate px-[1px] text-[9px] font-sans font-medium leading-tight">
+                {resubmitDraftMutation.isPending ? 'Uploading' : 'Upload'}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDownload}
+              title="Download document"
+              aria-label="Download document"
+              className="relative flex flex-col items-center gap-[1px] px-[2px] py-sm text-center text-text-muted transition-colors hover:bg-surface-muted hover:text-text-secondary"
+            >
+              <Download size={18} strokeWidth={1.75} aria-hidden="true" />
+              <span className="max-w-full truncate px-[1px] text-[9px] font-sans font-medium leading-tight">
+                Download
+              </span>
+            </button>
+          </div>
         </nav>
 
         {/* Content panel for the selected rail item */}
@@ -421,54 +466,24 @@ export function DocumentEditorPage() {
                     </h2>
                     <p className="text-caption text-text-secondary leading-relaxed">
                       Use the rail to open Ask {appConfig.appName} or AI Debrief. Edit inline in
-                      the draft, or upload a revised file below.
+                      the draft, or use Upload / Download at the bottom of the rail.
                     </p>
                   </div>
 
                   <hr className="my-lg border-border-subtle" />
 
-                  <nav className="mt-auto flex flex-col gap-sm" aria-label="Document actions">
-                    <div className="flex flex-col gap-xs">
-                      <p className="text-caption font-semibold text-text-primary">
-                        Revise your draft
-                      </p>
-                      <p className="text-caption text-text-muted leading-relaxed">
-                        <strong>Edit inline</strong>, then Regenerate in AI Debrief — or{' '}
-                        <strong>upload a new draft</strong> to refresh feedback automatically.
-                      </p>
-                    </div>
-
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
-                      className="hidden"
-                      onChange={handleResubmitFileChange}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleResubmitClick}
-                      disabled={resubmitDraftMutation.isPending}
-                      className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {resubmitDraftMutation.isPending ? 'Uploading…' : 'Upload New Draft'}
-                    </button>
+                  <div className="mt-auto flex flex-col gap-xs">
+                    <p className="text-caption font-semibold text-text-primary">Revise your draft</p>
+                    <p className="text-caption text-text-muted leading-relaxed">
+                      <strong>Edit inline</strong>, then Regenerate in AI Debrief — or{' '}
+                      <strong>upload</strong> a revised file from the rail to refresh feedback.
+                    </p>
                     {resubmitDraftMutation.isError && (
                       <p role="alert" className="text-bodySmall text-signal-critical">
                         {errorMessageFromUnknown(resubmitDraftMutation.error)}
                       </p>
                     )}
-
-                    <hr className="my-xs border-border-subtle" />
-
-                    <button
-                      type="button"
-                      onClick={handleDownload}
-                      className="w-full rounded-md border border-border-strong px-lg py-sm text-bodySmall font-sans font-medium text-text-primary hover:bg-surface-muted"
-                    >
-                      Download Document
-                    </button>
-                  </nav>
+                  </div>
                 </div>
               </div>
 
