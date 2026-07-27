@@ -528,12 +528,12 @@ export function EvaluationRubricSection({
                       <label className="block text-sm font-semibold text-gray-900 mb-1">
                         {isOrganisationCategory(category.name)
                           ? 'Framework description'
-                          : <>Definition for <em>{documentTypeName}</em></>}
+                          : <>What does <em>{category.name}</em> look like for a <em>{documentTypeName}</em>?</>}
                       </label>
                       <p className="text-xs text-gray-500 mb-1.5">
                         {isOrganisationCategory(category.name)
                           ? 'Edit the framework description as needed for this document type. Leave blank to use the default.'
-                          : `What does "${category.name}" mean specifically for this document type? Leave blank to use the default.`}
+                          : `Describe what "${category.name}" means in the context of this document type. Leave blank to use the default.`}
                       </p>
                       <textarea
                         value={override?.definition ?? ''}

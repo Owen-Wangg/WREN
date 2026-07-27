@@ -153,9 +153,9 @@ export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
           </div>
         </div>
         <p className="mb-4 text-sm text-gray-500">
-          Each week, the AI checks whether students fully resolved the feedback flagged in their previous draft.
-          The score is the percentage of issues that were completely addressed — <strong>100</strong> means every flagged issue was fixed,
-          <strong> 0</strong> means none were. Partially addressed issues are counted as unresolved.
+          Each week, the AI checks whether students addressed the feedback flagged in their previous draft.
+          The score reflects how fully issues were resolved — fully addressed counts as <strong>100</strong>,
+          partially addressed as <strong>50</strong>, and unresolved as <strong>0</strong>.
           Only weeks where students submitted revised drafts appear.
         </p>
 

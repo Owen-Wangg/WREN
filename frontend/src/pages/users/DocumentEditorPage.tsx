@@ -46,7 +46,7 @@ import type { JSONContent } from '@tiptap/react';
 const askWrenService = createAskWrenService(apiClient);
 
 const ACTIVE_NAV_KEY = 'wren-active-sidebar-tab';
-const PANEL_WIDTH_DEFAULT = 320;
+const PANEL_WIDTH_DEFAULT = 420;
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 480;
 const RAIL_WIDTH_PX = 76;
