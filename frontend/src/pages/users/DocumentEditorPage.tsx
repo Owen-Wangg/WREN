@@ -11,7 +11,7 @@ import {
   Upload,
 } from 'lucide-react';
 
-import { AnchoredFeedbackEditorContainer, DocumentTableOfContents } from '@/features/editor';
+import { AnchoredFeedbackEditorContainer, HomeSidePanel } from '@/features/editor';
 import type { TableOfContentData } from '@/features/editor';
 import { createAskWrenService } from '@/features/ask-wren';
 import {
@@ -539,46 +539,19 @@ export function DocumentEditorPage() {
               className={activeNav === 'home' ? 'flex h-full min-h-0 flex-col' : 'hidden'}
               hidden={activeNav !== 'home'}
             >
-              <div className="flex flex-1 flex-col gap-lg overflow-y-auto p-lg">
-                <div>
-                  <p className="text-caption font-sans font-semibold uppercase tracking-wide text-text-muted">
-                    Overview
-                  </p>
-                  <p className="mt-xs text-bodySmall font-sans text-text-secondary leading-relaxed">
-                    Open Ask {appConfig.appName} or AI Debrief from the left menu. Upload and
-                    download stay at the bottom of that menu.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-sm">
-                  <div className="rounded-md border border-border-subtle bg-surface-muted/50 px-md py-sm">
-                    <p className="text-caption text-text-muted">Draft</p>
-                    <p className="text-bodySmall font-semibold text-text-primary">v{draftVersion}</p>
-                  </div>
-                  <div className="rounded-md border border-border-subtle bg-surface-muted/50 px-md py-sm">
-                    <p className="text-caption text-text-muted">Words</p>
-                    <p className="text-bodySmall font-semibold text-text-primary">
-                      {wordCount.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-
-                <DocumentTableOfContents anchors={tocAnchors} />
-
-                <div className="rounded-md border border-border-subtle px-md py-sm">
-                  <p className="text-caption font-semibold text-text-primary">Revise</p>
-                  <p className="mt-xs text-caption text-text-muted leading-relaxed">
-                    Edit in the document, then Regenerate in AI Debrief — or upload a new file
-                    from the left menu.
-                  </p>
-                </div>
-
-                {resubmitDraftMutation.isError && (
-                  <p role="alert" className="text-bodySmall text-signal-critical">
-                    {errorMessageFromUnknown(resubmitDraftMutation.error)}
-                  </p>
-                )}
-              </div>
+              <HomeSidePanel
+                draftVersion={draftVersion}
+                wordCount={wordCount}
+                anchors={tocAnchors}
+                onOpenDebrief={() => handleNavChange('debrief')}
+                onUpload={handleResubmitClick}
+                uploadPending={resubmitDraftMutation.isPending}
+                errorMessage={
+                  resubmitDraftMutation.isError
+                    ? errorMessageFromUnknown(resubmitDraftMutation.error)
+                    : undefined
+                }
+              />
             </div>
 
             <div

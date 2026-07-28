@@ -20,6 +20,10 @@ export {
   DocumentTableOfContents,
   type DocumentTableOfContentsProps,
 } from './components/DocumentTableOfContents';
+export {
+  HomeSidePanel,
+  type HomeSidePanelProps,
+} from './components/HomeSidePanel';
 
 // Utilities
 export {

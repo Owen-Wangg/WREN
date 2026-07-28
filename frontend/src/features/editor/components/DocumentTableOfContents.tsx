@@ -23,39 +23,53 @@ function scrollToHeading(item: TableOfContentDataItem): void {
 
 export interface DocumentTableOfContentsProps {
   readonly anchors: TableOfContentData;
+  /** Extra classes on the root nav (e.g. flex-1 for panel fill). */
+  readonly className?: string;
 }
 
-export function DocumentTableOfContents({ anchors }: DocumentTableOfContentsProps) {
+export function DocumentTableOfContents({ anchors, className }: DocumentTableOfContentsProps) {
   const headings = anchors.filter(
     (item) => item.originalLevel >= 1 && item.originalLevel <= MAX_HEADING_LEVEL,
   );
 
   return (
-    <nav aria-label="Table of contents" className="flex min-h-0 flex-col gap-sm">
-      <p className="text-caption font-sans font-semibold uppercase tracking-wide text-text-muted">
-        Contents
-      </p>
+    <nav
+      aria-label="Table of contents"
+      className={['flex min-h-0 flex-col', className].filter(Boolean).join(' ')}
+    >
       {headings.length === 0 ? (
-        <p className="text-caption text-text-muted leading-relaxed">
-          Add Heading 1–3 in the document to build an outline.
+        <p className="text-caption font-sans text-text-muted leading-snug">
+          Add Heading 1–3 to build an outline.
         </p>
       ) : (
-        <ul className="flex flex-col gap-xs overflow-y-auto">
+        <ul className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto pb-md">
           {headings.map((item) => {
             const indent = Math.max(0, item.originalLevel - 1);
+            const isH1 = item.originalLevel === 1;
             return (
-              <li key={item.id} style={{ paddingLeft: `${indent * 0.75}rem` }}>
+              <li key={item.id} style={{ paddingLeft: `${indent * 0.7}rem` }}>
                 <button
                   type="button"
                   onClick={() => scrollToHeading(item)}
+                  aria-current={item.isActive ? 'location' : undefined}
                   className={[
-                    'w-full rounded-sm px-sm py-xs text-left text-caption font-sans leading-snug transition-colors',
-                    'hover:bg-surface-muted hover:text-text-primary',
+                    'group relative w-full rounded-sm px-sm py-xs text-left font-sans leading-snug transition-colors',
+                    'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-border-strong',
+                    'hover:bg-surface-muted',
+                    isH1 ? 'text-bodySmall' : 'text-caption',
                     item.isActive
-                      ? 'bg-accent-primary/10 font-medium text-accent-primary'
-                      : 'text-text-secondary',
+                      ? 'bg-surface-muted font-medium text-text-primary'
+                      : isH1
+                        ? 'font-medium text-text-primary'
+                        : 'text-text-secondary hover:text-text-primary',
                   ].join(' ')}
                 >
+                  {item.isActive && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-1/2 h-[60%] w-[2px] -translate-y-1/2 rounded-full bg-accent-primary"
+                    />
+                  )}
                   <span className="line-clamp-2">{item.textContent || 'Untitled'}</span>
                 </button>
               </li>
