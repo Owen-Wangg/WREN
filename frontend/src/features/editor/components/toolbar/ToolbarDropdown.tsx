@@ -16,6 +16,8 @@ export interface ToolbarDropdownProps {
   readonly displayLabel: string;
   readonly options: readonly ToolbarMenuOption[];
   readonly disabled?: boolean;
+  /** Optional extra classes on the trigger (e.g. narrower font-size control). */
+  readonly triggerClassName?: string;
 }
 
 export function ToolbarDropdown({
@@ -23,6 +25,7 @@ export function ToolbarDropdown({
   displayLabel,
   options,
   disabled = false,
+  triggerClassName,
 }: ToolbarDropdownProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -63,6 +66,7 @@ export function ToolbarDropdown({
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40',
           'disabled:pointer-events-none disabled:opacity-40',
           open ? 'bg-surface-muted text-text-primary' : '',
+          triggerClassName ?? '',
         ]
           .filter(Boolean)
           .join(' ')}

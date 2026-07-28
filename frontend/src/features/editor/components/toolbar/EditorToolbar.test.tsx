@@ -62,4 +62,54 @@ describe('EditorToolbar (Phase 1)', () => {
       );
     });
   });
+
+  it('renders Phase 2 font size and alignment controls', async () => {
+    render(<DocumentEditor ariaLabel="Draft editor" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('toolbar', { name: 'Text formatting' })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: 'Font size' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Align left' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Align center' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Align right' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Justify' })).toBeInTheDocument();
+  });
+
+  it('applies center alignment and reflects pressed state', async () => {
+    const user = userEvent.setup();
+    render(
+      <DocumentEditor
+        ariaLabel="Draft editor"
+        initialContent={{
+          type: 'doc',
+          content: [
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: 'Centered title' }],
+            },
+          ],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Align center' })).toBeInTheDocument();
+    });
+
+    const surface = screen.getByRole('textbox', { name: 'Draft editor' });
+    await user.click(surface);
+    await user.click(screen.getByRole('button', { name: 'Align center' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Align center' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    });
+
+    const paragraph = surface.querySelector('p');
+    expect(paragraph?.getAttribute('style') ?? '').toMatch(/text-align:\s*center/i);
+  });
 });

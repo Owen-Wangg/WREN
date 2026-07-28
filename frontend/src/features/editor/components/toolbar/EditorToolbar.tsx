@@ -1,10 +1,13 @@
 /**
- * Phase 1 document editor toolbar — core formatting only.
+ * Document editor toolbar — Phase 1 (core) + Phase 2 (layout).
  *
- * Groups: Undo/Redo | Bold/Italic/Underline | Headings | Lists
- * Active states come from TipTap `isActive` / `can()` on every selection change.
+ * Groups: History | Marks | Block style | Font size | Alignment | Lists
  */
 import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
   Bold,
   Italic,
   List,
@@ -13,6 +16,8 @@ import {
   Underline as UnderlineIcon,
   Undo2,
 } from 'lucide-react';
+
+import { FONT_SIZE_PRESETS } from '../../tiptapFontSize';
 
 import { ToolbarDropdown } from './ToolbarDropdown';
 import {
@@ -29,6 +34,7 @@ export interface EditorToolbarProps {
 }
 
 type BlockStyle = 'paragraph' | 'h1' | 'h2' | 'h3';
+type TextAlignment = 'left' | 'center' | 'right' | 'justify';
 
 function currentBlockStyle(editor: Editor): BlockStyle {
   if (editor.isActive('heading', { level: 1 })) return 'h1';
@@ -45,7 +51,7 @@ const BLOCK_STYLE_LABEL: Record<BlockStyle, string> = {
 };
 
 function setBlockStyle(editor: Editor, style: BlockStyle): void {
-  const chain = editor.chain().focus();
+  const chain = editor.chain().focus(undefined, { scrollIntoView: false });
   if (style === 'paragraph') {
     chain.setParagraph().run();
     return;
@@ -54,13 +60,37 @@ function setBlockStyle(editor: Editor, style: BlockStyle): void {
   chain.toggleHeading({ level }).run();
 }
 
+function currentFontSizeLabel(editor: Editor): string {
+  const attrs = editor.getAttributes('textStyle') as { fontSize?: string | null };
+  const size = attrs.fontSize;
+  if (!size) return 'Default';
+  // Show "12" instead of "12pt" in the compact trigger.
+  return size.replace(/pt$/i, '');
+}
+
+function currentAlignment(editor: Editor): TextAlignment {
+  if (editor.isActive({ textAlign: 'center' })) return 'center';
+  if (editor.isActive({ textAlign: 'right' })) return 'right';
+  if (editor.isActive({ textAlign: 'justify' })) return 'justify';
+  return 'left';
+}
+
+function setAlignment(editor: Editor, alignment: TextAlignment): void {
+  editor.chain().focus(undefined, { scrollIntoView: false }).setTextAlign(alignment).run();
+}
+
+/** Keep caret in the editor without jsdom scrollIntoView crashes. */
+function chainFocus(editor: Editor) {
+  return editor.chain().focus(undefined, { scrollIntoView: false });
+}
+
 export function EditorToolbar({ editor }: EditorToolbarProps) {
-  // Re-render when selection or document changes so pressed/disabled stay truthful.
   useToolbarEditorState(editor);
 
   const ready = !!editor;
-
   const blockStyle = editor ? currentBlockStyle(editor) : 'paragraph';
+  const fontSizeLabel = editor ? currentFontSizeLabel(editor) : 'Default';
+  const alignment = editor ? currentAlignment(editor) : 'left';
 
   return (
     <div
@@ -74,14 +104,14 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           shortcutHint="Ctrl+Z"
           icon={<Undo2 size={16} strokeWidth={1.75} />}
           disabled={!ready || !editor.can().undo()}
-          onClick={() => editor?.chain().focus().undo().run()}
+          onClick={() => editor && chainFocus(editor).undo().run()}
         />
         <ToolbarButton
           label="Redo"
           shortcutHint="Ctrl+Y"
           icon={<Redo2 size={16} strokeWidth={1.75} />}
           disabled={!ready || !editor.can().redo()}
-          onClick={() => editor?.chain().focus().redo().run()}
+          onClick={() => editor && chainFocus(editor).redo().run()}
         />
       </ToolbarGroup>
 
@@ -94,7 +124,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           icon={<Bold size={16} strokeWidth={1.75} />}
           pressed={!!editor?.isActive('bold')}
           disabled={!ready}
-          onClick={() => editor?.chain().focus().toggleBold().run()}
+          onClick={() => editor && chainFocus(editor).toggleBold().run()}
         />
         <ToolbarButton
           label="Italic"
@@ -102,7 +132,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           icon={<Italic size={16} strokeWidth={1.75} />}
           pressed={!!editor?.isActive('italic')}
           disabled={!ready}
-          onClick={() => editor?.chain().focus().toggleItalic().run()}
+          onClick={() => editor && chainFocus(editor).toggleItalic().run()}
         />
         <ToolbarButton
           label="Underline"
@@ -110,7 +140,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           icon={<UnderlineIcon size={16} strokeWidth={1.75} />}
           pressed={!!editor?.isActive('underline')}
           disabled={!ready}
-          onClick={() => editor?.chain().focus().toggleUnderline().run()}
+          onClick={() => editor && chainFocus(editor).toggleUnderline().run()}
         />
       </ToolbarGroup>
 
@@ -152,20 +182,78 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarDivider />
 
+      <ToolbarGroup aria-label="Font size">
+        <ToolbarDropdown
+          label="Font size"
+          displayLabel={fontSizeLabel}
+          disabled={!ready}
+          triggerClassName="min-w-[4.5rem]"
+          options={[
+            {
+              id: 'default',
+              label: 'Default',
+              active: fontSizeLabel === 'Default',
+              onSelect: () => editor && chainFocus(editor).unsetFontSize().run(),
+            },
+            ...FONT_SIZE_PRESETS.map((size) => ({
+              id: size,
+              label: size.replace(/pt$/i, ''),
+              active: fontSizeLabel === size.replace(/pt$/i, ''),
+              onSelect: () => editor && chainFocus(editor).setFontSize(size).run(),
+            })),
+          ]}
+        />
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
+      <ToolbarGroup aria-label="Alignment">
+        <ToolbarButton
+          label="Align left"
+          icon={<AlignLeft size={16} strokeWidth={1.75} />}
+          pressed={alignment === 'left'}
+          disabled={!ready}
+          onClick={() => editor && setAlignment(editor, 'left')}
+        />
+        <ToolbarButton
+          label="Align center"
+          icon={<AlignCenter size={16} strokeWidth={1.75} />}
+          pressed={alignment === 'center'}
+          disabled={!ready}
+          onClick={() => editor && setAlignment(editor, 'center')}
+        />
+        <ToolbarButton
+          label="Align right"
+          icon={<AlignRight size={16} strokeWidth={1.75} />}
+          pressed={alignment === 'right'}
+          disabled={!ready}
+          onClick={() => editor && setAlignment(editor, 'right')}
+        />
+        <ToolbarButton
+          label="Justify"
+          icon={<AlignJustify size={16} strokeWidth={1.75} />}
+          pressed={alignment === 'justify'}
+          disabled={!ready}
+          onClick={() => editor && setAlignment(editor, 'justify')}
+        />
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
       <ToolbarGroup aria-label="Lists">
         <ToolbarButton
           label="Bulleted list"
           icon={<List size={16} strokeWidth={1.75} />}
           pressed={!!editor?.isActive('bulletList')}
           disabled={!ready}
-          onClick={() => editor?.chain().focus().toggleBulletList().run()}
+          onClick={() => editor && chainFocus(editor).toggleBulletList().run()}
         />
         <ToolbarButton
           label="Numbered list"
           icon={<ListOrdered size={16} strokeWidth={1.75} />}
           pressed={!!editor?.isActive('orderedList')}
           disabled={!ready}
-          onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+          onClick={() => editor && chainFocus(editor).toggleOrderedList().run()}
         />
       </ToolbarGroup>
     </div>
