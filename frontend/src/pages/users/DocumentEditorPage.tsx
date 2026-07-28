@@ -6,6 +6,7 @@ import {
   GripVertical,
   House,
   MessageSquare,
+  PanelLeftClose,
   Sparkles,
   Upload,
 } from 'lucide-react';
@@ -460,6 +461,20 @@ export function DocumentEditorPage() {
                 </button>
               );
             })}
+            {!panelCollapsed && (
+              <button
+                type="button"
+                onClick={() => setPanelCollapsed(true)}
+                aria-label="Close panel"
+                title="Close panel"
+                className={railButtonClass(false)}
+              >
+                <PanelLeftClose size={20} strokeWidth={1.75} aria-hidden="true" />
+                <span className="max-w-full truncate px-[2px] text-caption font-sans font-medium leading-tight">
+                  Close
+                </span>
+              </button>
+            )}
           </div>
 
           <div
