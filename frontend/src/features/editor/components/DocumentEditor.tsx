@@ -180,19 +180,22 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     );
 
     return (
-      <div className="flex min-h-full flex-col">
-        <div
-          data-document-editor-toolbar
-          className="sticky top-0 z-20 -mx-2xl border-b border-border-subtle bg-surface-primary px-2xl sm:-mx-3xl sm:px-3xl"
-        >
-          <EditorToolbar editor={editor} />
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        <div data-document-editor-toolbar className="document-editor-toolbar-chrome shrink-0">
+          <div className="px-md sm:px-lg">
+            <EditorToolbar editor={editor} />
+          </div>
         </div>
-        <EditorContent
-          editor={editor}
-          className={['block h-full min-h-full flex-1 px-0 pt-lg', className]
-            .filter(Boolean)
-            .join(' ')}
-        />
+        <div className="document-editor-scroll min-h-0 flex-1 overflow-y-auto bg-surface-muted/50">
+          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary px-2xl pb-2xl pt-lg shadow-sm sm:px-3xl sm:pb-3xl">
+            <EditorContent
+              editor={editor}
+              className={['block h-full min-h-full flex-1 px-0', className]
+                .filter(Boolean)
+                .join(' ')}
+            />
+          </div>
+        </div>
       </div>
     );
   },

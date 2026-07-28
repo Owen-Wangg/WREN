@@ -1,8 +1,9 @@
 /**
  * Document editor toolbar — Phases 1–5 (tables; no links; no page headers/footers).
  *
- * Groups: History | Marks | Font family | Font size | Colors | Block style |
- * Alignment | Line spacing | Lists + Indent | Table | Image
+ * Single-row chrome: core formatting stays visible; insert/spacing live in More.
+ * Collapse order on narrow widths: justify → spacing (already in More) →
+ * font-family label width → horizontal scroll as last resort.
  */
 import {
   AlignCenter,
@@ -11,6 +12,7 @@ import {
   AlignRight,
   Baseline,
   Bold,
+  Ellipsis,
   Highlighter,
   IndentDecrease,
   IndentIncrease,
@@ -22,6 +24,7 @@ import {
   Underline as UnderlineIcon,
   Undo2,
 } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { LINE_HEIGHT_PRESETS } from '../../tiptapIndent';
 import { FONT_SIZE_PRESETS } from '../../tiptapFontSize';
@@ -128,6 +131,154 @@ function chainFocus(editor: Editor) {
   return editor.chain().focus(undefined, { scrollIntoView: false });
 }
 
+function ToolbarMoreMenu({
+  editor,
+  ready,
+  inTable,
+  lineHeightLabel,
+}: {
+  readonly editor: Editor | null;
+  readonly ready: boolean;
+  readonly inTable: boolean;
+  readonly lineHeightLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative shrink-0" ref={rootRef}>
+      <ToolbarButton
+        label="More formatting options"
+        icon={<Ellipsis size={16} strokeWidth={1.75} />}
+        pressed={open}
+        disabled={!ready}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        onClick={() => setOpen((value) => !value)}
+      />
+      {open && (
+        <div
+          id={panelId}
+          role="dialog"
+          aria-label="More formatting options"
+          className="absolute right-0 top-full z-50 mt-xs flex min-w-[16rem] flex-col gap-sm rounded-md border border-border-subtle bg-surface-primary p-sm shadow-lg"
+        >
+          <ToolbarGroup aria-label="Line spacing">
+            <ToolbarDropdown
+              label="Line spacing"
+              displayLabel={lineHeightLabel}
+              disabled={!ready}
+              triggerClassName="min-w-[8.5rem] flex-1"
+              options={[
+                {
+                  id: 'default',
+                  label: 'Default Spacing',
+                  active: lineHeightLabel === 'Default Spacing',
+                  onSelect: () => editor && chainFocus(editor).unsetBlockLineHeight().run(),
+                },
+                ...LINE_HEIGHT_PRESETS.map((preset) => ({
+                  id: preset.id,
+                  label: preset.label,
+                  active: lineHeightLabel === preset.label,
+                  onSelect: () =>
+                    editor && chainFocus(editor).setBlockLineHeight(preset.value).run(),
+                })),
+              ]}
+            />
+          </ToolbarGroup>
+
+          <div className="h-px w-full bg-border-subtle" role="separator" />
+
+          <ToolbarGroup aria-label="Table">
+            <TableInsertMenu
+              disabled={!ready}
+              onInsert={(rows, cols) => {
+                editor
+                  ?.chain()
+                  .focus(undefined, { scrollIntoView: false })
+                  .insertTable({ rows, cols, withHeaderRow: true })
+                  .run();
+                setOpen(false);
+              }}
+            />
+            <ToolbarButton
+              label="Add row below"
+              icon={<Plus size={16} strokeWidth={1.75} />}
+              disabled={!ready || !inTable || !editor?.can().addRowAfter()}
+              onClick={() => editor && chainFocus(editor).addRowAfter().run()}
+            />
+            <ToolbarButton
+              label="Add column after"
+              icon={<Plus size={16} strokeWidth={1.75} className="rotate-90" />}
+              disabled={!ready || !inTable || !editor?.can().addColumnAfter()}
+              onClick={() => editor && chainFocus(editor).addColumnAfter().run()}
+            />
+            <ToolbarDropdown
+              label="Table actions"
+              displayLabel="Edit"
+              disabled={!ready || !inTable}
+              triggerClassName="min-w-[4rem]"
+              options={[
+                {
+                  id: 'delete-row',
+                  label: 'Delete row',
+                  onSelect: () => editor && chainFocus(editor).deleteRow().run(),
+                },
+                {
+                  id: 'delete-column',
+                  label: 'Delete column',
+                  onSelect: () => editor && chainFocus(editor).deleteColumn().run(),
+                },
+                {
+                  id: 'delete-table',
+                  label: 'Delete table',
+                  onSelect: () => editor && chainFocus(editor).deleteTable().run(),
+                },
+              ]}
+            />
+          </ToolbarGroup>
+
+          <div className="h-px w-full bg-border-subtle" role="separator" />
+
+          <ToolbarGroup aria-label="Image">
+            <ImageInsertMenu
+              disabled={!ready}
+              onInsert={(src) => {
+                editor
+                  ?.chain()
+                  .focus(undefined, { scrollIntoView: false })
+                  .setImage({ src })
+                  .run();
+                setOpen(false);
+              }}
+            />
+          </ToolbarGroup>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EditorToolbar({ editor }: EditorToolbarProps) {
   useToolbarEditorState(editor);
 
@@ -145,7 +296,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     <div
       role="toolbar"
       aria-label="Text formatting"
-      className="flex flex-wrap items-center gap-xs bg-surface-primary py-sm"
+      className="flex flex-nowrap items-center gap-xs overflow-x-auto py-xs [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       <ToolbarGroup aria-label="History">
         <ToolbarButton
@@ -195,12 +346,12 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarDivider />
 
-      <ToolbarGroup aria-label="Font family">
+      <ToolbarGroup aria-label="Font family" className="max-[720px]:hidden">
         <ToolbarDropdown
           label="Font family"
           displayLabel={fontFamilyLabel}
           disabled={!ready}
-          triggerClassName="min-w-[8.5rem]"
+          triggerClassName="min-w-[7.5rem] max-w-[9rem]"
           options={FONT_FAMILY_PRESETS.map((preset) => ({
             id: preset.id,
             label: preset.label,
@@ -217,14 +368,14 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
         />
       </ToolbarGroup>
 
-      <ToolbarDivider />
+      <ToolbarDivider className="max-[720px]:hidden" />
 
       <ToolbarGroup aria-label="Font size">
         <ToolbarDropdown
           label="Font size"
           displayLabel={fontSizeLabel}
           disabled={!ready}
-          triggerClassName="min-w-[7rem]"
+          triggerClassName="min-w-[5.5rem]"
           options={[
             {
               id: 'default',
@@ -278,7 +429,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           label="Text style"
           displayLabel={BLOCK_STYLE_LABEL[blockStyle]}
           disabled={!ready}
-          triggerClassName="min-w-[9.5rem]"
+          triggerClassName="min-w-[7.5rem]"
           options={[
             {
               id: 'paragraph',
@@ -337,33 +488,8 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           icon={<AlignJustify size={16} strokeWidth={1.75} />}
           pressed={alignment === 'justify'}
           disabled={!ready}
+          className="max-[860px]:hidden"
           onClick={() => editor && setAlignment(editor, 'justify')}
-        />
-      </ToolbarGroup>
-
-      <ToolbarDivider />
-
-      <ToolbarGroup aria-label="Line spacing">
-        <ToolbarDropdown
-          label="Line spacing"
-          displayLabel={lineHeightLabel}
-          disabled={!ready}
-          triggerClassName="min-w-[8.5rem]"
-          options={[
-            {
-              id: 'default',
-              label: 'Default Spacing',
-              active: lineHeightLabel === 'Default Spacing',
-              onSelect: () => editor && chainFocus(editor).unsetBlockLineHeight().run(),
-            },
-            ...LINE_HEIGHT_PRESETS.map((preset) => ({
-              id: preset.id,
-              label: preset.label,
-              active: lineHeightLabel === preset.label,
-              onSelect: () =>
-                editor && chainFocus(editor).setBlockLineHeight(preset.value).run(),
-            })),
-          ]}
         />
       </ToolbarGroup>
 
@@ -402,68 +528,12 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarDivider />
 
-      <ToolbarGroup aria-label="Table">
-        <TableInsertMenu
-          disabled={!ready}
-          onInsert={(rows, cols) => {
-            editor
-              ?.chain()
-              .focus(undefined, { scrollIntoView: false })
-              .insertTable({ rows, cols, withHeaderRow: true })
-              .run();
-          }}
-        />
-        <ToolbarButton
-          label="Add row below"
-          icon={<Plus size={16} strokeWidth={1.75} />}
-          disabled={!ready || !inTable || !editor.can().addRowAfter()}
-          onClick={() => editor && chainFocus(editor).addRowAfter().run()}
-        />
-        <ToolbarButton
-          label="Add column after"
-          icon={<Plus size={16} strokeWidth={1.75} className="rotate-90" />}
-          disabled={!ready || !inTable || !editor.can().addColumnAfter()}
-          onClick={() => editor && chainFocus(editor).addColumnAfter().run()}
-        />
-        <ToolbarDropdown
-          label="Table actions"
-          displayLabel="Edit"
-          disabled={!ready || !inTable}
-          triggerClassName="min-w-[4rem]"
-          options={[
-            {
-              id: 'delete-row',
-              label: 'Delete row',
-              onSelect: () => editor && chainFocus(editor).deleteRow().run(),
-            },
-            {
-              id: 'delete-column',
-              label: 'Delete column',
-              onSelect: () => editor && chainFocus(editor).deleteColumn().run(),
-            },
-            {
-              id: 'delete-table',
-              label: 'Delete table',
-              onSelect: () => editor && chainFocus(editor).deleteTable().run(),
-            },
-          ]}
-        />
-      </ToolbarGroup>
-
-      <ToolbarDivider />
-
-      <ToolbarGroup aria-label="Image">
-        <ImageInsertMenu
-          disabled={!ready}
-          onInsert={(src) => {
-            editor
-              ?.chain()
-              .focus(undefined, { scrollIntoView: false })
-              .setImage({ src })
-              .run();
-          }}
-        />
-      </ToolbarGroup>
+      <ToolbarMoreMenu
+        editor={editor}
+        ready={ready}
+        inTable={inTable}
+        lineHeightLabel={lineHeightLabel}
+      />
     </div>
   );
 }

@@ -71,7 +71,7 @@ export function TableInsertMenu({ disabled = false, onInsert }: TableInsertMenuP
           id={panelId}
           role="dialog"
           aria-label="Choose table size"
-          className="absolute left-0 top-full z-30 mt-xs rounded-md border border-border-subtle bg-surface-primary p-md shadow-md"
+          className="absolute left-0 top-full z-50 mt-xs rounded-md border border-border-subtle bg-surface-primary p-md shadow-md"
         >
           <p className="mb-sm text-caption font-sans font-medium text-text-secondary">
             {hoverRows} × {hoverCols} table

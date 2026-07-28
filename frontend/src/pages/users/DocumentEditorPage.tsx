@@ -405,7 +405,7 @@ export function DocumentEditorPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/40">
       {/* Top bar — document name lives here so the draft stays the visual hero */}
-      <div className="flex shrink-0 items-center gap-md border-b border-border-subtle bg-surface-primary px-xl py-sm">
+      <div className="flex shrink-0 items-center gap-md border-b border-border-subtle bg-surface-primary px-xl py-xs">
         <div className="flex min-w-0 items-center gap-md">
           <button
             type="button"
@@ -612,30 +612,28 @@ export function DocumentEditorPage() {
           </div>
         )}
 
-        {/* Editor — Google Docs-style: full-height page, one scroll */}
-        <main className="document-editor-scroll min-h-0 flex-1 bg-surface-muted/50">
-          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary px-2xl pb-2xl pt-0 shadow-sm sm:px-3xl sm:pb-3xl">
-            {!editorReady ? (
-              <p role="status" className="text-bodySmall text-text-secondary">
-                Loading document…
-              </p>
-            ) : (
-              <AnchoredFeedbackEditorContainer
-                key={editorMountKey}
-                environmentId={envId}
-                ariaLabel="Draft editor"
-                initialContent={editorInitialContent}
-                categoryLabels={previewCategoryLabels}
-                highlightedAnchorId={highlightedAnchorId}
-                highlightedQuotedText={highlightedQuotedText}
-                highlightedLocationHint={highlightedLocationHint}
-                showCoachHighlights={showCoachHighlights}
-                onContentChange={(content) => setCurrentContent(content)}
-                onTocUpdate={setTocAnchors}
-                className="min-h-0 flex-1"
-              />
-            )}
-          </div>
+        {/* Editor — toolbar chrome fixed; only the page scrolls */}
+        <main className="flex min-h-0 flex-1 flex-col bg-surface-muted/50">
+          {!editorReady ? (
+            <p role="status" className="p-lg text-bodySmall text-text-secondary">
+              Loading document…
+            </p>
+          ) : (
+            <AnchoredFeedbackEditorContainer
+              key={editorMountKey}
+              environmentId={envId}
+              ariaLabel="Draft editor"
+              initialContent={editorInitialContent}
+              categoryLabels={previewCategoryLabels}
+              highlightedAnchorId={highlightedAnchorId}
+              highlightedQuotedText={highlightedQuotedText}
+              highlightedLocationHint={highlightedLocationHint}
+              showCoachHighlights={showCoachHighlights}
+              onContentChange={(content) => setCurrentContent(content)}
+              onTocUpdate={setTocAnchors}
+              className="min-h-0 flex-1"
+            />
+          )}
         </main>
       </div>
     </div>

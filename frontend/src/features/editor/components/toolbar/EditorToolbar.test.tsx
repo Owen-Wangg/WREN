@@ -114,6 +114,7 @@ describe('EditorToolbar (Phase 1)', () => {
   });
 
   it('renders Phase 3 indent and line spacing controls', async () => {
+    const user = userEvent.setup();
     render(<DocumentEditor ariaLabel="Draft editor" />);
 
     await waitFor(() => {
@@ -121,6 +122,7 @@ describe('EditorToolbar (Phase 1)', () => {
     });
 
     expect(screen.getByRole('button', { name: 'Decrease indent' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'More formatting options' }));
     expect(screen.getByRole('button', { name: 'Line spacing' })).toBeInTheDocument();
   });
 
@@ -156,12 +158,15 @@ describe('EditorToolbar (Phase 1)', () => {
   });
 
   it('renders Phase 4 table controls', async () => {
+    const user = userEvent.setup();
     render(<DocumentEditor ariaLabel="Draft editor" />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Insert table' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'More formatting options' })).toBeInTheDocument();
     });
 
+    await user.click(screen.getByRole('button', { name: 'More formatting options' }));
+    expect(screen.getByRole('button', { name: 'Insert table' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add row below' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Add column after' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Table actions' })).toBeDisabled();
@@ -180,9 +185,10 @@ describe('EditorToolbar (Phase 1)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Insert table' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'More formatting options' })).toBeInTheDocument();
     });
 
+    await user.click(screen.getByRole('button', { name: 'More formatting options' }));
     await user.click(screen.getByRole('button', { name: 'Insert table' }));
     await user.click(screen.getByRole('button', { name: '2 by 2 table' }));
 
@@ -191,12 +197,14 @@ describe('EditorToolbar (Phase 1)', () => {
       expect(surface.querySelector('table')).toBeTruthy();
     });
 
+    await user.click(screen.getByRole('button', { name: 'More formatting options' }));
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Add row below' })).not.toBeDisabled();
     });
   });
 
   it('renders Phase 5 font family, color, and image controls', async () => {
+    const user = userEvent.setup();
     render(<DocumentEditor ariaLabel="Draft editor" />);
 
     await waitFor(() => {
@@ -205,6 +213,7 @@ describe('EditorToolbar (Phase 1)', () => {
 
     expect(screen.getByRole('button', { name: 'Text color' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Highlight color' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'More formatting options' }));
     expect(screen.getByRole('button', { name: 'Insert image' })).toBeInTheDocument();
   });
 });

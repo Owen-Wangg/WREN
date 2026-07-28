@@ -88,7 +88,7 @@ export function ColorPickerMenu({
           id={panelId}
           role="dialog"
           aria-label={label}
-          className="absolute left-0 top-full z-30 mt-xs w-[11rem] rounded-md border border-border-subtle bg-surface-primary p-md shadow-md"
+          className="absolute left-0 top-full z-50 mt-xs w-[11rem] rounded-md border border-border-subtle bg-surface-primary p-md shadow-md"
         >
           <div className="grid grid-cols-5 gap-xs">
             {colors.map((swatch) => {

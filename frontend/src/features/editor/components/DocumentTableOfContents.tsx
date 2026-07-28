@@ -14,7 +14,11 @@ function getEditorScrollParent(): HTMLElement | null {
 }
 
 function getToolbarOffset(scrollParent: HTMLElement): number {
-  const toolbar = scrollParent.querySelector<HTMLElement>('[data-document-editor-toolbar]');
+  const toolbar = document.querySelector<HTMLElement>('[data-document-editor-toolbar]');
+  // Toolbar is page chrome outside the scrollport — only a small content inset.
+  if (toolbar && !scrollParent.contains(toolbar)) {
+    return TOOLBAR_GAP_PX + 4;
+  }
   const height = toolbar?.getBoundingClientRect().height;
   if (height && height > 0) return Math.ceil(height) + TOOLBAR_GAP_PX;
   return FALLBACK_TOOLBAR_OFFSET_PX;

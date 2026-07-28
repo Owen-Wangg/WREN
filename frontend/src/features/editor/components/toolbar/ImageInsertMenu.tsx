@@ -110,7 +110,7 @@ export function ImageInsertMenu({ disabled = false, onInsert }: ImageInsertMenuP
           id={panelId}
           role="dialog"
           aria-label="Insert image"
-          className="absolute left-0 top-full z-30 mt-xs w-64 rounded-md border border-border-subtle bg-surface-primary p-md shadow-md"
+          className="absolute left-0 top-full z-50 mt-xs w-64 rounded-md border border-border-subtle bg-surface-primary p-md shadow-md"
         >
           <input
             ref={fileRef}

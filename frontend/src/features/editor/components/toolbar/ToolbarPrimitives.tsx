@@ -10,28 +10,32 @@ import {
 
 export function ToolbarGroup({
   children,
+  className,
   'aria-label': ariaLabel,
 }: {
   readonly children: ReactNode;
+  readonly className?: string;
   readonly 'aria-label'?: string;
 }) {
   return (
     <div
       role="group"
       aria-label={ariaLabel}
-      className="flex items-center gap-xs"
+      className={['flex items-center gap-xs', className].filter(Boolean).join(' ')}
     >
       {children}
     </div>
   );
 }
 
-export function ToolbarDivider() {
+export function ToolbarDivider({ className }: { readonly className?: string } = {}) {
   return (
     <div
       role="separator"
       aria-orientation="vertical"
-      className="mx-xs h-5 w-px shrink-0 bg-border-subtle"
+      className={['mx-xs h-5 w-px shrink-0 bg-border-subtle', className]
+        .filter(Boolean)
+        .join(' ')}
     />
   );
 }

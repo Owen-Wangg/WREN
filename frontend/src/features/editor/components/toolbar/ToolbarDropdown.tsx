@@ -84,7 +84,7 @@ export function ToolbarDropdown({
           id={listId}
           role="listbox"
           aria-label={label}
-          className="absolute left-0 top-full z-30 mt-xs min-w-full overflow-hidden rounded-md border border-border-subtle bg-surface-primary py-xs shadow-md"
+          className="absolute left-0 top-full z-50 mt-xs min-w-full overflow-hidden rounded-md border border-border-subtle bg-surface-primary py-xs shadow-md"
         >
           {options.map((option) => (
             <li key={option.id} role="option" aria-selected={!!option.active}>
