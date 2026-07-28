@@ -1,8 +1,8 @@
 /**
- * Document editor toolbar — Phases 1–3.
+ * Document editor toolbar — Phases 1–3 + Phase 4 tables (no links).
  *
  * Groups: History | Marks | Block style | Font size | Alignment |
- * Line spacing | Lists + Indent/Outdent
+ * Line spacing | Lists + Indent | Table
  */
 import {
   AlignCenter,
@@ -15,6 +15,7 @@ import {
   Italic,
   List,
   ListOrdered,
+  Plus,
   Redo2,
   Underline as UnderlineIcon,
   Undo2,
@@ -23,6 +24,7 @@ import {
 import { LINE_HEIGHT_PRESETS } from '../../tiptapIndent';
 import { FONT_SIZE_PRESETS } from '../../tiptapFontSize';
 
+import { TableInsertMenu } from './TableInsertMenu';
 import { ToolbarDropdown } from './ToolbarDropdown';
 import {
   ToolbarButton,
@@ -108,6 +110,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   const fontSizeLabel = editor ? currentFontSizeLabel(editor) : 'Default';
   const alignment = editor ? currentAlignment(editor) : 'left';
   const lineHeightLabel = editor ? currentLineHeightLabel(editor) : 'Default';
+  const inTable = !!editor?.isActive('table');
 
   return (
     <div
@@ -311,6 +314,56 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           icon={<IndentDecrease size={16} strokeWidth={1.75} />}
           disabled={!ready || !editor.can().outdent()}
           onClick={() => editor && chainFocus(editor).outdent().run()}
+        />
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
+      <ToolbarGroup aria-label="Table">
+        <TableInsertMenu
+          disabled={!ready}
+          onInsert={(rows, cols) => {
+            editor
+              ?.chain()
+              .focus(undefined, { scrollIntoView: false })
+              .insertTable({ rows, cols, withHeaderRow: true })
+              .run();
+          }}
+        />
+        <ToolbarButton
+          label="Add row below"
+          icon={<Plus size={16} strokeWidth={1.75} />}
+          disabled={!ready || !inTable || !editor.can().addRowAfter()}
+          onClick={() => editor && chainFocus(editor).addRowAfter().run()}
+        />
+        <ToolbarButton
+          label="Add column after"
+          icon={<Plus size={16} strokeWidth={1.75} className="rotate-90" />}
+          disabled={!ready || !inTable || !editor.can().addColumnAfter()}
+          onClick={() => editor && chainFocus(editor).addColumnAfter().run()}
+        />
+        <ToolbarDropdown
+          label="Table actions"
+          displayLabel="Edit"
+          disabled={!ready || !inTable}
+          triggerClassName="min-w-[4rem]"
+          options={[
+            {
+              id: 'delete-row',
+              label: 'Delete row',
+              onSelect: () => editor && chainFocus(editor).deleteRow().run(),
+            },
+            {
+              id: 'delete-column',
+              label: 'Delete column',
+              onSelect: () => editor && chainFocus(editor).deleteColumn().run(),
+            },
+            {
+              id: 'delete-table',
+              label: 'Delete table',
+              onSelect: () => editor && chainFocus(editor).deleteTable().run(),
+            },
+          ]}
         />
       </ToolbarGroup>
     </div>

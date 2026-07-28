@@ -84,7 +84,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           alignments: ['left', 'center', 'right', 'justify'],
           defaultAlignment: 'left',
         }),
-        Table.configure({ resizable: false }),
+        Table.configure({
+          resizable: false,
+          // Enables multi-cell selection chrome (selectedCell class).
+          allowTableNodeSelection: true,
+        }),
         TableRow,
         TableHeader,
         TableCell,

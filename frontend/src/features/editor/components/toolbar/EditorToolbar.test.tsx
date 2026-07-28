@@ -154,4 +154,45 @@ describe('EditorToolbar (Phase 1)', () => {
       expect(paragraph?.getAttribute('data-indent')).toBe('1');
     });
   });
+
+  it('renders Phase 4 table controls', async () => {
+    render(<DocumentEditor ariaLabel="Draft editor" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Insert table' })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: 'Add row below' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add column after' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Table actions' })).toBeDisabled();
+  });
+
+  it('inserts a table from the size grid and enables edit controls', async () => {
+    const user = userEvent.setup();
+    render(
+      <DocumentEditor
+        ariaLabel="Draft editor"
+        initialContent={{
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Before' }] }],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Insert table' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Insert table' }));
+    await user.click(screen.getByRole('button', { name: '2 by 2 table' }));
+
+    await waitFor(() => {
+      const surface = screen.getByRole('textbox', { name: 'Draft editor' });
+      expect(surface.querySelector('table')).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Add row below' })).not.toBeDisabled();
+    });
+  });
 });

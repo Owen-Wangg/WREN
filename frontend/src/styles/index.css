@@ -128,11 +128,23 @@ body {
   border: 1px solid var(--color-border-subtle);
   padding: 0.4em 0.55em;
   vertical-align: top;
+  position: relative;
+  min-width: 2.5em;
 }
 
 .document-editor-surface th {
   font-weight: 650;
   background: var(--color-surface-muted);
+}
+
+/* TipTap / ProseMirror cell selection while editing tables. */
+.document-editor-surface .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-accent-primary) 12%, transparent);
+  z-index: 1;
 }
 
 .document-editor-surface ul,
