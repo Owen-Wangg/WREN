@@ -162,12 +162,21 @@ export class ComputeStack extends Stack {
               "tessdata",
             );
             const isWindows = process.platform === "win32";
+            // Local Windows bundling only installs win32 optional natives.
+            // Force the Lambda (Amazon Linux / glibc) package into the asset so
+            // PDF extract doesn't fail with "Failed to load native module for linux-x64".
+            // `--force` is required on Windows — npm otherwise rejects EBADPLATFORM.
+            const installLinuxNative = isWindows
+              ? `cd /d "${outputDir}" && npm install @llamaindex/liteparse-linux-x64-gnu@2.8.1 --omit=dev --no-save --no-package-lock --force`
+              : `cd "${outputDir}" && npm install @llamaindex/liteparse-linux-x64-gnu@2.8.1 --omit=dev --no-save --no-package-lock --force`;
             if (isWindows) {
               return [
+                installLinuxNative,
                 `if exist "${tessdataSrc}" xcopy /E /I /Y "${tessdataSrc}" "${outputDir}\\tessdata"`,
               ];
             }
             return [
+              installLinuxNative,
               `mkdir -p "${outputDir}/tessdata" && cp -R "${tessdataSrc}/." "${outputDir}/tessdata/" || true`,
             ];
           },
