@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net">
+  <diagram name="Feedback Pipeline Detail" id="xufUFJmiPomaqDLkK1tB">
+    <mxGraphModel dx="2204" dy="1081" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#232F3E;verticalAlign=top;fontStyle=1;fontSize=12;fontColor=#232F3E;dashed=1;dashPattern=8 4;strokeWidth=1.5;" value="Document Lifecycle" vertex="1">
+          <mxGeometry height="320" width="960" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-2" parent="1" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#232F3D;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=1;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.users;" value="User" vertex="1">
+          <mxGeometry height="50" width="50" x="60" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-3" parent="1" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#3F8624;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;" value="&lt;b&gt;Amazon S3&lt;/b&gt;&lt;div&gt;Original File Bytes&lt;/div&gt;&lt;div&gt;(.docx / .pdf)&lt;/div&gt;" vertex="1">
+          <mxGeometry height="48" width="48" x="200" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-4" parent="1" style="sketch=0;points=[[0,0,0,0,0],[0,0.25,0,0,0],[0,0.5,0,0,0],[0,0.75,0,0,0],[0,1,0,0,0],[0.25,0,0,0,0],[0.25,1,0,0,0],[0.5,0,0,0,0],[0.5,1,0,0,0],[0.75,0,0,0,0],[0.75,1,0,0,0],[1,0,0,0,0],[1,0.25,0,0,0],[1,0.5,0,0,0],[1,0.75,0,0,0],[1,1,0,0,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.rds;" value="&lt;b&gt;Amazon RDS&lt;/b&gt;&lt;div&gt;PostgreSQL 16&lt;/div&gt;" vertex="1">
+          <mxGeometry height="46" width="46" x="200" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#232F3E;fontColor=#232F3E;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;draft table&lt;/b&gt;&lt;br&gt;├ v1: segments[], s3_key, content&lt;br&gt;├ v2: segments[], s3_key, content&lt;br&gt;└ v3: segments[], s3_key, content&lt;br&gt;&lt;br&gt;&lt;i&gt;Draft entries in the DB are immutable -&amp;nbsp;guarantees that resolution verdicts, anchor positions, diff computations, and feedback provenance remain valid after the fact.&lt;/i&gt;" vertex="1">
+          <mxGeometry height="110" width="270" x="610" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#232F3E;fontColor=#232F3E;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;feedback_item table&lt;/b&gt;&lt;br&gt;├ source_draft_id (which draft generated it)&lt;br&gt;├ error_category_id&lt;br&gt;├ question_text (Socratic question)&lt;br&gt;└ quoted_text&lt;br&gt;&lt;br&gt;&lt;b&gt;anchor table&lt;/b&gt;&lt;br&gt;├ draft_id, paragraph_index&lt;br&gt;├ start_offset, end_offset&lt;br&gt;└ content_fingerprint (hash+prefix+suffix)" vertex="1">
+          <mxGeometry height="160" width="270" x="610" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#232F3E;verticalAlign=top;fontStyle=1;fontSize=12;fontColor=#232F3E;dashed=1;dashPattern=8 4;strokeWidth=1.5;" value="Resolution Pipeline (on Draft v2+ submission)" vertex="1">
+          <mxGeometry height="440" width="730" x="40" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#232F3E;fontColor=#232F3E;fontSize=11;fontStyle=1;" value="&lt;b&gt;Diff Engine&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;Compares v1 segments → v2 segments&lt;br&gt;paragraph-by-paragraph&lt;br&gt;(difflib.SequenceMatcher)&lt;br&gt;&lt;br&gt;Output per paragraph:&lt;br&gt;UNCHANGED | CHANGED | ADDED | DELETED&lt;br&gt;&lt;br&gt;For CHANGED: identifies exact&lt;br&gt;character-level changed_spans&lt;/font&gt;" vertex="1">
+          <mxGeometry height="170" width="200" x="53" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#232F3E;fontColor=#232F3E;fontSize=11;fontStyle=1;" value="&lt;b&gt;Anchor Service&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;Re-maps each v1 anchor → v2 position&lt;br&gt;&lt;br&gt;UNCHANGED para → preserve offsets&lt;br&gt;CHANGED para → search for text verbatim&lt;br&gt;DELETED para → mark Removed&lt;br&gt;&lt;br&gt;Disambiguation via fingerprint:&lt;br&gt;prefix (32 chars) + suffix (32 chars)&lt;br&gt;&lt;br&gt;Safety: never mis-attach —&lt;br&gt;ambiguous = Removed&lt;/font&gt;" vertex="1">
+          <mxGeometry height="200" width="200" x="290" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#232F3E;fontColor=#232F3E;fontSize=11;fontStyle=1;" value="&lt;b&gt;Progress Tracker&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;Makes deterministic decisions from the diff structure alone before considering an LLM call.&lt;br&gt;&lt;br&gt;Anchor Removed → REMOVED ✗&lt;br&gt;Span unchanged → UNCHANGED ✗&lt;br&gt;Span changed → send to Judge ✓&lt;br&gt;&lt;br&gt;(✗ = no LLM call needed)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="170" width="200" x="550" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-11" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#232F3E;verticalAlign=top;fontStyle=1;fontSize=12;fontColor=#232F3E;dashed=1;dashPattern=8 4;strokeWidth=1.5;" value="Resolution Judge" vertex="1">
+          <mxGeometry height="330" width="340" x="850" y="400" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-12" parent="1" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#01A88D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.bedrock;" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;div&gt;Claude (temp=0)&lt;/div&gt;" vertex="1">
+          <mxGeometry height="53" width="53" x="993.5" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#232F3E;fontColor=#232F3E;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;Input per item:&lt;/b&gt;&lt;br&gt;• feedback_question&lt;br&gt;• original_text (from v1 span)&lt;br&gt;• revised_text (from v2 span)&lt;br&gt;&lt;br&gt;&lt;b&gt;Output (one of):&lt;/b&gt;&lt;br&gt;• &lt;font color=&quot;#2e7d32&quot;&gt;resolved&lt;/font&gt; — fully addressed&lt;br&gt;• &lt;font color=&quot;#f57c00&quot;&gt;partial&lt;/font&gt; — meaningful progress&lt;br&gt;• &lt;font color=&quot;#c62828&quot;&gt;unresolved&lt;/font&gt; — not addressed&lt;br&gt;&lt;br&gt;&lt;i&gt;Single batched call, deterministic&lt;/i&gt;" vertex="1">
+          <mxGeometry height="180" width="220" x="910" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#232F3E;fontColor=#232F3E;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;resolution_status_history table&lt;/b&gt;&lt;br&gt;(append-only, trigger-enforced)&lt;br&gt;&lt;br&gt;├ feedback_item_id&lt;br&gt;├ draft_id (which draft this verdict is for)&lt;br&gt;├ status: RESOLVED | PARTIAL | UNRESOLVED&lt;br&gt;│         | REMOVED | UNCHANGED&lt;br&gt;└ created_at" vertex="1">
+          <mxGeometry height="140" width="280" x="1280" y="420" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-15" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#232F3E;verticalAlign=top;fontStyle=1;fontSize=12;fontColor=#232F3E;dashed=1;dashPattern=8 4;strokeWidth=1.5;" value="" vertex="1">
+          <mxGeometry height="300" width="380" x="1230" y="620" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#232F3E;fontColor=#232F3E;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;AI DEBRIEF&lt;br&gt;&lt;/b&gt;&lt;br&gt;1. Feedback items grouped by error_category&lt;br&gt;2. Quoted text (clickable → highlights in editor)&lt;br&gt;3. Socratic questions (never corrections)&lt;br&gt;&lt;br&gt;&lt;b&gt;Progress Summary (≥2 drafts):&lt;/b&gt;&lt;br&gt;• Per-category pattern detection:&lt;br&gt;  - &lt;font color=&quot;#2e7d32&quot;&gt;Improving&lt;/font&gt; (open items decreased)&lt;br&gt;  - &lt;font color=&quot;#f57c00&quot;&gt;Persistent&lt;/font&gt; (still unresolved)&lt;br&gt;  - &lt;font color=&quot;#c62828&quot;&gt;Emerging&lt;/font&gt; (new category appeared)" vertex="1">
+          <mxGeometry height="160" width="340" x="1241" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-17" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#232F3E;verticalAlign=top;fontStyle=1;fontSize=12;fontColor=#232F3E;dashed=1;dashPattern=8 4;strokeWidth=1.5;" value="Ask Writing Coach" vertex="1">
+          <mxGeometry height="350" width="500" x="40" y="880" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-18" parent="1" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#232F3D;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=1;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.users;" value="Student" vertex="1">
+          <mxGeometry height="50" width="50" x="60" y="960" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-19" parent="1" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=#F78E04;gradientDirection=north;fillColor=#D05C17;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" value="&lt;b&gt;Lambda&lt;/b&gt;&lt;div&gt;Feedback Orchestrator&lt;/div&gt;" vertex="1">
+          <mxGeometry height="48" width="48" x="200" y="960" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-20" parent="1" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;" value="&lt;b&gt;DynamoDB&lt;/b&gt;&lt;div&gt;Conversation History&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="53" width="53" x="197.5" y="1130" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-21" parent="1" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#01A88D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.bedrock;" value="&lt;b&gt;Amazon Bedrock&lt;/b&gt;&lt;div&gt;Claude (Sonnet)&lt;/div&gt;" vertex="1">
+          <mxGeometry height="53" width="53" x="370" y="960" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#232F3E;fontColor=#232F3E;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;Context sent to LLM:&lt;/b&gt;&lt;br&gt;• Current draft segments (from RDS)&lt;br&gt;• Last 12 messages (from DynamoDB)&lt;br&gt;• Document type config&lt;br&gt;&lt;br&gt;&lt;b&gt;Session key:&lt;/b&gt; {userId}#{documentId}&lt;br&gt;(survives draft resubmits)&lt;br&gt;&lt;br&gt;&lt;b&gt;Rate limited:&lt;/b&gt; message_limit from&lt;br&gt;platform_usage_policy (RDS)" vertex="1">
+          <mxGeometry height="160" width="220" x="300" y="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-23" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#232F3E;verticalAlign=top;fontStyle=1;fontSize=12;fontColor=#232F3E;dashed=1;dashPattern=8 4;strokeWidth=1.5;" value="Content Fingerprint (Disambiguation)" vertex="1">
+          <mxGeometry height="250" width="360" x="600" y="880" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#232F3E;fontColor=#232F3E;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;ContentFingerprint:&lt;/b&gt;&lt;br&gt;├ text_hash: SHA-256 of normalized anchor text&lt;br&gt;├ normalized_text: casefolded, whitespace-collapsed&lt;br&gt;├ prefix: 32 chars before anchor in paragraph&lt;br&gt;└ suffix: 32 chars after anchor in paragraph&lt;br&gt;&lt;br&gt;&lt;b&gt;Solves:&lt;/b&gt;&lt;br&gt;• Identity: &quot;Is this the same text?&quot; (hash match)&lt;br&gt;• Disambiguation: &quot;Which occurrence?&quot;&lt;br&gt;  e.g. same phrase appears twice in a paragraph —&lt;br&gt;  prefix/suffix context identifies the correct one&lt;br&gt;&lt;br&gt;&lt;b&gt;Also used for carry-forward cache:&lt;/b&gt;&lt;br&gt;  Same fingerprint + same config_hash = reuse feedback" vertex="1">
+          <mxGeometry height="210" width="320" x="620" y="910" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-25" edge="1" parent="1" source="wMgTx4yU4qpP6l9S1Xcp-2" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="wMgTx4yU4qpP6l9S1Xcp-3" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;upload&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-26" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="wMgTx4yU4qpP6l9S1Xcp-4" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;Lambda extracts&lt;br&gt;text → segments&lt;/font&gt;">
+          <mxGeometry relative="1" x="0.2913" y="47" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="224" y="170" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-27" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="390" y="245.53" />
+              <mxPoint x="390" y="80" />
+            </Array>
+            <mxPoint x="246" y="245.4999999999999" as="sourcePoint" />
+            <mxPoint x="610" y="80" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-29" edge="1" parent="1" source="wMgTx4yU4qpP6l9S1Xcp-8" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.473;entryDx=0;entryDy=0;entryPerimeter=0;" target="wMgTx4yU4qpP6l9S1Xcp-9" value="&lt;font style=&quot;font-size: 6px;&quot;&gt;Diff result&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.0909" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-30" edge="1" parent="1" source="wMgTx4yU4qpP6l9S1Xcp-9" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="wMgTx4yU4qpP6l9S1Xcp-10" value="&lt;font style=&quot;font-size: 8px;&quot;&gt;Remapped&lt;br&gt;or&lt;br&gt;Removed&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-31" edge="1" parent="1" source="wMgTx4yU4qpP6l9S1Xcp-10" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="wMgTx4yU4qpP6l9S1Xcp-11" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;Changed spans&lt;br&gt;only&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-33" edge="1" parent="1" source="wMgTx4yU4qpP6l9S1Xcp-14" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="wMgTx4yU4qpP6l9S1Xcp-15" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;Progress&lt;br&gt;summary&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-34" edge="1" parent="1" source="wMgTx4yU4qpP6l9S1Xcp-18" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="wMgTx4yU4qpP6l9S1Xcp-19" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;question&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-35" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="wMgTx4yU4qpP6l9S1Xcp-20" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;load/save&lt;br&gt;session&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="224" y="1060" />
+              <mxPoint x="224" y="1060" />
+            </Array>
+            <mxPoint x="224" y="1050" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-36" edge="1" parent="1" source="wMgTx4yU4qpP6l9S1Xcp-19" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="wMgTx4yU4qpP6l9S1Xcp-21" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;draft context&lt;br&gt;+ messages&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-37" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;v1 segments&lt;br&gt;v2 segments&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="160" y="390" as="sourcePoint" />
+            <mxPoint x="160" y="450" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-39" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="246" y="269.81" as="sourcePoint" />
+            <mxPoint x="610" y="269.81" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-40" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;exitX=1.003;exitY=0.275;exitDx=0;exitDy=0;exitPerimeter=0;" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;Verdicts&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+            <mxPoint x="1191" y="540.5" as="sourcePoint" />
+            <mxPoint x="1280" y="539.5" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-41" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#232F3E;strokeWidth=2;endArrow=block;endFill=1;rounded=0;entryX=0.528;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" target="wMgTx4yU4qpP6l9S1Xcp-23" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="390" y="700" />
+              <mxPoint x="790.08" y="700" />
+            </Array>
+            <mxPoint x="390" y="640" as="sourcePoint" />
+            <mxPoint x="754" y="640" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wMgTx4yU4qpP6l9S1Xcp-43" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#232F3E;fontColor=#232F3E;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;DEPARTMENT ADMIN &amp;gt; STUDENT IMPROVEMENT ANALYTICS&lt;/b&gt;&lt;br&gt;&lt;div&gt;&amp;nbsp;&lt;/div&gt;&lt;div&gt;- Weighted score calculated per feedback category:&lt;br&gt;&lt;span style=&quot;white-space: pre;&quot;&gt;&#x9;&lt;/span&gt;(resolved×100 + partial×50) / total&lt;br&gt;&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="80" width="340" x="1241" y="820" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
