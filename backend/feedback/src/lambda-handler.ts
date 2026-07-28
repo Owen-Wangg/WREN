@@ -326,11 +326,6 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     WHERE document_id = $1${targetDraftId ? ` AND source_draft_id = $2` : ''}
     ORDER BY created_at DESC
   `;
-  const feedbackRows = await db.query(
-    feedbackQuery,
-    targetDraftId ? [documentId, targetDraftId] : [documentId],
-  );
-
   const anchorsQuery = `
     SELECT a.id, a.feedback_item_id, a.draft_id, a.paragraph_index, a.start_offset,
            a.end_offset, a.content_fingerprint, a.state
@@ -339,22 +334,47 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     WHERE f.document_id = $1${targetDraftId ? ` AND f.source_draft_id = $2` : ''}
     ORDER BY a.created_at ASC
   `;
-  const anchorRows = await db.query(
-    anchorsQuery,
-    targetDraftId ? [documentId, targetDraftId] : [documentId],
-  );
+  const feedbackArgs = targetDraftId ? [documentId, targetDraftId] : [documentId];
 
-  // Build a categoryId → name map from the distinct category IDs present in the items
+  // Wave 2: all four queries share only documentId/targetDraftId — run concurrently.
+  const [feedbackRows, anchorRows, draftRows, draftSegRows] = await Promise.all([
+    db.query(feedbackQuery, feedbackArgs),
+    db.query(anchorsQuery, feedbackArgs),
+    db.query<{ id: string; version_number: number }>(
+      `SELECT id, version_number FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 2`,
+      [documentId],
+    ),
+    targetDraftId
+      ? db.query(`SELECT segments FROM draft WHERE id = $1 AND document_id = $2`, [targetDraftId, documentId])
+      : Promise.resolve([]),
+  ]);
+
+  // Wave 3: category names and resolution history both depend on wave 2 results.
   const categoryIds = [...new Set(feedbackRows.map((r: any) => r.error_category_id).filter(Boolean))];
+  const [catRows, resolutionRows] = await Promise.all([
+    categoryIds.length > 0
+      ? db.query(`SELECT id, name FROM error_category WHERE id = ANY($1)`, [categoryIds])
+      : Promise.resolve([]),
+    draftRows.length >= 2
+      ? db.query<{ error_category_id: string; resolved: string; partial: string; total: string }>(
+          `SELECT fi.error_category_id,
+                  COUNT(*) FILTER (WHERE rsh.status = 'resolved') AS resolved,
+                  COUNT(*) FILTER (WHERE rsh.status = 'partially_resolved') AS partial,
+                  COUNT(*) AS total
+           FROM resolution_status_history rsh
+           JOIN feedback_item fi ON fi.id = rsh.feedback_item_id
+           WHERE rsh.draft_id = $1
+             AND rsh.status IN ('resolved', 'partially_resolved', 'still_unresolved')
+           GROUP BY fi.error_category_id`,
+          [draftRows[0].id],
+        )
+      : Promise.resolve([]),
+  ]);
+
+  // Build a categoryId → name map
   const categoryNames: Record<string, string> = {};
-  if (categoryIds.length > 0) {
-    const catRows = await db.query(
-      `SELECT id, name FROM error_category WHERE id = ANY($1)`,
-      [categoryIds],
-    );
-    for (const row of catRows as any[]) {
-      categoryNames[row.id] = row.name;
-    }
+  for (const row of catRows as any[]) {
+    categoryNames[row.id] = row.name;
   }
 
   // Build progress summary — uses resolution_status_history (accurate) when available,
@@ -362,32 +382,8 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   type ProgressPattern = { category: string; tendency: 'improving' | 'persistent' | 'emerging'; description: string };
   const progressSummary: ProgressPattern[] = [];
 
-  const draftRows = await db.query<{ id: string; version_number: number }>(
-    `SELECT id, version_number FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 2`,
-    [documentId],
-  );
-
   if (draftRows.length >= 2) {
     const [currentDraft, previousDraft] = draftRows;
-
-    // Check if resolution history exists for the current draft.
-    const resolutionRows = await db.query<{
-      error_category_id: string;
-      resolved: string;
-      partial: string;
-      total: string;
-    }>(
-      `SELECT fi.error_category_id,
-              COUNT(*) FILTER (WHERE rsh.status = 'resolved') AS resolved,
-              COUNT(*) FILTER (WHERE rsh.status = 'partially_resolved') AS partial,
-              COUNT(*) AS total
-       FROM resolution_status_history rsh
-       JOIN feedback_item fi ON fi.id = rsh.feedback_item_id
-       WHERE rsh.draft_id = $1
-         AND rsh.status IN ('resolved', 'partially_resolved', 'still_unresolved')
-       GROUP BY fi.error_category_id`,
-      [currentDraft.id],
-    );
 
     if (resolutionRows.length > 0) {
       // Resolution-based: did the student actually fix the flagged issues?
@@ -469,17 +465,12 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
 
   // Prefer exact draft text for quotes (word-complete), matching editor highlights.
   let segments: Array<{ index?: number; text?: string }> = [];
-  if (targetDraftId) {
-    const draftSegRows = await db.query(
-      `SELECT segments FROM draft WHERE id = $1 AND document_id = $2`,
-      [targetDraftId, documentId],
-    );
-    if (draftSegRows.length > 0) {
-      const raw = (draftSegRows[0] as any).segments;
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? []);
-      segments = Array.isArray(parsed) ? parsed : [];
-    }
+  if (draftSegRows.length > 0) {
+    const raw = (draftSegRows[0] as any).segments;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? []);
+    segments = Array.isArray(parsed) ? parsed : [];
   }
+
   const anchorByFeedbackId = new Map<string, any>();
   for (const row of anchorRows as any[]) {
     if (!anchorByFeedbackId.has(row.feedback_item_id)) {
@@ -489,6 +480,12 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
 
   return {
     statusCode: 200,
+    headers: {
+      // Feedback for a specific draftId is immutable once generated — safe to cache
+      // in the browser for 1 hour. Without a draftId the response reflects the latest
+      // draft which can change after resubmission, so we skip caching.
+      'Cache-Control': targetDraftId ? 'private, max-age=3600, immutable' : 'private, no-cache',
+    },
     body: JSON.stringify({
       items: feedbackRows.map((row: any) =>
         toFeedbackItemDto(row, { anchorByFeedbackId, segments }),

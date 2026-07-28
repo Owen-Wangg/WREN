@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import YAML from "js-yaml";
-import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Duration, Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -173,6 +173,24 @@ export class ApiStack extends Stack {
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.ERROR,
         tracingEnabled: true, // X-Ray tracing
+        // Enable the response cache cluster (0.5 GB — cheapest tier, sufficient
+        // for per-user debrief payloads). Per-method caching is opt-in below.
+        cacheClusterEnabled: true,
+        cacheClusterSize: "0.5",
+        // Per-method cache override: GET /v1/documents/{documentId}/feedback
+        // Feedback for a specific draftId is immutable once generated — safe to
+        // cache. Cache key: path param (documentId) + query param (draftId).
+        // TTL matches the browser Cache-Control max-age set in the Lambda.
+        methodOptions: {
+          "*/GET": {
+            cachingEnabled: false, // default off for all GETs
+          },
+          "v1/documents/{documentId}/feedback/GET": {
+            cachingEnabled: true,
+            cacheTtl: Duration.seconds(3600),
+            cacheDataEncrypted: true,
+          },
+        },
       },
       cloudWatchRole: true,
     });

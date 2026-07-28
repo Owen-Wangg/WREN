@@ -1359,11 +1359,16 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-request-parameters:
+        integration.request.querystring.draftId: method.request.querystring.draftId
       x-amazon-apigateway-integration:
         type: aws_proxy
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+        cacheKeyParameters:
+          - method.request.path.documentId
+          - method.request.querystring.draftId
     post:
       summary: Enqueue feedback generation for the current draft
       tags: [Feedback]

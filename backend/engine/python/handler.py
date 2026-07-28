@@ -7,6 +7,7 @@ and persists results to the database.
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Any
 import uuid
@@ -1164,6 +1165,7 @@ def process_feedback_request(
 ) -> None:
     """Process a single feedback request."""
     conn = None
+    resolution_thread: threading.Thread | None = None
     try:
         # Step 1: Get database connection
         conn = get_db_connection()
@@ -1272,7 +1274,32 @@ def process_feedback_request(
             focus_paragraph_indices=focus_paragraph_indices,
         )
 
-        # Step 6: Invoke Bedrock
+        # ─── Start resolution judging in parallel with Bedrock generation ─────
+        # persist_resolution_status reads only the PRIOR draft's rows from the DB
+        # and has zero dependency on the new feedback items this job is about to
+        # generate. Opening a dedicated connection lets it run concurrently while
+        # the main thread waits on the Bedrock HTTP response.
+        resolution_errors: list[Exception] = []
+
+        def _run_resolution_in_background() -> None:
+            bg_conn = None
+            try:
+                bg_conn = get_db_connection()
+                persist_resolution_status(document_id, draft_id, segments, config, bg_conn)
+            except Exception as exc:
+                resolution_errors.append(exc)
+            finally:
+                if bg_conn:
+                    bg_conn.close()
+
+        resolution_thread = threading.Thread(
+            target=_run_resolution_in_background,
+            daemon=True,
+        )
+        resolution_thread.start()
+        # ─────────────────────────────────────────────────────────────────────
+
+        # Step 6: Invoke Bedrock (runs concurrently with resolution thread)
         logger.info("Invoking Bedrock...")
         model_output = invoke_bedrock(prompt, config)
         logger.info(f"Bedrock output received ({len(model_output)} chars)")
@@ -1284,7 +1311,9 @@ def process_feedback_request(
 
         if not feedback_items:
             logger.warning("No feedback items parsed from model output")
-            persist_resolution_status(document_id, draft_id, segments, config, conn)
+            resolution_thread.join()
+            if resolution_errors:
+                logger.warning(f"Resolution thread error: {resolution_errors[0]}")
             return
 
         # Step 7b: Filter feedback items by category_priority (dept admin selection)
@@ -1306,9 +1335,10 @@ def process_feedback_request(
         logger.info("Updating aggregate counters...")
         update_aggregate_counters(writing_type_id, item_count, conn)
 
-        # Step 9: Compute and persist resolution status for prior feedback items
-        logger.info("Persisting resolution status history...")
-        persist_resolution_status(document_id, draft_id, segments, config, conn)
+        # Wait for resolution thread before returning
+        resolution_thread.join()
+        if resolution_errors:
+            logger.warning(f"Resolution thread error (non-fatal): {resolution_errors[0]}")
 
         logger.info(f"Feedback job {job_id} completed: {item_count} items inserted")
 
@@ -1318,6 +1348,12 @@ def process_feedback_request(
             conn.rollback()
         raise
     finally:
+        # Always join the resolution thread before the Lambda handler returns,
+        # even on the exception path. daemon=True alone is not enough — Lambda
+        # freezes the execution environment after the handler returns, which can
+        # interrupt a still-running daemon thread mid-write.
+        if resolution_thread is not None:
+            resolution_thread.join(timeout=30)
         if conn:
             conn.close()
 
