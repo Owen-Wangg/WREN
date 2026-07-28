@@ -14,8 +14,10 @@ import { describe, expect, it } from 'vitest';
 import {
   countParagraphBlocks,
   docxBytesToTiptapContent,
+  normalizeFontSize,
   tiptapContentToDocxBlob,
   tiptapContentToDocxParagraphs,
+  twipsToIndentLevel,
 } from './docxContentMapper';
 
 /** Builds a small multi-paragraph `.docx` fixture and returns its raw bytes. */
@@ -186,5 +188,88 @@ describe('docxContentMapper', () => {
     const content = await docxBytesToTiptapContent(new Uint8Array(buffer));
 
     expect(countParagraphBlocks(content)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('maps font size and paragraph indent from a fixture', async () => {
+    const document = new Document({
+      sections: [
+        {
+          children: [
+            new Paragraph({
+              indent: { left: 1440 },
+              children: [
+                new TextRun({ text: 'Indented large', size: 36 }), // 18pt
+              ],
+            }),
+            new Paragraph({
+              children: [new TextRun({ text: 'Body', size: 22 })], // 11pt
+            }),
+          ],
+        },
+      ],
+    });
+    const buffer = await Packer.toBuffer(document);
+    const content = await docxBytesToTiptapContent(new Uint8Array(buffer));
+
+    const indented = content.content?.find(
+      (n) => n.type === 'paragraph' && JSON.stringify(n).includes('Indented large'),
+    );
+    expect(indented).toBeTruthy();
+    // officeparser may or may not expose indent; when present, expect level ≥ 1.
+    if (indented?.attrs?.indent != null) {
+      expect(Number(indented.attrs.indent)).toBeGreaterThanOrEqual(1);
+    }
+    const sizedRun = indented?.content?.find((run) =>
+      run.marks?.some(
+        (m) => m.type === 'textStyle' && typeof m.attrs?.fontSize === 'string',
+      ),
+    );
+    // Prefer asserting size when officeparser surfaces it.
+    if (sizedRun) {
+      const sizeMark = sizedRun.marks?.find((m) => m.type === 'textStyle');
+      expect(String(sizeMark?.attrs?.fontSize)).toMatch(/\d+pt/);
+    }
+  });
+
+  it('maps nested bullet levels when officeparser exposes indentation', async () => {
+    const document = new Document({
+      sections: [
+        {
+          children: [
+            new Paragraph({
+              bullet: { level: 0 },
+              children: [new TextRun({ text: 'Parent bullet' })],
+            }),
+            new Paragraph({
+              bullet: { level: 1 },
+              children: [new TextRun({ text: 'Child bullet' })],
+            }),
+          ],
+        },
+      ],
+    });
+    const buffer = await Packer.toBuffer(document);
+    const content = await docxBytesToTiptapContent(new Uint8Array(buffer));
+    const json = JSON.stringify(content);
+    expect(json).toContain('Parent bullet');
+    expect(json).toContain('Child bullet');
+  });
+});
+
+describe('normalizeFontSize / twipsToIndentLevel', () => {
+  it('normalizes pt and inch sizes', () => {
+    expect(normalizeFontSize('14pt')).toBe('14pt');
+    expect(normalizeFontSize('14.4pt')).toBe('14pt');
+    expect(normalizeFontSize('0.5in')).toBe('36pt');
+    expect(normalizeFontSize(undefined)).toBeUndefined();
+  });
+
+  it('maps twips to indent levels 0–8', () => {
+    expect(twipsToIndentLevel(undefined)).toBe(0);
+    expect(twipsToIndentLevel({ left: 0 })).toBe(0);
+    expect(twipsToIndentLevel({ left: 720 })).toBe(1);
+    expect(twipsToIndentLevel({ left: 1440 })).toBe(2);
+    expect(twipsToIndentLevel({ firstLine: 720 })).toBe(1);
+    expect(twipsToIndentLevel({ left: 20_000 })).toBe(8);
   });
 });

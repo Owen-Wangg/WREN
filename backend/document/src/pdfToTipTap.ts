@@ -1,8 +1,9 @@
 /**
- * Convert LiteParse spatial text items into TipTap JSONContent (Scope B).
+ * Convert LiteParse spatial text items into TipTap JSONContent (Scope B+).
  *
  * Heuristics (4A): Y-gap paragraphs, font-name marks, font-size headings,
- * bullet/number lists, aligned multi-column rows → simple tables.
+ * non-heading fontSize textStyle marks, x-based indent, nested lists,
+ * aligned multi-column rows → simple tables.
  */
 import type { TipTapDoc, TipTapNode } from '@wren/types';
 
@@ -33,7 +34,14 @@ type Line = {
   runs: LineRun[];
   text: string;
   maxFontSize: number;
+  minX: number;
 };
+
+const MAX_INDENT_LEVEL = 8;
+/** Horizontal gap (PDF units) ≈ one indent / list nest step. */
+const INDENT_GAP_PX = 28;
+/** Attach fontSize mark when run differs from body median by this ratio. */
+const FONT_SIZE_MARK_RATIO = 1.12;
 
 function fontFlags(fontName: string | undefined): { bold: boolean; italic: boolean } {
   const name = (fontName ?? '').toLowerCase();
@@ -43,13 +51,27 @@ function fontFlags(fontName: string | undefined): { bold: boolean; italic: boole
   };
 }
 
-function runsToTextNodes(runs: LineRun[]): TipTapNode[] {
+function runsToTextNodes(
+  runs: LineRun[],
+  medianFontSize: number,
+  attachSizeMarks: boolean,
+): TipTapNode[] {
   return runs
     .filter((r) => r.text.length > 0)
     .map((r) => {
       const marks: NonNullable<TipTapNode['marks']> = [];
       if (r.bold) marks.push({ type: 'bold' });
       if (r.italic) marks.push({ type: 'italic' });
+      if (
+        attachSizeMarks &&
+        medianFontSize > 0 &&
+        Math.abs(r.fontSize - medianFontSize) / medianFontSize >= FONT_SIZE_MARK_RATIO - 1
+      ) {
+        marks.push({
+          type: 'textStyle',
+          attrs: { fontSize: `${Math.round(r.fontSize)}pt` },
+        });
+      }
       return {
         type: 'text',
         text: r.text,
@@ -81,6 +103,7 @@ function itemsToLines(items: SpatialTextItem[]): Line[] {
       current.runs.push(run);
       current.text += item.text;
       current.maxFontSize = Math.max(current.maxFontSize, fontSize);
+      current.minX = Math.min(current.minX, item.x);
     } else {
       if (current) lines.push(current);
       current = {
@@ -88,6 +111,7 @@ function itemsToLines(items: SpatialTextItem[]): Line[] {
         runs: [run],
         text: item.text,
         maxFontSize: fontSize,
+        minX: item.x,
       };
     }
   }
@@ -98,16 +122,26 @@ function itemsToLines(items: SpatialTextItem[]): Line[] {
 const BULLET_RE = /^[\u2022\u2023\u25E6\u2043\u2219•·▪‣*-]\s+/;
 const NUMBERED_RE = /^(\d+[\.)]|[a-zA-Z][\.)]|[ivxlcdmIVXLCDM]+[\.)])\s+/;
 
-function tryListItem(line: Line): TipTapNode | null {
+function isListLine(line: Line): { kind: 'bullet' | 'ordered'; remaining: string } | null {
   const raw = line.text.trim();
   const bullet = BULLET_RE.exec(raw);
   const numbered = NUMBERED_RE.exec(raw);
   if (!bullet && !numbered) return null;
+  const remaining = raw.replace(BULLET_RE, '').replace(NUMBERED_RE, '').trim();
+  return { kind: numbered ? 'ordered' : 'bullet', remaining };
+}
 
-  const remaining = raw
-    .replace(BULLET_RE, '')
-    .replace(NUMBERED_RE, '')
-    .trim();
+function lineIndentLevel(line: Line, baselineX: number): number {
+  const delta = line.minX - baselineX;
+  if (delta < INDENT_GAP_PX * 0.6) return 0;
+  return Math.min(MAX_INDENT_LEVEL, Math.max(0, Math.round(delta / INDENT_GAP_PX)));
+}
+
+function listItemNode(
+  line: Line,
+  remaining: string,
+  medianFontSize: number,
+): TipTapNode {
   const runs = line.runs.map((r, idx) =>
     idx === 0
       ? {
@@ -116,24 +150,74 @@ function tryListItem(line: Line): TipTapNode | null {
         }
       : r,
   );
+  const contentRuns =
+    remaining.length > 0
+      ? [{ ...runs[0]!, text: remaining }, ...runs.slice(1)]
+      : runs;
 
   return {
-    type: numbered ? 'orderedList' : 'bulletList',
+    type: 'listItem',
     content: [
       {
-        type: 'listItem',
-        content: [
-          {
-            type: 'paragraph',
-            content: runsToTextNodes(
-              remaining
-                ? [{ ...runs[0]!, text: remaining }, ...runs.slice(1)]
-                : runs,
-            ),
-          },
-        ],
+        type: 'paragraph',
+        content: runsToTextNodes(contentRuns, medianFontSize, true),
       },
     ],
+  };
+}
+
+/**
+ * Consume consecutive list lines starting at `start`, nesting by x-indent depth.
+ */
+function consumeNestedList(
+  lines: Line[],
+  start: number,
+  baselineX: number,
+  medianFontSize: number,
+  parentDepth: number,
+  listKind: 'bullet' | 'ordered',
+): { block: TipTapNode; end: number } {
+  const listType = listKind === 'ordered' ? 'orderedList' : 'bulletList';
+  const items: TipTapNode[] = [];
+  let i = start;
+
+  while (i < lines.length) {
+    const line = lines[i]!;
+    const list = isListLine(line);
+    if (!list || list.kind !== listKind) break;
+
+    const depth = lineIndentLevel(line, baselineX);
+    if (depth < parentDepth) break;
+
+    if (depth > parentDepth) {
+      const nested = consumeNestedList(
+        lines,
+        i,
+        baselineX,
+        medianFontSize,
+        depth,
+        listKind,
+      );
+      const prev = items[items.length - 1];
+      if (prev) {
+        prev.content = [...(prev.content ?? []), nested.block];
+      } else {
+        items.push({
+          type: 'listItem',
+          content: [{ type: 'paragraph' }, nested.block],
+        });
+      }
+      i = nested.end;
+      continue;
+    }
+
+    items.push(listItemNode(line, list.remaining, medianFontSize));
+    i += 1;
+  }
+
+  return {
+    block: { type: listType, content: items },
+    end: i,
   };
 }
 
@@ -190,11 +274,15 @@ function tryTableBlock(
   };
 }
 
-function lineToBlock(line: Line, medianFontSize: number): TipTapNode {
-  const list = tryListItem(line);
-  if (list) return list;
+function lineToBlock(
+  line: Line,
+  medianFontSize: number,
+  baselineX: number,
+): TipTapNode {
+  const content = runsToTextNodes(line.runs, medianFontSize, true);
+  const indent = lineIndentLevel(line, baselineX);
+  const indentAttrs = indent > 0 ? { indent } : {};
 
-  const content = runsToTextNodes(line.runs);
   if (line.maxFontSize >= medianFontSize * 1.35) {
     const level =
       line.maxFontSize >= medianFontSize * 1.8
@@ -204,13 +292,22 @@ function lineToBlock(line: Line, medianFontSize: number): TipTapNode {
           : 3;
     return {
       type: 'heading',
-      attrs: { level },
-      content: content.length > 0 ? content : undefined,
+      attrs: { level, ...indentAttrs },
+      // Headings already convey size — skip redundant textStyle size marks.
+      content:
+        content.length > 0
+          ? content.map((n) => {
+              if (!n.marks) return n;
+              const marks = n.marks.filter((m) => m.type !== 'textStyle');
+              return marks.length > 0 ? { ...n, marks } : { type: n.type, text: n.text };
+            })
+          : undefined,
     };
   }
 
   return {
     type: 'paragraph',
+    ...(indent > 0 ? { attrs: indentAttrs } : {}),
     content: content.length > 0 ? content : undefined,
   };
 }
@@ -232,6 +329,12 @@ function mergeAdjacentLists(blocks: TipTapNode[]): TipTapNode[] {
   return out;
 }
 
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * p)));
+  return sorted[idx]!;
+}
+
 /** Build a TipTap doc from LiteParse-style pages of spatial text items. */
 export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   const allItems = pages.flatMap((p) => p.textItems ?? []);
@@ -244,6 +347,9 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   // Lower median so a single large title still counts as a heading vs body.
   const medianFontSize = sizes[Math.floor((sizes.length - 1) / 2)] ?? 12;
 
+  const minXs = lines.map((l) => l.minX).sort((a, b) => a - b);
+  const baselineX = percentile(minXs, 0.1);
+
   const blocks: TipTapNode[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -253,7 +359,24 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
       i = table.end;
       continue;
     }
-    blocks.push(lineToBlock(lines[i]!, medianFontSize));
+
+    const listInfo = isListLine(lines[i]!);
+    if (listInfo) {
+      const depth = lineIndentLevel(lines[i]!, baselineX);
+      const nested = consumeNestedList(
+        lines,
+        i,
+        baselineX,
+        medianFontSize,
+        depth,
+        listInfo.kind,
+      );
+      blocks.push(nested.block);
+      i = nested.end;
+      continue;
+    }
+
+    blocks.push(lineToBlock(lines[i]!, medianFontSize, baselineX));
     i += 1;
   }
 

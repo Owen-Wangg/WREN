@@ -1,7 +1,8 @@
 /**
  * `.docx` ⇄ Tiptap content mapping (Requirements 6.2, 52.1, 52.2).
  *
- * Scope B: paragraphs, headings, bold/italic/underline/strike, lists, tables.
+ * Scope B+: paragraphs, headings, bold/italic/underline/strike, font size,
+ * paragraph indent, lists (nested), tables.
  * Images / headers / footers remain out of scope.
  *
  * Libraries (MIT):
@@ -24,6 +25,8 @@ import {
 } from 'docx';
 import { OfficeParser, type OfficeContentNode } from 'officeparser';
 
+import { MAX_INDENT_LEVEL } from './tiptapIndent';
+
 const HEADING_LEVEL_BY_NUMBER: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
   1: HeadingLevel.HEADING_1,
   2: HeadingLevel.HEADING_2,
@@ -32,6 +35,72 @@ const HEADING_LEVEL_BY_NUMBER: Record<number, (typeof HeadingLevel)[keyof typeof
   5: HeadingLevel.HEADING_5,
   6: HeadingLevel.HEADING_6,
 };
+
+/** ~720 twips ≈ 0.5" — one Word indent step. */
+const TWIPS_PER_INDENT_LEVEL = 720;
+
+/** Normalize officeparser size strings ("14pt", "0.5in") to a TipTap fontSize value. */
+export function normalizeFontSize(size: string | undefined): string | undefined {
+  if (!size || typeof size !== 'string') return undefined;
+  const trimmed = size.trim();
+  if (!trimmed) return undefined;
+  const pt = /^([\d.]+)\s*pt$/i.exec(trimmed);
+  if (pt) {
+    const n = Number.parseFloat(pt[1]!);
+    if (!Number.isFinite(n) || n <= 0) return undefined;
+    return `${Math.round(n)}pt`;
+  }
+  const inch = /^([\d.]+)\s*in$/i.exec(trimmed);
+  if (inch) {
+    const n = Number.parseFloat(inch[1]!);
+    if (!Number.isFinite(n) || n <= 0) return undefined;
+    return `${Math.round(n * 72)}pt`;
+  }
+  const bare = /^([\d.]+)$/.exec(trimmed);
+  if (bare) {
+    const n = Number.parseFloat(bare[1]!);
+    if (!Number.isFinite(n) || n <= 0) return undefined;
+    return `${Math.round(n)}pt`;
+  }
+  return trimmed;
+}
+
+/** Convert OOXML twips (or first-line) into indent levels 0–8. Prefer left, else firstLine. */
+export function twipsToIndentLevel(
+  indentation:
+    | { left?: number; firstLine?: number; hanging?: number }
+    | undefined
+    | null,
+): number {
+  if (!indentation) return 0;
+  const raw =
+    typeof indentation.left === 'number' && indentation.left > 0
+      ? indentation.left
+      : typeof indentation.firstLine === 'number' && indentation.firstLine > 0
+        ? indentation.firstLine
+        : 0;
+  if (raw <= 0) return 0;
+  return Math.min(MAX_INDENT_LEVEL, Math.max(0, Math.round(raw / TWIPS_PER_INDENT_LEVEL)));
+}
+
+function indentAttrsFromOffice(node: OfficeContentNode): { indent?: number } {
+  const meta = node.metadata as
+    | { paragraphIndentation?: { left?: number; firstLine?: number; hanging?: number } }
+    | undefined;
+  const level = twipsToIndentLevel(meta?.paragraphIndentation);
+  return level > 0 ? { indent: level } : {};
+}
+
+/** officeparser list nesting — prefer `indentation`, fall back to legacy `level`. */
+function listNestingLevel(node: OfficeContentNode): number {
+  const meta = node.metadata as
+    | { indentation?: number; level?: number }
+    | undefined;
+  if (!meta) return 0;
+  if (typeof meta.indentation === 'number') return meta.indentation;
+  if (typeof meta.level === 'number') return meta.level;
+  return 0;
+}
 
 function formattingToMarks(
   formatting: OfficeContentNode['formatting'],
@@ -43,6 +112,13 @@ function formattingToMarks(
   if (formatting.italic) marks.push({ type: 'italic' });
   if (formatting.underline) marks.push({ type: 'underline' });
   if (formatting.strikethrough) marks.push({ type: 'strike' });
+
+  const fontSize = normalizeFontSize(
+    typeof formatting.size === 'string' ? formatting.size : undefined,
+  );
+  if (fontSize) {
+    marks.push({ type: 'textStyle', attrs: { fontSize } });
+  }
 
   return marks.length > 0 ? marks : undefined;
 }
@@ -74,15 +150,17 @@ function collectTextRuns(node: OfficeContentNode): JSONContent[] {
 
 function paragraphOrHeadingFromOffice(node: OfficeContentNode): JSONContent {
   const textNodes = collectTextRuns(node);
+  const indent = indentAttrsFromOffice(node);
   if (node.type === 'heading') {
     return {
       type: 'heading',
-      attrs: { level: node.metadata?.level ?? 1 },
+      attrs: { level: node.metadata?.level ?? 1, ...indent },
       content: textNodes.length > 0 ? textNodes : undefined,
     };
   }
   return {
     type: 'paragraph',
+    ...(Object.keys(indent).length > 0 ? { attrs: indent } : {}),
     content: textNodes.length > 0 ? textNodes : undefined,
   };
 }
@@ -115,19 +193,13 @@ function consumeListGroup(
     first.metadata && 'listType' in first.metadata && first.metadata.listType === 'ordered'
       ? 'orderedList'
       : 'bulletList';
-  const baseLevel =
-    first.metadata && 'level' in first.metadata && typeof first.metadata.level === 'number'
-      ? first.metadata.level
-      : 0;
+  const baseLevel = listNestingLevel(first);
 
   const items: JSONContent[] = [];
   let i = startIndex;
   while (i < nodes.length && nodes[i]?.type === 'list') {
     const node = nodes[i]!;
-    const level =
-      node.metadata && 'level' in node.metadata && typeof node.metadata.level === 'number'
-        ? node.metadata.level
-        : 0;
+    const level = listNestingLevel(node);
     const nodeListType =
       node.metadata && 'listType' in node.metadata && node.metadata.listType === 'ordered'
         ? 'orderedList'
@@ -185,7 +257,11 @@ function tableFromOffice(node: OfficeContentNode): JSONContent {
         return {
           type: rowIndex === 0 ? 'tableHeader' : 'tableCell',
           content: cellContent.filter(
-            (b) => b.type === 'paragraph' || b.type === 'heading' || b.type === 'bulletList' || b.type === 'orderedList',
+            (b) =>
+              b.type === 'paragraph' ||
+              b.type === 'heading' ||
+              b.type === 'bulletList' ||
+              b.type === 'orderedList',
           ),
         };
       }),
@@ -264,31 +340,62 @@ export async function docxBytesToTiptapContent(
   };
 }
 
+/** TipTap `18pt` → docx half-points (36). */
+function fontSizeToDocxHalfPoints(fontSize: string | undefined): number | undefined {
+  if (!fontSize) return undefined;
+  const normalized = normalizeFontSize(fontSize);
+  if (!normalized) return undefined;
+  const m = /^(\d+)pt$/i.exec(normalized);
+  if (!m) return undefined;
+  return Number.parseInt(m[1]!, 10) * 2;
+}
+
+function markFontSize(marks: JSONContent['marks']): string | undefined {
+  const textStyle = marks?.find((m) => m.type === 'textStyle');
+  const raw = textStyle?.attrs?.fontSize;
+  return typeof raw === 'string' ? raw : undefined;
+}
+
 function tiptapInlineContentToRuns(inline: JSONContent[]): ParagraphChild[] {
   return inline
     .filter((node) => node.type === 'text' && typeof node.text === 'string')
     .map((node) => {
       const markTypes = new Set((node.marks ?? []).map((mark) => mark.type));
+      const halfPoints = fontSizeToDocxHalfPoints(markFontSize(node.marks));
       return new TextRun({
         text: node.text ?? '',
         bold: markTypes.has('bold'),
         italics: markTypes.has('italic'),
         underline: markTypes.has('underline') ? {} : undefined,
         strike: markTypes.has('strike'),
+        ...(halfPoints ? { size: halfPoints } : {}),
       });
     });
 }
 
+function paragraphIndentFromAttrs(
+  attrs: Record<string, unknown> | undefined | null,
+): { left: number } | undefined {
+  const indent = typeof attrs?.indent === 'number' ? attrs.indent : 0;
+  if (indent <= 0) return undefined;
+  return { left: Math.min(MAX_INDENT_LEVEL, indent) * TWIPS_PER_INDENT_LEVEL };
+}
+
 function blockToDocxParagraph(node: JSONContent): Paragraph {
   const children = tiptapInlineContentToRuns(node.content ?? []);
+  const indent = paragraphIndentFromAttrs(node.attrs as Record<string, unknown> | undefined);
   if (node.type === 'heading') {
     const level = Number(node.attrs?.level ?? 1);
     return new Paragraph({
       heading: HEADING_LEVEL_BY_NUMBER[level] ?? HeadingLevel.HEADING_1,
       children,
+      ...(indent ? { indent } : {}),
     });
   }
-  return new Paragraph({ children });
+  return new Paragraph({
+    children,
+    ...(indent ? { indent } : {}),
+  });
 }
 
 function listToDocxParagraphs(node: JSONContent, level = 0): Paragraph[] {

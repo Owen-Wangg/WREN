@@ -78,6 +78,11 @@ body {
   margin: 0 0 0.9em;
 }
 
+/* Inline textStyle font-size from imports must win over surface defaults. */
+.document-editor-surface span[style*='font-size'] {
+  line-height: 1.45;
+}
+
 .document-editor-surface h1 {
   font-family: var(--font-sans);
   font-size: var(--text-heading2);
@@ -100,6 +105,11 @@ body {
   font-weight: 650;
   line-height: 1.35;
   margin: 1em 0 0.4em;
+}
+
+/* Imported paragraph/heading indent (data-indent + inline margin-left). */
+.document-editor-surface [data-indent] {
+  max-width: 100%;
 }
 
 .document-editor-surface p:last-child {

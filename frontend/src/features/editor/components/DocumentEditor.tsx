@@ -26,10 +26,15 @@ import { Table } from '@tiptap/extension-table';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
+import { TextStyle } from '@tiptap/extension-text-style';
 import { EditorContent, useEditor, type Editor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 
 import { docxBytesToTiptapContent, tiptapContentToDocxBlob } from '../docxContentMapper';
+import { FontSize } from '../tiptapFontSize';
+import { IndentableHeading, IndentableParagraph } from '../tiptapIndent';
+
+import { EditorToolbar } from './toolbar/EditorToolbar';
 
 export interface DocumentEditorProps {
   /** Initial Tiptap document content (e.g. mapped from an uploaded `.docx`). */
@@ -63,7 +68,15 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   ) {
     const editor = useEditor({
       extensions: [
-        StarterKit,
+        StarterKit.configure({
+          // Replaced by IndentableParagraph / IndentableHeading (import indent attrs).
+          paragraph: false,
+          heading: false,
+        }),
+        IndentableParagraph,
+        IndentableHeading,
+        TextStyle,
+        FontSize,
         Table.configure({ resizable: false }),
         TableRow,
         TableHeader,
@@ -103,10 +116,17 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     );
 
     return (
-      <EditorContent
-        editor={editor}
-        className={['block h-full min-h-full', className].filter(Boolean).join(' ')}
-      />
+      <div className="flex min-h-full flex-col">
+        <div className="sticky top-0 z-20 -mx-2xl bg-surface-primary px-2xl sm:-mx-3xl sm:px-3xl">
+          <EditorToolbar editor={editor} />
+        </div>
+        <EditorContent
+          editor={editor}
+          className={['block h-full min-h-full flex-1 pt-lg', className]
+            .filter(Boolean)
+            .join(' ')}
+        />
+      </div>
     );
   },
 );
