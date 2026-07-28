@@ -7,6 +7,7 @@ and persists results to the database.
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any
 import uuid
 import hashlib
@@ -23,6 +24,15 @@ from wren_engine.prompt_assembly import (
 )
 from wren_engine.diff_engine import DiffEngine
 from wren_engine.anchor_service import AnchorService
+from wren_engine.anchor_service import compute_fingerprint as compute_anchor_fingerprint
+from wren_engine.carry_forward import (
+    CarryForwardCache,
+    CachedFeedbackItem,
+    CacheKey,
+    ConfigSnapshot,
+)
+from wren_engine.output_guardrail import ValidatedFeedbackItem
+from wren_engine.structural_feedback import StructuralFeedbackItem
 from wren_engine.progress_tracker import (
     FeedbackItem as TrackerFeedbackItem,
     ProgressTracker,
@@ -99,7 +109,8 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
                     COALESCE(category_priority, '[]'::jsonb),
                     structure_description,
                     restrictions_description,
-                    notes_description
+                    notes_description,
+                    updated_at
                 FROM document_type_config
                 WHERE document_type_id = %s
             """, (document_type_id,))
@@ -122,6 +133,7 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
                     'structure_description': result[6],
                     'restrictions_description': result[7],
                     'notes_description': result[8],
+                    'updated_at': result[9],
                     'temperature': 0.7,
                     'bedrock_model_id': bedrock_model_id,
                 }
@@ -137,6 +149,7 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
                 'structure_description': None,
                 'restrictions_description': None,
                 'notes_description': None,
+                'updated_at': None,
                 'temperature': 0.7,
                 'bedrock_model_id': bedrock_model_id,
             }
@@ -247,9 +260,21 @@ def assemble_prompt(
     department_prompt: str,
     segments: list[dict[str, Any]],
     reference_materials: list[dict[str, Any]],
+    *,
+    focus_paragraph_indices: set[int] | None = None,
 ) -> str:
     """Assemble the layered prompt for Bedrock using PromptAssembler."""
-    doc_text = '\n'.join([seg.get('text', '') for seg in segments if 'text' in seg])
+    if focus_paragraph_indices is not None:
+        para_lines = []
+        for i, seg in enumerate(segments):
+            text = seg.get('text', '')
+            if i in focus_paragraph_indices:
+                para_lines.append(f"[PARAGRAPH {i} — EVALUATE THIS]\n{text}")
+            else:
+                para_lines.append(f"[PARAGRAPH {i} — context only, do NOT generate feedback]\n{text}")
+        doc_text = '\n\n'.join(para_lines)
+    else:
+        doc_text = '\n'.join([seg.get('text', '') for seg in segments if 'text' in seg])
 
     # Build type instructions: department-level prompt first, then doc-type fields
     type_instruction_parts = []
@@ -268,6 +293,14 @@ def assemble_prompt(
             type_instruction_parts.append(f"{field_label}: {value.strip()}")
 
     type_instructions = '\n\n'.join(type_instruction_parts)
+
+    if focus_paragraph_indices is not None:
+        type_instructions += (
+            f"\n\nFOCUS DIRECTIVE: Generate feedback ONLY for paragraphs marked "
+            f"'EVALUATE THIS' (indices: {sorted(focus_paragraph_indices)}). "
+            f"Other paragraphs are provided for context only. Do not generate "
+            f"any feedback items anchored to context-only paragraphs."
+        )
 
     # Tone description goes into the grounding note as plain text.
     tone_desc = config.get('tone_description', '')
@@ -853,6 +886,275 @@ def update_aggregate_counters(document_type_id: str, feedback_count: int, conn: 
         conn.rollback()
 
 
+_SENTINEL_DATETIME = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+
+def _persist_carried_forward_items(
+    document_id: str,
+    new_draft_id: str,
+    segments: list[dict[str, Any]],
+    prior_cached: list[CachedFeedbackItem],
+    conn: psycopg.Connection,
+) -> int:
+    """Re-insert carried-forward feedback items under the new draft.
+
+    Each carried item becomes a new feedback_item row (with source_draft_id =
+    new_draft_id) plus a new anchor row so the debrief for this draft is
+    self-contained (REQ-NFR-COST-01 criterion 1: "persist prior Feedback Items
+    and reuse them").
+    """
+    count = 0
+    with conn.cursor() as cur:
+        for cached in prior_cached:
+            try:
+                item = cached.item
+                kind = 'structural' if isinstance(item, StructuralFeedbackItem) else 'inline'
+                category_id = item.category
+                question_text = item.question
+
+                quoted_text = None
+                anchor_data = None
+                if isinstance(item, ValidatedFeedbackItem) and item.anchor:
+                    anchor_data = item.anchor
+                    para_idx = anchor_data.get('paragraph', 0)
+                    start_off = anchor_data.get('start', 0)
+                    end_off = anchor_data.get('end', 0)
+                    if para_idx < len(segments):
+                        para_text = segments[para_idx].get('text', '')
+                        if end_off > start_off and end_off <= len(para_text):
+                            quoted_text = para_text[start_off:end_off]
+
+                feedback_id = str(uuid.uuid4())
+                cur.execute("""
+                    INSERT INTO feedback_item
+                    (id, document_id, error_category_id, kind, question_text, quoted_text, source_draft_id, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                """, (
+                    feedback_id, document_id, category_id, kind,
+                    question_text, quoted_text, new_draft_id,
+                ))
+
+                current_anchor_id = None
+                if kind == 'inline' and anchor_data:
+                    para_idx = anchor_data.get('paragraph', 0)
+                    start_off = anchor_data.get('start', 0)
+                    end_off = anchor_data.get('end', 0)
+                    para_text = ''
+                    if para_idx < len(segments):
+                        para_text = segments[para_idx].get('text', '')
+                    content_fp = compute_content_fingerprint(para_text, start_off, end_off)
+
+                    anchor_id = str(uuid.uuid4())
+                    cur.execute("""
+                        INSERT INTO anchor
+                        (id, feedback_item_id, draft_id, paragraph_index, start_offset, end_offset, content_fingerprint, state)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, 'active')
+                    """, (
+                        anchor_id, feedback_id, new_draft_id,
+                        para_idx, start_off, end_off, content_fp,
+                    ))
+                    current_anchor_id = anchor_id
+
+                if current_anchor_id:
+                    cur.execute("""
+                        UPDATE feedback_item SET current_anchor_id = %s WHERE id = %s
+                    """, (current_anchor_id, feedback_id))
+
+                count += 1
+            except Exception as e:
+                logger.warning(f"Failed to persist carried-forward item: {e}")
+                continue
+
+    conn.commit()
+    return count
+
+
+def _build_config_snapshot(
+    config: dict[str, Any],
+    doc_type_meta: dict[str, Any],
+    department_prompt: str,
+) -> ConfigSnapshot:
+    """Build a ConfigSnapshot from loaded config for carry-forward comparison."""
+    category_names = tuple(doc_type_meta.get('category_names', []))
+    tone = config.get('tone', 'supportive')
+    density = config.get('density', 'moderate')
+    category_priority = tuple(str(c) for c in config.get('category_priority', []))
+
+    type_instruction_parts = []
+    if department_prompt.strip():
+        type_instruction_parts.append(department_prompt.strip())
+    base_instructions = config.get('type_prompt_text', '')
+    if base_instructions:
+        type_instruction_parts.append(base_instructions)
+    for field_key in ('structure_description', 'restrictions_description', 'notes_description'):
+        value = config.get(field_key) or ''
+        if value.strip():
+            type_instruction_parts.append(value.strip())
+    type_instructions = '|'.join(type_instruction_parts)
+
+    updated_at = config.get('updated_at') or _SENTINEL_DATETIME
+
+    return ConfigSnapshot.from_config(
+        category_names=category_names,
+        tone=tone,
+        density=density,
+        category_priority=category_priority,
+        type_instructions=type_instructions,
+        updated_at=updated_at,
+    )
+
+
+def _load_prior_cached_items(
+    document_id: str,
+    current_draft_id: str,
+    current_config_snapshot: ConfigSnapshot,
+    conn: psycopg.Connection,
+) -> tuple[list[CachedFeedbackItem], list[dict[str, Any]] | None]:
+    """Load prior draft's feedback items reconstructed as CachedFeedbackItem objects.
+
+    Returns (cached_items, prev_segments) or ([], None) if no prior draft exists.
+    The config_hash on cached items is set to the current config's hash so that
+    the CarryForwardCache._is_valid check passes (config-change detection is handled
+    separately via the updated_at timestamp pre-check in the caller).
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT d.id, d.segments
+            FROM draft d
+            WHERE d.document_id = %s
+              AND d.id != %s
+            ORDER BY d.created_at DESC
+            LIMIT 1
+        """, (document_id, current_draft_id))
+        prev_row = cur.fetchone()
+        if not prev_row:
+            return [], None
+
+        prev_draft_id, prev_segments_raw = prev_row
+        prev_segments = json.loads(prev_segments_raw) if isinstance(prev_segments_raw, str) else prev_segments_raw
+
+        cur.execute("""
+            SELECT fi.id, fi.error_category_id, fi.kind, fi.question_text,
+                   a.paragraph_index, a.start_offset, a.end_offset,
+                   fi.created_at
+            FROM feedback_item fi
+            LEFT JOIN anchor a ON a.feedback_item_id = fi.id AND a.draft_id = %s
+            WHERE fi.source_draft_id = %s
+        """, (prev_draft_id, prev_draft_id))
+        prior_rows = cur.fetchall()
+
+    if not prior_rows:
+        return [], prev_segments
+
+    full_prior_text = '\n'.join(seg.get('text', '') for seg in prev_segments)
+    prior_doc_hash = CarryForwardCache.compute_document_hash(full_prior_text)
+
+    cached_items: list[CachedFeedbackItem] = []
+    for row in prior_rows:
+        item_id, category_id, kind, question_text = str(row[0]), str(row[1]), row[2], row[3]
+        para_idx, start_off, end_off = row[4], row[5], row[6]
+        created_at = row[7] or _SENTINEL_DATETIME
+
+        if kind == 'structural' or para_idx is None:
+            item = StructuralFeedbackItem(
+                category=category_id,
+                question=question_text or '',
+            )
+            cache_key = CacheKey(
+                span_fingerprint=prior_doc_hash,
+                config_hash=current_config_snapshot.config_hash,
+                is_structural=True,
+            )
+        else:
+            para_text = ''
+            if para_idx < len(prev_segments):
+                para_text = prev_segments[para_idx].get('text', '')
+            fp = compute_anchor_fingerprint(para_text, 0, len(para_text))
+            item = ValidatedFeedbackItem(
+                category=category_id,
+                question=question_text or '',
+                anchor={'paragraph': para_idx, 'start': start_off or 0, 'end': end_off or 0},
+                citation=None,
+            )
+            cache_key = CacheKey(
+                span_fingerprint=fp.text_hash,
+                config_hash=current_config_snapshot.config_hash,
+                is_structural=False,
+            )
+
+        cached_items.append(CachedFeedbackItem(
+            item=item,
+            cache_key=cache_key,
+            generated_at=created_at,
+            config_snapshot=current_config_snapshot,
+        ))
+
+    return cached_items, prev_segments
+
+
+def _compute_current_fingerprints(segments: list[dict[str, Any]]) -> dict[int, str]:
+    """Compute per-paragraph fingerprints for carry-forward comparison."""
+    fingerprints: dict[int, str] = {}
+    for i, seg in enumerate(segments):
+        text = seg.get('text', '')
+        if text.strip():
+            fp = compute_anchor_fingerprint(text, 0, len(text))
+            fingerprints[i] = fp.text_hash
+    return fingerprints
+
+
+def _remap_carried_forward_indices(
+    carried_forward: tuple[CachedFeedbackItem, ...],
+    current_fingerprints: dict[int, str],
+) -> list[CachedFeedbackItem]:
+    """Remap carried-forward items' paragraph indices to their current positions.
+
+    The CarryForwardCache validates items by fingerprint VALUE, not by index.
+    If a paragraph moved (e.g., new paragraph inserted above), the item's
+    anchor still carries the OLD index. This function builds a reverse lookup
+    (fingerprint → current index) and updates each item's anchor accordingly.
+    Items whose fingerprint appears at multiple indices (ambiguous) are dropped.
+    """
+    fp_to_idx: dict[str, list[int]] = {}
+    for idx, fp in current_fingerprints.items():
+        fp_to_idx.setdefault(fp, []).append(idx)
+
+    remapped: list[CachedFeedbackItem] = []
+    for cached in carried_forward:
+        if cached.cache_key.is_structural:
+            remapped.append(cached)
+            continue
+
+        span_fp = cached.cache_key.span_fingerprint
+        indices = fp_to_idx.get(span_fp, [])
+
+        if len(indices) == 1:
+            new_idx = indices[0]
+            if isinstance(cached.item, ValidatedFeedbackItem) and cached.item.anchor:
+                old_anchor = cached.item.anchor
+                if old_anchor.get('paragraph') != new_idx:
+                    updated_item = ValidatedFeedbackItem(
+                        category=cached.item.category,
+                        question=cached.item.question,
+                        anchor={**old_anchor, 'paragraph': new_idx},
+                        citation=cached.item.citation,
+                    )
+                    cached = CachedFeedbackItem(
+                        item=updated_item,
+                        cache_key=cached.cache_key,
+                        generated_at=cached.generated_at,
+                        config_snapshot=cached.config_snapshot,
+                    )
+            remapped.append(cached)
+        elif len(indices) == 0:
+            continue
+        else:
+            # Ambiguous — same text at multiple indices; skip to avoid mis-attachment
+            continue
+
+    return remapped
+
+
 def process_feedback_request(
     job_id: str,
     document_id: str,
@@ -886,13 +1188,89 @@ def process_feedback_request(
             logger.warning(f"No segments found for draft {draft_id}")
             return
 
+        # ─── Carry-forward evaluation (guard gate) ───────────────────────────
+        focus_paragraph_indices: set[int] | None = None
+
+        try:
+            config_snapshot = _build_config_snapshot(config, doc_type_meta, department_prompt)
+            prior_cached, _prev_segs = _load_prior_cached_items(
+                document_id, draft_id, config_snapshot, conn,
+            )
+
+            if prior_cached:
+                config_updated_at = config.get('updated_at')
+                max_generated_at = max(item.generated_at for item in prior_cached)
+
+                if config_updated_at and config_updated_at > max_generated_at:
+                    logger.info("Carry-forward: config updated since prior generation, full regeneration")
+                else:
+                    current_fps = _compute_current_fingerprints(segments)
+                    doc_hash = CarryForwardCache.compute_document_hash(
+                        '\n'.join(seg.get('text', '') for seg in segments)
+                    )
+                    decision = CarryForwardCache().evaluate(
+                        prior_items=prior_cached,
+                        current_span_fingerprints=current_fps,
+                        current_config=config_snapshot,
+                        current_doc_hash=doc_hash,
+                    )
+
+                    if not decision.invalidated and not decision.new_span_indices:
+                        remapped = _remap_carried_forward_indices(
+                            decision.carried_forward, current_fps,
+                        )
+                        logger.info(
+                            f"Carry-forward: all {len(remapped)} items reused, "
+                            f"skipping Bedrock for job {job_id}"
+                        )
+                        cf_count = _persist_carried_forward_items(
+                            document_id, draft_id, segments, remapped, conn,
+                        )
+                        logger.info(f"Persisted {cf_count} carried-forward items for draft {draft_id}")
+                        persist_resolution_status(document_id, draft_id, segments, config, conn)
+                        return
+
+                    if decision.carried_forward:
+                        remapped = _remap_carried_forward_indices(
+                            decision.carried_forward, current_fps,
+                        )
+
+                        if any(item.cache_key.is_structural for item in decision.invalidated):
+                            focus_paragraph_indices = None
+                        else:
+                            # Determine which current indices are covered by carried-forward
+                            covered_current_indices: set[int] = set()
+                            for item in remapped:
+                                if not item.cache_key.is_structural and isinstance(item.item, ValidatedFeedbackItem) and item.item.anchor:
+                                    covered_current_indices.add(item.item.anchor.get('paragraph', -1))
+                            # Focus = all current indices NOT covered by carried-forward items
+                            all_current_indices = set(current_fps.keys())
+                            focus_paragraph_indices = all_current_indices - covered_current_indices
+
+                        cf_count = _persist_carried_forward_items(
+                            document_id, draft_id, segments, remapped, conn,
+                        )
+                        logger.info(
+                            f"Carry-forward: {len(remapped)} reused "
+                            f"({cf_count} persisted), "
+                            f"{len(decision.invalidated)} invalidated, "
+                            f"focus on {len(focus_paragraph_indices) if focus_paragraph_indices else 'all'} paragraphs"
+                        )
+        except Exception as cf_err:
+            logger.warning(f"Carry-forward evaluation failed, full generation: {cf_err}", exc_info=True)
+            focus_paragraph_indices = None
+        # ─── End carry-forward evaluation ─────────────────────────────────────
+
         # Step 4: Load reference material
         logger.info("Loading reference material...")
         reference_materials = load_reference_material(writing_type_id)
 
         # Step 5: Assemble prompt using the layered PromptAssembler
         logger.info("Assembling prompt...")
-        prompt = assemble_prompt(config, doc_type_meta, department_prompt, segments, reference_materials)
+        prompt = assemble_prompt(
+            config, doc_type_meta, department_prompt, segments, reference_materials,
+            focus_paragraph_indices=focus_paragraph_indices,
+        )
 
         # Step 6: Invoke Bedrock
         logger.info("Invoking Bedrock...")
@@ -906,6 +1284,7 @@ def process_feedback_request(
 
         if not feedback_items:
             logger.warning("No feedback items parsed from model output")
+            persist_resolution_status(document_id, draft_id, segments, config, conn)
             return
 
         # Step 7b: Filter feedback items by category_priority (dept admin selection)
