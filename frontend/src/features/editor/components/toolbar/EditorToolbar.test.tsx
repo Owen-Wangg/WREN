@@ -112,4 +112,46 @@ describe('EditorToolbar (Phase 1)', () => {
     const paragraph = surface.querySelector('p');
     expect(paragraph?.getAttribute('style') ?? '').toMatch(/text-align:\s*center/i);
   });
+
+  it('renders Phase 3 indent and line spacing controls', async () => {
+    render(<DocumentEditor ariaLabel="Draft editor" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Increase indent' })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: 'Decrease indent' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Line spacing' })).toBeInTheDocument();
+  });
+
+  it('indents a paragraph via the toolbar', async () => {
+    const user = userEvent.setup();
+    render(
+      <DocumentEditor
+        ariaLabel="Draft editor"
+        initialContent={{
+          type: 'doc',
+          content: [
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: 'Indented body' }],
+            },
+          ],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Increase indent' })).toBeInTheDocument();
+    });
+
+    const surface = screen.getByRole('textbox', { name: 'Draft editor' });
+    await user.click(surface);
+    await user.click(screen.getByRole('button', { name: 'Increase indent' }));
+
+    await waitFor(() => {
+      const paragraph = surface.querySelector('p');
+      expect(paragraph?.getAttribute('data-indent')).toBe('1');
+    });
+  });
 });

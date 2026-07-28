@@ -33,7 +33,7 @@ import StarterKit from '@tiptap/starter-kit';
 
 import { docxBytesToTiptapContent, tiptapContentToDocxBlob } from '../docxContentMapper';
 import { FontSize } from '../tiptapFontSize';
-import { IndentableHeading, IndentableParagraph } from '../tiptapIndent';
+import { BlockLayoutCommands, IndentableHeading, IndentableParagraph } from '../tiptapIndent';
 
 import { EditorToolbar } from './toolbar/EditorToolbar';
 
@@ -76,6 +76,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         }),
         IndentableParagraph,
         IndentableHeading,
+        BlockLayoutCommands,
         TextStyle,
         FontSize,
         TextAlign.configure({

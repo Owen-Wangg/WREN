@@ -107,7 +107,7 @@ body {
   margin: 1em 0 0.4em;
 }
 
-/* Imported paragraph/heading indent (data-indent + inline margin-left). */
+/* Imported / toolbar paragraph/heading indent (data-indent + inline margin-left). */
 .document-editor-surface [data-indent] {
   max-width: 100%;
 }

@@ -1,7 +1,8 @@
 /**
- * Document editor toolbar — Phase 1 (core) + Phase 2 (layout).
+ * Document editor toolbar — Phases 1–3.
  *
- * Groups: History | Marks | Block style | Font size | Alignment | Lists
+ * Groups: History | Marks | Block style | Font size | Alignment |
+ * Line spacing | Lists + Indent/Outdent
  */
 import {
   AlignCenter,
@@ -9,6 +10,8 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
+  IndentDecrease,
+  IndentIncrease,
   Italic,
   List,
   ListOrdered,
@@ -17,6 +20,7 @@ import {
   Undo2,
 } from 'lucide-react';
 
+import { LINE_HEIGHT_PRESETS } from '../../tiptapIndent';
 import { FONT_SIZE_PRESETS } from '../../tiptapFontSize';
 
 import { ToolbarDropdown } from './ToolbarDropdown';
@@ -64,7 +68,6 @@ function currentFontSizeLabel(editor: Editor): string {
   const attrs = editor.getAttributes('textStyle') as { fontSize?: string | null };
   const size = attrs.fontSize;
   if (!size) return 'Default';
-  // Show "12" instead of "12pt" in the compact trigger.
   return size.replace(/pt$/i, '');
 }
 
@@ -79,6 +82,19 @@ function setAlignment(editor: Editor, alignment: TextAlignment): void {
   editor.chain().focus(undefined, { scrollIntoView: false }).setTextAlign(alignment).run();
 }
 
+function currentLineHeightLabel(editor: Editor): string {
+  const type = editor.isActive('heading')
+    ? 'heading'
+    : editor.isActive('paragraph')
+      ? 'paragraph'
+      : null;
+  if (!type) return 'Default';
+  const value = editor.getAttributes(type).lineHeight as string | null | undefined;
+  if (!value) return 'Default';
+  const preset = LINE_HEIGHT_PRESETS.find((p) => p.value === value);
+  return preset?.label ?? value;
+}
+
 /** Keep caret in the editor without jsdom scrollIntoView crashes. */
 function chainFocus(editor: Editor) {
   return editor.chain().focus(undefined, { scrollIntoView: false });
@@ -91,6 +107,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   const blockStyle = editor ? currentBlockStyle(editor) : 'paragraph';
   const fontSizeLabel = editor ? currentFontSizeLabel(editor) : 'Default';
   const alignment = editor ? currentAlignment(editor) : 'left';
+  const lineHeightLabel = editor ? currentLineHeightLabel(editor) : 'Default';
 
   return (
     <div
@@ -240,7 +257,33 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarDivider />
 
-      <ToolbarGroup aria-label="Lists">
+      <ToolbarGroup aria-label="Line spacing">
+        <ToolbarDropdown
+          label="Line spacing"
+          displayLabel={lineHeightLabel}
+          disabled={!ready}
+          triggerClassName="min-w-[5.5rem]"
+          options={[
+            {
+              id: 'default',
+              label: 'Default',
+              active: lineHeightLabel === 'Default',
+              onSelect: () => editor && chainFocus(editor).unsetBlockLineHeight().run(),
+            },
+            ...LINE_HEIGHT_PRESETS.map((preset) => ({
+              id: preset.id,
+              label: preset.label,
+              active: lineHeightLabel === preset.label,
+              onSelect: () =>
+                editor && chainFocus(editor).setBlockLineHeight(preset.value).run(),
+            })),
+          ]}
+        />
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
+      <ToolbarGroup aria-label="Lists and indent">
         <ToolbarButton
           label="Bulleted list"
           icon={<List size={16} strokeWidth={1.75} />}
@@ -254,6 +297,20 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           pressed={!!editor?.isActive('orderedList')}
           disabled={!ready}
           onClick={() => editor && chainFocus(editor).toggleOrderedList().run()}
+        />
+        <ToolbarButton
+          label="Increase indent"
+          shortcutHint="Tab"
+          icon={<IndentIncrease size={16} strokeWidth={1.75} />}
+          disabled={!ready || !editor.can().indent()}
+          onClick={() => editor && chainFocus(editor).indent().run()}
+        />
+        <ToolbarButton
+          label="Decrease indent"
+          shortcutHint="Shift+Tab"
+          icon={<IndentDecrease size={16} strokeWidth={1.75} />}
+          disabled={!ready || !editor.can().outdent()}
+          onClick={() => editor && chainFocus(editor).outdent().run()}
         />
       </ToolbarGroup>
     </div>
