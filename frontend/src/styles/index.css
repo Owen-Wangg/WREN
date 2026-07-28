@@ -89,6 +89,8 @@ body {
   font-weight: 700;
   line-height: 1.25;
   margin: 0 0 0.75em;
+  /* Keep headings clear of the sticky editor toolbar when scrolled into view. */
+  scroll-margin-top: var(--document-editor-toolbar-offset, 4.75rem);
 }
 
 .document-editor-surface h2 {
@@ -97,6 +99,7 @@ body {
   font-weight: 650;
   line-height: 1.3;
   margin: 1.25em 0 0.5em;
+  scroll-margin-top: var(--document-editor-toolbar-offset, 4.75rem);
 }
 
 .document-editor-surface h3 {
@@ -105,6 +108,7 @@ body {
   font-weight: 650;
   line-height: 1.35;
   margin: 1em 0 0.4em;
+  scroll-margin-top: var(--document-editor-toolbar-offset, 4.75rem);
 }
 
 /* Imported / toolbar paragraph/heading indent (data-indent + inline margin-left). */

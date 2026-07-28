@@ -5,15 +5,43 @@
 import type { TableOfContentData, TableOfContentDataItem } from '@tiptap/extension-table-of-contents';
 
 const MAX_HEADING_LEVEL = 3;
+/** Extra gap below the sticky toolbar so the heading isn’t flush against it. */
+const TOOLBAR_GAP_PX = 12;
+const FALLBACK_TOOLBAR_OFFSET_PX = 76;
+
+function getEditorScrollParent(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('.document-editor-scroll');
+}
+
+function getToolbarOffset(scrollParent: HTMLElement): number {
+  const toolbar = scrollParent.querySelector<HTMLElement>('[data-document-editor-toolbar]');
+  const height = toolbar?.getBoundingClientRect().height;
+  if (height && height > 0) return Math.ceil(height) + TOOLBAR_GAP_PX;
+  return FALLBACK_TOOLBAR_OFFSET_PX;
+}
 
 function scrollToHeading(item: TableOfContentDataItem): void {
   const el = item.dom;
+  const scrollParent = getEditorScrollParent();
+
+  if (el && scrollParent) {
+    const offset = getToolbarOffset(scrollParent);
+    const parentRect = scrollParent.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const nextTop = scrollParent.scrollTop + (elRect.top - parentRect.top) - offset;
+    scrollParent.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+    el.classList.add('document-toc-flash');
+    window.setTimeout(() => el.classList.remove('document-toc-flash'), 1200);
+    return;
+  }
+
   if (el) {
     el.scrollIntoView({ block: 'start', behavior: 'smooth', inline: 'nearest' });
     el.classList.add('document-toc-flash');
     window.setTimeout(() => el.classList.remove('document-toc-flash'), 1200);
     return;
   }
+
   try {
     item.editor.chain().focus().setTextSelection(item.pos).scrollIntoView().run();
   } catch {

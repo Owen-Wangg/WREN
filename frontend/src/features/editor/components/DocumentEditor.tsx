@@ -181,7 +181,10 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
 
     return (
       <div className="flex min-h-full flex-col">
-        <div className="sticky top-0 z-20 -mx-2xl border-b border-border-subtle bg-surface-primary px-2xl sm:-mx-3xl sm:px-3xl">
+        <div
+          data-document-editor-toolbar
+          className="sticky top-0 z-20 -mx-2xl border-b border-border-subtle bg-surface-primary px-2xl sm:-mx-3xl sm:px-3xl"
+        >
           <EditorToolbar editor={editor} />
         </div>
         <EditorContent
