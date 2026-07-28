@@ -195,4 +195,16 @@ describe('EditorToolbar (Phase 1)', () => {
       expect(screen.getByRole('button', { name: 'Add row below' })).not.toBeDisabled();
     });
   });
+
+  it('renders Phase 5 font family, color, and image controls', async () => {
+    render(<DocumentEditor ariaLabel="Draft editor" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Font family' })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: 'Text color' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Highlight color' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Insert image' })).toBeInTheDocument();
+  });
 });

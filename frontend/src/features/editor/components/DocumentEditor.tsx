@@ -22,12 +22,18 @@ import { forwardRef, useImperativeHandle } from 'react';
 
 import { CommentExtension } from '@sereneinserenade/tiptap-comment-extension';
 import Highlight from '@tiptap/extension-highlight';
+import Image from '@tiptap/extension-image';
 import { Table } from '@tiptap/extension-table';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
 import TextAlign from '@tiptap/extension-text-align';
-import { TextStyle } from '@tiptap/extension-text-style';
+import {
+  BackgroundColor,
+  Color,
+  FontFamily,
+  TextStyle,
+} from '@tiptap/extension-text-style';
 import { EditorContent, useEditor, type Editor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 
@@ -79,10 +85,20 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         BlockLayoutCommands,
         TextStyle,
         FontSize,
+        FontFamily,
+        Color,
+        BackgroundColor,
         TextAlign.configure({
           types: ['heading', 'paragraph'],
           alignments: ['left', 'center', 'right', 'justify'],
           defaultAlignment: 'left',
+        }),
+        Image.configure({
+          inline: false,
+          allowBase64: true,
+          HTMLAttributes: {
+            class: 'document-editor-image',
+          },
         }),
         Table.configure({
           resizable: false,
@@ -92,6 +108,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         TableRow,
         TableHeader,
         TableCell,
+        // AI quote highlighting only — student highlight uses BackgroundColor.
         Highlight.configure({ multicolor: true }),
         CommentExtension.configure({
           HTMLAttributes: { 'data-ai-feedback': 'true' },

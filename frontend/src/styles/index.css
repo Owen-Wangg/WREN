@@ -157,6 +157,14 @@ body {
   margin: 0.2em 0;
 }
 
+.document-editor-surface .document-editor-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.75em 0;
+  border-radius: 2px;
+}
+
 .document-editor-scroll {
   overflow-y: auto;
   overscroll-behavior: contain;

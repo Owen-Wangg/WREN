@@ -1,15 +1,17 @@
 /**
- * Document editor toolbar — Phases 1–3 + Phase 4 tables (no links).
+ * Document editor toolbar — Phases 1–5 (tables; no links; no page headers/footers).
  *
- * Groups: History | Marks | Block style | Font size | Alignment |
- * Line spacing | Lists + Indent | Table
+ * Groups: History | Marks | Font family | Font size | Colors | Block style |
+ * Alignment | Line spacing | Lists + Indent | Table | Image
  */
 import {
   AlignCenter,
   AlignJustify,
   AlignLeft,
   AlignRight,
+  Baseline,
   Bold,
+  Highlighter,
   IndentDecrease,
   IndentIncrease,
   Italic,
@@ -24,6 +26,13 @@ import {
 import { LINE_HEIGHT_PRESETS } from '../../tiptapIndent';
 import { FONT_SIZE_PRESETS } from '../../tiptapFontSize';
 
+import { ColorPickerMenu } from './ColorPickerMenu';
+import { ImageInsertMenu } from './ImageInsertMenu';
+import {
+  FONT_FAMILY_PRESETS,
+  HIGHLIGHT_COLORS,
+  TEXT_COLORS,
+} from './stylePresets';
 import { TableInsertMenu } from './TableInsertMenu';
 import { ToolbarDropdown } from './ToolbarDropdown';
 import {
@@ -97,6 +106,23 @@ function currentLineHeightLabel(editor: Editor): string {
   return preset?.label ?? value;
 }
 
+function currentFontFamilyLabel(editor: Editor): string {
+  const family = editor.getAttributes('textStyle').fontFamily as string | null | undefined;
+  if (!family) return 'Default';
+  const preset = FONT_FAMILY_PRESETS.find((p) => p.value === family);
+  return preset?.label ?? 'Custom';
+}
+
+function currentTextColor(editor: Editor): string | null {
+  const color = editor.getAttributes('textStyle').color as string | null | undefined;
+  return color ?? null;
+}
+
+function currentHighlightColor(editor: Editor): string | null {
+  const bg = editor.getAttributes('textStyle').backgroundColor as string | null | undefined;
+  return bg ?? null;
+}
+
 /** Keep caret in the editor without jsdom scrollIntoView crashes. */
 function chainFocus(editor: Editor) {
   return editor.chain().focus(undefined, { scrollIntoView: false });
@@ -111,6 +137,9 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   const alignment = editor ? currentAlignment(editor) : 'left';
   const lineHeightLabel = editor ? currentLineHeightLabel(editor) : 'Default';
   const inTable = !!editor?.isActive('table');
+  const fontFamilyLabel = editor ? currentFontFamilyLabel(editor) : 'Default';
+  const textColor = editor ? currentTextColor(editor) : null;
+  const highlightColor = editor ? currentHighlightColor(editor) : null;
 
   return (
     <div
@@ -166,6 +195,84 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
       <ToolbarDivider />
 
+      <ToolbarGroup aria-label="Font family">
+        <ToolbarDropdown
+          label="Font family"
+          displayLabel={fontFamilyLabel}
+          disabled={!ready}
+          triggerClassName="min-w-[7rem]"
+          options={FONT_FAMILY_PRESETS.map((preset) => ({
+            id: preset.id,
+            label: preset.label,
+            active: fontFamilyLabel === preset.label,
+            onSelect: () => {
+              if (!editor) return;
+              if (preset.value == null) {
+                chainFocus(editor).unsetFontFamily().run();
+              } else {
+                chainFocus(editor).setFontFamily(preset.value).run();
+              }
+            },
+          }))}
+        />
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
+      <ToolbarGroup aria-label="Font size">
+        <ToolbarDropdown
+          label="Font size"
+          displayLabel={fontSizeLabel}
+          disabled={!ready}
+          triggerClassName="min-w-[4.5rem]"
+          options={[
+            {
+              id: 'default',
+              label: 'Default',
+              active: fontSizeLabel === 'Default',
+              onSelect: () => editor && chainFocus(editor).unsetFontSize().run(),
+            },
+            ...FONT_SIZE_PRESETS.map((size) => ({
+              id: size,
+              label: size.replace(/pt$/i, ''),
+              active: fontSizeLabel === size.replace(/pt$/i, ''),
+              onSelect: () => editor && chainFocus(editor).setFontSize(size).run(),
+            })),
+          ]}
+        />
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
+      <ToolbarGroup aria-label="Color">
+        <ColorPickerMenu
+          label="Text color"
+          icon={<Baseline size={15} strokeWidth={1.75} />}
+          colors={TEXT_COLORS}
+          activeValue={textColor}
+          disabled={!ready}
+          onSelect={(value) => {
+            if (!editor) return;
+            if (value == null) chainFocus(editor).unsetColor().run();
+            else chainFocus(editor).setColor(value).run();
+          }}
+        />
+        <ColorPickerMenu
+          label="Highlight color"
+          icon={<Highlighter size={15} strokeWidth={1.75} />}
+          colors={HIGHLIGHT_COLORS}
+          activeValue={highlightColor}
+          disabled={!ready}
+          onSelect={(value) => {
+            if (!editor) return;
+            if (value == null) chainFocus(editor).unsetBackgroundColor().run();
+            else chainFocus(editor).setBackgroundColor(value).run();
+          }}
+        />
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
       <ToolbarGroup aria-label="Block style">
         <ToolbarDropdown
           label="Text style"
@@ -196,31 +303,6 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
               active: blockStyle === 'h3',
               onSelect: () => editor && setBlockStyle(editor, 'h3'),
             },
-          ]}
-        />
-      </ToolbarGroup>
-
-      <ToolbarDivider />
-
-      <ToolbarGroup aria-label="Font size">
-        <ToolbarDropdown
-          label="Font size"
-          displayLabel={fontSizeLabel}
-          disabled={!ready}
-          triggerClassName="min-w-[4.5rem]"
-          options={[
-            {
-              id: 'default',
-              label: 'Default',
-              active: fontSizeLabel === 'Default',
-              onSelect: () => editor && chainFocus(editor).unsetFontSize().run(),
-            },
-            ...FONT_SIZE_PRESETS.map((size) => ({
-              id: size,
-              label: size.replace(/pt$/i, ''),
-              active: fontSizeLabel === size.replace(/pt$/i, ''),
-              onSelect: () => editor && chainFocus(editor).setFontSize(size).run(),
-            })),
           ]}
         />
       </ToolbarGroup>
@@ -364,6 +446,21 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
               onSelect: () => editor && chainFocus(editor).deleteTable().run(),
             },
           ]}
+        />
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
+      <ToolbarGroup aria-label="Image">
+        <ImageInsertMenu
+          disabled={!ready}
+          onInsert={(src) => {
+            editor
+              ?.chain()
+              .focus(undefined, { scrollIntoView: false })
+              .setImage({ src })
+              .run();
+          }}
         />
       </ToolbarGroup>
     </div>
