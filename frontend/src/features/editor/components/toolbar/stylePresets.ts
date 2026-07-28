@@ -4,7 +4,7 @@
  */
 
 export const FONT_FAMILY_PRESETS = [
-  { id: 'default', label: 'Default', value: null as string | null },
+  { id: 'default', label: 'Default font', value: null as string | null },
   { id: 'inter', label: 'Inter', value: 'Inter, ui-sans-serif, system-ui, sans-serif' },
   {
     id: 'source-serif',

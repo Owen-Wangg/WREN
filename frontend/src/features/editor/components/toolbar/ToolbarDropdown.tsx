@@ -61,7 +61,7 @@ export function ToolbarDropdown({
         title={label}
         className={[
           'inline-flex h-8 min-w-[7.5rem] items-center justify-between gap-xs rounded-md px-sm',
-          'text-caption font-sans font-medium text-text-secondary',
+          'text-caption font-sans font-medium text-text-secondary whitespace-nowrap',
           'hover:bg-surface-muted hover:text-text-primary',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40',
           'disabled:pointer-events-none disabled:opacity-40',
@@ -72,7 +72,7 @@ export function ToolbarDropdown({
           .join(' ')}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="truncate">{displayLabel}</span>
+        <span className="overflow-visible">{displayLabel}</span>
         <ChevronDown
           size={14}
           className={`shrink-0 text-text-muted transition-transform ${open ? 'rotate-180' : ''}`}

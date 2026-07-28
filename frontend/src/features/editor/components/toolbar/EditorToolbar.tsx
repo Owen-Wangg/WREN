@@ -78,7 +78,7 @@ function setBlockStyle(editor: Editor, style: BlockStyle): void {
 function currentFontSizeLabel(editor: Editor): string {
   const attrs = editor.getAttributes('textStyle') as { fontSize?: string | null };
   const size = attrs.fontSize;
-  if (!size) return 'Default';
+  if (!size) return 'Default Size';
   return size.replace(/pt$/i, '');
 }
 
@@ -99,16 +99,16 @@ function currentLineHeightLabel(editor: Editor): string {
     : editor.isActive('paragraph')
       ? 'paragraph'
       : null;
-  if (!type) return 'Default';
+  if (!type) return 'Default Spacing';
   const value = editor.getAttributes(type).lineHeight as string | null | undefined;
-  if (!value) return 'Default';
+  if (!value) return 'Default Spacing';
   const preset = LINE_HEIGHT_PRESETS.find((p) => p.value === value);
   return preset?.label ?? value;
 }
 
 function currentFontFamilyLabel(editor: Editor): string {
   const family = editor.getAttributes('textStyle').fontFamily as string | null | undefined;
-  if (!family) return 'Default';
+  if (!family) return 'Default font';
   const preset = FONT_FAMILY_PRESETS.find((p) => p.value === family);
   return preset?.label ?? 'Custom';
 }
@@ -133,11 +133,11 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
 
   const ready = !!editor;
   const blockStyle = editor ? currentBlockStyle(editor) : 'paragraph';
-  const fontSizeLabel = editor ? currentFontSizeLabel(editor) : 'Default';
+  const fontSizeLabel = editor ? currentFontSizeLabel(editor) : 'Default Size';
   const alignment = editor ? currentAlignment(editor) : 'left';
-  const lineHeightLabel = editor ? currentLineHeightLabel(editor) : 'Default';
+  const lineHeightLabel = editor ? currentLineHeightLabel(editor) : 'Default Spacing';
   const inTable = !!editor?.isActive('table');
-  const fontFamilyLabel = editor ? currentFontFamilyLabel(editor) : 'Default';
+  const fontFamilyLabel = editor ? currentFontFamilyLabel(editor) : 'Default font';
   const textColor = editor ? currentTextColor(editor) : null;
   const highlightColor = editor ? currentHighlightColor(editor) : null;
 
@@ -145,7 +145,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     <div
       role="toolbar"
       aria-label="Text formatting"
-      className="flex flex-wrap items-center gap-xs border-b border-border-subtle bg-surface-primary py-sm"
+      className="flex flex-wrap items-center gap-xs bg-surface-primary py-sm"
     >
       <ToolbarGroup aria-label="History">
         <ToolbarButton
@@ -200,7 +200,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           label="Font family"
           displayLabel={fontFamilyLabel}
           disabled={!ready}
-          triggerClassName="min-w-[7rem]"
+          triggerClassName="min-w-[8.5rem]"
           options={FONT_FAMILY_PRESETS.map((preset) => ({
             id: preset.id,
             label: preset.label,
@@ -224,12 +224,12 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           label="Font size"
           displayLabel={fontSizeLabel}
           disabled={!ready}
-          triggerClassName="min-w-[4.5rem]"
+          triggerClassName="min-w-[7rem]"
           options={[
             {
               id: 'default',
-              label: 'Default',
-              active: fontSizeLabel === 'Default',
+              label: 'Default Size',
+              active: fontSizeLabel === 'Default Size',
               onSelect: () => editor && chainFocus(editor).unsetFontSize().run(),
             },
             ...FONT_SIZE_PRESETS.map((size) => ({
@@ -278,6 +278,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           label="Text style"
           displayLabel={BLOCK_STYLE_LABEL[blockStyle]}
           disabled={!ready}
+          triggerClassName="min-w-[9.5rem]"
           options={[
             {
               id: 'paragraph',
@@ -347,12 +348,12 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           label="Line spacing"
           displayLabel={lineHeightLabel}
           disabled={!ready}
-          triggerClassName="min-w-[5.5rem]"
+          triggerClassName="min-w-[8.5rem]"
           options={[
             {
               id: 'default',
-              label: 'Default',
-              active: lineHeightLabel === 'Default',
+              label: 'Default Spacing',
+              active: lineHeightLabel === 'Default Spacing',
               onSelect: () => editor && chainFocus(editor).unsetBlockLineHeight().run(),
             },
             ...LINE_HEIGHT_PRESETS.map((preset) => ({

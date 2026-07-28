@@ -636,7 +636,7 @@ export function DocumentEditorPage() {
 
         {/* Editor — Google Docs-style: full-height page, one scroll */}
         <main className="document-editor-scroll min-h-0 flex-1 bg-surface-muted/50">
-          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary px-2xl py-2xl shadow-sm sm:px-3xl sm:py-3xl">
+          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary px-2xl pb-2xl pt-0 shadow-sm sm:px-3xl sm:pb-3xl">
             {!editorReady ? (
               <p role="status" className="text-bodySmall text-text-secondary">
                 Loading document…
