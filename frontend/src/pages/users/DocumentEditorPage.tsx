@@ -10,7 +10,8 @@ import {
   Upload,
 } from 'lucide-react';
 
-import { AnchoredFeedbackEditorContainer } from '@/features/editor';
+import { AnchoredFeedbackEditorContainer, DocumentTableOfContents } from '@/features/editor';
+import type { TableOfContentData } from '@/features/editor';
 import { createAskWrenService } from '@/features/ask-wren';
 import {
   ChatFeedbackSidebar,
@@ -124,13 +125,12 @@ export function DocumentEditorPage() {
   const queryClient = useQueryClient();
 
   const [activeNav, setActiveNav] = useState<DocumentNavMode>(() => readStoredNavMode());
-  // Start collapsed on Home so the draft is the hero; Ask/Debrief open the panel.
-  const [panelCollapsed, setPanelCollapsed] = useState(
-    () => readStoredNavMode() === 'home',
-  );
+  // Home stays open so Overview + TOC remain visible; Ask/Debrief also use the panel.
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(() =>
     readStoredNavMode() === 'debrief' ? PANEL_WIDTH_DEBRIEF : PANEL_WIDTH_DEFAULT,
   );
+  const [tocAnchors, setTocAnchors] = useState<TableOfContentData>([]);
 
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
@@ -166,8 +166,8 @@ export function DocumentEditorPage() {
 
   const handleNavChange = useCallback((mode: DocumentNavMode) => {
     setActiveNav(mode);
-    // Home keeps the draft full-width; coaching modes open the side panel.
-    setPanelCollapsed(mode === 'home');
+    // Keep the side panel open for Home (TOC) and coaching modes.
+    setPanelCollapsed(false);
     // Widen for AI Debrief so progress chart labels (Improving / Persistent /
     // Emerging) fit without clipping; leave a manually widened panel alone.
     if (mode === 'debrief') {
@@ -548,6 +548,8 @@ export function DocumentEditorPage() {
                   </div>
                 </div>
 
+                <DocumentTableOfContents anchors={tocAnchors} />
+
                 <div className="rounded-md border border-border-subtle px-md py-sm">
                   <p className="text-caption font-semibold text-text-primary">Revise</p>
                   <p className="mt-xs text-caption text-text-muted leading-relaxed">
@@ -653,6 +655,7 @@ export function DocumentEditorPage() {
                 highlightedLocationHint={highlightedLocationHint}
                 showCoachHighlights={showCoachHighlights}
                 onContentChange={(content) => setCurrentContent(content)}
+                onTocUpdate={setTocAnchors}
                 className="min-h-0 flex-1"
               />
             )}

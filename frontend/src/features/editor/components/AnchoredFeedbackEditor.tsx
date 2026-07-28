@@ -41,7 +41,10 @@ import {
 import type { Anchor, FeedbackItem } from '@wren/types';
 
 export interface AnchoredFeedbackEditorProps
-  extends Pick<DocumentEditorProps, 'initialContent' | 'ariaLabel' | 'onContentChange' | 'className'> {
+  extends Pick<
+    DocumentEditorProps,
+    'initialContent' | 'ariaLabel' | 'onContentChange' | 'onTocUpdate' | 'className'
+  > {
   /** Inline + structural Feedback Items for the current draft; only `kind === 'inline'` items render here. */
   readonly feedbackItems: readonly FeedbackItem[];
   /** Anchors for the current draft, referenced by `FeedbackItem.currentAnchorId`. */
@@ -85,6 +88,7 @@ export function AnchoredFeedbackEditor({
   initialContent,
   ariaLabel,
   onContentChange,
+  onTocUpdate,
   className,
   highlightedAnchorId,
   highlightedQuotedText,
@@ -212,6 +216,7 @@ export function AnchoredFeedbackEditor({
         initialContent={initialContent}
         ariaLabel={ariaLabel}
         onContentChange={onContentChange}
+        onTocUpdate={onTocUpdate}
         onCommentActivated={handleCommentActivated}
         className="min-h-full flex-1"
       />

@@ -18,7 +18,7 @@
  * `.docx` content (Requirement 6.2) via the MIT-only mapper in
  * `../docxContentMapper`.
  */
-import { forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 
 import { CommentExtension } from '@sereneinserenade/tiptap-comment-extension';
 import Highlight from '@tiptap/extension-highlight';
@@ -27,6 +27,9 @@ import { Table } from '@tiptap/extension-table';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableRow } from '@tiptap/extension-table-row';
+import TableOfContents, {
+  type TableOfContentData,
+} from '@tiptap/extension-table-of-contents';
 import TextAlign from '@tiptap/extension-text-align';
 import {
   BackgroundColor,
@@ -43,6 +46,8 @@ import { BlockLayoutCommands, IndentableHeading, IndentableParagraph } from '../
 
 import { EditorToolbar } from './toolbar/EditorToolbar';
 
+export type { TableOfContentData, TableOfContentDataItem } from '@tiptap/extension-table-of-contents';
+
 export interface DocumentEditorProps {
   /** Initial Tiptap document content (e.g. mapped from an uploaded `.docx`). */
   readonly initialContent?: JSONContent;
@@ -54,6 +59,8 @@ export interface DocumentEditorProps {
   readonly onContentChange?: (content: JSONContent) => void;
   /** Fires with the activated comment id (or `null`) when a comment mark is focused. */
   readonly onCommentActivated?: (commentId: string | null) => void;
+  /** Fires when the document heading outline changes (Home panel TOC). */
+  readonly onTocUpdate?: (anchors: TableOfContentData) => void;
 }
 
 /** Imperative handle exposed via `ref` for driving the editor + `.docx` I/O. */
@@ -68,11 +75,33 @@ export interface DocumentEditorHandle {
 
 const EMPTY_DOC: JSONContent = { type: 'doc', content: [{ type: 'paragraph' }] };
 
+function getEditorScrollParent(): HTMLElement | Window {
+  return (
+    document.querySelector<HTMLElement>('.document-editor-scroll') ?? window
+  );
+}
+
 export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorProps>(
   function DocumentEditor(
-    { initialContent, ariaLabel, className, onContentChange, onCommentActivated },
+    {
+      initialContent,
+      ariaLabel,
+      className,
+      onContentChange,
+      onCommentActivated,
+      onTocUpdate,
+    },
     ref,
   ) {
+    const onContentChangeRef = useRef(onContentChange);
+    const onCommentActivatedRef = useRef(onCommentActivated);
+    const onTocUpdateRef = useRef(onTocUpdate);
+    useEffect(() => {
+      onContentChangeRef.current = onContentChange;
+      onCommentActivatedRef.current = onCommentActivated;
+      onTocUpdateRef.current = onTocUpdate;
+    });
+
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -108,11 +137,18 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         TableRow,
         TableHeader,
         TableCell,
+        TableOfContents.configure({
+          anchorTypes: ['heading'],
+          scrollParent: getEditorScrollParent,
+          onUpdate: (anchors) => {
+            onTocUpdateRef.current?.(anchors);
+          },
+        }),
         // AI quote highlighting only — student highlight uses BackgroundColor.
         Highlight.configure({ multicolor: true }),
         CommentExtension.configure({
           HTMLAttributes: { 'data-ai-feedback': 'true' },
-          onCommentActivated: (commentId) => onCommentActivated?.(commentId),
+          onCommentActivated: (commentId) => onCommentActivatedRef.current?.(commentId),
         }),
       ],
       content: initialContent ?? EMPTY_DOC,
@@ -126,7 +162,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         },
       },
       onUpdate: ({ editor: current }) => {
-        onContentChange?.(current.getJSON());
+        onContentChangeRef.current?.(current.getJSON());
       },
     });
 

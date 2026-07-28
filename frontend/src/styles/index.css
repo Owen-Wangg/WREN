@@ -181,3 +181,17 @@ body {
 .ProseMirror.document-editor-surface {
   outline: none;
 }
+
+/* Brief flash when jumping to a heading from the Home TOC. */
+.document-editor-surface .document-toc-flash {
+  animation: document-toc-flash 1.2s ease-out;
+}
+
+@keyframes document-toc-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--color-accent-primary, #2563eb) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
