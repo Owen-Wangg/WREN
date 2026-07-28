@@ -42,18 +42,56 @@ type Line = {
 type TableRowCells = LineRun[][];
 
 const MAX_INDENT_LEVEL = 8;
-/** Horizontal gap (PDF units) ≈ one indent / list nest step. */
-const INDENT_GAP_PX = 28;
+/** Fallback indent step when page metrics are unavailable (legacy PDF units). */
+const INDENT_GAP_FALLBACK = 28;
 /** Attach fontSize mark when run differs from body median by this ratio. */
 const FONT_SIZE_MARK_RATIO = 1.12;
 /** Soft-wrap: max vertical gap between lines of the same paragraph (× median size). */
 const SOFT_WRAP_GAP_RATIO = 1.85;
 /** Paragraph break: gap larger than this (× median size) always starts a new block. */
 const PARAGRAPH_BREAK_GAP_RATIO = 2.4;
-/** Column split: gap after a run's right edge (PDF units). */
-const MIN_COLUMN_GAP_PX = 28;
-/** Cluster run X positions into the same column within this tolerance. */
-const COLUMN_X_CLUSTER_PX = 18;
+
+/** Per-document horizontal thresholds derived from page width + body font size. */
+type LayoutScale = {
+  /** One indent / list-nest step in PDF units. */
+  indentGap: number;
+  /** Minimum gap after a run's right edge to start a new table column. */
+  columnGap: number;
+  /** Cluster run X positions into the same column within this tolerance. */
+  columnCluster: number;
+};
+
+function estimateContentWidth(lines: Line[]): number {
+  let maxRight = 0;
+  let minLeft = Number.POSITIVE_INFINITY;
+  for (const line of lines) {
+    minLeft = Math.min(minLeft, line.minX);
+    for (const run of line.runs) {
+      maxRight = Math.max(maxRight, run.x + run.width);
+    }
+  }
+  if (!Number.isFinite(minLeft) || maxRight <= minLeft) {
+    return Math.max(maxRight, 200);
+  }
+  return maxRight - minLeft;
+}
+
+/**
+ * Normalize indent/list/table gaps so letter-size vs large-format (or zoomed
+ * OCR coordinates) use proportional steps instead of a fixed 28pt heuristic.
+ */
+function resolveLayoutScale(lines: Line[], medianFontSize: number): LayoutScale {
+  const body = medianFontSize > 0 ? medianFontSize : 12;
+  const contentWidth = Math.max(estimateContentWidth(lines), body * 20, 160);
+  const fromFont = body * 2.2;
+  const fromPage = contentWidth * 0.035;
+  const indentGap = Math.min(56, Math.max(12, (fromFont + fromPage) / 2));
+  return {
+    indentGap,
+    columnGap: Math.max(indentGap, body * 1.8),
+    columnCluster: Math.max(10, indentGap * 0.65),
+  };
+}
 
 function fontFlags(fontName: string | undefined): { bold: boolean; italic: boolean } {
   const name = (fontName ?? '').toLowerCase();
@@ -141,22 +179,41 @@ function itemsToLines(items: SpatialTextItem[]): Line[] {
   return lines;
 }
 
-const BULLET_RE = /^[\u2022\u2023\u25E6\u2043\u2219•·▪‣*-]\s+/;
+// Glyph bullets + common OCR stand-ins ("o ", "O ", hollow/square).
+const BULLET_RE =
+  /^(?:[\u2022\u2023\u25E6\u2043\u2219•·▪‣*◦○●■□-]|(?:o|O)(?=\s))\s*/;
+// Numbered / lettered / roman — require a following space so "A.Long" stays prose.
 const NUMBERED_RE = /^(\d+[\.)]|[a-zA-Z][\.)]|[ivxlcdmIVXLCDM]+[\.)])\s+/;
 
 function isListLine(line: Line): { kind: 'bullet' | 'ordered'; remaining: string } | null {
   const raw = line.text.trim();
   const bullet = BULLET_RE.exec(raw);
+  if (bullet) {
+    const remaining = raw.slice(bullet[0].length).trim();
+    // Lone bullet glyph with no body — still a list item.
+    return { kind: 'bullet', remaining };
+  }
+
   const numbered = NUMBERED_RE.exec(raw);
-  if (!bullet && !numbered) return null;
-  const remaining = raw.replace(BULLET_RE, '').replace(NUMBERED_RE, '').trim();
-  return { kind: numbered ? 'ordered' : 'bullet', remaining };
+  if (!numbered) return null;
+
+  const prefix = numbered[1] ?? '';
+  const remaining = raw.slice(numbered[0].length).trim();
+
+  // Letter markers like "A." often start prose sentences in OCR output.
+  // Keep them as lists only when the item looks short / outline-like.
+  if (/^[a-zA-Z][\.)]$/.test(prefix) && wordCount(remaining) > 18) {
+    return null;
+  }
+
+  return { kind: 'ordered', remaining };
 }
 
-function lineIndentLevel(line: Line, baselineX: number): number {
+function lineIndentLevel(line: Line, baselineX: number, indentGap = INDENT_GAP_FALLBACK): number {
+  const gap = indentGap > 0 ? indentGap : INDENT_GAP_FALLBACK;
   const delta = line.minX - baselineX;
-  if (delta < INDENT_GAP_PX * 0.6) return 0;
-  return Math.min(MAX_INDENT_LEVEL, Math.max(0, Math.round(delta / INDENT_GAP_PX)));
+  if (delta < gap * 0.6) return 0;
+  return Math.min(MAX_INDENT_LEVEL, Math.max(0, Math.round(delta / gap)));
 }
 
 function wordCount(text: string): number {
@@ -255,6 +312,7 @@ function consumeNestedList(
   medianFontSize: number,
   parentDepth: number,
   listKind: 'bullet' | 'ordered',
+  indentGap: number,
 ): { block: TipTapNode; end: number } {
   const listType = listKind === 'ordered' ? 'orderedList' : 'bulletList';
   const items: TipTapNode[] = [];
@@ -265,7 +323,7 @@ function consumeNestedList(
     const list = isListLine(line);
     if (!list || list.kind !== listKind) break;
 
-    const depth = lineIndentLevel(line, baselineX);
+    const depth = lineIndentLevel(line, baselineX, indentGap);
     if (depth < parentDepth) break;
 
     if (depth > parentDepth) {
@@ -276,6 +334,7 @@ function consumeNestedList(
         medianFontSize,
         depth,
         listKind,
+        indentGap,
       );
       const prev = items[items.length - 1];
       if (prev) {
@@ -309,7 +368,7 @@ function runGap(prev: LineRun, next: LineRun): number {
  * Split a line into column cells by large gaps after run widths.
  * Falls back to 2+ space splits when runs are glued into one item.
  */
-function splitColumnRuns(line: Line): LineRun[][] {
+function splitColumnRuns(line: Line, scale: LayoutScale): LineRun[][] {
   const sorted = [...line.runs].sort((a, b) => a.x - b.x);
   if (sorted.length >= 2) {
     const cells: LineRun[][] = [[sorted[0]!]];
@@ -317,7 +376,7 @@ function splitColumnRuns(line: Line): LineRun[][] {
       const prev = sorted[i - 1]!;
       const cur = sorted[i]!;
       const gap = runGap(prev, cur);
-      const threshold = Math.max(MIN_COLUMN_GAP_PX, prev.fontSize * 1.6);
+      const threshold = Math.max(scale.columnGap, prev.fontSize * 1.6);
       if (gap > threshold) {
         cells.push([cur]);
       } else {
@@ -342,7 +401,7 @@ function splitColumnRuns(line: Line): LineRun[][] {
   ]);
 }
 
-function clusterXs(xs: number[]): number[] {
+function clusterXs(xs: number[], clusterTolerance: number): number[] {
   if (xs.length === 0) return [];
   const sorted = [...xs].sort((a, b) => a - b);
   const clusters: number[][] = [[sorted[0]!]];
@@ -350,7 +409,7 @@ function clusterXs(xs: number[]): number[] {
     const x = sorted[i]!;
     const cluster = clusters[clusters.length - 1]!;
     const centroid = cluster.reduce((a, b) => a + b, 0) / cluster.length;
-    if (Math.abs(x - centroid) <= COLUMN_X_CLUSTER_PX) {
+    if (Math.abs(x - centroid) <= clusterTolerance) {
       cluster.push(x);
     } else {
       clusters.push([x]);
@@ -381,15 +440,16 @@ function tryTableBlock(
   lines: Line[],
   start: number,
   medianFontSize: number,
+  scale: LayoutScale,
 ): { table: TipTapNode; end: number } | null {
-  const firstCells = splitColumnRuns(lines[start]!);
+  const firstCells = splitColumnRuns(lines[start]!, scale);
   if (firstCells.length < 2) return null;
 
   // Gather a window of multi-column rows (allow slight column-count jitter).
   const rawRows: Line[] = [lines[start]!];
   let i = start + 1;
   while (i < lines.length) {
-    const cols = splitColumnRuns(lines[i]!);
+    const cols = splitColumnRuns(lines[i]!, scale);
     if (cols.length < 2) break;
     // Stop if column count diverges wildly (not the same table).
     if (Math.abs(cols.length - firstCells.length) > 1) break;
@@ -399,9 +459,9 @@ function tryTableBlock(
   if (rawRows.length < 2) return null;
 
   const allXs = rawRows.flatMap((row) =>
-    splitColumnRuns(row).map((cell) => cell[0]?.x ?? row.minX),
+    splitColumnRuns(row, scale).map((cell) => cell[0]?.x ?? row.minX),
   );
-  const columnXs = clusterXs(allXs);
+  const columnXs = clusterXs(allXs, scale.columnCluster);
   if (columnXs.length < 2) return null;
 
   const rows: TableRowCells[] = rawRows.map((row) => assignRunsToColumns(row, columnXs));
@@ -458,14 +518,29 @@ function shouldMergeSoftWrap(
   next: Line,
   medianFontSize: number,
   baselineX: number,
+  indentGap: number,
 ): boolean {
   if (isListLine(prev) || isListLine(next)) return false;
   if (headingLevelForLine(prev, medianFontSize) != null) return false;
   if (headingLevelForLine(next, medianFontSize) != null) return false;
-  if (splitColumnRuns(prev).length >= 2 || splitColumnRuns(next).length >= 2) return false;
 
-  if (lineIndentLevel(prev, baselineX) !== lineIndentLevel(next, baselineX)) return false;
-  if (Math.abs(prev.minX - next.minX) > INDENT_GAP_PX * 0.55) return false;
+  // Table-ish lines: defer to scale at call site via a wide column gap check.
+  const probeScale: LayoutScale = {
+    indentGap,
+    columnGap: Math.max(indentGap, medianFontSize * 1.8),
+    columnCluster: Math.max(10, indentGap * 0.65),
+  };
+  if (
+    splitColumnRuns(prev, probeScale).length >= 2 ||
+    splitColumnRuns(next, probeScale).length >= 2
+  ) {
+    return false;
+  }
+
+  if (lineIndentLevel(prev, baselineX, indentGap) !== lineIndentLevel(next, baselineX, indentGap)) {
+    return false;
+  }
+  if (Math.abs(prev.minX - next.minX) > indentGap * 0.55) return false;
 
   // Similar body size — don't glue a caption onto body.
   if (
@@ -484,8 +559,7 @@ function shouldMergeSoftWrap(
   if (!endsSentence(prev.text)) return true;
 
   // Sentence ended but lines are still tightly stacked — treat as wrap only
-  // when the previous line looks truncated (no trailing space density check;
-  // rely on tight gap).
+  // when the previous line looks truncated (rely on tight gap).
   return gap <= medianFontSize * 1.35;
 }
 
@@ -501,11 +575,12 @@ function mergeSoftWrappedLines(
   lines: Line[],
   medianFontSize: number,
   baselineX: number,
+  indentGap: number,
 ): Line[] {
   const out: Line[] = [];
   for (const line of lines) {
     const prev = out[out.length - 1];
-    if (prev && shouldMergeSoftWrap(prev, line, medianFontSize, baselineX)) {
+    if (prev && shouldMergeSoftWrap(prev, line, medianFontSize, baselineX, indentGap)) {
       const hyphenated = endsWithHyphen(prev.text);
       let prevRuns = hyphenated ? trimTrailingHyphen(prev.runs) : prev.runs.map((r) => ({ ...r }));
       const nextRuns = line.runs.map((r) => ({ ...r }));
@@ -538,9 +613,10 @@ function lineToBlock(
   line: Line,
   medianFontSize: number,
   baselineX: number,
+  indentGap: number,
 ): TipTapNode {
   const content = runsToTextNodes(line.runs, medianFontSize, true);
-  const indent = lineIndentLevel(line, baselineX);
+  const indent = lineIndentLevel(line, baselineX, indentGap);
   const indentAttrs = indent > 0 ? { indent } : {};
   const level = headingLevelForLine(line, medianFontSize);
 
@@ -596,13 +672,14 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
 
   const minXs = rawLines.map((l) => l.minX).sort((a, b) => a - b);
   const baselineX = percentile(minXs, 0.1);
+  const scale = resolveLayoutScale(rawLines, medianFontSize);
 
-  const lines = mergeSoftWrappedLines(rawLines, medianFontSize, baselineX);
+  const lines = mergeSoftWrappedLines(rawLines, medianFontSize, baselineX, scale.indentGap);
 
   const blocks: TipTapNode[] = [];
   let i = 0;
   while (i < lines.length) {
-    const table = tryTableBlock(lines, i, medianFontSize);
+    const table = tryTableBlock(lines, i, medianFontSize, scale);
     if (table) {
       blocks.push(table.table);
       i = table.end;
@@ -611,7 +688,7 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
 
     const listInfo = isListLine(lines[i]!);
     if (listInfo) {
-      const depth = lineIndentLevel(lines[i]!, baselineX);
+      const depth = lineIndentLevel(lines[i]!, baselineX, scale.indentGap);
       const nested = consumeNestedList(
         lines,
         i,
@@ -619,13 +696,14 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
         medianFontSize,
         depth,
         listInfo.kind,
+        scale.indentGap,
       );
       blocks.push(nested.block);
       i = nested.end;
       continue;
     }
 
-    blocks.push(lineToBlock(lines[i]!, medianFontSize, baselineX));
+    blocks.push(lineToBlock(lines[i]!, medianFontSize, baselineX, scale.indentGap));
     i += 1;
   }
 

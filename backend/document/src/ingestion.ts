@@ -73,8 +73,9 @@ export interface IngestFallback {
 export type IngestResult = IngestSuccess | IngestFallback;
 
 const FALLBACK_MESSAGE =
-  'We could not extract readable text from this PDF. Please upload a .docx ' +
-  'file or paste the text directly.';
+  'We could not extract readable text from this PDF. For best results upload a ' +
+  '.docx file. Scanned PDFs need OCR language data (default English); try a ' +
+  'text-based PDF or paste the text directly.';
 
 function acceptedFormatsMessage(fileName: string): string {
   return (

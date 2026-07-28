@@ -32,7 +32,6 @@ import {
   tiptapContentToDocxBlob,
   docxBytesToTiptapContent,
 } from '@/features/editor/docxContentMapper';
-import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
 import { queryKeys } from '@/hooks/queryKeys';
 import {
@@ -84,12 +83,12 @@ function wordCountFromEditorContent(content: JSONContent): number {
   return wordCountFromTipTapContent(content);
 }
 
-async function parseUploadToTipTap(file: File): Promise<JSONContent | undefined> {
+/** Client-side TipTap for DOCX only — PDFs use server LiteParse (source of truth). */
+async function parseDocxUploadToTipTap(file: File): Promise<JSONContent | undefined> {
   try {
+    if (!file.name.toLowerCase().endsWith('.docx')) return undefined;
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const name = file.name.toLowerCase();
-    if (name.endsWith('.docx')) return await docxBytesToTiptapContent(bytes);
-    if (name.endsWith('.pdf')) return await pdfBytesToTiptapContent(bytes);
+    return await docxBytesToTiptapContent(bytes);
   } catch {
     // Non-fatal: server plain-text ingest remains the fallback.
   }
@@ -281,7 +280,7 @@ export function DocumentEditorPage() {
     mutationFn: async (file: File) => {
       const isDocx = file.name.toLowerCase().endsWith('.docx');
       // DOCX: client TipTap. PDF: server LiteParse is source of truth (1C).
-      const tipTap = isDocx ? await parseUploadToTipTap(file) : undefined;
+      const tipTap = isDocx ? await parseDocxUploadToTipTap(file) : undefined;
       const { uploadUrl, key } = await getPresignedUrl(
         apiClient,
         file.name,
@@ -495,7 +494,7 @@ export function DocumentEditorPage() {
               title={
                 resubmitDraftMutation.isError
                   ? errorMessageFromUnknown(resubmitDraftMutation.error)
-                  : 'Upload a revised draft'
+                  : 'Upload a revised draft (.docx preferred for formatting; PDF is best-effort)'
               }
               aria-label={
                 resubmitDraftMutation.isPending ? 'Uploading new draft' : 'Upload new draft'

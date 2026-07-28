@@ -2,11 +2,21 @@
  * PDF extraction via LiteParse (Apache-2.0): text + TipTap structure.
  *
  * - Digital PDFs: native text layer → spatial items → TipTap heuristics.
- * - Scanned PDFs: OCR enabled when TESSDATA_PREFIX / tessdataPath is set
- *   (5C: built-in Tesseract; optional OCR_SERVER_URL hook for a later engine).
+ * - Scanned PDFs: OCR when enabled AND tessdata language packs are present
+ *   (5C: built-in Tesseract; optional PDF_OCR_SERVER_URL for an external engine).
+ *
+ * Env:
+ *   PDF_OCR_ENABLED   — default true; set "false" to skip OCR
+ *   PDF_OCR_LANGUAGE  — Tesseract langs, e.g. "eng" or "eng+fra" (must match
+ *                       `*.traineddata` files under tessdata)
+ *   TESSDATA_PREFIX   — directory containing traineddata (Lambda: /var/task/tessdata)
+ *   PDF_OCR_SERVER_URL — optional external OCR HTTP service
  *
  * See module history in git for the ESM-from-CJS `importEsm` rationale.
  */
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { TipTapDoc } from '@wren/types';
 
 import { spatialPagesToTipTap } from './pdfToTipTap';
@@ -61,31 +71,67 @@ const importEsm = new Function('specifier', 'return import(specifier);') as (
 ) => Promise<unknown>;
 
 let cachedParser: InstanceType<LiteParseModule['LiteParse']> | undefined;
+let loggedOcrConfig = false;
 
 function resolveTessdataPath(): string | undefined {
   if (process.env.TESSDATA_PREFIX && process.env.TESSDATA_PREFIX.trim()) {
     return process.env.TESSDATA_PREFIX.trim();
   }
-  // Bundled next to the Lambda handler when CDK copies tessdata/.
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = require('node:path') as typeof import('node:path');
-    return path.join(__dirname, 'tessdata');
-  } catch {
-    return undefined;
+  // Bundled next to the Lambda handler via CDK; in repo / Jest, tessdata lives
+  // one level above `src/` (`backend/document/tessdata`).
+  const candidates = [join(__dirname, 'tessdata'), join(__dirname, '..', 'tessdata')];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
   }
+  return candidates[0];
+}
+
+/** Tesseract accepts "eng" or "eng+fra"; each segment needs a traineddata file. */
+function tessdataLanguagesReady(tessdataPath: string, language: string): boolean {
+  const langs = language
+    .split(/[+,\s]+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (langs.length === 0) return false;
+  return langs.every((lang) => existsSync(join(tessdataPath, `${lang}.traineddata`)));
 }
 
 function buildParserConfig(): Partial<LiteParseConfig> {
-  const ocrEnabled =
-    (process.env.PDF_OCR_ENABLED ?? 'true').toLowerCase() !== 'false';
+  const wantOcr = (process.env.PDF_OCR_ENABLED ?? 'true').toLowerCase() !== 'false';
   const tessdataPath = resolveTessdataPath();
+  const ocrLanguage = process.env.PDF_OCR_LANGUAGE?.trim() || 'eng';
   const ocrServerUrl = process.env.PDF_OCR_SERVER_URL?.trim() || undefined;
+
+  let ocrEnabled = wantOcr;
+  let ocrSkipReason: string | undefined;
+
+  if (wantOcr && !ocrServerUrl) {
+    if (!tessdataPath) {
+      ocrEnabled = false;
+      ocrSkipReason = 'TESSDATA_PREFIX / bundled tessdata path missing';
+    } else if (!tessdataLanguagesReady(tessdataPath, ocrLanguage)) {
+      ocrEnabled = false;
+      ocrSkipReason = `missing traineddata for PDF_OCR_LANGUAGE="${ocrLanguage}" under ${tessdataPath}`;
+    }
+  }
+
+  if (!loggedOcrConfig) {
+    loggedOcrConfig = true;
+    // eslint-disable-next-line no-console
+    console.info('[pdfExtractor] OCR config', {
+      requested: wantOcr,
+      enabled: ocrEnabled,
+      language: ocrLanguage,
+      tessdataPath: tessdataPath ?? null,
+      ocrServerUrl: ocrServerUrl ? '(set)' : null,
+      ...(ocrSkipReason ? { skipReason: ocrSkipReason } : {}),
+    });
+  }
 
   return {
     ocrEnabled,
     outputFormat: 'json',
-    ocrLanguage: process.env.PDF_OCR_LANGUAGE?.trim() || 'eng',
+    ocrLanguage,
     // Prefer partial results over hard fail when OCR struggles on mixed pages.
     ocrFailureFatal: false,
     ...(tessdataPath ? { tessdataPath } : {}),
@@ -105,6 +151,7 @@ async function getParser(): Promise<InstanceType<LiteParseModule['LiteParse']>> 
 /** Reset cached parser (tests / config changes). */
 export function resetLiteParseCache(): void {
   cachedParser = undefined;
+  loggedOcrConfig = false;
 }
 
 /**

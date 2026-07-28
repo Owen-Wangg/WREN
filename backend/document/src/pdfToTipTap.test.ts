@@ -116,6 +116,38 @@ describe('spatialPagesToTipTap', () => {
     expect(blocks?.[0]?.content?.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('scales indent steps with larger page coordinates / font size', () => {
+    // Same geometry as the indent fixture, but ~2× — fixed 28px gaps would under-detect.
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: 'Flush left', x: 100, y: 20, width: 160, height: 24, fontSize: 24 },
+          { text: 'Indented text', x: 220, y: 80, width: 160, height: 24, fontSize: 24 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = doc.content as TipTapNode[] | undefined;
+    const indented = blocks?.find((b) => JSON.stringify(b).includes('Indented text'));
+    expect(indented?.type).toBe('paragraph');
+    expect(Number(indented?.attrs?.indent ?? 0)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('treats OCR-style "o " bullets as a list', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: 'o First item', x: 0, y: 10, width: 80, height: 12, fontSize: 12 },
+          { text: 'o Second item', x: 0, y: 30, width: 90, height: 12, fontSize: 12 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = doc.content as TipTapNode[] | undefined;
+    expect(blocks?.[0]?.type).toBe('bulletList');
+    expect(blocks?.[0]?.content).toHaveLength(2);
+  });
+
   it('detects simple two-column tables', () => {
     const pages: SpatialPage[] = [
       {

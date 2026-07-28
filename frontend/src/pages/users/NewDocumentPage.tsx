@@ -259,10 +259,17 @@ export function NewDocumentPage() {
               onChange={(e) => setReferenceFile(e.target.files?.[0])}
             />
             <p className="text-caption text-text-muted leading-relaxed">
-              Prefer a Word document (<strong>.docx</strong>) for the best formatting
-              (headings, lists, tables). PDF upload works, including many scanned
-              files, but layout fidelity is best-effort.
+              <strong>Prefer .docx</strong> when formatting matters — Word styles
+              (headings, lists, tables, indents) survive import far better than PDF
+              spatial guesswork. PDF is supported for convenience (including many
+              scanned files via OCR), but layout is best-effort.
             </p>
+            {referenceFile?.name.toLowerCase().endsWith('.pdf') && (
+              <p className="text-caption text-signal-caution leading-relaxed" role="status">
+                PDF selected — expect approximate formatting. For a closer match to
+                the original layout, upload the Word (.docx) source instead.
+              </p>
+            )}
             {referenceFile && (
               <p className="text-bodySmall text-accent-primary">
                 Selected: {referenceFile.name}
