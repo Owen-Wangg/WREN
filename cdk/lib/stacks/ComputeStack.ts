@@ -134,6 +134,7 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
+        CONVERSATION_TABLE_NAME: props.conversationTableName,
       },
       bundling: {
         ...sharedBundling,
@@ -305,10 +306,19 @@ export class ComputeStack extends Stack {
 
     // Document Lambda: S3 read/write for document uploads + presigned URLs.
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:DeleteObjects"],
       resources: [`arn:aws:s3:::${props.documentsBucketName}/*`],
     }));
     props.storageEncryptionKey.grantEncryptDecrypt(this.documentFunction);
+
+    // Document Lambda: DynamoDB DeleteItem to clean up conversation sessions on document deletion
+    // (REQ-AUDIT-RETENTION-01 criterion 1 / REQ-AUDIT-OPSTATE-01 criterion 4).
+    this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["dynamodb:DeleteItem"],
+      resources: [
+        `arn:aws:dynamodb:${this.region}:${this.account}:table/${props.conversationTableName}`,
+      ],
+    }));
 
     // Admin Lambda: S3 read/write for reference material uploads.
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({

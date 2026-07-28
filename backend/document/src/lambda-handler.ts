@@ -4,7 +4,9 @@
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import { resolveAccess } from '@wren/auth';
@@ -548,10 +550,22 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
   const db = await getDataAccess();
   const { documentId } = event.pathParameters || {};
 
-  const docQuery = `
-    SELECT owner_user_id FROM document WHERE id = $1
-  `;
-  const docRows = await db.query(docQuery, [documentId]);
+  // REQ-AUDIT-RETENTION-01 criterion 3: require explicit confirmation.
+  const body = event.body ? JSON.parse(event.body) : {};
+  if (body.confirmed !== true) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'CONFIRMATION_REQUIRED',
+        message: 'Set confirmed: true to permanently delete this document and all attached feedback.',
+      }),
+    };
+  }
+
+  const docRows = await db.query<{ owner_user_id: string }>(
+    `SELECT owner_user_id FROM document WHERE id = $1`,
+    [documentId],
+  );
 
   if (docRows.length === 0) {
     return {
@@ -567,11 +581,59 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
+  // Collect all S3 keys BEFORE deleting draft rows (REQ-SEC-PII-01 criterion 3).
+  const draftRows = await db.query<{ s3_key: string }>(
+    `SELECT s3_key FROM draft WHERE document_id = $1`,
+    [documentId],
+  );
+  const s3Keys = draftRows.map((r) => r.s3_key).filter((k) => k && k !== 'inline');
+
+  // Delete Postgres rows in dependency order to satisfy FK constraints.
+  // resolution_status_history and anchor rows are cleaned up by FK CASCADE
+  // when their parent draft/feedback_item rows are deleted.
+  await db.query(
+    `DELETE FROM resolution_status_history
+     WHERE feedback_item_id IN (SELECT id FROM feedback_item WHERE document_id = $1)`,
+    [documentId],
+  );
+  await db.query(
+    `DELETE FROM anchor
+     WHERE draft_id IN (SELECT id FROM draft WHERE document_id = $1)`,
+    [documentId],
+  );
   const [draftResult, feedbackResult] = await Promise.all([
     db.query<{ id: string }>('DELETE FROM draft WHERE document_id = $1 RETURNING id', [documentId]),
     db.query<{ id: string }>('DELETE FROM feedback_item WHERE document_id = $1 RETURNING id', [documentId]),
   ]);
   await db.query('DELETE FROM document WHERE id = $1', [documentId]);
+
+  // Delete S3 objects for all file-upload drafts (REQ-SEC-PII-01 criterion 3).
+  if (s3Keys.length > 0) {
+    const s3 = new S3Client({ region: process.env.AWS_REGION || 'ca-central-1' });
+    const bucketName = process.env.DOCUMENTS_BUCKET_NAME!;
+    // DeleteObjects accepts up to 1000 keys per call.
+    for (let i = 0; i < s3Keys.length; i += 1000) {
+      const batch = s3Keys.slice(i, i + 1000);
+      await s3.send(new DeleteObjectsCommand({
+        Bucket: bucketName,
+        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+      }));
+    }
+  }
+
+  // Delete the DynamoDB conversation session for this document
+  // (REQ-AUDIT-RETENTION-01 criterion 1 / REQ-AUDIT-OPSTATE-01 criterion 4).
+  const conversationTableName = process.env.CONVERSATION_TABLE_NAME;
+  if (conversationTableName) {
+    const dynamo = DynamoDBDocumentClient.from(
+      new DynamoDBClient({ region: process.env.AWS_REGION || 'ca-central-1' }),
+      { marshallOptions: { removeUndefinedValues: true } },
+    );
+    await dynamo.send(new DeleteCommand({
+      TableName: conversationTableName,
+      Key: { sessionId: `${actor.userId}#${documentId}` },
+    }));
+  }
 
   return {
     statusCode: 200,
