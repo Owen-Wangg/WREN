@@ -47,8 +47,10 @@ const askWrenService = createAskWrenService(apiClient);
 
 const ACTIVE_NAV_KEY = 'wren-active-sidebar-tab';
 const PANEL_WIDTH_DEFAULT = 320;
+/** AI Debrief needs more room for the progress chart labels. */
+const PANEL_WIDTH_DEBRIEF = 420;
 const PANEL_WIDTH_MIN = 280;
-const PANEL_WIDTH_MAX = 480;
+const PANEL_WIDTH_MAX = 560;
 const RAIL_WIDTH_PX = 76;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
@@ -126,7 +128,9 @@ export function DocumentEditorPage() {
   const [panelCollapsed, setPanelCollapsed] = useState(
     () => readStoredNavMode() === 'home',
   );
-  const [panelWidth, setPanelWidth] = useState(PANEL_WIDTH_DEFAULT);
+  const [panelWidth, setPanelWidth] = useState(() =>
+    readStoredNavMode() === 'debrief' ? PANEL_WIDTH_DEBRIEF : PANEL_WIDTH_DEFAULT,
+  );
 
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
@@ -164,6 +168,13 @@ export function DocumentEditorPage() {
     setActiveNav(mode);
     // Home keeps the draft full-width; coaching modes open the side panel.
     setPanelCollapsed(mode === 'home');
+    // Widen for AI Debrief so progress chart labels (Improving / Persistent /
+    // Emerging) fit without clipping; leave a manually widened panel alone.
+    if (mode === 'debrief') {
+      setPanelWidth((current) =>
+        current < PANEL_WIDTH_DEBRIEF ? PANEL_WIDTH_DEBRIEF : current,
+      );
+    }
     try {
       localStorage.setItem(ACTIVE_NAV_KEY, mode);
     } catch {

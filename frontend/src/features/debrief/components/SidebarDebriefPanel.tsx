@@ -390,19 +390,19 @@ export function SidebarDebriefPanel({
 
                           return (
                             <>
-                              <div className="flex items-center gap-md text-bodySmall">
-                                <div className="flex items-center gap-xs">
-                                  <ArrowUp size={14} className="text-signal-positive" aria-hidden="true" />
+                              <div className="flex flex-wrap items-center gap-x-md gap-y-xs text-bodySmall">
+                                <div className="flex items-center gap-xs whitespace-nowrap">
+                                  <ArrowUp size={14} className="shrink-0 text-signal-positive" aria-hidden="true" />
                                   <span className="font-semibold text-text-primary">{improving} Improving</span>
                                 </div>
-                                <span className="text-text-muted">|</span>
-                                <div className="flex items-center gap-xs">
-                                  <Minus size={14} className="text-signal-caution" aria-hidden="true" />
+                                <span className="text-text-muted" aria-hidden="true">|</span>
+                                <div className="flex items-center gap-xs whitespace-nowrap">
+                                  <Minus size={14} className="shrink-0 text-signal-caution" aria-hidden="true" />
                                   <span className="font-semibold text-text-primary">{persistent} Persistent</span>
                                 </div>
-                                <span className="text-text-muted">|</span>
-                                <div className="flex items-center gap-xs">
-                                  <Star size={14} className="text-accent-primary" aria-hidden="true" />
+                                <span className="text-text-muted" aria-hidden="true">|</span>
+                                <div className="flex items-center gap-xs whitespace-nowrap">
+                                  <Star size={14} className="shrink-0 text-accent-primary" aria-hidden="true" />
                                   <span className="font-semibold text-text-primary">{emerging} Emerging</span>
                                 </div>
                               </div>
@@ -434,12 +434,12 @@ export function SidebarDebriefPanel({
                               <Star size={14} className="text-accent-primary" aria-hidden="true" />
                             )}
                           </div>
-                          <div className="flex flex-col gap-xs">
-                            <div className="flex items-center gap-sm">
-                              <span className="text-bodySmall font-semibold text-text-primary">
+                          <div className="min-w-0 flex-1 flex flex-col gap-xs">
+                            <div className="flex flex-wrap items-center gap-sm">
+                              <span className="text-bodySmall font-semibold text-text-primary break-words">
                                 {pattern.category}
                               </span>
-                              <span className={`rounded-full px-xs py-[1px] text-bodySmall font-sans font-medium ${
+                              <span className={`shrink-0 rounded-full px-xs py-[1px] text-bodySmall font-sans font-medium ${
                                 pattern.tendency === 'improving'
                                   ? 'bg-signal-positive/10 text-signal-positive'
                                   : pattern.tendency === 'persistent'
@@ -449,7 +449,7 @@ export function SidebarDebriefPanel({
                                 {pattern.tendency}
                               </span>
                             </div>
-                            <p className="text-bodySmall leading-relaxed text-text-secondary">
+                            <p className="text-bodySmall leading-relaxed text-text-secondary break-words">
                               {pattern.description}
                             </p>
                           </div>
