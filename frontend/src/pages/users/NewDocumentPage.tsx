@@ -8,10 +8,16 @@ import {
 } from '@/features/dashboard/useDashboard';
 import { createDocument, getPresignedUrl } from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
-import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
+import {
+  DocxClientParseError,
+  docxBytesToTiptapContent,
+} from '@/features/editor/docxContentMapper';
 import { apiClient, ApiError } from '@/services';
 import { stripAiMarksFromTipTapContent, asTipTapDoc } from '@wren/types';
 import type { JSONContent } from '@tiptap/react';
+
+const DOCX_PARSE_FALLBACK_MESSAGE =
+  'Couldn’t preserve Word formatting for this file. Plain text from the server will be used — fonts, colors, alignment, and images may be missing. Prefer a simpler .docx or re-upload.';
 
 function contentTypeForFile(file: File): string {
   if (file.type) return file.type;
@@ -82,13 +88,18 @@ export function NewDocumentPage() {
 
       // Parse DOCX client-side for rich TipTap. PDFs use server LiteParse (1C).
       let initialContent: JSONContent | undefined;
+      let docxParseWarning: string | undefined;
       const name = referenceFile.name.toLowerCase();
       if (name.endsWith('.docx')) {
         try {
           const bytes = new Uint8Array(await referenceFile.arrayBuffer());
           initialContent = await docxBytesToTiptapContent(bytes);
-        } catch {
-          // Non-fatal: editor will fall back to plain-text segments from the API.
+        } catch (error) {
+          // Non-fatal: server plain-text ingest remains the fallback — surface clearly.
+          docxParseWarning =
+            error instanceof DocxClientParseError
+              ? error.message
+              : DOCX_PARSE_FALLBACK_MESSAGE;
         }
       }
 
@@ -113,9 +124,10 @@ export function NewDocumentPage() {
         org,
         docType,
         initialContent: cleaned as JSONContent | undefined,
+        docxParseWarning,
       };
     },
-    onSuccess: ({ doc, org, docType, initialContent }) => {
+    onSuccess: ({ doc, org, docType, initialContent, docxParseWarning }) => {
       navigate(`/dashboard/document/${doc.id}`, {
         state: {
           organizationName: org?.name,
@@ -123,6 +135,7 @@ export function NewDocumentPage() {
           documentName: doc.name,
           feedbackQueued: true,
           ...(initialContent ? { initialContent } : {}),
+          ...(docxParseWarning ? { docxParseWarning } : {}),
         },
       });
     },
@@ -259,10 +272,11 @@ export function NewDocumentPage() {
               onChange={(e) => setReferenceFile(e.target.files?.[0])}
             />
             <p className="text-caption text-text-muted leading-relaxed">
-              <strong>Prefer .docx</strong> when formatting matters — Word styles
-              (headings, lists, tables, indents) survive import far better than PDF
-              spatial guesswork. PDF is supported for convenience (including many
-              scanned files via OCR), but layout is best-effort.
+              <strong>Prefer .docx</strong> when formatting matters — fonts, colors,
+              highlights, alignment, images, headings, lists, and tables survive
+              import/export far better than PDF spatial guesswork. PDF is supported
+              for convenience (including many scanned files via OCR), but layout is
+              best-effort.
             </p>
             {referenceFile?.name.toLowerCase().endsWith('.pdf') && (
               <p className="text-caption text-signal-caution leading-relaxed" role="status">

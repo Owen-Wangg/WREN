@@ -31,6 +31,7 @@ import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
   docxBytesToTiptapContent,
+  DocxClientParseError,
 } from '@/features/editor/docxContentMapper';
 import { apiClient, ApiError } from '@/services';
 import { queryKeys } from '@/hooks/queryKeys';
@@ -83,16 +84,25 @@ function wordCountFromEditorContent(content: JSONContent): number {
   return wordCountFromTipTapContent(content);
 }
 
+const DOCX_PARSE_FALLBACK_MESSAGE =
+  'Couldn’t preserve Word formatting for this upload. Plain text from the server will be used — fonts, colors, alignment, and images may be missing.';
+
 /** Client-side TipTap for DOCX only — PDFs use server LiteParse (source of truth). */
-async function parseDocxUploadToTipTap(file: File): Promise<JSONContent | undefined> {
+async function parseDocxUploadToTipTap(
+  file: File,
+): Promise<{ content?: JSONContent; warning?: string }> {
+  if (!file.name.toLowerCase().endsWith('.docx')) return {};
   try {
-    if (!file.name.toLowerCase().endsWith('.docx')) return undefined;
     const bytes = new Uint8Array(await file.arrayBuffer());
-    return await docxBytesToTiptapContent(bytes);
-  } catch {
-    // Non-fatal: server plain-text ingest remains the fallback.
+    return { content: await docxBytesToTiptapContent(bytes) };
+  } catch (error) {
+    return {
+      warning:
+        error instanceof DocxClientParseError
+          ? error.message
+          : DOCX_PARSE_FALLBACK_MESSAGE,
+    };
   }
-  return undefined;
 }
 
 function errorMessageFromUnknown(error: unknown): string {
@@ -154,11 +164,15 @@ export function DocumentEditorPage() {
     contentType?: string;
     initialContent?: JSONContent;
     feedbackQueued?: boolean;
+    docxParseWarning?: string;
   } | null;
 
   const routerInitialContent = state?.initialContent;
   const [currentContent, setCurrentContent] = useState<JSONContent>(
     routerInitialContent ?? EMPTY_EDITOR_CONTENT,
+  );
+  const [docxParseWarning, setDocxParseWarning] = useState<string | undefined>(
+    () => state?.docxParseWarning,
   );
 
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -280,7 +294,8 @@ export function DocumentEditorPage() {
     mutationFn: async (file: File) => {
       const isDocx = file.name.toLowerCase().endsWith('.docx');
       // DOCX: client TipTap. PDF: server LiteParse is source of truth (1C).
-      const tipTap = isDocx ? await parseDocxUploadToTipTap(file) : undefined;
+      const parsed = isDocx ? await parseDocxUploadToTipTap(file) : {};
+      const tipTap = parsed.content;
       const { uploadUrl, key } = await getPresignedUrl(
         apiClient,
         file.name,
@@ -299,14 +314,16 @@ export function DocumentEditorPage() {
       const cleaned = tipTap
         ? asTipTapDoc(stripAiMarksFromTipTapContent(tipTap))
         : undefined;
-      return createDraftFromSource(
+      const draft = await createDraftFromSource(
         apiClient,
         envId,
         { kind: 'file', key },
         cleaned,
       );
+      return { draft, docxParseWarning: parsed.warning };
     },
-    onSuccess: (draft) => {
+    onSuccess: ({ draft, docxParseWarning: warning }) => {
+      setDocxParseWarning(warning);
       if (isTipTapDoc(draft.content)) {
         setCurrentContent(draft.content as JSONContent);
       }
@@ -494,7 +511,7 @@ export function DocumentEditorPage() {
               title={
                 resubmitDraftMutation.isError
                   ? errorMessageFromUnknown(resubmitDraftMutation.error)
-                  : 'Upload a revised draft (.docx preferred for formatting; PDF is best-effort)'
+                  : 'Upload a revised draft (.docx preferred — fonts, colors, alignment, and images round-trip; PDF is best-effort)'
               }
               aria-label={
                 resubmitDraftMutation.isPending ? 'Uploading new draft' : 'Upload new draft'
@@ -613,6 +630,23 @@ export function DocumentEditorPage() {
 
         {/* Editor — toolbar chrome fixed; only the page scrolls */}
         <main className="flex min-h-0 flex-1 flex-col bg-surface-muted/50">
+          {docxParseWarning && (
+            <div
+              role="status"
+              className="flex items-start justify-between gap-md border-b border-signal-caution/40 bg-signal-caution/10 px-lg py-sm"
+            >
+              <p className="text-bodySmall text-text-primary leading-relaxed">
+                {docxParseWarning}
+              </p>
+              <button
+                type="button"
+                className="shrink-0 text-caption font-sans font-medium text-text-secondary underline-offset-2 hover:underline"
+                onClick={() => setDocxParseWarning(undefined)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           {!editorReady ? (
             <p role="status" className="p-lg text-bodySmall text-text-secondary">
               Loading document…
