@@ -4,7 +4,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Download,
   GripVertical,
-  House,
+  ListTree,
   MessageSquare,
   PanelLeftClose,
   Sparkles,
@@ -389,7 +389,7 @@ export function DocumentEditorPage() {
     label: string;
     icon: ComponentType<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean | 'true' }>;
   }> = [
-    { id: 'home', label: 'Home', icon: House },
+    { id: 'home', label: 'Contents', icon: ListTree },
     { id: 'chat', label: appConfig.appName, icon: MessageSquare },
     { id: 'debrief', label: 'AI Debrief', icon: Sparkles },
   ];
@@ -539,19 +539,7 @@ export function DocumentEditorPage() {
               className={activeNav === 'home' ? 'flex h-full min-h-0 flex-col' : 'hidden'}
               hidden={activeNav !== 'home'}
             >
-              <HomeSidePanel
-                draftVersion={draftVersion}
-                wordCount={wordCount}
-                anchors={tocAnchors}
-                onOpenDebrief={() => handleNavChange('debrief')}
-                onUpload={handleResubmitClick}
-                uploadPending={resubmitDraftMutation.isPending}
-                errorMessage={
-                  resubmitDraftMutation.isError
-                    ? errorMessageFromUnknown(resubmitDraftMutation.error)
-                    : undefined
-                }
-              />
+              <HomeSidePanel anchors={tocAnchors} />
             </div>
 
             <div
