@@ -58,7 +58,7 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
       return await wrapHandler(() => handleGetMe(event));
     }
     if (resource === '/v1/departments' && httpMethod === 'GET') {
-      return await wrapHandler(() => handleListDepartments());
+      return await wrapHandler(() => handleListDepartments(event));
     }
     if (resource === '/v1/departments' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDepartment(event));
@@ -173,29 +173,41 @@ async function handleGetMe(event: any): Promise<APIGatewayProxyResult> {
   };
 }
 
-async function handleListDepartments(): Promise<APIGatewayProxyResult> {
+async function handleListDepartments(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const departments = await listDepartments(db);
+  // The department `prompt` field is a TechnicalAdmin-authored system instruction
+  // injected into Bedrock prompts. Strip it for non-TechnicalAdmin callers so that
+  // DeptAdmins and Students cannot enumerate another department's prompt content.
+  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
+  const sanitized = departments.map((d: any) =>
+    isTechAdmin ? d : { ...d, prompt: undefined },
+  );
   return {
     statusCode: 200,
-    body: JSON.stringify(departments),
+    body: JSON.stringify(sanitized),
   };
 }
 
 async function handleGetDepartment(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
   const department = await getDepartment(departmentId, db);
   if (!department) {
     throw Object.assign(new Error('Department not found'), { statusCode: 404 });
   }
+  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
+  const response = isTechAdmin ? department : { ...department, prompt: undefined };
   return {
     statusCode: 200,
-    body: JSON.stringify(department),
+    body: JSON.stringify(response),
   };
 }
 
 async function handleListDocumentTypes(event: any): Promise<APIGatewayProxyResult> {
+  parseAuthContext(event); // ensure the request is authenticated before returning catalog data
   const db = await getDataAccess();
   const { departmentId } = event.queryStringParameters || {};
   const types = departmentId
@@ -218,6 +230,7 @@ async function handleListMyAccessGrants(event: any): Promise<APIGatewayProxyResu
 }
 
 async function handleListContentTypes(event: any): Promise<APIGatewayProxyResult> {
+  parseAuthContext(event); // ensure the request is authenticated before returning catalog data
   const db = await getDataAccess();
   const { documentTypeId } = event.pathParameters || {};
   const contentTypes = await listContentTypes(documentTypeId, db);
@@ -531,12 +544,38 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
 }
 
 async function handleListErrorCategories(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { documentTypeId } = event.pathParameters || {};
   const categories = await listErrorCategories(documentTypeId, db);
+  // internalGuidance is a Feedback Engine prompt-assembly detection aid that
+  // MUST NEVER be surfaced to Students (REQ-TAXONOMY-01 / Requirement 15.4).
+  // Only TechnicalAdmins and DeptAdmins who administer this document type's
+  // department receive the full DTO; all other callers get name+id only.
+  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
+  const isDeptAdminForType =
+    !isTechAdmin &&
+    actor.administeredDepartmentIds?.length > 0 &&
+    categories.length > 0;
+
+  let canSeeGuidance = isTechAdmin;
+  if (!canSeeGuidance && isDeptAdminForType) {
+    // Verify this actor administers the department that owns this document type.
+    const deptRows = await db.query<{ department_id: string }>(
+      'SELECT department_id FROM document_type WHERE id = $1',
+      [documentTypeId],
+    );
+    const owningDeptId = deptRows[0]?.department_id;
+    canSeeGuidance = !!owningDeptId && (actor.administeredDepartmentIds ?? []).includes(owningDeptId);
+  }
+
+  const response = canSeeGuidance
+    ? categories
+    : categories.map(({ internalGuidance: _stripped, ...safe }: any) => safe);
+
   return {
     statusCode: 200,
-    body: JSON.stringify(categories),
+    body: JSON.stringify(response),
   };
 }
 

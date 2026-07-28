@@ -1,6 +1,7 @@
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import type { AuthContext } from '@wren/types';
-import { AuthorizationError, NotFoundError, UsageLimitReachedError } from './errors';
+import { AuthorizationError, NotFoundError, PromptInjectionError, UsageLimitReachedError } from './errors';
+import { PromptGuardrailError } from './promptGuardrail';
 
 /** CORS headers required on aws_proxy Lambda responses (API Gateway does not add them). */
 export const CORS_HEADERS: Record<string, string> = {
@@ -55,6 +56,18 @@ export async function wrapHandler(
       return withCors({
         statusCode: 429,
         body: JSON.stringify({ code: e.code, message: e.message }),
+      });
+    }
+    if (e instanceof PromptInjectionError) {
+      return withCors({
+        statusCode: 400,
+        body: JSON.stringify({ code: e.code, message: e.message }),
+      });
+    }
+    if (e instanceof PromptGuardrailError) {
+      return withCors({
+        statusCode: 400,
+        body: JSON.stringify({ code: 'GHOSTWRITING_DETECTED', message: e.message }),
       });
     }
     if (e instanceof SyntaxError || (e as any)?.statusCode === 400) {

@@ -37,3 +37,13 @@ export class UsageLimitReachedError extends Error {
     this.name = 'UsageLimitReachedError';
   }
 }
+
+/** Thrown when Bedrock Guardrails detects prompt injection in admin-submitted text. */
+export class PromptInjectionError extends Error {
+  public readonly code = 'PROMPT_INJECTION_DETECTED' as const;
+
+  public constructor(message: string) {
+    super(message);
+    this.name = 'PromptInjectionError';
+  }
+}

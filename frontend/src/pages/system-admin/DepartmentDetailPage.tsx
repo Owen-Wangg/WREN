@@ -1,4 +1,16 @@
 import { useState, useEffect } from 'react';
+
+/** Extracts a user-facing message from an API error response when available. */
+function getServerErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object' && 'details' in error) {
+    const details = (error as { details?: unknown }).details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+  }
+  return fallback;
+}
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
@@ -494,7 +506,12 @@ export function DepartmentDetailPage() {
                     <span className="text-green-600 font-semibold text-sm">Saved successfully!</span>
                   )}
                   {promptMutation.isError && (
-                    <span className="text-red-600 font-semibold text-sm">Error saving prompt</span>
+                    <p role="alert" className="text-sm font-medium text-red-600">
+                      {getServerErrorMessage(
+                        promptMutation.error,
+                        'Error saving prompt — please try again.',
+                      )}
+                    </p>
                   )}
                 </div>
               </div>

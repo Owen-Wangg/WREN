@@ -1316,7 +1316,22 @@ def process_feedback_request(
                 logger.warning(f"Resolution thread error: {resolution_errors[0]}")
             return
 
-        # Step 7b: Filter feedback items by category_priority (dept admin selection)
+        # Step 7b: Validate category IDs against this document type's taxonomy and
+        # apply the dept admin's priority selection on top.
+        # The taxonomy check runs unconditionally — it closes the gap where a model
+        # hallucination or prompt injection could return a UUID from a different
+        # department's taxonomy and have it silently inserted.
+        valid_category_ids = set(doc_type_meta.get('category_ids', []))
+        if valid_category_ids:
+            before_taxonomy = len(feedback_items)
+            feedback_items = [
+                item for item in feedback_items
+                if item.get('error_category_id') in valid_category_ids
+            ]
+            dropped = before_taxonomy - len(feedback_items)
+            if dropped > 0:
+                logger.warning(f"Dropped {dropped} feedback items with category IDs outside this document type's taxonomy")
+
         category_priority = config.get('category_priority', [])
         if category_priority:
             original_count = len(feedback_items)

@@ -36,6 +36,8 @@ export interface ComputeStackProps extends StackProps {
   readonly userPoolId: string;
   /** Cognito User Pool Client ID (from Cognito stack). */
   readonly userPoolClientId: string;
+  /** Bedrock Guardrail ID for admin prompt injection detection. */
+  readonly promptGuardrailId: string;
 }
 
 /**
@@ -162,6 +164,8 @@ export class ComputeStack extends Stack {
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         COGNITO_USER_POOL_ID: props.userPoolId,
+        PROMPT_GUARDRAIL_ID: props.promptGuardrailId,
+        PROMPT_GUARDRAIL_VERSION: "DRAFT",
       },
       bundling: sharedBundling,
     });
@@ -337,6 +341,14 @@ export class ComputeStack extends Stack {
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles"],
       resources: ["*"],
+    }));
+
+    // Admin Lambda: ApplyGuardrail for prompt injection detection on admin saves.
+    this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["bedrock:ApplyGuardrail"],
+      resources: [
+        `arn:aws:bedrock:${this.region}:${this.account}:guardrail/*`,
+      ],
     }));
 
     // Feedback Engine: Bedrock invoke (scoped to account, model-agnostic for cross-region inference).

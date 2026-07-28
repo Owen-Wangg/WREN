@@ -35,6 +35,7 @@ import {
 import { requireCapability } from './capabilityGuard';
 import type { QueryExecutor } from './db';
 import { NotFoundError } from './errors';
+import { assertPromptInjectionFree } from './promptGuardrail';
 
 /** Raw `department` row (snake_case columns from PostgreSQL). */
 interface DepartmentRow {
@@ -159,6 +160,11 @@ export async function updateDepartmentPrompt(
   }
 
   const { prompt } = updateDepartmentPromptInputSchema.parse(input);
+
+  // Prompt injection check — runs before DB write (deny-with-no-mutation).
+  if (prompt) {
+    await assertPromptInjectionFree(prompt);
+  }
 
   const rows = await db.query<DepartmentRow>(
     `UPDATE department SET prompt = $2 WHERE id = $1 RETURNING ${RETURNING}`,
