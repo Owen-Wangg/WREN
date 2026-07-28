@@ -1,9 +1,9 @@
 /**
  * Convert LiteParse spatial text items into TipTap JSONContent (Scope B+).
  *
- * Heuristics (4A): Y-gap paragraphs, font-name marks, font-size headings,
- * non-heading fontSize textStyle marks, x-based indent, nested lists,
- * aligned multi-column rows → simple tables.
+ * Heuristics (4A): soft-wrap paragraph merging, font-name marks, font-size +
+ * style headings, non-heading fontSize textStyle marks, x-based indent,
+ * nested lists, column-clustered tables with cell marks.
  */
 import type { TipTapDoc, TipTapNode } from '@wren/types';
 
@@ -26,6 +26,7 @@ type LineRun = {
   bold: boolean;
   italic: boolean;
   x: number;
+  width: number;
   fontSize: number;
 };
 
@@ -37,11 +38,22 @@ type Line = {
   minX: number;
 };
 
+/** One logical table row: cells as rich runs (not flattened strings). */
+type TableRowCells = LineRun[][];
+
 const MAX_INDENT_LEVEL = 8;
 /** Horizontal gap (PDF units) ≈ one indent / list nest step. */
 const INDENT_GAP_PX = 28;
 /** Attach fontSize mark when run differs from body median by this ratio. */
 const FONT_SIZE_MARK_RATIO = 1.12;
+/** Soft-wrap: max vertical gap between lines of the same paragraph (× median size). */
+const SOFT_WRAP_GAP_RATIO = 1.85;
+/** Paragraph break: gap larger than this (× median size) always starts a new block. */
+const PARAGRAPH_BREAK_GAP_RATIO = 2.4;
+/** Column split: gap after a run's right edge (PDF units). */
+const MIN_COLUMN_GAP_PX = 28;
+/** Cluster run X positions into the same column within this tolerance. */
+const COLUMN_X_CLUSTER_PX = 18;
 
 function fontFlags(fontName: string | undefined): { bold: boolean; italic: boolean } {
   const name = (fontName ?? '').toLowerCase();
@@ -80,6 +92,15 @@ function runsToTextNodes(
     });
 }
 
+function stripTextStyleMarks(nodes: TipTapNode[]): TipTapNode[] | undefined {
+  if (nodes.length === 0) return undefined;
+  return nodes.map((n) => {
+    if (!n.marks) return n;
+    const marks = n.marks.filter((m) => m.type !== 'textStyle');
+    return marks.length > 0 ? { ...n, marks } : { type: n.type, text: n.text };
+  });
+}
+
 function itemsToLines(items: SpatialTextItem[]): Line[] {
   const sorted = [...items]
     .filter((i) => i.text.trim().length > 0)
@@ -96,6 +117,7 @@ function itemsToLines(items: SpatialTextItem[]): Line[] {
       bold: flags.bold,
       italic: flags.italic,
       x: item.x,
+      width: item.width > 0 ? item.width : Math.max(1, item.text.length * fontSize * 0.5),
       fontSize,
     };
 
@@ -135,6 +157,63 @@ function lineIndentLevel(line: Line, baselineX: number): number {
   const delta = line.minX - baselineX;
   if (delta < INDENT_GAP_PX * 0.6) return 0;
   return Math.min(MAX_INDENT_LEVEL, Math.max(0, Math.round(delta / INDENT_GAP_PX)));
+}
+
+function wordCount(text: string): number {
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+function lineBoldRatio(line: Line): number {
+  const total = line.runs.reduce((n, r) => n + r.text.length, 0);
+  if (total === 0) return 0;
+  const bold = line.runs.reduce((n, r) => n + (r.bold ? r.text.length : 0), 0);
+  return bold / total;
+}
+
+function isAllCapsHeadingText(text: string): boolean {
+  const letters = text.replace(/[^A-Za-z]/g, '');
+  if (letters.length < 3) return false;
+  return letters === letters.toUpperCase();
+}
+
+/**
+ * Heading level 1–3, or null for body. Size ratios first; then short bold /
+ * ALL CAPS lines when the PDF uses a flat type size.
+ */
+function headingLevelForLine(line: Line, medianFontSize: number): number | null {
+  if (isListLine(line)) return null;
+
+  const text = line.text.trim();
+  if (text.length === 0) return null;
+
+  if (line.maxFontSize >= medianFontSize * 1.35) {
+    if (line.maxFontSize >= medianFontSize * 1.8) return 1;
+    if (line.maxFontSize >= medianFontSize * 1.5) return 2;
+    return 3;
+  }
+
+  // Flat-size PDFs: short, non-sentence lines that are mostly bold or ALL CAPS.
+  const words = wordCount(text);
+  const short = text.length <= 90 && words <= 12 && !/[.!?].*\s/.test(text);
+  if (!short) return null;
+
+  const boldHeavy = lineBoldRatio(line) >= 0.75;
+  const caps = isAllCapsHeadingText(text);
+  if (!boldHeavy && !caps) return null;
+
+  // Avoid promoting long bold body lead-ins.
+  if (words > 10 && !caps) return null;
+
+  if (caps && (boldHeavy || words <= 8)) {
+    return line.maxFontSize >= medianFontSize * 1.1 ? 1 : 2;
+  }
+  if (boldHeavy) {
+    return line.maxFontSize >= medianFontSize * 1.12 ? 2 : 3;
+  }
+  return null;
 }
 
 function listItemNode(
@@ -221,57 +300,238 @@ function consumeNestedList(
   };
 }
 
-function splitColumns(line: Line): string[] {
-  if (line.runs.length >= 2) {
-    const sorted = [...line.runs].sort((a, b) => a.x - b.x);
-    const gaps: number[] = [];
+/** Gap from previous run's right edge to this run's left. */
+function runGap(prev: LineRun, next: LineRun): number {
+  return next.x - (prev.x + prev.width);
+}
+
+/**
+ * Split a line into column cells by large gaps after run widths.
+ * Falls back to 2+ space splits when runs are glued into one item.
+ */
+function splitColumnRuns(line: Line): LineRun[][] {
+  const sorted = [...line.runs].sort((a, b) => a.x - b.x);
+  if (sorted.length >= 2) {
+    const cells: LineRun[][] = [[sorted[0]!]];
     for (let i = 1; i < sorted.length; i++) {
-      gaps.push(sorted[i]!.x - sorted[i - 1]!.x);
+      const prev = sorted[i - 1]!;
+      const cur = sorted[i]!;
+      const gap = runGap(prev, cur);
+      const threshold = Math.max(MIN_COLUMN_GAP_PX, prev.fontSize * 1.6);
+      if (gap > threshold) {
+        cells.push([cur]);
+      } else {
+        cells[cells.length - 1]!.push(cur);
+      }
     }
-    // Absolute gap threshold — relative-to-median fails when only one large gap exists.
-    if (gaps.some((g) => g > 40)) {
-      return sorted.map((r) => r.text.trim()).filter(Boolean);
+    if (cells.length >= 2) return cells;
+  }
+
+  const parts = line.text.split(/\s{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return [];
+  // Single-run fallback: approximate cells as plain runs (no per-cell marks).
+  return parts.map((text, idx) => [
+    {
+      text,
+      bold: false,
+      italic: false,
+      x: line.minX + idx * 50,
+      width: Math.max(1, text.length * 6),
+      fontSize: line.maxFontSize,
+    },
+  ]);
+}
+
+function clusterXs(xs: number[]): number[] {
+  if (xs.length === 0) return [];
+  const sorted = [...xs].sort((a, b) => a - b);
+  const clusters: number[][] = [[sorted[0]!]];
+  for (let i = 1; i < sorted.length; i++) {
+    const x = sorted[i]!;
+    const cluster = clusters[clusters.length - 1]!;
+    const centroid = cluster.reduce((a, b) => a + b, 0) / cluster.length;
+    if (Math.abs(x - centroid) <= COLUMN_X_CLUSTER_PX) {
+      cluster.push(x);
+    } else {
+      clusters.push([x]);
     }
   }
-  const parts = line.text.split(/\s{2,}/).map((p) => p.trim()).filter(Boolean);
-  return parts.length >= 2 ? parts : [];
+  return clusters.map((c) => c.reduce((a, b) => a + b, 0) / c.length);
+}
+
+function assignRunsToColumns(line: Line, columnXs: number[]): LineRun[][] {
+  const cells: LineRun[][] = columnXs.map(() => []);
+  const sorted = [...line.runs].sort((a, b) => a.x - b.x);
+  for (const run of sorted) {
+    let best = 0;
+    let bestDist = Infinity;
+    for (let c = 0; c < columnXs.length; c++) {
+      const d = Math.abs(run.x - columnXs[c]!);
+      if (d < bestDist) {
+        bestDist = d;
+        best = c;
+      }
+    }
+    cells[best]!.push(run);
+  }
+  return cells;
 }
 
 function tryTableBlock(
   lines: Line[],
   start: number,
+  medianFontSize: number,
 ): { table: TipTapNode; end: number } | null {
-  const firstCols = splitColumns(lines[start]!);
-  if (firstCols.length < 2) return null;
+  const firstCells = splitColumnRuns(lines[start]!);
+  if (firstCells.length < 2) return null;
 
-  const rows: string[][] = [firstCols];
+  // Gather a window of multi-column rows (allow slight column-count jitter).
+  const rawRows: Line[] = [lines[start]!];
   let i = start + 1;
   while (i < lines.length) {
-    const cols = splitColumns(lines[i]!);
-    if (cols.length !== firstCols.length) break;
-    rows.push(cols);
+    const cols = splitColumnRuns(lines[i]!);
+    if (cols.length < 2) break;
+    // Stop if column count diverges wildly (not the same table).
+    if (Math.abs(cols.length - firstCells.length) > 1) break;
+    rawRows.push(lines[i]!);
     i += 1;
   }
-  if (rows.length < 2) return null;
+  if (rawRows.length < 2) return null;
+
+  const allXs = rawRows.flatMap((row) =>
+    splitColumnRuns(row).map((cell) => cell[0]?.x ?? row.minX),
+  );
+  const columnXs = clusterXs(allXs);
+  if (columnXs.length < 2) return null;
+
+  const rows: TableRowCells[] = rawRows.map((row) => assignRunsToColumns(row, columnXs));
 
   return {
     end: i,
     table: {
       type: 'table',
-      content: rows.map((cols, rowIndex) => ({
+      content: rows.map((cells, rowIndex) => ({
         type: 'tableRow',
-        content: cols.map((text) => ({
-          type: rowIndex === 0 ? 'tableHeader' : 'tableCell',
-          content: [
-            {
-              type: 'paragraph',
-              content: text ? [{ type: 'text', text }] : undefined,
-            },
-          ],
-        })),
+        content: cells.map((cellRuns) => {
+          const joined =
+            cellRuns.length > 0
+              ? cellRuns
+              : [
+                  {
+                    text: '',
+                    bold: false,
+                    italic: false,
+                    x: 0,
+                    width: 0,
+                    fontSize: medianFontSize,
+                  },
+                ];
+          const content = runsToTextNodes(joined, medianFontSize, false);
+          return {
+            type: rowIndex === 0 ? 'tableHeader' : 'tableCell',
+            content: [
+              {
+                type: 'paragraph',
+                content: content.length > 0 ? content : undefined,
+              },
+            ],
+          };
+        }),
       })),
     },
   };
+}
+
+function endsWithHyphen(text: string): boolean {
+  return /[A-Za-z]-$/.test(text.trimEnd());
+}
+
+function endsSentence(text: string): boolean {
+  return /[.!?]["')\]]*$/.test(text.trimEnd());
+}
+
+/**
+ * True when `next` continues `prev` as a soft-wrapped paragraph line.
+ */
+function shouldMergeSoftWrap(
+  prev: Line,
+  next: Line,
+  medianFontSize: number,
+  baselineX: number,
+): boolean {
+  if (isListLine(prev) || isListLine(next)) return false;
+  if (headingLevelForLine(prev, medianFontSize) != null) return false;
+  if (headingLevelForLine(next, medianFontSize) != null) return false;
+  if (splitColumnRuns(prev).length >= 2 || splitColumnRuns(next).length >= 2) return false;
+
+  if (lineIndentLevel(prev, baselineX) !== lineIndentLevel(next, baselineX)) return false;
+  if (Math.abs(prev.minX - next.minX) > INDENT_GAP_PX * 0.55) return false;
+
+  // Similar body size — don't glue a caption onto body.
+  if (
+    medianFontSize > 0 &&
+    Math.abs(prev.maxFontSize - next.maxFontSize) / medianFontSize > 0.25
+  ) {
+    return false;
+  }
+
+  const gap = next.y - prev.y;
+  if (gap <= 0) return false;
+  if (gap > medianFontSize * PARAGRAPH_BREAK_GAP_RATIO) return false;
+  if (gap > medianFontSize * SOFT_WRAP_GAP_RATIO && endsSentence(prev.text)) return false;
+
+  if (endsWithHyphen(prev.text)) return true;
+  if (!endsSentence(prev.text)) return true;
+
+  // Sentence ended but lines are still tightly stacked — treat as wrap only
+  // when the previous line looks truncated (no trailing space density check;
+  // rely on tight gap).
+  return gap <= medianFontSize * 1.35;
+}
+
+function trimTrailingHyphen(runs: LineRun[]): LineRun[] {
+  if (runs.length === 0) return runs;
+  const out = runs.map((r) => ({ ...r }));
+  const last = out[out.length - 1]!;
+  last.text = last.text.replace(/([A-Za-z])-$/, '$1');
+  return out;
+}
+
+function mergeSoftWrappedLines(
+  lines: Line[],
+  medianFontSize: number,
+  baselineX: number,
+): Line[] {
+  const out: Line[] = [];
+  for (const line of lines) {
+    const prev = out[out.length - 1];
+    if (prev && shouldMergeSoftWrap(prev, line, medianFontSize, baselineX)) {
+      const hyphenated = endsWithHyphen(prev.text);
+      let prevRuns = hyphenated ? trimTrailingHyphen(prev.runs) : prev.runs.map((r) => ({ ...r }));
+      const nextRuns = line.runs.map((r) => ({ ...r }));
+
+      if (!hyphenated && nextRuns.length > 0) {
+        const first = nextRuns[0]!;
+        if (!first.text.startsWith(' ') && !prevRuns[prevRuns.length - 1]?.text.endsWith(' ')) {
+          nextRuns[0] = { ...first, text: ` ${first.text}` };
+        }
+      }
+
+      prev.runs = [...prevRuns, ...nextRuns];
+      prev.text = hyphenated
+        ? prev.text.trimEnd().replace(/([A-Za-z])-$/, '$1') + line.text.trimStart()
+        : `${prev.text.trimEnd()} ${line.text.trimStart()}`;
+      prev.maxFontSize = Math.max(prev.maxFontSize, line.maxFontSize);
+      prev.minX = Math.min(prev.minX, line.minX);
+      // Keep earliest y so table/list ordering stays stable.
+    } else {
+      out.push({
+        ...line,
+        runs: line.runs.map((r) => ({ ...r })),
+      });
+    }
+  }
+  return out;
 }
 
 function lineToBlock(
@@ -282,26 +542,13 @@ function lineToBlock(
   const content = runsToTextNodes(line.runs, medianFontSize, true);
   const indent = lineIndentLevel(line, baselineX);
   const indentAttrs = indent > 0 ? { indent } : {};
+  const level = headingLevelForLine(line, medianFontSize);
 
-  if (line.maxFontSize >= medianFontSize * 1.35) {
-    const level =
-      line.maxFontSize >= medianFontSize * 1.8
-        ? 1
-        : line.maxFontSize >= medianFontSize * 1.5
-          ? 2
-          : 3;
+  if (level != null) {
     return {
       type: 'heading',
       attrs: { level, ...indentAttrs },
-      // Headings already convey size — skip redundant textStyle size marks.
-      content:
-        content.length > 0
-          ? content.map((n) => {
-              if (!n.marks) return n;
-              const marks = n.marks.filter((m) => m.type !== 'textStyle');
-              return marks.length > 0 ? { ...n, marks } : { type: n.type, text: n.text };
-            })
-          : undefined,
+      content: stripTextStyleMarks(content),
     };
   }
 
@@ -338,22 +585,24 @@ function percentile(sorted: number[], p: number): number {
 /** Build a TipTap doc from LiteParse-style pages of spatial text items. */
 export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   const allItems = pages.flatMap((p) => p.textItems ?? []);
-  const lines = itemsToLines(allItems);
-  if (lines.length === 0) {
+  const rawLines = itemsToLines(allItems);
+  if (rawLines.length === 0) {
     return { type: 'doc', content: [{ type: 'paragraph' }] };
   }
 
-  const sizes = lines.map((l) => l.maxFontSize).sort((a, b) => a - b);
+  const sizes = rawLines.map((l) => l.maxFontSize).sort((a, b) => a - b);
   // Lower median so a single large title still counts as a heading vs body.
   const medianFontSize = sizes[Math.floor((sizes.length - 1) / 2)] ?? 12;
 
-  const minXs = lines.map((l) => l.minX).sort((a, b) => a - b);
+  const minXs = rawLines.map((l) => l.minX).sort((a, b) => a - b);
   const baselineX = percentile(minXs, 0.1);
+
+  const lines = mergeSoftWrappedLines(rawLines, medianFontSize, baselineX);
 
   const blocks: TipTapNode[] = [];
   let i = 0;
   while (i < lines.length) {
-    const table = tryTableBlock(lines, i);
+    const table = tryTableBlock(lines, i, medianFontSize);
     if (table) {
       blocks.push(table.table);
       i = table.end;

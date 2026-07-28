@@ -131,4 +131,141 @@ describe('spatialPagesToTipTap', () => {
     const blocks = doc.content as TipTapNode[] | undefined;
     expect(blocks?.[0]?.type).toBe('table');
   });
+
+  it('merges soft-wrapped body lines into one paragraph', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          {
+            text: 'This sentence continues on the',
+            x: 50,
+            y: 100,
+            width: 180,
+            height: 12,
+            fontSize: 12,
+          },
+          {
+            text: 'next line without a paragraph break.',
+            x: 50,
+            y: 116,
+            width: 200,
+            height: 12,
+            fontSize: 12,
+          },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = doc.content as TipTapNode[] | undefined;
+    expect(blocks).toHaveLength(1);
+    expect(blocks?.[0]?.type).toBe('paragraph');
+    const text = blocks?.[0]?.content?.map((n) => n.text ?? '').join('') ?? '';
+    expect(text).toContain('This sentence continues on the next line');
+  });
+
+  it('joins hyphenated line breaks without a space', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: 'environ-', x: 50, y: 100, width: 50, height: 12, fontSize: 12 },
+          { text: 'mentally', x: 50, y: 115, width: 60, height: 12, fontSize: 12 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = doc.content as TipTapNode[] | undefined;
+    const text = blocks?.[0]?.content?.map((n) => n.text ?? '').join('') ?? '';
+    expect(text).toBe('environmentally');
+  });
+
+  it('promotes short bold lines to headings when sizes are flat', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          {
+            text: 'Introduction',
+            x: 50,
+            y: 40,
+            width: 90,
+            height: 12,
+            fontSize: 12,
+            fontName: 'Helvetica-Bold',
+          },
+          {
+            text: 'Body copy that stays a paragraph because it is longer and not bold.',
+            x: 50,
+            y: 70,
+            width: 280,
+            height: 12,
+            fontSize: 12,
+            fontName: 'Helvetica',
+          },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = doc.content as TipTapNode[] | undefined;
+    expect(blocks?.[0]?.type).toBe('heading');
+    expect(blocks?.[0]?.attrs?.level).toBeGreaterThanOrEqual(2);
+    expect(blocks?.[1]?.type).toBe('paragraph');
+  });
+
+  it('promotes ALL CAPS short lines to headings', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: 'METHODS', x: 50, y: 40, width: 70, height: 11, fontSize: 11 },
+          {
+            text: 'We measured outcomes across three cohorts.',
+            x: 50,
+            y: 70,
+            width: 240,
+            height: 11,
+            fontSize: 11,
+          },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = doc.content as TipTapNode[] | undefined;
+    expect(blocks?.[0]?.type).toBe('heading');
+    expect(JSON.stringify(blocks?.[0])).toContain('METHODS');
+  });
+
+  it('preserves bold marks inside table header cells', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          {
+            text: 'Name',
+            x: 0,
+            y: 10,
+            width: 40,
+            height: 12,
+            fontSize: 12,
+            fontName: 'Helvetica-Bold',
+          },
+          {
+            text: 'Score',
+            x: 140,
+            y: 10,
+            width: 40,
+            height: 12,
+            fontSize: 12,
+            fontName: 'Helvetica-Bold',
+          },
+          { text: 'Ada', x: 0, y: 30, width: 30, height: 12, fontSize: 12, fontName: 'Helvetica' },
+          { text: '9', x: 140, y: 30, width: 20, height: 12, fontSize: 12, fontName: 'Helvetica' },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const table = (doc.content as TipTapNode[] | undefined)?.[0];
+    expect(table?.type).toBe('table');
+    const headerRow = table?.content?.[0];
+    const headerJson = JSON.stringify(headerRow);
+    expect(headerJson).toContain('"type":"bold"');
+    expect(headerJson).toContain('Name');
+    expect(headerJson).toContain('Score');
+  });
 });
