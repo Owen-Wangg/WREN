@@ -28,6 +28,60 @@ interface EditingUser {
 const ASSIGNABLE_ROLES = ['Student', 'DepartmentAdmin', 'TechnicalAdmin'] as const;
 type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
+interface DepartmentPromptFields {
+  context: string;
+  standards: string;
+  restricted: string;
+}
+
+const SECTION_MARKERS = {
+  context: '[Department Context]',
+  standards: '[Writing Standards]',
+  restricted: '[Restricted Topics]',
+} as const;
+
+function parseDepartmentPrompt(raw: string): DepartmentPromptFields {
+  const fields: DepartmentPromptFields = { context: '', standards: '', restricted: '' };
+  if (!raw) return fields;
+
+  const hasMarkers = Object.values(SECTION_MARKERS).some((m) => raw.includes(m));
+  if (!hasMarkers) {
+    fields.context = raw.trim();
+    return fields;
+  }
+
+  function extractSection(marker: string): string {
+    const idx = raw.indexOf(marker);
+    if (idx === -1) return '';
+    const start = idx + marker.length;
+    const nextMarkerPositions = Object.values(SECTION_MARKERS)
+      .filter((m) => m !== marker)
+      .map((m) => raw.indexOf(m, start))
+      .filter((i) => i !== -1);
+    const end = nextMarkerPositions.length > 0 ? Math.min(...nextMarkerPositions) : raw.length;
+    return raw.slice(start, end).trim();
+  }
+
+  fields.context = extractSection(SECTION_MARKERS.context);
+  fields.standards = extractSection(SECTION_MARKERS.standards);
+  fields.restricted = extractSection(SECTION_MARKERS.restricted);
+  return fields;
+}
+
+function serializeDepartmentPrompt(fields: DepartmentPromptFields): string {
+  const parts: string[] = [];
+  if (fields.context.trim()) {
+    parts.push(`${SECTION_MARKERS.context}\n${fields.context.trim()}`);
+  }
+  if (fields.standards.trim()) {
+    parts.push(`${SECTION_MARKERS.standards}\n${fields.standards.trim()}`);
+  }
+  if (fields.restricted.trim()) {
+    parts.push(`${SECTION_MARKERS.restricted}\n${fields.restricted.trim()}`);
+  }
+  return parts.join('\n\n');
+}
+
 export function DepartmentDetailPage() {
   const { departmentId } = useParams();
   const navigate = useNavigate();
@@ -103,10 +157,20 @@ export function DepartmentDetailPage() {
     },
   });
 
-  const [promptText, setPromptText] = useState('');
+  const [promptFields, setPromptFields] = useState({
+    context: '',
+    standards: '',
+    restricted: '',
+  });
+  const [promptInitialized, setPromptInitialized] = useState(false);
+
   useEffect(() => {
-    setPromptText((department as any)?.prompt ?? '');
-  }, [(department as any)?.prompt]);
+    if (promptInitialized) return;
+    const raw = (department as any)?.prompt;
+    if (raw === undefined) return;
+    setPromptFields(parseDepartmentPrompt(raw ?? ''));
+    setPromptInitialized(true);
+  }, [(department as any)?.prompt, promptInitialized]);
 
   const promptMutation = useMutation({
     mutationFn: (text: string) =>
@@ -362,31 +426,69 @@ export function DepartmentDetailPage() {
             <div>
               <h2 className="mb-6 text-3xl font-bold text-gray-900">Department Prompt</h2>
 
-              <div className="rounded-lg border border-gray-200 bg-white p-8 max-w-4xl">
-                <p className="mb-4 text-sm text-gray-600">
-                  Instructions applicable across all document types for this department. Include information about no ghostwriting rules, guardrails, model output format, etc. Do not include any specific guidance which will differ with document types.
+              <div className="rounded-lg border border-gray-200 bg-white p-8 max-w-4xl space-y-6">
+                <p className="text-sm text-gray-600">
+                  Provide department-specific context that applies across all document types.
                 </p>
 
-                <textarea
-                  value={promptText}
-                  onChange={(e) => setPromptText(e.target.value)}
-                  placeholder="Prompt goes here..."
-                  className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 mb-4 font-mono text-sm"
-                />
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900 mb-1">
+                    Department Context
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Who are the writers? What discipline or program does this department serve?
+                  </p>
+                  <textarea
+                    value={promptFields.context}
+                    onChange={(e) => setPromptFields((f) => ({ ...f, context: e.target.value }))}
+                    placeholder="e.g. Law students in the Faculty of Law writing legal memoranda and case briefs"
+                    className="w-full h-24 p-3 border border-gray-300 rounded-lg focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 text-sm"
+                  />
+                </div>
 
-                <div className="flex items-center gap-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900 mb-1">
+                    Writing Standards
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Department-specific writing expectations (citation style, register, formatting rules).
+                  </p>
+                  <textarea
+                    value={promptFields.standards}
+                    onChange={(e) => setPromptFields((f) => ({ ...f, standards: e.target.value }))}
+                    placeholder="e.g. Canadian Guide to Uniform Legal Citation (McGill Guide). Formal register. IRAC structure for legal analysis."
+                    className="w-full h-24 p-3 border border-gray-300 rounded-lg focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900 mb-1">
+                    Restricted Topics
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    What should feedback NOT address? Topics that are out of scope for this department.
+                  </p>
+                  <textarea
+                    value={promptFields.restricted}
+                    onChange={(e) => setPromptFields((f) => ({ ...f, restricted: e.target.value }))}
+                    placeholder="e.g. Do not comment on the merits of legal arguments or provide case law recommendations"
+                    className="w-full h-24 p-3 border border-gray-300 rounded-lg focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 text-sm"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
                   <button
-                    onClick={() => promptMutation.mutate(promptText)}
+                    onClick={() => promptMutation.mutate(serializeDepartmentPrompt(promptFields))}
                     disabled={promptMutation.isPending}
                     className="rounded-lg bg-gray-900 px-6 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {promptMutation.isPending ? 'Saving...' : 'Save Prompt'}
                   </button>
                   <button
-                    onClick={() => setPromptText('')}
+                    onClick={() => setPromptFields({ context: '', standards: '', restricted: '' })}
                     className="rounded-lg border border-gray-300 px-6 py-2 font-semibold text-gray-900 hover:bg-gray-50"
                   >
-                    Clear Prompt
+                    Clear All
                   </button>
                   {promptMutation.isSuccess && (
                     <span className="text-green-600 font-semibold text-sm">Saved successfully!</span>
