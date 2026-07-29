@@ -177,11 +177,13 @@ export function NewDocumentPage() {
               <option value="" disabled>
                 Select department
               </option>
-              {organizations.map((org) => (
-                <option key={org.id} value={org.id}>
-                  {org.name}
-                </option>
-              ))}
+              {organizations
+                .filter((org) => org.name !== 'Test Department')
+                .map((org) => (
+                  <option key={org.id} value={org.id}>
+                    {org.name}
+                  </option>
+                ))}
             </select>
           )}
         </div>
