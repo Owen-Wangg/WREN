@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Download,
@@ -18,6 +18,7 @@ import {
   ChatFeedbackSidebar,
   type DocumentNavMode,
 } from '@/components/ChatFeedbackSidebar';
+import { StudentTopBar } from '@/components/StudentTopBar';
 import { appConfig } from '@/config/env';
 import {
   fetchDocument,
@@ -131,7 +132,6 @@ function readStoredNavMode(): DocumentNavMode {
 
 export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
-  const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
 
@@ -471,6 +471,13 @@ export function DocumentEditorPage() {
   };
 
   const wordCount = wordCountFromEditorContent(currentContent);
+  const documentMeta = [
+    breadcrumb !== 'Document' ? breadcrumb : null,
+    `Draft v${draftVersion}`,
+    `${wordCount.toLocaleString()} words`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   const railItems: Array<{
     id: DocumentNavMode;
@@ -492,30 +499,7 @@ export function DocumentEditorPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/40">
-      {/* Top bar — document name lives here so the draft stays the visual hero */}
-      <div className="flex shrink-0 items-center gap-md border-b border-border-subtle bg-surface-primary px-xl py-xs">
-        <div className="flex min-w-0 items-center gap-md">
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard')}
-            className="shrink-0 text-bodySmall font-sans text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-strong"
-          >
-            <span aria-hidden="true">&larr;</span> Dashboard
-          </button>
-          <span aria-hidden="true" className="text-border-subtle">
-            /
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-bodySmall font-sans font-semibold text-text-primary">
-              {documentName}
-            </p>
-            <p className="truncate text-caption text-text-muted">
-              {breadcrumb !== 'Document' ? `${breadcrumb} · ` : ''}
-              Draft v{draftVersion} · {wordCount.toLocaleString()} words
-            </p>
-          </div>
-        </div>
-      </div>
+      <StudentTopBar />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Icon nav — ~44px hit targets, caption labels */}
@@ -633,7 +617,11 @@ export function DocumentEditorPage() {
               className={activeNav === 'home' ? 'flex h-full min-h-0 flex-col' : 'hidden'}
               hidden={activeNav !== 'home'}
             >
-              <HomeSidePanel anchors={tocAnchors} />
+              <HomeSidePanel
+                anchors={tocAnchors}
+                documentTitle={documentName}
+                documentMeta={documentMeta}
+              />
             </div>
 
             <div
