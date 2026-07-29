@@ -47,3 +47,22 @@ export const confirmationSchema = z.object({
 });
 
 export type ConfirmationFormValues = z.infer<typeof confirmationSchema>;
+
+export const forgotPasswordEmailSchema = z.object({
+  email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
+});
+
+export type ForgotPasswordEmailValues = z.infer<typeof forgotPasswordEmailSchema>;
+
+export const resetPasswordSchema = z
+  .object({
+    code: z.string().min(1, 'Reset code is required.').regex(/^\d{6}$/, 'Code must be 6 digits.'),
+    password: passwordSchema,
+    confirmPassword: z.string().min(1, 'Confirm your password.'),
+  })
+  .refine((values) => values.password === values.confirmPassword, {
+    message: 'Passwords do not match.',
+    path: ['confirmPassword'],
+  });
+
+export type ResetPasswordValues = z.infer<typeof resetPasswordSchema>;

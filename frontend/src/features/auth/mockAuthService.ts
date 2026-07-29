@@ -96,4 +96,25 @@ export class MockAuthService implements AuthService {
   async getAccessToken(): Promise<string | null> {
     return this.currentAccessToken;
   }
+
+  async forgotPassword(email: string): Promise<void> {
+    // Mock: silently succeeds if the account exists; fails otherwise
+    const account = this.accounts.get(email.toLowerCase());
+    if (!account) {
+      // Cognito does not reveal whether an account exists — succeed silently
+      return;
+    }
+  }
+
+  async confirmForgotPassword(email: string, code: string, newPassword: string): Promise<void> {
+    const account = this.accounts.get(email.toLowerCase());
+    if (!account) {
+      throw new AuthError('Password reset failed. Please try again.', 'unknown');
+    }
+    if (code !== '123456') {
+      throw new AuthError('Invalid or expired reset code.', 'invalid_credentials');
+    }
+    // Update password in mock store
+    this.accounts.set(email.toLowerCase(), { ...account, password: newPassword });
+  }
 }

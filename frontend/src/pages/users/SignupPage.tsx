@@ -68,7 +68,7 @@ export function SignupPage() {
           <button
             type="button"
             onClick={() => navigate('/login')}
-            className="text-bodySmall font-sans text-text-secondary underline"
+            className="rounded-md bg-accent-primary px-xl py-xs text-bodySmall font-sans font-medium text-text-on-accent"
           >
             Log in
           </button>

@@ -50,7 +50,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
       onSubmit={handleSubmit(onSubmit)}
     >
       <div className="flex gap-md">
-        <div className="flex flex-1 flex-col gap-xs">
+        <div className="flex flex-1 min-w-0 flex-col gap-xs">
           <label
             htmlFor="signup-first-name"
             className="text-bodySmall font-sans font-medium text-text-secondary"
@@ -78,7 +78,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
           )}
         </div>
 
-        <div className="flex flex-1 flex-col gap-xs">
+        <div className="flex flex-1 min-w-0 flex-col gap-xs">
           <label
             htmlFor="signup-last-name"
             className="text-bodySmall font-sans font-medium text-text-secondary"
@@ -200,7 +200,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
       <button
         type="submit"
         disabled={isSubmitting}
-        className="rounded-md bg-accent-primary px-lg py-sm text-body font-sans font-semibold text-text-on-accent shadow-md disabled:opacity-60"
+        className="rounded-md bg-accent-primary px-lg py-sm text-body font-sans font-semibold text-text-on-accent disabled:opacity-60"
       >
         {isSubmitting ? 'Creating account…' : 'Create account'}
       </button>
