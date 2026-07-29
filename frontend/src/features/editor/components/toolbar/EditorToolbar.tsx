@@ -116,7 +116,7 @@ function currentLineHeightLabel(editor: Editor): string {
 
 function currentFontFamilyLabel(editor: Editor): string {
   const family = editor.getAttributes('textStyle').fontFamily as string | null | undefined;
-  if (!family) return 'Default font';
+  if (!family) return 'Default Font';
   const preset = FONT_FAMILY_PRESETS.find((p) => p.value === family);
   return preset?.label ?? 'Custom';
 }
@@ -282,7 +282,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
   const alignment = editor ? currentAlignment(editor) : 'left';
   const lineHeightLabel = editor ? currentLineHeightLabel(editor) : 'Default Spacing';
   const inTable = !!editor?.isActive('table');
-  const fontFamilyLabel = editor ? currentFontFamilyLabel(editor) : 'Default font';
+  const fontFamilyLabel = editor ? currentFontFamilyLabel(editor) : 'Default Font';
   const textColor = editor ? currentTextColor(editor) : null;
   const highlightColor = editor ? currentHighlightColor(editor) : null;
 
