@@ -378,12 +378,53 @@ function blocksFromParagraphOrHeading(
   return blocks.length > 0 ? blocks : [makeTextBlock([])];
 }
 
+/** Reinterpret a list item as a paragraph node for shared block mapping. */
+function listNodeAsParagraph(
+  node: OfficeContentNode,
+): Extract<OfficeContentNode, { type: 'paragraph' }> {
+  const meta = node.metadata as
+    | {
+        alignment?: string;
+        paragraphIndentation?: {
+          left?: number;
+          firstLine?: number;
+          hanging?: number;
+        };
+      }
+    | undefined;
+  const alignment =
+    meta?.alignment === 'left' ||
+    meta?.alignment === 'center' ||
+    meta?.alignment === 'right' ||
+    meta?.alignment === 'justify'
+      ? meta.alignment
+      : undefined;
+  return {
+    type: 'paragraph',
+    text: node.text,
+    children: node.children,
+    formatting: node.formatting,
+    comments: node.comments,
+    notes: node.notes,
+    rawContent: node.rawContent,
+    metadata:
+      alignment || meta?.paragraphIndentation
+        ? {
+            ...(alignment ? { alignment } : {}),
+            ...(meta?.paragraphIndentation
+              ? { paragraphIndentation: meta.paragraphIndentation }
+              : {}),
+          }
+        : undefined,
+  };
+}
+
 function listItemFromOffice(
   node: OfficeContentNode,
   attachments: AttachmentLookup,
 ): JSONContent {
   const itemBlocks = blocksFromParagraphOrHeading(
-    { ...node, type: 'paragraph' },
+    listNodeAsParagraph(node),
     attachments,
   ).filter((b) => b.type === 'paragraph' || b.type === 'image');
   return {
