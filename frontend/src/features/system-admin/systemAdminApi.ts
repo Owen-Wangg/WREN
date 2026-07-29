@@ -125,6 +125,21 @@ export async function searchAllUsers(options?: {
   return { items: result.users, total: result.total };
 }
 
+/** Fetch users who have submitted at least one document in a specific department. */
+export async function getDepartmentUsers(
+  departmentId: string,
+  options?: { q?: string; limit?: number; offset?: number },
+) {
+  const params = new URLSearchParams();
+  if (options?.q) params.append('q', options.q);
+  if (options?.limit) params.append('limit', String(options.limit));
+  if (options?.offset) params.append('offset', String(options.offset));
+  const qs = params.toString();
+  const path = `/v1/departments/${departmentId}/users${qs ? `?${qs}` : ''}`;
+  const result = await apiClient.request(path, { schema: usersSearchSchema });
+  return { items: result.users, total: result.total };
+}
+
 /* -------------------------------------------------------------------------- */
 /* Usage — platform-wide report + lifetime policy config */
 /* -------------------------------------------------------------------------- */

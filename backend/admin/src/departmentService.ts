@@ -105,14 +105,75 @@ export async function listDepartments(
 ): Promise<Department[]> {
   const rows = await db.query<DepartmentRow>(
     `SELECT d.id, d.name, d.prompt, d.access_state,
-            COUNT(DISTINCT doc.owner_user_id)::int AS active_user_count
+            COALESCE(ac.value, 0)::int AS active_user_count
      FROM department d
-     LEFT JOIN document_type dt ON dt.department_id = d.id
-     LEFT JOIN document doc ON doc.document_type_id = dt.id
-     GROUP BY d.id, d.name, d.prompt, d.access_state
+     LEFT JOIN aggregate_counter ac
+       ON  ac.scope_kind    = 'department'
+       AND ac.scope_id      = d.id
+       AND ac.metric        = 'active_users'
+       AND ac.window_start  = '-infinity'::timestamptz
      ORDER BY d.name ASC`,
   );
   return rows.map(toDepartment);
+}
+
+/** Shape returned by {@link listDepartmentUsers}. */
+export interface DepartmentUserSummary {
+  readonly id: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly email: string;
+}
+
+/**
+ * List users who have submitted at least one document to any document type
+ * belonging to this department — the same definition as the `active_users`
+ * aggregate counter.
+ */
+export async function listDepartmentUsers(
+  departmentId: string,
+  db: QueryExecutor,
+  options?: { q?: string; limit?: number; offset?: number },
+): Promise<{ users: DepartmentUserSummary[]; total: number }> {
+  const search = options?.q?.trim() || null;
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+
+  const rows = await db.query<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    total: string;
+  }>(
+    `SELECT u.id, u.first_name, u.last_name, u.email,
+            COUNT(*) OVER() AS total
+     FROM app_user u
+     WHERE EXISTS (
+       SELECT 1 FROM document d
+       JOIN document_type dt ON dt.id = d.document_type_id
+       WHERE d.owner_user_id = u.id
+         AND dt.department_id = $1
+     )
+     AND ($2::text IS NULL
+          OR u.first_name ILIKE $2
+          OR u.last_name  ILIKE $2
+          OR u.email      ILIKE $2)
+     ORDER BY u.last_name ASC, u.first_name ASC
+     LIMIT $3 OFFSET $4`,
+    [departmentId, search ? `%${search}%` : null, limit, offset],
+  );
+
+  const total = rows[0] ? parseInt(rows[0].total, 10) : 0;
+  return {
+    users: rows.map((r) => ({
+      id: r.id,
+      firstName: r.first_name,
+      lastName: r.last_name,
+      email: r.email,
+    })),
+    total,
+  };
 }
 
 /**

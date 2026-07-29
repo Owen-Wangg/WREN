@@ -14,7 +14,7 @@ function getServerErrorMessage(error: unknown, fallback: string): string {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
-import { searchAllUsers, assignRole, revokeRole, updateDepartmentPrompt, setDepartmentAccessState, getAnalyticsSummary } from '@/features/system-admin/systemAdminApi';
+import { getDepartmentUsers, assignRole, revokeRole, updateDepartmentPrompt, setDepartmentAccessState, getAnalyticsSummary } from '@/features/system-admin/systemAdminApi';
 import {
   BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -121,7 +121,7 @@ export function DepartmentDetailPage() {
 
   const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ['department-users', departmentId, userSearch],
-    queryFn: () => searchAllUsers({ q: userSearch || undefined }),
+    queryFn: () => getDepartmentUsers(departmentId!, { q: userSearch || undefined }),
     enabled: activeTab === 'users',
   });
 
