@@ -114,10 +114,13 @@ export function NewDocumentPage() {
         ...(cleaned ? { content: cleaned } : {}),
       });
 
-      // Auto-trigger feedback — fire and forget; editor polls status.
-      void generateFeedback(apiClient, doc.id).catch(() => {
-        // Non-fatal: student can manually trigger from the editor if this fails.
-      });
+      const ingestQueued = doc.ingestStatus === 'queued';
+      // Feedback needs draft text — wait until PDF ingest completes in the editor.
+      if (!ingestQueued) {
+        void generateFeedback(apiClient, doc.id).catch(() => {
+          // Non-fatal: student can manually trigger from the editor if this fails.
+        });
+      }
 
       return {
         doc,
@@ -125,15 +128,17 @@ export function NewDocumentPage() {
         docType,
         initialContent: cleaned as JSONContent | undefined,
         docxParseWarning,
+        ingestQueued,
       };
     },
-    onSuccess: ({ doc, org, docType, initialContent, docxParseWarning }) => {
+    onSuccess: ({ doc, org, docType, initialContent, docxParseWarning, ingestQueued }) => {
       navigate(`/dashboard/document/${doc.id}`, {
         state: {
           organizationName: org?.name,
           contentType: docType?.name,
           documentName: doc.name,
-          feedbackQueued: true,
+          feedbackQueued: !ingestQueued,
+          ingestQueued,
           ...(initialContent ? { initialContent } : {}),
           ...(docxParseWarning ? { docxParseWarning } : {}),
         },

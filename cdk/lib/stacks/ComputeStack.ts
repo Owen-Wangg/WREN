@@ -66,6 +66,8 @@ export class ComputeStack extends Stack {
   public readonly diffAnchorProgressFunction: lambda.Function;
   public readonly feedbackQueue: sqs.Queue;
   public readonly feedbackDlq: sqs.Queue;
+  public readonly documentIngestQueue: sqs.Queue;
+  public readonly documentIngestDlq: sqs.Queue;
 
   constructor(scope: Construct, id: string, props: ComputeStackProps) {
     super(scope, id, props);
@@ -126,8 +128,8 @@ export class ComputeStack extends Stack {
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       // OCR + LiteParse needs headroom (scanned PDFs).
-      // Note: API Gateway REST still caps sync integrations at ~29s — large
-      // scanned uploads may hit that ceiling before this Lambda timeout.
+      // PDF ingest is async via SQS so API Gateway's ~29s sync cap does not
+      // abort large OCR jobs — the worker uses this full timeout.
       memorySize: 2048,
       timeout: Duration.minutes(3),
       vpc,
@@ -183,6 +185,36 @@ export class ComputeStack extends Stack {
         },
       },
     });
+
+    // -----------------------------------------------------------------------
+    // Document ingest queue (async PDF OCR / LiteParse)
+    // -----------------------------------------------------------------------
+    this.documentIngestDlq = new sqs.Queue(this, "DocumentIngestDlq", {
+      queueName: `${config.stackPrefix}-document-ingest-dlq`,
+      retentionPeriod: Duration.days(14),
+    });
+
+    this.documentIngestQueue = new sqs.Queue(this, "DocumentIngestQueue", {
+      queueName: `${config.stackPrefix}-document-ingest-queue`,
+      // Must exceed DocumentFn timeout so in-flight OCR is not redelivered early.
+      visibilityTimeout: Duration.minutes(4),
+      deadLetterQueue: {
+        queue: this.documentIngestDlq,
+        maxReceiveCount: 3,
+      },
+    });
+
+    this.documentFunction.addEnvironment(
+      "DOCUMENT_INGEST_QUEUE_URL",
+      this.documentIngestQueue.queueUrl,
+    );
+    this.documentIngestQueue.grantSendMessages(this.documentFunction);
+    this.documentFunction.addEventSource(
+      new lambdaEventSources.SqsEventSource(this.documentIngestQueue, {
+        batchSize: 1,
+        maxConcurrency: 5,
+      }),
+    );
 
     // -----------------------------------------------------------------------
     // Admin / Config / Auth / Usage Service Lambda (Node 22)
@@ -457,6 +489,9 @@ export class ComputeStack extends Stack {
     });
     new CfnOutput(this, "FeedbackDlqUrl", {
       value: this.feedbackDlq.queueUrl,
+    });
+    new CfnOutput(this, "DocumentIngestQueueUrl", {
+      value: this.documentIngestQueue.queueUrl,
     });
   }
 

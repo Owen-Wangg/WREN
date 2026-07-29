@@ -334,6 +334,9 @@ export const documentSchema = z
     metadata: z.record(z.string(), z.string()),
     status: documentStatusSchema,
     createdAt: isoDateTimeSchema,
+    /** Present when PDF ingest was enqueued (async OCR / LiteParse). */
+    ingestStatus: z.enum(['queued', 'processing', 'completed', 'failed']).optional(),
+    ingestJobId: z.string().min(1).optional(),
   })
   .strict();
 export type Document = z.infer<typeof documentSchema>;

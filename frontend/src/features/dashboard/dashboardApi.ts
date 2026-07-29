@@ -217,6 +217,25 @@ export function fetchLatestDraft(client: HttpClient, documentId: string): Promis
   });
 }
 
+const ingestStatusSchema = z.object({
+  status: z.enum(['pending', 'queued', 'processing', 'completed', 'failed']),
+  jobId: z.string().optional(),
+  draftId: z.string().optional(),
+  errorMessage: z.string().optional(),
+});
+
+export type IngestStatus = z.infer<typeof ingestStatusSchema>;
+
+/** Polls async PDF ingest status (`queued` → `completed` / `failed`). */
+export function fetchIngestStatus(
+  client: HttpClient,
+  documentId: string,
+): Promise<IngestStatus> {
+  return client.request(`${DOCUMENTS_PATH}/${documentId}/ingest/status`, {
+    schema: ingestStatusSchema,
+  });
+}
+
 /** Submits TipTap content (preferred) and/or segments as a new draft version. */
 export function createDraft(
   client: HttpClient,
@@ -231,16 +250,33 @@ export function createDraft(
   });
 }
 
+const draftFromSourceResponseSchema = z.union([
+  draftSchema,
+  z.object({
+    ingestStatus: z.literal('queued'),
+    jobId: z.string().min(1),
+    documentId: z.string().min(1),
+  }),
+]);
+
+export type DraftFromSourceResult =
+  | { kind: 'draft'; draft: Draft }
+  | { kind: 'ingestQueued'; jobId: string; documentId: string };
+
 /** Creates a new draft by server-ingesting an uploaded file (or paste). */
-export function createDraftFromSource(
+export async function createDraftFromSource(
   client: HttpClient,
   documentId: string,
   source: { kind: 'file'; key: string } | { kind: 'paste'; text: string },
   content?: TipTapDoc,
-): Promise<Draft> {
-  return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
+): Promise<DraftFromSourceResult> {
+  const result = await client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
     method: 'POST',
     body: { source, ...(content ? { content } : {}) },
-    schema: draftSchema,
+    schema: draftFromSourceResponseSchema,
   });
+  if ('ingestStatus' in result && result.ingestStatus === 'queued') {
+    return { kind: 'ingestQueued', jobId: result.jobId, documentId: result.documentId };
+  }
+  return { kind: 'draft', draft: result as Draft };
 }

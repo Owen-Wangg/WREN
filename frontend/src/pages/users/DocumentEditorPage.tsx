@@ -25,6 +25,7 @@ import {
   createDraft,
   createDraftFromSource,
   getPresignedUrl,
+  fetchIngestStatus,
 } from '@/features/dashboard/dashboardApi';
 import { fetchFeedbackStatus, generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import {
@@ -154,7 +155,13 @@ export function DocumentEditorPage() {
   // Start polling immediately if we arrived from a fresh upload (router state
   // carries feedbackQueued / legacy initialContent when feedback was auto-queued).
   const [isPollingFeedback, setIsPollingFeedback] = useState(() => {
-    const s = location.state as { feedbackQueued?: boolean; initialContent?: unknown } | null;
+    const s = location.state as {
+      feedbackQueued?: boolean;
+      initialContent?: unknown;
+      ingestQueued?: boolean;
+    } | null;
+    // Don't poll feedback until PDF ingest has produced a draft.
+    if (s?.ingestQueued) return false;
     return !!(s?.feedbackQueued || s?.initialContent);
   });
 
@@ -164,6 +171,7 @@ export function DocumentEditorPage() {
     contentType?: string;
     initialContent?: JSONContent;
     feedbackQueued?: boolean;
+    ingestQueued?: boolean;
     docxParseWarning?: string;
   } | null;
 
@@ -174,6 +182,8 @@ export function DocumentEditorPage() {
   const [docxParseWarning, setDocxParseWarning] = useState<string | undefined>(
     () => state?.docxParseWarning,
   );
+  const [isPollingIngest, setIsPollingIngest] = useState(() => !!state?.ingestQueued);
+  const [ingestError, setIngestError] = useState<string | undefined>(undefined);
 
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const panelDivRef = useRef<HTMLDivElement | null>(null);
@@ -257,7 +267,11 @@ export function DocumentEditorPage() {
 
   // Prefer persisted draft.content over ephemeral router state so reload matches DB.
   const editorInitialContent = draftContent ?? routerInitialContent ?? EMPTY_EDITOR_CONTENT;
-  const editorReady = draftQuery.isSuccess || draftQuery.isError || Boolean(routerInitialContent);
+  const editorReady =
+    draftQuery.isSuccess ||
+    draftQuery.isError ||
+    Boolean(routerInitialContent) ||
+    isPollingIngest;
   const editorMountKey = `draft-${draftQuery.data?.id ?? envId}-${draftQuery.data?.versionNumber ?? 0}`;
 
   useEffect(() => {
@@ -314,16 +328,22 @@ export function DocumentEditorPage() {
       const cleaned = tipTap
         ? asTipTapDoc(stripAiMarksFromTipTapContent(tipTap))
         : undefined;
-      const draft = await createDraftFromSource(
+      const result = await createDraftFromSource(
         apiClient,
         envId,
         { kind: 'file', key },
         cleaned,
       );
-      return { draft, docxParseWarning: parsed.warning };
+      return { result, docxParseWarning: parsed.warning };
     },
-    onSuccess: ({ draft, docxParseWarning: warning }) => {
+    onSuccess: ({ result, docxParseWarning: warning }) => {
       setDocxParseWarning(warning);
+      setIngestError(undefined);
+      if (result.kind === 'ingestQueued') {
+        setIsPollingIngest(true);
+        return;
+      }
+      const draft = result.draft;
       if (isTipTapDoc(draft.content)) {
         setCurrentContent(draft.content as JSONContent);
       }
@@ -345,6 +365,58 @@ export function DocumentEditorPage() {
     if (!file) return;
     resubmitDraftMutation.mutate(file);
   };
+
+  useEffect(() => {
+    if (!isPollingIngest) return;
+
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const status = await fetchIngestStatus(apiClient, envId);
+        if (cancelled) return;
+
+        if (status.status === 'completed') {
+          setIsPollingIngest(false);
+          setIngestError(undefined);
+          await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
+          try {
+            const draft = await fetchLatestDraft(apiClient, envId);
+            if (cancelled) return;
+            if (isTipTapDoc(draft.content)) {
+              setCurrentContent(draft.content as JSONContent);
+            }
+          } catch {
+            // Draft query invalidate will still refresh when available.
+          }
+          setIsPollingFeedback(true);
+          void generateFeedback(apiClient, envId).catch(() => {
+            // Non-fatal.
+          });
+          return;
+        }
+
+        if (status.status === 'failed') {
+          setIsPollingIngest(false);
+          setIngestError(
+            status.errorMessage ??
+              'Couldn’t extract this PDF. Try again or upload a .docx for better formatting.',
+          );
+        }
+      } catch {
+        // Keep polling — transient network errors.
+      }
+    };
+
+    void tick();
+    const interval = setInterval(() => {
+      void tick();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isPollingIngest, envId, queryClient]);
 
   useEffect(() => {
     if (!isPollingFeedback) return;
@@ -507,14 +579,20 @@ export function DocumentEditorPage() {
             <button
               type="button"
               onClick={handleResubmitClick}
-              disabled={resubmitDraftMutation.isPending}
+              disabled={resubmitDraftMutation.isPending || isPollingIngest}
               title={
                 resubmitDraftMutation.isError
                   ? errorMessageFromUnknown(resubmitDraftMutation.error)
-                  : 'Upload a revised draft (.docx preferred — fonts, colors, alignment, and images round-trip; PDF is best-effort)'
+                  : isPollingIngest
+                    ? 'Extracting PDF…'
+                    : 'Upload a revised draft (.docx preferred — fonts, colors, alignment, and images round-trip; PDF is best-effort)'
               }
               aria-label={
-                resubmitDraftMutation.isPending ? 'Uploading new draft' : 'Upload new draft'
+                resubmitDraftMutation.isPending
+                  ? 'Uploading new draft'
+                  : isPollingIngest
+                    ? 'Extracting PDF'
+                    : 'Upload new draft'
               }
               className={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
             >
@@ -630,6 +708,36 @@ export function DocumentEditorPage() {
 
         {/* Editor — toolbar chrome fixed; only the page scrolls */}
         <main className="flex min-h-0 flex-1 flex-col bg-surface-muted/50">
+          {isPollingIngest && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-sm border-b border-border-subtle bg-surface-primary px-lg py-sm"
+            >
+              <span
+                className="inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-accent-primary border-t-transparent"
+                aria-hidden="true"
+              />
+              <p className="text-bodySmall text-text-secondary">
+                Extracting PDF… this can take a minute for scanned pages.
+              </p>
+            </div>
+          )}
+          {ingestError && !isPollingIngest && (
+            <div
+              role="alert"
+              className="flex items-start justify-between gap-md border-b border-signal-critical/30 bg-signal-critical/10 px-lg py-sm"
+            >
+              <p className="text-bodySmall text-text-primary leading-relaxed">{ingestError}</p>
+              <button
+                type="button"
+                className="shrink-0 text-caption font-sans font-medium text-text-secondary underline-offset-2 hover:underline"
+                onClick={() => setIngestError(undefined)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           {docxParseWarning && (
             <div
               role="status"
