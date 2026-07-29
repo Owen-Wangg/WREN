@@ -24,6 +24,13 @@ import type { FeedbackItem } from '@wren/types';
 const DEBRIEF_DISCLAIMER_MESSAGE =
   'The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.';
 
+const GENERATING_MESSAGES = [
+  'Reading your draft…',
+  'Identifying patterns…',
+  'Building your feedback…',
+  'Almost there…',
+] as const;
+
 function formatDebriefTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '';
@@ -45,6 +52,42 @@ function formatCompactGeneratedAt(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function useGeneratingMessage(): string {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIndex((i) => Math.min(i + 1, GENERATING_MESSAGES.length - 1));
+    }, 7000);
+    return () => clearInterval(id);
+  }, []);
+  return GENERATING_MESSAGES[index] ?? GENERATING_MESSAGES[0];
+}
+
+function DebriefSkeleton() {
+  return (
+    <div className="flex flex-col gap-lg animate-pulse" aria-hidden="true">
+      {/* Progress card placeholder */}
+      <div className="rounded-lg border border-border-subtle bg-surface-muted/40 p-md">
+        <div className="mb-md h-4 w-40 rounded bg-border-subtle" />
+        <div className="flex gap-md">
+          <div className="h-3 w-20 rounded bg-border-subtle" />
+          <div className="h-3 w-20 rounded bg-border-subtle" />
+          <div className="h-3 w-20 rounded bg-border-subtle" />
+        </div>
+      </div>
+      {/* Category section placeholders */}
+      {[1, 2, 3].map((n) => (
+        <div key={n} className="flex flex-col gap-sm">
+          <div className="h-4 w-32 rounded bg-border-subtle" />
+          <div className="h-3 w-full rounded bg-border-subtle/60" />
+          <div className="h-3 w-5/6 rounded bg-border-subtle/60" />
+          <div className="h-3 w-4/6 rounded bg-border-subtle/60" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export interface SidebarDebriefPanelProps {
@@ -137,6 +180,8 @@ export function SidebarDebriefPanel({
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [historyOpen]);
+
+  const generatingMessage = useGeneratingMessage();
 
   const debrief = debriefQuery.data;
   const regenerating = isSavingThenRegen || regenerate.isPending;
@@ -322,15 +367,15 @@ export function SidebarDebriefPanel({
           className="mb-lg text-caption leading-relaxed"
         />
 
-        {(debriefQuery.isLoading || (isGenerating && !debrief)) && (
+        {debriefQuery.isLoading && !isGenerating && <DebriefSkeleton />}
+
+        {isGenerating && !debrief && (
           <div className="flex flex-col items-center gap-md py-xl text-center">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
             <p role="status" className="text-body text-text-secondary">
-              {isGenerating ? 'Generating feedback…' : 'Loading AI Debrief…'}
+              {generatingMessage}
             </p>
-            {isGenerating && (
-              <p className="text-bodySmall text-text-muted">This usually takes 20–40 seconds.</p>
-            )}
+            <p className="text-bodySmall text-text-muted">This usually takes 20–40 seconds.</p>
           </div>
         )}
 
@@ -362,7 +407,9 @@ export function SidebarDebriefPanel({
                 {isGenerating || regenerating ? (
                   <>
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-                    <p className="text-body text-text-secondary">Generating feedback…</p>
+                    <p role="status" className="text-body text-text-secondary">
+                      {generatingMessage}
+                    </p>
                     <p className="text-bodySmall text-text-muted">This usually takes 20–40 seconds.</p>
                   </>
                 ) : (
