@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Trash2 } from 'lucide-react';
+import { ChevronDown, Trash2 } from 'lucide-react';
 
 import { useActiveDepartment } from '@/features/department-admin/ActiveDepartmentContext';
 import { listDocumentTypes, createDocumentType } from '@/features/department-admin/departmentAdminApi';
@@ -25,7 +25,12 @@ function createErrorMessage(error: unknown): string {
 
 export function DepartmentAdminDashboard() {
   const navigate = useNavigate();
-  const { activeDepartment, isLoading: deptLoading } = useActiveDepartment();
+  const {
+    activeDepartment,
+    departments,
+    setActiveDepartmentId,
+    isLoading: deptLoading,
+  } = useActiveDepartment();
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateDocType, setShowCreateDocType] = useState(false);
   const [newDocTypeName, setNewDocTypeName] = useState('');
@@ -70,15 +75,40 @@ export function DepartmentAdminDashboard() {
   const filteredDocumentTypes = documentTypes.filter((docType) =>
     docType.name.toLowerCase().includes(searchTerm.toLowerCase()),
   );
+  const canSwitchDepartments = departments.length > 1;
 
   return (
     <div className="p-8">
       {/* Department Banner */}
       <div className="mb-12 rounded-lg border border-blue-200 bg-blue-50 p-6">
         <h2 className="text-lg font-semibold text-blue-900">Department Admin</h2>
-        <p className="mt-2 text-sm text-blue-800">
-          Managing document types for{' '}
-          <span className="font-semibold">{activeDepartment.name}</span>
+        <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-blue-800">
+          <span>Managing document types for</span>
+          {canSwitchDepartments ? (
+            <label className="relative inline-flex items-center">
+              <span className="sr-only">Active department</span>
+              <select
+                value={activeDepartment.id}
+                onChange={(e) => setActiveDepartmentId(e.target.value)}
+                className="cursor-pointer appearance-none border-0 border-b border-blue-400/80 bg-transparent py-0 pr-5 font-semibold text-blue-900 underline decoration-blue-400/70 underline-offset-4 transition hover:border-blue-600 hover:text-blue-950 hover:decoration-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-blue-50"
+                aria-label="Select department to manage"
+              >
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={14}
+                strokeWidth={2.5}
+                aria-hidden="true"
+                className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-blue-700"
+              />
+            </label>
+          ) : (
+            <span className="font-semibold text-blue-900">{activeDepartment.name}</span>
+          )}
         </p>
       </div>
 

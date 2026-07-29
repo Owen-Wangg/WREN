@@ -2,7 +2,6 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { Home, Info, Bell, User } from 'lucide-react';
 
 import { appConfig } from '@/config/env';
-import { useActiveDepartment } from '@/features/department-admin/ActiveDepartmentContext';
 
 const navItems = [
   { to: '/dept-admin', label: 'Dashboard', icon: Home },
@@ -12,15 +11,12 @@ const navItems = [
 ] as const;
 
 export function DepartmentAdminLayout() {
-  const { departments, activeDepartment, setActiveDepartmentId, isLoading } =
-    useActiveDepartment();
-
   return (
     <div className="flex min-h-screen flex-col bg-surface-muted">
       <header className="border-b border-border-subtle bg-surface-primary">
-        <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-md px-xl py-md">
-          <div className="flex min-w-0 items-center gap-md">
-            <div className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-md border border-border-subtle">
+        <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between px-xl py-md">
+          <div className="flex items-center gap-md">
+            <div className="flex h-[40px] w-[40px] items-center justify-center rounded-md border border-border-subtle">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <rect x="3" y="3" width="7" height="18" rx="1" stroke="currentColor" strokeWidth="1.5" />
                 <rect x="12" y="3" width="9" height="18" rx="1" stroke="currentColor" strokeWidth="1.5" />
@@ -29,35 +25,12 @@ export function DepartmentAdminLayout() {
                 <line x1="14" y1="13" x2="19" y2="13" stroke="currentColor" strokeWidth="1" />
               </svg>
             </div>
-            <div className="min-w-0">
-              <span className="text-heading3 font-sans font-semibold text-text-primary">
-                {appConfig.appName}
-              </span>
-              {!isLoading && activeDepartment && departments.length === 1 && (
-                <p className="truncate text-caption font-sans text-text-muted">
-                  {activeDepartment.name}
-                </p>
-              )}
-              {!isLoading && departments.length > 1 && (
-                <label className="mt-xs flex min-w-0 items-center gap-xs">
-                  <span className="sr-only">Active department</span>
-                  <select
-                    value={activeDepartment?.id ?? ''}
-                    onChange={(e) => setActiveDepartmentId(e.target.value)}
-                    className="max-w-[220px] truncate rounded-md border border-border-subtle bg-surface-primary px-sm py-xs text-caption font-sans font-medium text-text-primary focus:border-border-strong focus:outline-none focus:ring-1 focus:ring-border-strong"
-                  >
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
+            <span className="text-heading3 font-sans font-semibold text-text-primary">
+              {appConfig.appName}
+            </span>
           </div>
 
-          <nav className="flex shrink-0 items-center gap-xl" aria-label="Main navigation">
+          <nav className="flex items-center gap-xl" aria-label="Main navigation">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
