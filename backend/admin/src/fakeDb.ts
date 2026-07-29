@@ -22,6 +22,7 @@ interface DepartmentRow {
   name: string;
   prompt: string | null;
   access_state: 'OPEN' | 'LOCKED';
+  archived_at: string | null;
 }
 
 interface DocumentTypeRow {
@@ -266,6 +267,7 @@ export class FakeDb implements QueryExecutor {
       name: row.name ?? 'Seed Dept',
       prompt: row.prompt ?? null,
       access_state: row.access_state ?? 'OPEN',
+      archived_at: row.archived_at ?? null,
     };
     this.departments.set(full.id, full);
     return full;
@@ -627,6 +629,7 @@ export class FakeDb implements QueryExecutor {
         name: params[1] as string,
         prompt: null,
         access_state: 'OPEN',
+        archived_at: null,
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -639,6 +642,7 @@ export class FakeDb implements QueryExecutor {
         name: params[1] as string,
         prompt: null,
         access_state: 'OPEN',
+        archived_at: null,
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -651,6 +655,7 @@ export class FakeDb implements QueryExecutor {
         name: params[0] as string,
         prompt: null,
         access_state: 'OPEN',
+        archived_at: null,
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -662,6 +667,7 @@ export class FakeDb implements QueryExecutor {
     }
 
     if (
+      sql.startsWith('SELECT id, name, prompt, access_state, archived_at FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt, access_state FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt FROM department WHERE id = $1')
     ) {
@@ -674,19 +680,36 @@ export class FakeDb implements QueryExecutor {
       sql.startsWith('SELECT id, name, prompt FROM department ORDER BY name ASC')
     ) {
       const rows = [...this.departments.values()]
+        .filter((r) => r.archived_at === null)
         .map((r) => ({ ...r }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state, d.archived_at,')) {
+      const rows = [...this.departments.values()]
+        .filter((r) => r.archived_at === null)
+        .map((r) => ({ ...r, active_user_count: 0 }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
     }
 
     if (sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state,')) {
       const rows = [...this.departments.values()]
-        .map((r) => ({
-          ...r,
-          active_user_count: 0,
-        }))
+        .filter((r) => r.archived_at === null)
+        .map((r) => ({ ...r, active_user_count: 0 }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
+    }
+
+    // Archive: UPDATE department SET archived_at = now() WHERE id = $1 AND archived_at IS NULL
+    if (sql.startsWith('UPDATE department SET archived_at = now()')) {
+      const id = params[0] as string;
+      const row = this.departments.get(id);
+      if (!row || row.archived_at !== null) return [] as unknown as Row[];
+      this.mutationCount += 1;
+      row.archived_at = new Date().toISOString();
+      return [{ ...row }] as unknown as Row[];
     }
 
     if (sql.startsWith('UPDATE department SET')) {

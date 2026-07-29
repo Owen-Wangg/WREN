@@ -376,7 +376,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   }
 
   const dtRows = await db.query(
-    `SELECT dt.id, d.access_state AS access_state, dt.size_limit_words
+    `SELECT dt.id, d.access_state AS access_state, dt.size_limit_words, d.archived_at
      FROM document_type dt
      INNER JOIN department d ON d.id = dt.department_id
      WHERE dt.id = $1`,
@@ -388,6 +388,16 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       body: JSON.stringify({
         code: 'BAD_REQUEST',
         message: `Document type '${documentTypeId}' was not found`,
+      }),
+    };
+  }
+
+  if (dtRows[0].archived_at) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'DEPARTMENT_ARCHIVED',
+        message: 'This department is no longer accepting submissions.',
       }),
     };
   }

@@ -83,6 +83,13 @@ export async function updateDepartmentPrompt(departmentId: string, prompt: strin
   });
 }
 
+export async function deleteDepartment(departmentId: string) {
+  return apiClient.request(`/v1/departments/${departmentId}`, {
+    method: 'DELETE',
+    schema: departmentSchema,
+  });
+}
+
 export async function setDepartmentAccessState(
   departmentId: string,
   accessState: 'OPEN' | 'LOCKED',
@@ -283,6 +290,7 @@ export const systemAdminApi = {
   getAnalytics,
   listDepartments,
   getDepartment,
+  deleteDepartment,
   updateDepartmentPrompt,
   setDepartmentAccessState,
   searchAllUsers,

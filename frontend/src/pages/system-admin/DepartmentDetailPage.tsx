@@ -14,7 +14,7 @@ function getServerErrorMessage(error: unknown, fallback: string): string {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
-import { getDepartmentUsers, assignRole, revokeRole, updateDepartmentPrompt, setDepartmentAccessState, getAnalyticsSummary } from '@/features/system-admin/systemAdminApi';
+import { getDepartmentUsers, assignRole, revokeRole, updateDepartmentPrompt, setDepartmentAccessState, getAnalyticsSummary, deleteDepartment } from '@/features/system-admin/systemAdminApi';
 import {
   BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -102,6 +102,15 @@ export function DepartmentDetailPage() {
   const [selectedRoles, setSelectedRoles] = useState<AssignableRole[]>([]);
   const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteDepartment(departmentId!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+      navigate('/system-admin');
+    },
+  });
 
   const { data: departments = [] } = useQuery({
     queryKey: ['system-departments'],
@@ -308,11 +317,65 @@ export function DepartmentDetailPage() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-8 py-4">
+        <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">
             Department: {department?.name}
           </h1>
+          <button
+            type="button"
+            onClick={() => setShowDeleteConfirm(true)}
+            className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+          >
+            <Trash2 className="h-4 w-4" />
+            Archive department
+          </button>
         </div>
+
+        {/* Delete confirmation modal */}
+        {showDeleteConfirm && (() => {
+          const hasDocuments = ((department as any)?.activeUserCount ?? 0) > 0;
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+              <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+                <h2 className="text-lg font-semibold text-gray-900">Archive department?</h2>
+
+                <p className="mt-2 text-sm text-gray-600">
+                  <strong>{department?.name}</strong> will be archived — it will no longer appear to students and will not accept new submissions. All existing student documents, feedback, and configuration are preserved and can be accessed by administrators.
+                </p>
+                {hasDocuments && (
+                  <p className="mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    This department has active student submissions. Archiving will not affect existing work.
+                  </p>
+                )}
+
+                {deleteMutation.isError && (
+                  <p role="alert" className="mt-3 text-sm text-red-600">
+                    {getServerErrorMessage(deleteMutation.error, 'Failed to delete department. Please try again.')}
+                  </p>
+                )}
+
+                <div className="mt-5 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => { setShowDeleteConfirm(false); deleteMutation.reset(); }}
+                    disabled={deleteMutation.isPending}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteMutation.mutate()}
+                    disabled={deleteMutation.isPending}
+                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deleteMutation.isPending ? 'Archiving…' : 'Yes, archive'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Content Area */}
         <div className="flex-1 overflow-auto p-8">

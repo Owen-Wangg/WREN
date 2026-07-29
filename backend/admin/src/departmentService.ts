@@ -44,10 +44,11 @@ interface DepartmentRow {
   readonly prompt: string | null;
   readonly access_state?: 'OPEN' | 'LOCKED' | null;
   readonly active_user_count?: string | number;
+  readonly archived_at?: string | null;
 }
 
 /** The columns every read/write returns, in the shared DTO's field order. */
-const RETURNING = 'id, name, prompt, access_state';
+const RETURNING = 'id, name, prompt, access_state, archived_at';
 
 /** Map a raw row to the validated shared {@link Department} DTO. */
 function toDepartment(row: DepartmentRow): Department {
@@ -61,6 +62,7 @@ function toDepartment(row: DepartmentRow): Department {
     activeUserCount: row.active_user_count !== undefined
       ? parseInt(String(row.active_user_count), 10)
       : undefined,
+    archivedAt: row.archived_at ?? null,
   });
 }
 
@@ -104,7 +106,7 @@ export async function listDepartments(
   db: QueryExecutor,
 ): Promise<Department[]> {
   const rows = await db.query<DepartmentRow>(
-    `SELECT d.id, d.name, d.prompt, d.access_state,
+    `SELECT d.id, d.name, d.prompt, d.access_state, d.archived_at,
             COALESCE(ac.value, 0)::int AS active_user_count
      FROM department d
      LEFT JOIN aggregate_counter ac
@@ -112,6 +114,7 @@ export async function listDepartments(
        AND ac.scope_id      = d.id
        AND ac.metric        = 'active_users'
        AND ac.window_start  = '-infinity'::timestamptz
+     WHERE d.archived_at IS NULL
      ORDER BY d.name ASC`,
   );
   return rows.map(toDepartment);
@@ -274,23 +277,30 @@ export async function setDepartmentAccessState(
 }
 
 /**
- * Delete a Department grouping (DepartmentAdmin for their administered
- * Departments). Returns `true` when a row was removed, `false` when no
- * Department had that id.
+ * Archive a Department (soft-delete). Sets `archived_at` to NOW() so the
+ * department is invisible to students and blocks new submissions, but all
+ * child data (document types, documents, student feedback) is preserved.
+ *
+ * TechnicalAdmin only — archiving is a platform-level operation.
+ * Returns the archived Department DTO, or throws {@link NotFoundError}.
  */
-export async function deleteDepartment(
+export async function archiveDepartment(
   actor: AuthContext,
   id: string,
   db: QueryExecutor,
-): Promise<boolean> {
-  requireCapability(actor, {
-    capability: 'department.manage',
-    scope: { kind: 'department', departmentId: id },
-  });
+): Promise<Department> {
+  if (!actor.roles.includes('TechnicalAdmin')) {
+    throw Object.assign(new Error('TechnicalAdmin role required'), { statusCode: 403 });
+  }
 
-  const rows = await db.query<{ id: string }>(
-    'DELETE FROM department WHERE id = $1 RETURNING id',
+  const rows = await db.query<DepartmentRow>(
+    `UPDATE department SET archived_at = now() WHERE id = $1 AND archived_at IS NULL RETURNING ${RETURNING}`,
     [id],
   );
-  return rows.length > 0;
+
+  const row = rows[0];
+  if (!row) {
+    throw new NotFoundError(`Department '${id}' not found or already archived`);
+  }
+  return toDepartment(row);
 }

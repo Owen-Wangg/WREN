@@ -3011,6 +3011,35 @@ paths:
 
   # ==================== Department (single item) ====================
   /v1/departments/{departmentId}:
+    delete:
+      summary: Delete a Department — TechnicalAdmin only
+      tags: [Departments]
+      operationId: deleteDepartment
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Department archived (soft-deleted)
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     get:
       summary: Get a single Department by id
       tags: [Departments]

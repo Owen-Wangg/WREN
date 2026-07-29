@@ -79,6 +79,11 @@ export const departmentSchema = z
     accessState: documentTypeAccessStateSchema.optional(),
     /** Count of distinct users who have uploaded at least one document under this department. */
     activeUserCount: z.number().int().nonnegative().optional(),
+    /**
+     * ISO timestamp set when the department is archived (soft-deleted).
+     * NULL means active; non-null means archived and invisible to students.
+     */
+    archivedAt: z.string().nullable().optional(),
   })
   .strict();
 export type Department = z.infer<typeof departmentSchema>;
