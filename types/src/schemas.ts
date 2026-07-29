@@ -539,7 +539,7 @@ export const userSummarySchema = z
      * Global role names in `roles` may still include `DepartmentAdmin` if they
      * administer any department — use this list for per-department UI.
      */
-    administeredDepartmentIds: z.array(idSchema).default([]),
+    administeredDepartmentIds: z.array(idSchema),
   })
   .strict();
 export type UserSummary = z.infer<typeof userSummarySchema>;
