@@ -611,10 +611,10 @@ async function fetchAllowedModels(): Promise<{ id: string; label: string }[]> {
 
 // Fallback in case Bedrock ListFoundationModels is unavailable or returns nothing.
 const FALLBACK_MODELS = [
-  { id: 'us.anthropic.claude-sonnet-4-6',         label: 'Claude Sonnet 4.6 — Anthropic' },
-  { id: 'us.anthropic.claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5 — Anthropic' },
-  { id: 'us.anthropic.claude-opus-4-8',            label: 'Claude Opus 4.8 — Anthropic' },
-  { id: 'us.anthropic.claude-sonnet-5',            label: 'Claude Sonnet 5 — Anthropic' },
+  { id: 'us.anthropic.claude-sonnet-4-6', label: 'US Anthropic Claude Sonnet 4.6' },
+  { id: 'us.anthropic.claude-haiku-4-5-20251001', label: 'US Anthropic Claude Haiku 4.5' },
+  { id: 'us.anthropic.claude-opus-4-8', label: 'US Anthropic Claude Opus 4.8' },
+  { id: 'us.anthropic.claude-sonnet-5', label: 'US Anthropic Claude Sonnet 5' },
 ];
 
 async function handleGetModelConfig(event: any): Promise<APIGatewayProxyResult> {

@@ -157,9 +157,32 @@ export function SystemAdminDashboard() {
                         ))}
                       </select>
                     </div>
-                    <p className="text-xs text-amber-700 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
-                      Changing the model affects all AI feedback generation immediately. Existing feedback is unaffected.
-                    </p>
+                    <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      <p className="font-semibold leading-snug">
+                        Changing the model affects all AI feedback generation immediately.
+                        Existing feedback is unaffected.
+                      </p>
+                      <p className="leading-snug text-amber-800/90">
+                        Different models may vary in:
+                      </p>
+                      <ul className="list-disc space-y-1 pl-4 leading-snug text-amber-800/90">
+                        <li>
+                          <span className="font-medium text-amber-900">Accuracy / quality</span> —
+                          feedback may be more or less accurate or well-formed
+                        </li>
+                        <li>
+                          <span className="font-medium text-amber-900">Cost</span> —
+                          per-request pricing differs, so overall spend may rise or fall
+                        </li>
+                        <li>
+                          <span className="font-medium text-amber-900">Behavior</span> —
+                          latency, tone, and consistency can differ between models
+                        </li>
+                      </ul>
+                      <p className="leading-snug text-amber-800/90">
+                        Review the tradeoffs before saving.
+                      </p>
+                    </div>
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
