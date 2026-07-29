@@ -1,7 +1,14 @@
 /**
  * Compact color swatch menu for text color / highlight (Phase 5).
  */
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useId, useRef, useState, type ReactNode } from 'react';
+
+import {
+  preserveEditorSelection,
+  ToolbarPortal,
+  useDismissibleMenu,
+  useFloatingMenuCoords,
+} from './toolbarMenuUtils';
 
 export interface ColorSwatch {
   readonly id: string;
@@ -28,30 +35,17 @@ export function ColorPickerMenu({
   onSelect,
 }: ColorPickerMenuProps) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
+  const coords = useFloatingMenuCoords(open, triggerRef);
+  const onClose = useCallback(() => setOpen(false), []);
+  useDismissibleMenu(open, onClose, triggerRef, panelRef);
 
   return (
-    <div className="relative" ref={rootRef}>
+    <div className="relative shrink-0">
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-haspopup="dialog"
@@ -69,6 +63,7 @@ export function ColorPickerMenu({
         ]
           .filter(Boolean)
           .join(' ')}
+        onMouseDown={preserveEditorSelection}
         onClick={() => setOpen((value) => !value)}
       >
         <span aria-hidden="true" className="inline-flex flex-col items-center gap-[2px]">
@@ -83,12 +78,14 @@ export function ColorPickerMenu({
         </span>
       </button>
 
-      {open && (
-        <div
+      {open && coords && (
+        <ToolbarPortal
+          coords={{ ...coords, minWidth: 11 * 16 }}
+          panelRef={panelRef}
           id={panelId}
           role="dialog"
           aria-label={label}
-          className="absolute left-0 top-full z-50 mt-xs w-[11rem] rounded-md border border-border-subtle bg-surface-primary p-md shadow-md"
+          className="rounded-md border border-border-subtle bg-surface-primary p-md shadow-lg"
         >
           <div className="grid grid-cols-5 gap-xs">
             {colors.map((swatch) => {
@@ -107,7 +104,9 @@ export function ColorPickerMenu({
                   className={[
                     'relative h-6 w-6 rounded-md border transition-transform hover:scale-105',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40',
-                    isActive ? 'border-accent-primary ring-1 ring-accent-primary/40' : 'border-border-subtle',
+                    isActive
+                      ? 'border-accent-primary ring-1 ring-accent-primary/40'
+                      : 'border-border-subtle',
                   ].join(' ')}
                   style={{
                     backgroundColor: swatch.value ?? '#ffffff',
@@ -116,6 +115,7 @@ export function ColorPickerMenu({
                         ? 'linear-gradient(to top right, transparent calc(50% - 1px), #c00 50%, transparent calc(50% + 1px))'
                         : undefined,
                   }}
+                  onMouseDown={preserveEditorSelection}
                   onClick={() => {
                     onSelect(swatch.value);
                     setOpen(false);
@@ -124,7 +124,7 @@ export function ColorPickerMenu({
               );
             })}
           </div>
-        </div>
+        </ToolbarPortal>
       )}
     </div>
   );

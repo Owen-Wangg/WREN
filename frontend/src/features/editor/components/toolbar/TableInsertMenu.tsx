@@ -2,7 +2,14 @@
  * Insert-table control: Docs-style hover grid (up to 5×5) plus a11y labels.
  */
 import { Table as TableIcon } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useId, useRef, useState } from 'react';
+
+import {
+  preserveEditorSelection,
+  ToolbarPortal,
+  useDismissibleMenu,
+  useFloatingMenuCoords,
+} from './toolbarMenuUtils';
 
 const MAX_ROWS = 5;
 const MAX_COLS = 5;
@@ -16,30 +23,17 @@ export function TableInsertMenu({ disabled = false, onInsert }: TableInsertMenuP
   const [open, setOpen] = useState(false);
   const [hoverRows, setHoverRows] = useState(1);
   const [hoverCols, setHoverCols] = useState(1);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
+  const coords = useFloatingMenuCoords(open, triggerRef);
+  const onClose = useCallback(() => setOpen(false), []);
+  useDismissibleMenu(open, onClose, triggerRef, panelRef);
 
   return (
-    <div className="relative" ref={rootRef}>
+    <div className="relative shrink-0">
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-haspopup="dialog"
@@ -57,6 +51,7 @@ export function TableInsertMenu({ disabled = false, onInsert }: TableInsertMenuP
         ]
           .filter(Boolean)
           .join(' ')}
+        onMouseDown={preserveEditorSelection}
         onClick={() => {
           setHoverRows(1);
           setHoverCols(1);
@@ -66,12 +61,14 @@ export function TableInsertMenu({ disabled = false, onInsert }: TableInsertMenuP
         <TableIcon size={16} strokeWidth={1.75} aria-hidden="true" />
       </button>
 
-      {open && (
-        <div
+      {open && coords && (
+        <ToolbarPortal
+          coords={coords}
+          panelRef={panelRef}
           id={panelId}
           role="dialog"
           aria-label="Choose table size"
-          className="absolute left-0 top-full z-50 mt-xs rounded-md border border-border-subtle bg-surface-primary p-md shadow-md"
+          className="rounded-md border border-border-subtle bg-surface-primary p-md shadow-lg"
         >
           <p className="mb-sm text-caption font-sans font-medium text-text-secondary">
             {hoverRows} × {hoverCols} table
@@ -103,6 +100,7 @@ export function TableInsertMenu({ disabled = false, onInsert }: TableInsertMenuP
                     setHoverRows(row);
                     setHoverCols(col);
                   }}
+                  onMouseDown={preserveEditorSelection}
                   onClick={() => {
                     onInsert(row, col);
                     setOpen(false);
@@ -111,7 +109,7 @@ export function TableInsertMenu({ disabled = false, onInsert }: TableInsertMenuP
               );
             })}
           </div>
-        </div>
+        </ToolbarPortal>
       )}
     </div>
   );

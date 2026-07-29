@@ -3,7 +3,14 @@
  * Resize handles deferred; images are max-width constrained in CSS.
  */
 import { ImagePlus } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useId, useRef, useState, type ChangeEvent } from 'react';
+
+import {
+  preserveEditorSelection,
+  ToolbarPortal,
+  useDismissibleMenu,
+  useFloatingMenuCoords,
+} from './toolbarMenuUtils';
 
 export interface ImageInsertMenuProps {
   readonly disabled?: boolean;
@@ -14,27 +21,13 @@ export function ImageInsertMenu({ disabled = false, onInsert }: ImageInsertMenuP
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const panelId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
+  const coords = useFloatingMenuCoords(open, triggerRef);
+  const onClose = useCallback(() => setOpen(false), []);
+  useDismissibleMenu(open, onClose, triggerRef, panelRef);
 
   const insertUrl = () => {
     const trimmed = url.trim();
@@ -78,8 +71,9 @@ export function ImageInsertMenu({ disabled = false, onInsert }: ImageInsertMenuP
   };
 
   return (
-    <div className="relative" ref={rootRef}>
+    <div className="relative shrink-0">
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-haspopup="dialog"
@@ -97,6 +91,7 @@ export function ImageInsertMenu({ disabled = false, onInsert }: ImageInsertMenuP
         ]
           .filter(Boolean)
           .join(' ')}
+        onMouseDown={preserveEditorSelection}
         onClick={() => {
           setError(null);
           setOpen((value) => !value);
@@ -105,12 +100,14 @@ export function ImageInsertMenu({ disabled = false, onInsert }: ImageInsertMenuP
         <ImagePlus size={16} strokeWidth={1.75} aria-hidden="true" />
       </button>
 
-      {open && (
-        <div
+      {open && coords && (
+        <ToolbarPortal
+          coords={{ ...coords, minWidth: 16 * 16 }}
+          panelRef={panelRef}
           id={panelId}
           role="dialog"
           aria-label="Insert image"
-          className="absolute left-0 top-full z-50 mt-xs w-64 rounded-md border border-border-subtle bg-surface-primary p-md shadow-md"
+          className="rounded-md border border-border-subtle bg-surface-primary p-md shadow-lg"
         >
           <input
             ref={fileRef}
@@ -122,6 +119,7 @@ export function ImageInsertMenu({ disabled = false, onInsert }: ImageInsertMenuP
           <button
             type="button"
             className="mb-sm w-full rounded-md border border-border-subtle px-md py-sm text-left text-bodySmall font-sans text-text-primary hover:bg-surface-muted"
+            onMouseDown={preserveEditorSelection}
             onClick={() => fileRef.current?.click()}
           >
             Upload from device
@@ -145,6 +143,7 @@ export function ImageInsertMenu({ disabled = false, onInsert }: ImageInsertMenuP
           <button
             type="button"
             className="w-full rounded-md bg-accent-primary px-md py-xs text-bodySmall font-sans font-semibold text-text-on-accent"
+            onMouseDown={preserveEditorSelection}
             onClick={insertUrl}
           >
             Insert URL
@@ -154,7 +153,7 @@ export function ImageInsertMenu({ disabled = false, onInsert }: ImageInsertMenuP
               {error}
             </p>
           )}
-        </div>
+        </ToolbarPortal>
       )}
     </div>
   );

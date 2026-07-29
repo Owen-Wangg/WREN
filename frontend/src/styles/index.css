@@ -178,6 +178,7 @@ body {
 .document-editor-toolbar-chrome {
   position: relative;
   z-index: 30;
+  overflow: visible;
   background-color: var(--color-surface-muted);
   /* Soft hangover onto the page (Google Docs-style), not a hard border. */
   box-shadow:

@@ -24,7 +24,7 @@ import {
   Underline as UnderlineIcon,
   Undo2,
 } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useId, useRef, useState } from 'react';
 
 import { LINE_HEIGHT_PRESETS } from '../../tiptapIndent';
 import { FONT_SIZE_PRESETS } from '../../tiptapFontSize';
@@ -43,6 +43,11 @@ import {
   ToolbarDivider,
   ToolbarGroup,
 } from './ToolbarPrimitives';
+import {
+  ToolbarPortal,
+  useDismissibleMenu,
+  useFloatingMenuCoords,
+} from './toolbarMenuUtils';
 import { useToolbarEditorState } from './useToolbarEditorState';
 
 import type { Editor } from '@tiptap/react';
@@ -143,30 +148,17 @@ function ToolbarMoreMenu({
   readonly lineHeightLabel: string;
 }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
+  const coords = useFloatingMenuCoords(open, triggerRef);
+  const onClose = useCallback(() => setOpen(false), []);
+  useDismissibleMenu(open, onClose, triggerRef, panelRef);
 
   return (
-    <div className="relative shrink-0" ref={rootRef}>
+    <div className="relative shrink-0">
       <ToolbarButton
+        ref={triggerRef}
         label="More formatting options"
         icon={<Ellipsis size={16} strokeWidth={1.75} />}
         pressed={open}
@@ -176,12 +168,14 @@ function ToolbarMoreMenu({
         aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((value) => !value)}
       />
-      {open && (
-        <div
+      {open && coords && (
+        <ToolbarPortal
+          coords={{ ...coords, minWidth: 16 * 16 }}
+          panelRef={panelRef}
           id={panelId}
           role="dialog"
           aria-label="More formatting options"
-          className="absolute right-0 top-full z-50 mt-xs flex min-w-[16rem] flex-col gap-sm rounded-md border border-border-subtle bg-surface-primary p-sm shadow-lg"
+          className="flex flex-col gap-sm rounded-md border border-border-subtle bg-surface-primary p-sm shadow-lg"
         >
           <ToolbarGroup aria-label="Line spacing">
             <ToolbarDropdown
@@ -273,7 +267,7 @@ function ToolbarMoreMenu({
               }}
             />
           </ToolbarGroup>
-        </div>
+        </ToolbarPortal>
       )}
     </div>
   );
@@ -296,7 +290,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
     <div
       role="toolbar"
       aria-label="Text formatting"
-      className="flex flex-nowrap items-center gap-xs overflow-x-auto py-xs [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="flex flex-wrap items-center gap-xs overflow-visible py-xs"
     >
       <ToolbarGroup aria-label="History">
         <ToolbarButton

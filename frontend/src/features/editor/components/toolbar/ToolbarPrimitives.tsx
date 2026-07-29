@@ -59,6 +59,7 @@ export const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
       shortcutHint,
       className,
       type = 'button',
+      onMouseDown,
       ...rest
     },
     ref,
@@ -85,6 +86,11 @@ export const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
         ]
           .filter(Boolean)
           .join(' ')}
+        onMouseDown={(event) => {
+          // Keep TipTap selection when clicking toolbar controls.
+          event.preventDefault();
+          onMouseDown?.(event);
+        }}
         {...rest}
       >
         <span aria-hidden="true" className="inline-flex">

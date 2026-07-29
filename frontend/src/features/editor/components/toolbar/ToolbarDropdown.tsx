@@ -1,8 +1,16 @@
 /**
- * Compact menu button for toolbar dropdowns (headings, later font size, etc.).
+ * Compact menu button for toolbar dropdowns (font, size, headings, etc.).
+ * Menus portal to document.body so they are not clipped by toolbar overflow.
  */
 import { ChevronDown } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useId, useRef, useState, type ReactNode } from 'react';
+
+import {
+  preserveEditorSelection,
+  ToolbarPortal,
+  useDismissibleMenu,
+  useFloatingMenuCoords,
+} from './toolbarMenuUtils';
 
 export interface ToolbarMenuOption {
   readonly id: string;
@@ -28,30 +36,17 @@ export function ToolbarDropdown({
   triggerClassName,
 }: ToolbarDropdownProps) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const listId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
+  const coords = useFloatingMenuCoords(open, triggerRef);
+  const onClose = useCallback(() => setOpen(false), []);
+  useDismissibleMenu(open, onClose, triggerRef, panelRef);
 
   return (
-    <div className="relative" ref={rootRef}>
+    <div className="relative shrink-0">
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-haspopup="listbox"
@@ -60,52 +55,58 @@ export function ToolbarDropdown({
         aria-label={label}
         title={label}
         className={[
-          'inline-flex h-8 min-w-[7.5rem] items-center justify-between gap-xs rounded-md px-sm',
-          'text-caption font-sans font-medium text-text-secondary whitespace-nowrap',
-          'hover:bg-surface-muted hover:text-text-primary',
+          'inline-flex h-8 min-w-[7.5rem] items-center justify-between gap-xs rounded-md border px-sm',
+          'border-border-subtle bg-surface-primary text-caption font-sans font-medium',
+          'text-text-secondary whitespace-nowrap shadow-sm',
+          'hover:border-border-strong hover:bg-surface-muted hover:text-text-primary',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40',
           'disabled:pointer-events-none disabled:opacity-40',
-          open ? 'bg-surface-muted text-text-primary' : '',
+          open ? 'border-accent-primary/50 bg-surface-muted text-text-primary' : '',
           triggerClassName ?? '',
         ]
           .filter(Boolean)
           .join(' ')}
+        onMouseDown={preserveEditorSelection}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="overflow-visible">{displayLabel}</span>
+        <span className="truncate">{displayLabel}</span>
         <ChevronDown
           size={14}
           className={`shrink-0 text-text-muted transition-transform ${open ? 'rotate-180' : ''}`}
           aria-hidden="true"
         />
       </button>
-      {open && (
-        <ul
+      {open && coords && (
+        <ToolbarPortal
+          coords={coords}
+          panelRef={panelRef}
           id={listId}
           role="listbox"
           aria-label={label}
-          className="absolute left-0 top-full z-50 mt-xs min-w-full overflow-hidden rounded-md border border-border-subtle bg-surface-primary py-xs shadow-md"
+          className="max-h-[min(20rem,70vh)] overflow-y-auto rounded-md border border-border-subtle bg-surface-primary py-xs shadow-lg"
         >
           {options.map((option) => (
-            <li key={option.id} role="option" aria-selected={!!option.active}>
-              <button
-                type="button"
-                className={[
-                  'flex w-full items-center px-md py-sm text-left text-bodySmall font-sans transition-colors',
-                  option.active
-                    ? 'bg-accent-primary/10 font-semibold text-accent-primary'
-                    : 'text-text-primary hover:bg-surface-muted/80',
-                ].join(' ')}
-                onClick={() => {
-                  option.onSelect();
-                  setOpen(false);
-                }}
-              >
-                {option.label}
-              </button>
-            </li>
+            <button
+              key={option.id}
+              type="button"
+              role="option"
+              aria-selected={!!option.active}
+              className={[
+                'flex w-full items-center px-md py-sm text-left text-bodySmall font-sans transition-colors',
+                option.active
+                  ? 'bg-accent-primary/10 font-semibold text-accent-primary'
+                  : 'text-text-primary hover:bg-surface-muted/80',
+              ].join(' ')}
+              onMouseDown={preserveEditorSelection}
+              onClick={() => {
+                option.onSelect();
+                setOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
           ))}
-        </ul>
+        </ToolbarPortal>
       )}
     </div>
   );
