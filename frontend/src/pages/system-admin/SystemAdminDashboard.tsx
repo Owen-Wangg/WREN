@@ -225,7 +225,7 @@ export function SystemAdminDashboard() {
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Usage Limits</h3>
                 <p className="text-sm text-gray-600 mt-1">
-                  Lifetime caps for Ask LEON, AI Debrief, uploads, and drafts
+                  Lifetime maximum limits for Ask LEON, AI Debrief, uploads, and drafts
                 </p>
               </div>
               <ChevronDown
