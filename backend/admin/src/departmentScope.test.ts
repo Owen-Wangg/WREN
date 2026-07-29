@@ -111,4 +111,12 @@ describe('department catalog isolation via list + scope', () => {
     const testTypes = await listDocumentTypes(TEST, db);
     expect(testTypes).toHaveLength(1);
   });
+
+  it('Law admin cannot view Test department document types by id gate', () => {
+    const lawAdmin = deptAdminContext([LAW]);
+    expect(canViewDepartment(lawAdmin, TEST)).toBe(false);
+    expect(() => assertCanViewDepartment(lawAdmin, TEST)).toThrow(NotFoundError);
+    // Content-type / error-category list handlers use this same gate for DeptAdmins.
+    expect(mustScopeDepartmentCatalog(lawAdmin)).toBe(true);
+  });
 });

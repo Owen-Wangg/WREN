@@ -10,6 +10,7 @@ import {
   listAllDocumentTypes,
   createDocumentType,
   setDocumentTypeAccessState,
+  getDocumentType,
 } from './documentTypeService';
 import { listErrorCategories, createErrorCategory, updateErrorCategory, deleteErrorCategory } from './errorCategoryService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
@@ -33,6 +34,7 @@ import {
   assertCanViewDepartment,
   filterDepartmentsForActor,
   filterDocumentTypesForActor,
+  mustScopeDepartmentCatalog,
 } from './departmentScope';
 import { handler as syncCognitoAdminsHandler } from './scripts/sync-cognito-admins';
 import type { AuthContext } from '@wren/types';
@@ -42,6 +44,25 @@ function requireTechnicalAdmin(actor: AuthContext): void {
   if (!actor.roles.includes('TechnicalAdmin')) {
     throw new AuthorizationError('TechnicalAdmin role required');
   }
+}
+
+/**
+ * Resolve a document type and enforce department catalog isolation for
+ * DepartmentAdmins (Students / TechnicalAdmins unrestricted for writer flows).
+ */
+async function assertDocumentTypeReadableByActor(
+  actor: AuthContext,
+  documentTypeId: string,
+  db: Awaited<ReturnType<typeof getDataAccess>>,
+): Promise<{ departmentId: string }> {
+  const documentType = await getDocumentType(documentTypeId, db);
+  if (!documentType) {
+    throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
+  }
+  if (mustScopeDepartmentCatalog(actor)) {
+    assertCanViewDepartment(actor, documentType.departmentId);
+  }
+  return { departmentId: documentType.departmentId };
 }
 
 /** UTC start of the current calendar month — matches how usage counters are keyed. */
@@ -233,8 +254,12 @@ async function handleListMyAccessGrants(event: any): Promise<APIGatewayProxyResu
 }
 
 async function handleListContentTypes(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { documentTypeId } = event.pathParameters || {};
+  // Writers (Students) may list content types for any writing type they can
+  // select; DepartmentAdmins may only list types in departments they administer.
+  await assertDocumentTypeReadableByActor(actor, documentTypeId, db);
   const contentTypes = await listContentTypes(documentTypeId, db);
   return {
     statusCode: 200,
@@ -546,8 +571,22 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
 }
 
 async function handleListErrorCategories(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { documentTypeId } = event.pathParameters || {};
+  const documentType = await getDocumentType(documentTypeId, db);
+  if (!documentType) {
+    throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
+  }
+  // Admin-only: includes internalGuidance. Cross-dept DeptAdmins are denied.
+  requireCapability(actor, {
+    capability: 'documentType.readConfig',
+    scope: {
+      kind: 'documentType',
+      documentTypeId,
+      departmentId: documentType.departmentId,
+    },
+  });
   const categories = await listErrorCategories(documentTypeId, db);
   return {
     statusCode: 200,
