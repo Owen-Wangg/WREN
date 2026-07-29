@@ -188,7 +188,7 @@ interface RoleAssignmentRow {
   id: string;
   user_id: string;
   role: string;
-  scope: { departmentId?: string } | null;
+  scope: { departmentId?: string; departmentIds?: string[] } | null;
   granted_by: string | null;
 }
 
@@ -393,7 +393,7 @@ export class FakeDb implements QueryExecutor {
   public seedRoleAssignment(row: {
     id: string;
     role: string;
-    scope: { departmentId?: string } | null;
+    scope: { departmentId?: string; departmentIds?: string[] } | null;
     user_id?: string;
     granted_by?: string | null;
   }): RoleAssignmentRow {
@@ -1012,23 +1012,43 @@ export class FakeDb implements QueryExecutor {
 
     /* ---------------------------- role_assignment -------------------------- */
 
-    if (sql.startsWith('SELECT user_id, role FROM role_assignment WHERE user_id = ANY($1)')) {
+    if (
+      sql.startsWith('SELECT user_id, role, scope FROM role_assignment WHERE user_id = ANY($1)') ||
+      sql.startsWith('SELECT user_id, role FROM role_assignment WHERE user_id = ANY($1)')
+    ) {
       const userIds = new Set(params[0] as string[]);
       const rows = [...this.roleAssignments.values()]
         .filter((r) => userIds.has(r.user_id))
-        .map((r) => ({ user_id: r.user_id, role: r.role }));
+        .map((r) => ({ user_id: r.user_id, role: r.role, scope: r.scope }));
       return rows as unknown as Row[];
     }
 
     if (
       sql.startsWith(
+        "SELECT id, user_id, role, scope FROM role_assignment WHERE user_id = $1 AND role = $2 AND (",
+      ) ||
+      sql.startsWith(
         "SELECT id, user_id, role, scope FROM role_assignment WHERE user_id = $1 AND role = $2 AND scope ->> 'departmentId' = $3",
       )
     ) {
       const [userId, role, departmentId] = params as [string, string, string];
+      const row = [...this.roleAssignments.values()].find((r) => {
+        if (r.user_id !== userId || r.role !== role || !r.scope) return false;
+        if (r.scope.departmentId === departmentId) return true;
+        const ids = (r.scope as { departmentIds?: unknown }).departmentIds;
+        return Array.isArray(ids) && ids.includes(departmentId);
+      });
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, user_id, role, scope FROM role_assignment WHERE user_id = $1 AND role = $2 AND scope IS NULL',
+      )
+    ) {
+      const [userId, role] = params as [string, string];
       const row = [...this.roleAssignments.values()].find(
-        (r) =>
-          r.user_id === userId && r.role === role && r.scope?.departmentId === departmentId,
+        (r) => r.user_id === userId && r.role === role && r.scope === null,
       );
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }

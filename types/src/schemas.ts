@@ -533,6 +533,13 @@ export const userSummarySchema = z
     firstName: z.string().min(1),
     lastName: z.string().min(1),
     roles: z.array(roleSchema),
+    /**
+     * Departments this user administers via `DepartmentAdmin` role_assignment
+     * scopes. Empty when the user has no department-admin appointments.
+     * Global role names in `roles` may still include `DepartmentAdmin` if they
+     * administer any department — use this list for per-department UI.
+     */
+    administeredDepartmentIds: z.array(idSchema).default([]),
   })
   .strict();
 export type UserSummary = z.infer<typeof userSummarySchema>;
