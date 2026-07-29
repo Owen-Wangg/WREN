@@ -300,4 +300,115 @@ describe('spatialPagesToTipTap', () => {
     expect(headerJson).toContain('Name');
     expect(headerJson).toContain('Score');
   });
+
+  it('maps underline, strike, and color marks when present', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          {
+            text: 'Painted',
+            x: 0,
+            y: 10,
+            width: 60,
+            height: 12,
+            fontSize: 12,
+            color: '#c00',
+            underline: true,
+          },
+          {
+            text: ' gone',
+            x: 60,
+            y: 10,
+            width: 40,
+            height: 12,
+            fontSize: 12,
+            strike: true,
+            backgroundColor: 'rgb(255, 255, 0)',
+          },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const para = (doc.content as TipTapNode[] | undefined)?.[0];
+    const painted = para?.content?.find((n) => n.text === 'Painted');
+    expect(painted?.marks?.some((m) => m.type === 'underline')).toBe(true);
+    expect(
+      painted?.marks?.some(
+        (m) => m.type === 'textStyle' && m.attrs?.color === '#cc0000',
+      ),
+    ).toBe(true);
+    const gone = para?.content?.find((n) => n.text === ' gone');
+    expect(gone?.marks?.some((m) => m.type === 'strike')).toBe(true);
+    expect(
+      gone?.marks?.some(
+        (m) => m.type === 'textStyle' && m.attrs?.backgroundColor === '#ffff00',
+      ),
+    ).toBe(true);
+  });
+
+  it('detects underline from font name hints', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          {
+            text: 'Link-like',
+            x: 0,
+            y: 10,
+            width: 50,
+            height: 12,
+            fontSize: 12,
+            fontName: 'Helvetica-Underline',
+          },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const para = (doc.content as TipTapNode[] | undefined)?.[0];
+    expect(para?.content?.[0]?.marks?.some((m) => m.type === 'underline')).toBe(true);
+  });
+
+  it('infers center and right textAlign from geometry', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          // Full-width body establishes content bounds (~0..200).
+          { text: 'Body that spans the full content width here', x: 0, y: 80, width: 200, height: 12, fontSize: 12 },
+          // Centered short title.
+          { text: 'Centered', x: 70, y: 20, width: 60, height: 12, fontSize: 12 },
+          // Right-aligned short line.
+          { text: 'Rightish', x: 150, y: 50, width: 50, height: 12, fontSize: 12 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = doc.content as TipTapNode[] | undefined;
+    const centered = blocks?.find((b) => JSON.stringify(b).includes('Centered'));
+    const rightish = blocks?.find((b) => JSON.stringify(b).includes('Rightish'));
+    expect(centered?.attrs?.textAlign).toBe('center');
+    expect(rightish?.attrs?.textAlign).toBe('right');
+  });
+
+  it('keeps color on headings after stripping fontSize marks', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: 'Big Red', x: 0, y: 10, width: 80, height: 22, fontSize: 22, color: '#ff0000' },
+          { text: 'Body text', x: 0, y: 50, width: 80, height: 11, fontSize: 11 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const heading = (doc.content as TipTapNode[] | undefined)?.[0];
+    expect(heading?.type).toBe('heading');
+    expect(
+      heading?.content?.some((n) =>
+        n.marks?.some((m) => m.type === 'textStyle' && m.attrs?.color === '#ff0000'),
+      ),
+    ).toBe(true);
+    expect(
+      heading?.content?.some((n) =>
+        n.marks?.some((m) => m.type === 'textStyle' && m.attrs?.fontSize != null),
+      ),
+    ).toBe(false);
+  });
 });

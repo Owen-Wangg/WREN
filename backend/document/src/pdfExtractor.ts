@@ -39,6 +39,38 @@ interface LiteParseTextItem {
   height: number;
   fontName?: string;
   fontSize?: number;
+  /** Optional extras some engines / future LiteParse versions may emit. */
+  color?: string;
+  fillColor?: string;
+  textColor?: string;
+  underline?: boolean;
+  strike?: boolean;
+  strikethrough?: boolean;
+  backgroundColor?: string;
+  highlightColor?: string;
+  markup?: { underline?: boolean; strike?: boolean; strikethrough?: boolean };
+}
+
+function readOptionalItemFormatting(item: LiteParseTextItem): {
+  color?: string;
+  underline?: boolean;
+  strike?: boolean;
+  backgroundColor?: string;
+} {
+  const color = item.color ?? item.fillColor ?? item.textColor;
+  const underline = item.underline === true || item.markup?.underline === true;
+  const strike =
+    item.strike === true ||
+    item.strikethrough === true ||
+    item.markup?.strike === true ||
+    item.markup?.strikethrough === true;
+  const backgroundColor = item.backgroundColor ?? item.highlightColor;
+  return {
+    ...(color ? { color } : {}),
+    ...(underline ? { underline: true } : {}),
+    ...(strike ? { strike: true } : {}),
+    ...(backgroundColor ? { backgroundColor } : {}),
+  };
 }
 
 interface LiteParsePage {
@@ -178,6 +210,7 @@ export class LiteParsePdfExtractor implements RichPdfExtractor {
           height: item.height ?? 0,
           fontName: item.fontName,
           fontSize: item.fontSize,
+          ...readOptionalItemFormatting(item),
         })),
       })),
     );

@@ -4,6 +4,8 @@
  * Heuristics (4A): soft-wrap paragraph merging, font-name marks, font-size +
  * style headings, non-heading fontSize textStyle marks, x-based indent,
  * nested lists, column-clustered tables with cell marks.
+ * Optional LiteParse extras (color / underline / strike) pass through when
+ * present; paragraph/heading textAlign is inferred from geometry.
  */
 import type { TipTapDoc, TipTapNode } from '@wren/types';
 
@@ -15,6 +17,11 @@ export interface SpatialTextItem {
   height: number;
   fontName?: string;
   fontSize?: number;
+  /** Hex or CSS color when the extractor provides it. */
+  color?: string;
+  underline?: boolean;
+  strike?: boolean;
+  backgroundColor?: string;
 }
 
 export interface SpatialPage {
@@ -25,6 +32,10 @@ type LineRun = {
   text: string;
   bold: boolean;
   italic: boolean;
+  underline: boolean;
+  strike: boolean;
+  color?: string;
+  backgroundColor?: string;
   x: number;
   width: number;
   fontSize: number;
@@ -61,7 +72,9 @@ type LayoutScale = {
   columnCluster: number;
 };
 
-function estimateContentWidth(lines: Line[]): number {
+type ContentBounds = { left: number; width: number };
+
+function estimateContentBounds(lines: Line[]): ContentBounds {
   let maxRight = 0;
   let minLeft = Number.POSITIVE_INFINITY;
   for (const line of lines) {
@@ -71,9 +84,41 @@ function estimateContentWidth(lines: Line[]): number {
     }
   }
   if (!Number.isFinite(minLeft) || maxRight <= minLeft) {
-    return Math.max(maxRight, 200);
+    return { left: 0, width: Math.max(maxRight, 200) };
   }
-  return maxRight - minLeft;
+  return { left: minLeft, width: maxRight - minLeft };
+}
+
+/**
+ * Infer center/right alignment from margins vs the page content box.
+ * Full-width lines stay default (left). Only helps when geometry is clear.
+ */
+function inferTextAlign(
+  line: Line,
+  bounds: ContentBounds,
+): 'center' | 'right' | undefined {
+  if (bounds.width < 40) return undefined;
+  const lineRight = line.runs.reduce(
+    (max, r) => Math.max(max, r.x + r.width),
+    line.minX,
+  );
+  const lineWidth = Math.max(0, lineRight - line.minX);
+  if (lineWidth < 8) return undefined;
+  // Nearly full-width → leave default left.
+  if (lineWidth / bounds.width > 0.85) return undefined;
+
+  const leftMargin = line.minX - bounds.left;
+  const rightMargin = bounds.left + bounds.width - lineRight;
+  const centerSlack = Math.abs(leftMargin - rightMargin);
+  const edgeTol = Math.max(8, bounds.width * 0.04);
+
+  if (centerSlack <= edgeTol && leftMargin > bounds.width * 0.12) {
+    return 'center';
+  }
+  if (rightMargin <= edgeTol && leftMargin > bounds.width * 0.2) {
+    return 'right';
+  }
+  return undefined;
 }
 
 /**
@@ -82,7 +127,7 @@ function estimateContentWidth(lines: Line[]): number {
  */
 function resolveLayoutScale(lines: Line[], medianFontSize: number): LayoutScale {
   const body = medianFontSize > 0 ? medianFontSize : 12;
-  const contentWidth = Math.max(estimateContentWidth(lines), body * 20, 160);
+  const contentWidth = Math.max(estimateContentBounds(lines).width, body * 20, 160);
   const fromFont = body * 2.2;
   const fromPage = contentWidth * 0.035;
   const indentGap = Math.min(56, Math.max(12, (fromFont + fromPage) / 2));
@@ -93,12 +138,43 @@ function resolveLayoutScale(lines: Line[], medianFontSize: number): LayoutScale 
   };
 }
 
-function fontFlags(fontName: string | undefined): { bold: boolean; italic: boolean } {
+function fontFlags(fontName: string | undefined): {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+} {
   const name = (fontName ?? '').toLowerCase();
   return {
     bold: /bold|black|heavy|semibold|demi/.test(name),
     italic: /italic|oblique/.test(name),
+    underline: /underline|underscored/.test(name),
   };
+}
+
+/** Normalize extractor colors to `#rrggbb` when possible. */
+export function normalizePdfColor(color: string | undefined | null): string | undefined {
+  if (!color || typeof color !== 'string') return undefined;
+  const trimmed = color.trim();
+  if (!trimmed || /^auto$/i.test(trimmed) || /^transparent$/i.test(trimmed)) {
+    return undefined;
+  }
+  const hex = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    const [r, g, b] = hex.split('');
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) return `#${hex.toLowerCase()}`;
+  if (/^[0-9a-fA-F]{8}$/.test(hex)) return `#${hex.slice(0, 6).toLowerCase()}`;
+  // rgb(r,g,b)
+  const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(trimmed);
+  if (rgb) {
+    const toHex = (n: string) =>
+      Math.max(0, Math.min(255, Number.parseInt(n, 10)))
+        .toString(16)
+        .padStart(2, '0');
+    return `#${toHex(rgb[1]!)}${toHex(rgb[2]!)}${toHex(rgb[3]!)}`;
+  }
+  return undefined;
 }
 
 function runsToTextNodes(
@@ -112,15 +188,24 @@ function runsToTextNodes(
       const marks: NonNullable<TipTapNode['marks']> = [];
       if (r.bold) marks.push({ type: 'bold' });
       if (r.italic) marks.push({ type: 'italic' });
+      if (r.underline) marks.push({ type: 'underline' });
+      if (r.strike) marks.push({ type: 'strike' });
+
+      const textStyleAttrs: Record<string, string> = {};
       if (
         attachSizeMarks &&
         medianFontSize > 0 &&
         Math.abs(r.fontSize - medianFontSize) / medianFontSize >= FONT_SIZE_MARK_RATIO - 1
       ) {
-        marks.push({
-          type: 'textStyle',
-          attrs: { fontSize: `${Math.round(r.fontSize)}pt` },
-        });
+        textStyleAttrs.fontSize = `${Math.round(r.fontSize)}pt`;
+      }
+      const color = normalizePdfColor(r.color);
+      if (color) textStyleAttrs.color = color;
+      const backgroundColor = normalizePdfColor(r.backgroundColor);
+      if (backgroundColor) textStyleAttrs.backgroundColor = backgroundColor;
+
+      if (Object.keys(textStyleAttrs).length > 0) {
+        marks.push({ type: 'textStyle', attrs: textStyleAttrs });
       }
       return {
         type: 'text',
@@ -130,11 +215,19 @@ function runsToTextNodes(
     });
 }
 
-function stripTextStyleMarks(nodes: TipTapNode[]): TipTapNode[] | undefined {
+/** Drop fontSize from textStyle (heading level already encodes size) but keep color. */
+function stripFontSizeMarks(nodes: TipTapNode[]): TipTapNode[] | undefined {
   if (nodes.length === 0) return undefined;
   return nodes.map((n) => {
     if (!n.marks) return n;
-    const marks = n.marks.filter((m) => m.type !== 'textStyle');
+    const marks = n.marks
+      .map((m) => {
+        if (m.type !== 'textStyle' || !m.attrs) return m;
+        const { fontSize: _drop, ...rest } = m.attrs as Record<string, unknown>;
+        if (Object.keys(rest).length === 0) return null;
+        return { type: 'textStyle' as const, attrs: rest };
+      })
+      .filter((m): m is NonNullable<typeof m> => m != null);
     return marks.length > 0 ? { ...n, marks } : { type: n.type, text: n.text };
   });
 }
@@ -154,6 +247,10 @@ function itemsToLines(items: SpatialTextItem[]): Line[] {
       text: item.text,
       bold: flags.bold,
       italic: flags.italic,
+      underline: Boolean(item.underline) || flags.underline,
+      strike: Boolean(item.strike),
+      color: item.color,
+      backgroundColor: item.backgroundColor,
       x: item.x,
       width: item.width > 0 ? item.width : Math.max(1, item.text.length * fontSize * 0.5),
       fontSize,
@@ -394,6 +491,8 @@ function splitColumnRuns(line: Line, scale: LayoutScale): LineRun[][] {
       text,
       bold: false,
       italic: false,
+      underline: false,
+      strike: false,
       x: line.minX + idx * 50,
       width: Math.max(1, text.length * 6),
       fontSize: line.maxFontSize,
@@ -481,6 +580,8 @@ function tryTableBlock(
                     text: '',
                     bold: false,
                     italic: false,
+                    underline: false,
+                    strike: false,
                     x: 0,
                     width: 0,
                     fontSize: medianFontSize,
@@ -614,23 +715,29 @@ function lineToBlock(
   medianFontSize: number,
   baselineX: number,
   indentGap: number,
+  bounds: ContentBounds,
 ): TipTapNode {
   const content = runsToTextNodes(line.runs, medianFontSize, true);
   const indent = lineIndentLevel(line, baselineX, indentGap);
-  const indentAttrs = indent > 0 ? { indent } : {};
+  const align = inferTextAlign(line, bounds);
+  const attrs: Record<string, unknown> = {
+    ...(indent > 0 ? { indent } : {}),
+    ...(align ? { textAlign: align } : {}),
+  };
+  const hasAttrs = Object.keys(attrs).length > 0;
   const level = headingLevelForLine(line, medianFontSize);
 
   if (level != null) {
     return {
       type: 'heading',
-      attrs: { level, ...indentAttrs },
-      content: stripTextStyleMarks(content),
+      attrs: { level, ...attrs },
+      content: stripFontSizeMarks(content),
     };
   }
 
   return {
     type: 'paragraph',
-    ...(indent > 0 ? { attrs: indentAttrs } : {}),
+    ...(hasAttrs ? { attrs } : {}),
     content: content.length > 0 ? content : undefined,
   };
 }
@@ -673,6 +780,7 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   const minXs = rawLines.map((l) => l.minX).sort((a, b) => a - b);
   const baselineX = percentile(minXs, 0.1);
   const scale = resolveLayoutScale(rawLines, medianFontSize);
+  const bounds = estimateContentBounds(rawLines);
 
   const lines = mergeSoftWrappedLines(rawLines, medianFontSize, baselineX, scale.indentGap);
 
@@ -703,7 +811,7 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
       continue;
     }
 
-    blocks.push(lineToBlock(lines[i]!, medianFontSize, baselineX, scale.indentGap));
+    blocks.push(lineToBlock(lines[i]!, medianFontSize, baselineX, scale.indentGap, bounds));
     i += 1;
   }
 
