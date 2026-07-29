@@ -2,14 +2,11 @@
  * React Query hooks for the AI Debrief (task 18.3; Requirements 16.1, 16.2,
  * 48.2, 48.3).
  *
- * `useRegenerateDebrief` invalidates `queryKeys.debrief(environmentId)` on
- * success — this is the one place regeneration triggers a refetch (frontend
- * steering §6: "debrief data must be invalidated/refetched on 'Regenerate AI
- * Debrief,' not just on mount"). The mutation's own returned payload is also
- * written into the cache via `setQueryData` so the modal updates immediately
- * without waiting on the network round-trip the invalidation triggers.
+ * Cache invalidation on regeneration is handled by useDebriefSubscription,
+ * which fires when the AppSync onDebriefReady event arrives (frontend
+ * steering §6: "debrief data must be invalidated/refetched on Regenerate").
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
 import {
   fetchDebrief,
@@ -19,10 +16,10 @@ import {
 } from './debriefApi';
 
 import type { DebriefHistoryVersion } from './debriefApi';
-import type { Debrief, FeedbackHelpfulnessInput, HelpfulnessAck } from './debriefTypes';
+import type { FeedbackHelpfulnessInput, HelpfulnessAck } from './debriefTypes';
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
+import type { Debrief } from './debriefTypes';
 
-import { queryKeys } from '@/hooks/queryKeys';
 import { apiClient } from '@/services';
 
 /**
@@ -52,35 +49,17 @@ export function useDebriefHistory(
 }
 
 /**
- * "Regenerate AI Debrief" — re-runs the Feedback_Engine and invalidates the
- * environment's debrief cache entry so every consumer of `useAiDebrief` for
- * this environment refetches (Requirement 16.2).
+ * "Regenerate AI Debrief" — enqueues a new Feedback Engine job and returns
+ * immediately. Completion is signaled via the AppSync subscription in
+ * useDebriefSubscription, which handles cache invalidation once the event
+ * fires (Requirement 16.2). The polling fallback in DocumentEditorPage covers
+ * the transition period when AppSync is unavailable.
  */
 export function useRegenerateDebrief(
   environmentId: string,
-): UseMutationResult<Debrief, unknown, void> {
-  const queryClient = useQueryClient();
-
+): UseMutationResult<void, unknown, void> {
   return useMutation({
     mutationFn: () => regenerateDebrief(apiClient, environmentId),
-    onSuccess: (debrief) => {
-      queryClient.setQueryData(queryKeys.debrief(environmentId), debrief);
-      if (debrief.draftId && debrief.draftId !== 'none') {
-        queryClient.setQueryData(
-          queryKeys.debrief(environmentId, debrief.draftId),
-          debrief,
-        );
-      }
-      void queryClient.invalidateQueries({
-        queryKey: [...queryKeys.debrief(environmentId).slice(0, 4)],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.debriefHistory(environmentId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.inlineFeedbackItems(environmentId),
-      });
-    },
   });
 }
 

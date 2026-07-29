@@ -1,0 +1,23 @@
+type DebriefReady {
+  documentId: ID!
+  draftId: String!
+  itemCount: Int!
+}
+
+type Mutation {
+  # Internal-only: invoked by the Feedback Engine Lambda via IAM auth.
+  # Cognito-authenticated students cannot call this mutation directly.
+  publishDebriefReady(documentId: ID!, draftId: String!, itemCount: Int!): DebriefReady
+    @aws_iam
+}
+
+type Subscription {
+  onDebriefReady(documentId: ID!): DebriefReady
+    @aws_subscribe(mutations: ["publishDebriefReady"])
+    @aws_cognito_user_pools
+}
+
+type Query {
+  # AppSync requires at least one Query field.
+  _health: String
+}

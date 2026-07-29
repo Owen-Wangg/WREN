@@ -24,7 +24,8 @@ import {
   createDraftFromSource,
   getPresignedUrl,
 } from '@/features/dashboard/dashboardApi';
-import { fetchFeedbackStatus, generateFeedback } from '@/features/editor/anchoredFeedbackApi';
+import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
+import { useDebriefSubscription } from '@/features/debrief';
 import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
@@ -316,46 +317,9 @@ export function DocumentEditorPage() {
     resubmitDraftMutation.mutate(file);
   };
 
-  useEffect(() => {
-    if (!isPollingFeedback) return;
-
-    let cancelled = false;
-    const interval = setInterval(() => {
-      void (async () => {
-        try {
-          const status = await fetchFeedbackStatus(apiClient, envId);
-          if (cancelled) return;
-
-          if (status.status === 'completed') {
-            setIsPollingFeedback(false);
-            clearInterval(interval);
-            void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
-            void queryClient.invalidateQueries({
-              queryKey: [...queryKeys.debrief(envId).slice(0, 4)],
-            });
-            void queryClient.invalidateQueries({
-              queryKey: queryKeys.debriefHistory(envId),
-            });
-            return;
-          }
-
-          if (status.status === 'failed') {
-            setIsPollingFeedback(false);
-            clearInterval(interval);
-          }
-        } catch {
-          if (cancelled) return;
-          setIsPollingFeedback(false);
-          clearInterval(interval);
-        }
-      })();
-    }, 2500);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [isPollingFeedback, envId, queryClient]);
+  useDebriefSubscription(envId, isPollingFeedback, () => {
+    setIsPollingFeedback(false);
+  });
 
   const handleDownload = async () => {
     const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;

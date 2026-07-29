@@ -35,3 +35,4 @@ export {
   useRegenerateDebrief,
   useFeedbackHelpfulness,
 } from './useDebrief';
+export { useDebriefSubscription } from './useDebriefSubscription';

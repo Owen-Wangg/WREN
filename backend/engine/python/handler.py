@@ -17,6 +17,8 @@ import psycopg
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from publish_debrief_ready import publish_debrief_ready
+
 from wren_engine.prompt_assembly import (
     PromptAssembler,
     SystemScaffolding,
@@ -1349,6 +1351,13 @@ def process_feedback_request(
 
         logger.info("Updating aggregate counters...")
         update_aggregate_counters(writing_type_id, item_count, conn)
+
+        # Notify the frontend via AppSync so the subscription fires immediately.
+        # Non-fatal: polling fallback remains active during the transition period.
+        try:
+            publish_debrief_ready(document_id, draft_id, item_count)
+        except Exception as appsync_err:
+            logger.warning("AppSync publish failed (non-fatal): %s", appsync_err)
 
         # Wait for resolution thread before returning
         resolution_thread.join()

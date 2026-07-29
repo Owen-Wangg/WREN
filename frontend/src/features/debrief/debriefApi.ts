@@ -111,34 +111,19 @@ export async function fetchDebriefHistory(
 }
 
 /**
- * Triggers a new feedback generation job, waits briefly, then re-fetches.
- * The caller (useRegenerateDebrief) invalidates the cache on success.
+ * Enqueues a new feedback generation job and returns immediately.
+ * Completion is signaled via the AppSync subscription in useDebriefSubscription;
+ * DocumentEditorPage's polling fallback handles the case where AppSync is
+ * unavailable during the transition period.
  */
 export async function regenerateDebrief(
   client: HttpClient,
   environmentId: string,
-): Promise<Debrief> {
-  // Enqueue a new generation job
+): Promise<void> {
   await client.request(feedbackPath(environmentId), {
     method: 'POST',
     schema: z.object({ jobId: z.string().optional(), status: z.string().optional() }).passthrough(),
   });
-
-  // Poll until completed (max 60s)
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 60_000) {
-    await new Promise((r) => setTimeout(r, 2500));
-    const status = await client.request(`/v1/documents/${environmentId}/feedback/status`, {
-      schema: z.object({
-        status: z.string(),
-        itemCount: z.number().optional(),
-      }).passthrough(),
-    });
-    if (status.status === 'completed' || (status.itemCount ?? 0) > 0) break;
-    if (status.status === 'failed') throw new Error('Feedback generation failed');
-  }
-
-  return fetchDebrief(client, environmentId);
 }
 
 /**

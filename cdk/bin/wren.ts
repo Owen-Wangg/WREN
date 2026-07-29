@@ -172,6 +172,7 @@ if (github.owner && github.repo) {
     apiEndpoint: amplifyApiEndpoint,
     cognitoUserPoolId: cognitoStack.userPoolId,
     cognitoClientId: cognitoStack.userPoolClientId,
+    appSyncGraphqlUrl: computeStack.appSyncGraphqlUrl,
   });
 } else {
   // eslint-disable-next-line no-console

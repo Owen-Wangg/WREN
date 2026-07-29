@@ -10,6 +10,8 @@ import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import type { IKey } from "aws-cdk-lib/aws-kms";
 import type { Construct } from "constructs";
 
+import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct";
+
 import type { AppConfig } from "../config";
 
 /**
@@ -68,6 +70,8 @@ export class ComputeStack extends Stack {
   public readonly diffAnchorProgressFunction: lambda.Function;
   public readonly feedbackQueue: sqs.Queue;
   public readonly feedbackDlq: sqs.Queue;
+  public readonly appSyncGraphqlUrl: string;
+  public readonly appSyncAuthorizerFunction: lambda.Function;
 
   constructor(scope: Construct, id: string, props: ComputeStackProps) {
     super(scope, id, props);
@@ -288,6 +292,50 @@ export class ComputeStack extends Stack {
     });
 
     // -----------------------------------------------------------------------
+    // AppSync Lambda authorizer (Node 22)
+    // Same two-step pattern as the REST authorizer: Cognito JWT → DB identity
+    // + ownership check. Deployed separately so it can be tuned independently.
+    // -----------------------------------------------------------------------
+    this.appSyncAuthorizerFunction = new lambdaNodejs.NodejsFunction(this, "AppSyncAuthorizerFn", {
+      functionName: `${config.stackPrefix}-appsync-authorizer`,
+      entry: path.join(monorepoRoot, "backend/auth/src/appSyncAuthorizer.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      vpc,
+      vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
+      environment: {
+        ...dbEnv,
+        COGNITO_USER_POOL_ID: props.userPoolId,
+        COGNITO_CLIENT_ID: props.userPoolClientId,
+      },
+      bundling: sharedBundling,
+    });
+
+    // DB secret access — same grant pattern as the REST authorizer.
+    this.appSyncAuthorizerFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["secretsmanager:GetSecretValue"],
+      resources: [props.databaseSecretArn],
+    }));
+
+    // -----------------------------------------------------------------------
+    // AppSync real-time API — debrief-ready notifications
+    // -----------------------------------------------------------------------
+    const appSyncRealtime = new AppSyncRealtimeConstruct(this, "AppSyncRealtime", {
+      authorizerFunction: this.appSyncAuthorizerFunction,
+      feedbackEngineRole: this.feedbackEngineFunction.role!,
+      stackPrefix: config.stackPrefix,
+    });
+    this.appSyncGraphqlUrl = appSyncRealtime.graphqlUrl;
+
+    // Inject the AppSync endpoint into the Feedback Engine so it can publish
+    // the debriefReady mutation after writing feedback_item rows.
+    this.feedbackEngineFunction.addEnvironment("APPSYNC_URL", appSyncRealtime.graphqlUrl);
+
+    // -----------------------------------------------------------------------
     // IAM: scoped roles — each function gets only what it needs
     // -----------------------------------------------------------------------
     this.grantDatabaseAccess([
@@ -437,6 +485,14 @@ export class ComputeStack extends Stack {
     });
     new CfnOutput(this, "FeedbackDlqUrl", {
       value: this.feedbackDlq.queueUrl,
+    });
+    new CfnOutput(this, "AppSyncAuthorizerFunctionArn", {
+      value: this.appSyncAuthorizerFunction.functionArn,
+    });
+    new CfnOutput(this, "AppSyncGraphqlUrl", {
+      value: this.appSyncGraphqlUrl,
+      description: "AppSync GraphQL endpoint for real-time debrief subscriptions",
+      exportName: `${config.stackPrefix}-appsync-graphql-url`,
     });
   }
 
