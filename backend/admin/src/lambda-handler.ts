@@ -27,8 +27,13 @@ import {
   updatePlatformUsagePolicy,
 } from './lifetimeUsagePolicy';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
-import { AuthorizationError } from './errors';
+import { AuthorizationError, NotFoundError } from './errors';
 import { requireCapability } from './capabilityGuard';
+import {
+  assertCanViewDepartment,
+  filterDepartmentsForActor,
+  filterDocumentTypesForActor,
+} from './departmentScope';
 import { handler as syncCognitoAdminsHandler } from './scripts/sync-cognito-admins';
 import type { AuthContext } from '@wren/types';
 
@@ -58,7 +63,7 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
       return await wrapHandler(() => handleGetMe(event));
     }
     if (resource === '/v1/departments' && httpMethod === 'GET') {
-      return await wrapHandler(() => handleListDepartments());
+      return await wrapHandler(() => handleListDepartments(event));
     }
     if (resource === '/v1/departments' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDepartment(event));
@@ -173,9 +178,10 @@ async function handleGetMe(event: any): Promise<APIGatewayProxyResult> {
   };
 }
 
-async function handleListDepartments(): Promise<APIGatewayProxyResult> {
+async function handleListDepartments(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const departments = await listDepartments(db);
+  const departments = filterDepartmentsForActor(actor, await listDepartments(db));
   return {
     statusCode: 200,
     body: JSON.stringify(departments),
@@ -183,11 +189,13 @@ async function handleListDepartments(): Promise<APIGatewayProxyResult> {
 }
 
 async function handleGetDepartment(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
+  assertCanViewDepartment(actor, departmentId);
   const department = await getDepartment(departmentId, db);
   if (!department) {
-    throw Object.assign(new Error('Department not found'), { statusCode: 404 });
+    throw new NotFoundError(`Department '${departmentId}' not found`);
   }
   return {
     statusCode: 200,
@@ -196,11 +204,18 @@ async function handleGetDepartment(event: any): Promise<APIGatewayProxyResult> {
 }
 
 async function handleListDocumentTypes(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { departmentId } = event.queryStringParameters || {};
-  const types = departmentId
-    ? await listDocumentTypes(departmentId, db)
-    : await listAllDocumentTypes(db);
+  if (departmentId) {
+    assertCanViewDepartment(actor, departmentId);
+    const types = await listDocumentTypes(departmentId, db);
+    return {
+      statusCode: 200,
+      body: JSON.stringify(types),
+    };
+  }
+  const types = filterDocumentTypesForActor(actor, await listAllDocumentTypes(db));
   return {
     statusCode: 200,
     body: JSON.stringify(types),

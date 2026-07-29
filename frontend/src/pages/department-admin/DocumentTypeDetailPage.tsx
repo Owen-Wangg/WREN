@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, BookOpen, LineChart } from 'lucide-react';
 
+import { useActiveDepartment } from '@/features/department-admin/ActiveDepartmentContext';
 import { listDocumentTypes } from '@/features/department-admin/departmentAdminApi';
 import { EvaluationRubricSection } from './sections/EvaluationRubricSection';
 import { AnalyticsSection } from './sections/AnalyticsSection';
@@ -12,17 +13,20 @@ type SidebarTab = 'evaluation-rubric' | 'analytics';
 export function DocumentTypeDetailPage() {
   const navigate = useNavigate();
   const { documentTypeId } = useParams<{ documentTypeId: string }>();
+  const { activeDepartment } = useActiveDepartment();
   const [activeTab, setActiveTab] = useState<SidebarTab>('evaluation-rubric');
 
   const { data: documentTypes } = useQuery({
-    queryKey: ['document-types'],
-    queryFn: () => listDocumentTypes(),
+    queryKey: ['dept-admin-document-types', activeDepartment?.id],
+    queryFn: () =>
+      activeDepartment?.id ? listDocumentTypes(activeDepartment.id) : Promise.resolve([]),
+    enabled: !!activeDepartment?.id,
   });
 
   const documentType = documentTypes?.find((dt) => dt.id === documentTypeId) ?? {
     id: documentTypeId ?? '',
     name: documentTypeId ?? 'Loading...',
-    departmentId: '',
+    departmentId: activeDepartment?.id ?? '',
     accessState: 'OPEN' as const,
     sizeLimitWords: null,
   };
@@ -37,6 +41,7 @@ export function DocumentTypeDetailPage() {
       {/* Sidebar */}
       <div className="w-64 border-r border-gray-200 bg-white p-6">
         <button
+          type="button"
           onClick={() => navigate('/dept-admin')}
           className="mb-8 flex items-center gap-2 text-gray-600 hover:text-gray-900"
         >
@@ -47,6 +52,9 @@ export function DocumentTypeDetailPage() {
         <div className="mb-8">
           <p className="text-xs font-semibold text-gray-500 uppercase">Document Type</p>
           <h2 className="mt-2 text-lg font-semibold text-gray-900">{documentType.name}</h2>
+          {activeDepartment && (
+            <p className="mt-1 text-xs text-gray-500">{activeDepartment.name}</p>
+          )}
           <p className="mt-3 text-xs text-gray-500">
             Student access is controlled department-wide by a System Admin
             ({documentType.accessState === 'LOCKED' ? 'currently locked' : 'currently open'}).
@@ -57,6 +65,7 @@ export function DocumentTypeDetailPage() {
           {sidebarItems.map((item) => (
             <button
               key={item.id}
+              type="button"
               onClick={() => setActiveTab(item.id)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${
                 activeTab === item.id
@@ -81,9 +90,7 @@ export function DocumentTypeDetailPage() {
             />
           )}
           {activeTab === 'analytics' && (
-            <AnalyticsSection
-              documentTypeId={documentTypeId ?? ''}
-            />
+            <AnalyticsSection documentTypeId={documentTypeId ?? ''} />
           )}
         </div>
       </div>

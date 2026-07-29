@@ -3,6 +3,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 
 import { appConfig } from '@/config/env';
 import { useAuth } from '@/features/auth/AuthContext';
+import { DepartmentAdminProviders } from '@/features/department-admin/ActiveDepartmentContext';
 
 import type { Role } from '@wren/types';
 
@@ -96,13 +97,15 @@ export function App() {
 
       {/* Department Admin routes (DepartmentAdmin; TechnicalAdmin may also administer) */}
       <Route element={<ProtectedRoute allow={['DepartmentAdmin', 'TechnicalAdmin']} />}>
-        <Route element={<DepartmentAdminLayout />}>
-          <Route path="/dept-admin" element={<DepartmentAdminDashboard />} />
-          <Route path="/dept-admin/guide" element={<DepartmentAdminGuidePage />} />
-          <Route path="/dept-admin/notifications" element={<DepartmentAdminNotificationsPage />} />
-          <Route path="/dept-admin/profile" element={<DepartmentAdminProfilePage />} />
+        <Route element={<DepartmentAdminProviders />}>
+          <Route element={<DepartmentAdminLayout />}>
+            <Route path="/dept-admin" element={<DepartmentAdminDashboard />} />
+            <Route path="/dept-admin/guide" element={<DepartmentAdminGuidePage />} />
+            <Route path="/dept-admin/notifications" element={<DepartmentAdminNotificationsPage />} />
+            <Route path="/dept-admin/profile" element={<DepartmentAdminProfilePage />} />
+          </Route>
+          <Route path="/dept-admin/document-type/:documentTypeId" element={<DocumentTypeDetailPage />} />
         </Route>
-        <Route path="/dept-admin/document-type/:documentTypeId" element={<DocumentTypeDetailPage />} />
       </Route>
     </Routes>
   );
