@@ -137,6 +137,34 @@ export class CognitoAuthService implements AuthService {
     });
   }
 
+  async forgotPassword(email: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const user = new CognitoUser({ Username: email, Pool: this.userPool });
+      user.forgotPassword({
+        onSuccess: () => resolve(),
+        onFailure: (error) => {
+          reject(new AuthError(`Failed to send reset code: ${error.message}`, 'unknown', error));
+        },
+      });
+    });
+  }
+
+  async confirmForgotPassword(email: string, code: string, newPassword: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const user = new CognitoUser({ Username: email, Pool: this.userPool });
+      user.confirmPassword(code, newPassword, {
+        onSuccess: () => resolve(),
+        onFailure: (error: any) => {
+          const kind: AuthErrorKind =
+            error.code === 'CodeMismatchException' || error.code === 'ExpiredCodeException'
+              ? 'invalid_credentials'
+              : 'unknown';
+          reject(new AuthError(`Password reset failed: ${error.message}`, kind, error));
+        },
+      });
+    });
+  }
+
   signOut(): void {
     if (this.currentUser) {
       this.currentUser.signOut();

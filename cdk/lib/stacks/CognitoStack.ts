@@ -45,6 +45,35 @@ export class CognitoStack extends Stack {
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       mfa: cognito.Mfa.OPTIONAL,
+
+      // Verification email sent when a user signs up (contains the 6-digit code).
+      userVerification: {
+        emailSubject: `Your ${config.appName} verification code`,
+        emailBody: [
+          `<p>Hi,</p>`,
+          `<p>Thanks for signing up for <strong>${config.appName}</strong> — the AI-powered writing coach.</p>`,
+          `<p>Your verification code is:</p>`,
+          `<p style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;">{####}</p>`,
+          `<p>Enter this code on the verification screen to activate your account. The code expires in 24 hours.</p>`,
+          `<p>If you didn't create an account, you can safely ignore this email.</p>`,
+          `<p>— The ${config.appName} Team</p>`,
+        ].join("\n"),
+        emailStyle: cognito.VerificationEmailStyle.CODE,
+      },
+
+      // Password reset email sent when a user requests a reset code.
+      userInvitation: {
+        emailSubject: `Your ${config.appName} password reset code`,
+        emailBody: [
+          `<p>Hi {username},</p>`,
+          `<p>We received a request to reset the password for your <strong>${config.appName}</strong> account.</p>`,
+          `<p>Your reset code is:</p>`,
+          `<p style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;">{####}</p>`,
+          `<p>Enter this code along with your new password to complete the reset. The code expires shortly.</p>`,
+          `<p>If you didn't request a password reset, you can safely ignore this email — your account is secure.</p>`,
+          `<p>— The ${config.appName} Team</p>`,
+        ].join("\n"),
+      },
     });
 
     // -----------------------------------------------------------------------
