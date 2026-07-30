@@ -182,10 +182,10 @@ export class ApiStack extends Stack {
         // cache. Cache key: path param (documentId) + query param (draftId).
         // TTL matches the browser Cache-Control max-age set in the Lambda.
         methodOptions: {
-          "*/GET": {
+          "/*/GET": {
             cachingEnabled: false, // default off for all GETs
           },
-          "v1/documents/{documentId}/feedback/GET": {
+          "/v1/documents/{documentId}/feedback/GET": {
             cachingEnabled: true,
             cacheTtl: Duration.seconds(3600),
             cacheDataEncrypted: true,
