@@ -18,6 +18,7 @@ import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
 
 import { useAiDebrief, useDebriefHistory, useRegenerateDebrief } from '../useDebrief';
+import { useDebriefSubscription } from '../useDebriefSubscription';
 
 import type { ProgressPattern } from '../debriefTypes';
 import type { FeedbackItem } from '@wren/types';
@@ -71,14 +72,16 @@ function formatCompactGeneratedAt(iso: string): string {
   });
 }
 
-function useGeneratingStep(): { message: string; detail: string; stepIndex: number } {
+function useGeneratingStep(active: boolean): { message: string; detail: string; stepIndex: number } {
   const [index, setIndex] = useState(0);
   useEffect(() => {
+    if (!active) return;
+    setIndex(0);
     const id = setInterval(() => {
       setIndex((i) => Math.min(i + 1, GENERATING_STEPS.length - 1));
     }, 8000);
     return () => clearInterval(id);
-  }, []);
+  }, [active]);
   return { ...(GENERATING_STEPS[index] ?? GENERATING_STEPS[0]!), stepIndex: index };
 }
 
@@ -153,6 +156,14 @@ export function SidebarDebriefPanel({
   const historyQuery = useDebriefHistory(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
   const [isSavingThenRegen, setIsSavingThenRegen] = useState(false);
+  // True from when the 202 lands until the AppSync onDebriefReady event fires.
+  const [isAwaitingDebrief, setIsAwaitingDebrief] = useState(false);
+
+  useDebriefSubscription(
+    environmentId,
+    isAwaitingDebrief,
+    () => setIsAwaitingDebrief(false),
+  );
 
   const didAutoRegenerate = useRef(false);
   const regenerateRef = useRef(regenerate);
@@ -162,12 +173,14 @@ export function SidebarDebriefPanel({
 
   const runRegenerate = async () => {
     setIsSavingThenRegen(true);
+    setIsAwaitingDebrief(false);
     setHistoryOpen(false);
     try {
       await onBeforeRegenerateRef.current?.();
       await regenerateRef.current.mutateAsync();
-      // Always show the newly generated (latest) debrief after regenerate.
+      // POST returned 202 — hand off the "waiting" flag to the subscription.
       setSelectedDraftId(null);
+      setIsAwaitingDebrief(true);
     } catch {
       // Error surfaces via regenerate.isError; keep panel usable.
     } finally {
@@ -207,10 +220,10 @@ export function SidebarDebriefPanel({
     };
   }, [historyOpen]);
 
-  const generatingStep = useGeneratingStep();
-
   const debrief = debriefQuery.data;
-  const regenerating = isSavingThenRegen || regenerate.isPending;
+  const regenerating = isSavingThenRegen || regenerate.isPending || isAwaitingDebrief;
+
+  const generatingStep = useGeneratingStep(regenerating);
   const hasFeedback = (debrief?.items.length ?? 0) > 0;
   const viewingHistorical = selectedDraftId != null;
   const lastGeneratedCompact =
