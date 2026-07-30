@@ -1524,6 +1524,51 @@ export class MockApiClient implements HttpClient {
       return result.data;
     }
 
+    // Dynamic: PATCH /v1/documents/{id}/drafts/current — content-only autosave
+    const draftPatchMatch = /^PATCH \/v1\/documents\/([^/]+)\/drafts\/current$/.exec(key);
+    if (draftPatchMatch) {
+      const documentId = draftPatchMatch[1];
+      const body = options.body as { content?: unknown } | undefined;
+      const prev = (this.routes[`GET /v1/documents/${documentId}/drafts`] ?? {
+        id: `draft-${documentId}-v1`,
+        documentId,
+        versionNumber: 1,
+        s3Key: 'inline',
+        segments: [{ index: 0, text: '' }],
+        wordCount: 0,
+        createdAt: new Date().toISOString(),
+      }) as {
+        id: string;
+        documentId: string;
+        versionNumber: number;
+        s3Key: string;
+        segments: Array<{ index: number; text: string }>;
+        wordCount: number;
+        createdAt: string;
+        content?: unknown;
+      };
+      const draftFixture = {
+        ...prev,
+        content: body?.content,
+        wordCount:
+          typeof body?.content === 'object' && body.content
+            ? Math.max(prev.wordCount, 1)
+            : prev.wordCount,
+      };
+      this.routes[`GET /v1/documents/${documentId}/drafts`] = draftFixture;
+      if (!options.schema) return draftFixture as T;
+      const result = options.schema.safeParse(draftFixture);
+      if (!result.success) {
+        throw new ApiError(
+          `Mock fixture for ${key} failed validation`,
+          'validation',
+          200,
+          result.error.issues,
+        );
+      }
+      return result.data;
+    }
+
     // Dynamic: POST /v1/documents/{id}/drafts — segments or source ingest
     const draftPostMatch = /^POST \/v1\/documents\/([^/]+)\/drafts$/.exec(key);
     if (draftPostMatch) {
