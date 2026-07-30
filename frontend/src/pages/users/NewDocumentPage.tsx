@@ -6,12 +6,21 @@ import {
   useDocumentTypes,
   useOrganizations,
 } from '@/features/dashboard/useDashboard';
-import { createDocument, getPresignedUrl } from '@/features/dashboard/dashboardApi';
+import {
+  createDocument,
+  getPresignedUrl,
+  type OcrEngineChoice,
+} from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import {
   DocxClientParseError,
   docxBytesToTiptapContent,
 } from '@/features/editor/docxContentMapper';
+import { OcrEngineSelect } from '@/features/editor/components/OcrEngineSelect';
+import {
+  readOcrEnginePreference,
+  writeOcrEnginePreference,
+} from '@/features/editor/ocrEnginePreference';
 import { apiClient, ApiError } from '@/services';
 import { stripAiMarksFromTipTapContent, asTipTapDoc } from '@wren/types';
 import type { JSONContent } from '@tiptap/react';
@@ -48,6 +57,7 @@ export function NewDocumentPage() {
   const [selectedDocumentType, setSelectedDocumentType] = useState('');
   const [documentName, setDocumentName] = useState('');
   const [referenceFile, setReferenceFile] = useState<File | undefined>(undefined);
+  const [ocrEngine, setOcrEngine] = useState<OcrEngineChoice>(() => readOcrEnginePreference());
 
   const documentTypesQuery = useDocumentTypes(selectedDepartment);
   const documentTypes = documentTypesQuery.data ?? [];
@@ -112,6 +122,9 @@ export function NewDocumentPage() {
         name: documentName.trim(),
         source: { kind: 'file', key },
         ...(cleaned ? { content: cleaned } : {}),
+        ...(referenceFile.name.toLowerCase().endsWith('.pdf')
+          ? { ocrEngine }
+          : {}),
       });
 
       const ingestQueued = doc.ingestStatus === 'queued';
@@ -286,10 +299,19 @@ export function NewDocumentPage() {
               best-effort.
             </p>
             {referenceFile?.name.toLowerCase().endsWith('.pdf') && (
-              <p className="text-caption text-signal-caution leading-relaxed" role="status">
-                PDF selected — expect approximate formatting. For a closer match to
-                the original layout, upload the Word (.docx) source instead.
-              </p>
+              <>
+                <p className="text-caption text-signal-caution leading-relaxed" role="status">
+                  PDF selected — expect approximate formatting. For a closer match to
+                  the original layout, upload the Word (.docx) source instead.
+                </p>
+                <OcrEngineSelect
+                  value={ocrEngine}
+                  onChange={(next) => {
+                    setOcrEngine(next);
+                    writeOcrEnginePreference(next);
+                  }}
+                />
+              </>
             )}
             {referenceFile && (
               <p className="text-bodySmall text-accent-primary">
