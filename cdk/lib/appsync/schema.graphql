@@ -1,7 +1,7 @@
 type DebriefReady {
-  documentId: ID!
-  draftId: String!
-  itemCount: Int!
+  documentId: ID! @aws_iam @aws_cognito_user_pools
+  draftId: String! @aws_iam @aws_cognito_user_pools
+  itemCount: Int! @aws_iam @aws_cognito_user_pools
 }
 
 type Mutation {
