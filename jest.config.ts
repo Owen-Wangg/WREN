@@ -22,6 +22,10 @@ const config: Config = {
     'frontend/src/',
   ],
   modulePathIgnorePatterns: ['/node_modules/', '/cdk.out/', '/dist/'],
+  // Map NodeNext-style ".js" relative imports onto their ".ts" sources.
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+  },
   clearMocks: true,
 };
 

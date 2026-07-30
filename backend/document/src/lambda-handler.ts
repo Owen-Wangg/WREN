@@ -19,7 +19,8 @@ import {
 } from '@wren/types';
 
 import { MammothDocxExtractor } from './docxExtractor.js';
-import { LiteParsePdfExtractor } from './pdfExtractor.js';
+import { createPdfExtractor } from './ocrFactory.js';
+import { resolveOcrEngine } from './textractOcr.js';
 import { UnsupportedFileFormatError } from './errors.js';
 import { ingestUpload } from './ingestion.js';
 import { enforceSizeLimit } from './sizeLimit.js';
@@ -43,13 +44,17 @@ import {
 } from '@wren/admin/lifetimeUsagePolicy';
 
 const docxExtractor = new MammothDocxExtractor();
-const pdfExtractor = new LiteParsePdfExtractor();
+
+function parseOcrEngineFromBody(body: Record<string, unknown>): string {
+  const raw = body.ocrEngine;
+  return resolveOcrEngine(typeof raw === 'string' ? raw : null);
+}
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
     'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
 };
 
 function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
@@ -283,6 +288,9 @@ export const handler = async (event: any): Promise<APIGatewayProxyResult | void>
     if (resource === '/v1/documents/{documentId}/drafts' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDraft(event));
     }
+    if (resource === '/v1/documents/{documentId}/drafts/current' && httpMethod === 'PATCH') {
+      return await wrapHandler(() => handlePatchCurrentDraft(event));
+    }
     if (resource === '/v1/documents/{documentId}/ingest/status' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetIngestStatus(event));
     }
@@ -379,6 +387,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     | { kind?: string; text?: string; key?: string }
     | undefined;
   const tipTapContent = parseRequestTipTapContent(body.content);
+  const ocrEngine = parseOcrEngineFromBody(body);
 
   if (!documentTypeId || !name) {
     return {
@@ -564,6 +573,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       documentId,
       s3Key: asyncPdf.key,
       fileName: asyncPdf.fileName,
+      ocrEngine,
     });
     await enqueueIngestJob({
       jobId: job.id,
@@ -572,6 +582,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       fileName: asyncPdf.fileName,
       userId: actor.userId,
       sizeLimitWords,
+      ocrEngine,
     });
     return {
       statusCode: 201,
@@ -585,7 +596,15 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
 
   let ingestResult;
   try {
-    ingestResult = await ingestUpload(ingestSource!, { docxExtractor, pdfExtractor });
+    const { extractor } = createPdfExtractor({
+      engine: ocrEngine,
+      s3Bucket: process.env.DOCUMENTS_BUCKET_NAME,
+      s3Key: typeof s3Key === 'string' && s3Key !== 'inline' ? s3Key : undefined,
+    });
+    ingestResult = await ingestUpload(ingestSource!, {
+      docxExtractor,
+      pdfExtractor: extractor,
+    });
   } catch (error) {
     if (error instanceof UnsupportedFileFormatError) {
       return {
@@ -836,6 +855,63 @@ async function handleGetLatestDraft(event: any): Promise<APIGatewayProxyResult> 
   };
 }
 
+/**
+ * Autosave: update TipTap content on the current draft without a new version.
+ */
+async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const tipTapContent = parseRequestTipTapContent(body.content);
+
+  if (!tipTapContent) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'Provide TipTap content for autosave',
+      }),
+    };
+  }
+
+  const docRows = await db.query(
+    `SELECT owner_user_id FROM document WHERE id = $1`,
+    [documentId],
+  );
+
+  if (docRows.length === 0) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  if (docRows[0].owner_user_id !== actor.userId) {
+    return {
+      statusCode: 403,
+      body: JSON.stringify({ code: 'PERMISSION_DENIED', message: 'Not authorized' }),
+    };
+  }
+
+  const cleaned = stripAiMarksFromTipTapContent(tipTapContent) as TipTapDoc;
+  const wordCount = wordCountFromTipTapContent(cleaned);
+  const repo = new DbDraftRepository(db);
+  const draft = await repo.updateCurrentDraftContent(documentId, cleaned, wordCount);
+
+  if (!draft) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'No draft found' }),
+    };
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify(draft),
+  };
+}
+
 async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
@@ -846,6 +922,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     | undefined;
   const { segments } = body;
   const tipTapContent = parseRequestTipTapContent(body.content);
+  const ocrEngine = parseOcrEngineFromBody(body);
   const hasSource = source?.kind === 'file' || source?.kind === 'paste';
   const hasSegments = Array.isArray(segments);
   const hasContent = !!tipTapContent;
@@ -899,8 +976,8 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       | { kind: 'paste'; pastedText: string }
       | { kind: 'file'; fileName: string; bytes: Buffer };
 
-    if (source.kind === 'paste') {
-      const text = typeof source.text === 'string' ? source.text : '';
+    if (source!.kind === 'paste') {
+      const text = typeof source!.text === 'string' ? source!.text : '';
       if (!text.trim()) {
         return {
           statusCode: 400,
@@ -912,7 +989,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       }
       ingestSource = { kind: 'paste', pastedText: text };
     } else {
-      const key = typeof source.key === 'string' ? source.key : '';
+      const key = typeof source!.key === 'string' ? source!.key : '';
       if (!key) {
         return {
           statusCode: 400,
@@ -940,6 +1017,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
           documentId: documentId as string,
           s3Key: key,
           fileName,
+          ocrEngine,
         });
         await enqueueIngestJob({
           jobId: job.id,
@@ -948,6 +1026,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
           fileName,
           userId: actor.userId,
           sizeLimitWords,
+          ocrEngine,
         });
         return {
           statusCode: 202,
@@ -965,7 +1044,15 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
 
     let ingestResult;
     try {
-      ingestResult = await ingestUpload(ingestSource, { docxExtractor, pdfExtractor });
+      const { extractor } = createPdfExtractor({
+        engine: ocrEngine,
+        s3Bucket: process.env.DOCUMENTS_BUCKET_NAME,
+        s3Key: typeof s3Key === 'string' && s3Key !== 'inline' ? s3Key : undefined,
+      });
+      ingestResult = await ingestUpload(ingestSource, {
+        docxExtractor,
+        pdfExtractor: extractor,
+      });
     } catch (error) {
       if (error instanceof UnsupportedFileFormatError) {
         return {

@@ -146,6 +146,8 @@ export class ComputeStack extends Stack {
         ...dbEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
         PDF_OCR_ENABLED: "true",
+        // Default OCR engine; runtime override via request body `ocrEngine`.
+        PDF_OCR_ENGINE: "tesseract",
         // Bundled next to the handler via commandHooks below.
         TESSDATA_PREFIX: "/var/task/tessdata",
         // Optional hook for an external OCR HTTP service (5C).
@@ -434,6 +436,19 @@ export class ComputeStack extends Stack {
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:DeleteObjects"],
       resources: [`arn:aws:s3:::${props.documentsBucketName}/*`],
+    }));
+    // Amazon Textract OCR (LAYOUT + TABLES analysis).
+    this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        "textract:AnalyzeDocument",
+        "textract:StartDocumentAnalysis",
+        "textract:GetDocumentAnalysis",
+        // Legacy detect APIs kept for compatibility if rolled back.
+        "textract:DetectDocumentText",
+        "textract:StartDocumentTextDetection",
+        "textract:GetDocumentTextDetection",
+      ],
+      resources: ["*"],
     }));
     props.storageEncryptionKey.grantEncryptDecrypt(this.documentFunction);
 

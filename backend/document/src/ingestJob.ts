@@ -7,8 +7,15 @@ import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
 
 import type { QueryExecutor } from './draftRepository.js';
+import { resolveOcrEngine } from './textractOcr.js';
 
 export type IngestJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
+
+export interface OcrComparisonResult {
+  readonly tesseract?: { readonly text: string; readonly durationMs: number; readonly textLength: number };
+  readonly textract?: { readonly text: string; readonly durationMs: number; readonly textLength: number };
+  readonly primaryEngine: string;
+}
 
 export interface DocumentIngestJob {
   readonly id: string;
@@ -18,6 +25,8 @@ export interface DocumentIngestJob {
   readonly status: IngestJobStatus;
   readonly errorMessage: string | null;
   readonly draftId: string | null;
+  readonly ocrEngine: string;
+  readonly comparison: OcrComparisonResult | null;
 }
 
 const sqsClient = new SQSClient({ region: process.env.AWS_REGION || 'ca-central-1' });
@@ -33,9 +42,15 @@ export function shouldIngestPdfAsync(fileName: string, hasClientTipTap: boolean)
 
 export async function insertQueuedIngestJob(
   db: QueryExecutor,
-  input: { documentId: string; s3Key: string; fileName: string },
+  input: {
+    documentId: string;
+    s3Key: string;
+    fileName: string;
+    ocrEngine?: string | null;
+  },
 ): Promise<DocumentIngestJob> {
   const id = uuid();
+  const ocrEngine = resolveOcrEngine(input.ocrEngine);
   const rows = await db.query<{
     id: string;
     document_id: string;
@@ -44,22 +59,15 @@ export async function insertQueuedIngestJob(
     status: IngestJobStatus;
     error_message: string | null;
     draft_id: string | null;
+    ocr_engine: string;
+    comparison: unknown;
   }>(
-    `INSERT INTO document_ingest_job (id, document_id, s3_key, file_name, status)
-     VALUES ($1, $2, $3, $4, 'queued')
-     RETURNING id, document_id, s3_key, file_name, status, error_message, draft_id`,
-    [id, input.documentId, input.s3Key, input.fileName],
+    `INSERT INTO document_ingest_job (id, document_id, s3_key, file_name, status, ocr_engine)
+     VALUES ($1, $2, $3, $4, 'queued', $5)
+     RETURNING id, document_id, s3_key, file_name, status, error_message, draft_id, ocr_engine, comparison`,
+    [id, input.documentId, input.s3Key, input.fileName, ocrEngine],
   );
-  const row = rows[0]!;
-  return {
-    id: row.id,
-    documentId: row.document_id,
-    s3Key: row.s3_key,
-    fileName: row.file_name,
-    status: row.status,
-    errorMessage: row.error_message,
-    draftId: row.draft_id,
-  };
+  return mapJobRow(rows[0]!);
 }
 
 export async function enqueueIngestJob(job: {
@@ -69,6 +77,7 @@ export async function enqueueIngestJob(job: {
   fileName: string;
   userId: string;
   sizeLimitWords: number | null;
+  ocrEngine?: string | null;
 }): Promise<void> {
   const queueUrl = process.env.DOCUMENT_INGEST_QUEUE_URL;
   if (!queueUrl) {
@@ -84,6 +93,7 @@ export async function enqueueIngestJob(job: {
         fileName: job.fileName,
         userId: job.userId,
         sizeLimitWords: job.sizeLimitWords,
+        ocrEngine: resolveOcrEngine(job.ocrEngine),
         enqueuedAt: new Date().toISOString(),
       }),
     }),
@@ -108,12 +118,17 @@ export async function markIngestJobCompleted(
   db: QueryExecutor,
   jobId: string,
   draftId: string,
+  comparison?: OcrComparisonResult | null,
 ): Promise<void> {
   await db.query(
     `UPDATE document_ingest_job
-     SET status = 'completed', draft_id = $2, error_message = NULL, updated_at = NOW()
+     SET status = 'completed',
+         draft_id = $2,
+         error_message = NULL,
+         comparison = $3::jsonb,
+         updated_at = NOW()
      WHERE id = $1`,
-    [jobId, draftId],
+    [jobId, draftId, comparison ? JSON.stringify(comparison) : null],
   );
 }
 
@@ -121,13 +136,46 @@ export async function markIngestJobFailed(
   db: QueryExecutor,
   jobId: string,
   errorMessage: string,
+  comparison?: OcrComparisonResult | null,
 ): Promise<void> {
   await db.query(
     `UPDATE document_ingest_job
-     SET status = 'failed', error_message = $2, updated_at = NOW()
+     SET status = 'failed',
+         error_message = $2,
+         comparison = $3::jsonb,
+         updated_at = NOW()
      WHERE id = $1`,
-    [jobId, errorMessage.slice(0, 2000)],
+    [jobId, errorMessage.slice(0, 2000), comparison ? JSON.stringify(comparison) : null],
   );
+}
+
+function parseComparison(value: unknown): OcrComparisonResult | null {
+  if (!value || typeof value !== 'object') return null;
+  return value as OcrComparisonResult;
+}
+
+function mapJobRow(row: {
+  id: string;
+  document_id: string;
+  s3_key: string;
+  file_name: string;
+  status: IngestJobStatus;
+  error_message: string | null;
+  draft_id: string | null;
+  ocr_engine?: string | null;
+  comparison?: unknown;
+}): DocumentIngestJob {
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    s3Key: row.s3_key,
+    fileName: row.file_name,
+    status: row.status,
+    errorMessage: row.error_message,
+    draftId: row.draft_id,
+    ocrEngine: row.ocr_engine ?? 'tesseract',
+    comparison: parseComparison(row.comparison),
+  };
 }
 
 export async function getLatestIngestStatus(
@@ -138,14 +186,18 @@ export async function getLatestIngestStatus(
   jobId?: string;
   draftId?: string;
   errorMessage?: string;
+  ocrEngine?: string;
+  comparison?: OcrComparisonResult;
 }> {
   const rows = await db.query<{
     id: string;
     status: IngestJobStatus;
     draft_id: string | null;
     error_message: string | null;
+    ocr_engine: string | null;
+    comparison: unknown;
   }>(
-    `SELECT id, status, draft_id, error_message
+    `SELECT id, status, draft_id, error_message, ocr_engine, comparison
      FROM document_ingest_job
      WHERE document_id = $1
      ORDER BY created_at DESC
@@ -156,11 +208,14 @@ export async function getLatestIngestStatus(
     return { status: 'pending' };
   }
   const row = rows[0]!;
+  const comparison = parseComparison(row.comparison);
   return {
     status: row.status,
     jobId: row.id,
     ...(row.draft_id ? { draftId: row.draft_id } : {}),
     ...(row.error_message ? { errorMessage: row.error_message } : {}),
+    ...(row.ocr_engine ? { ocrEngine: row.ocr_engine } : {}),
+    ...(comparison ? { comparison } : {}),
   };
 }
 
@@ -176,20 +231,13 @@ export async function loadIngestJob(
     status: IngestJobStatus;
     error_message: string | null;
     draft_id: string | null;
+    ocr_engine: string | null;
+    comparison: unknown;
   }>(
-    `SELECT id, document_id, s3_key, file_name, status, error_message, draft_id
+    `SELECT id, document_id, s3_key, file_name, status, error_message, draft_id, ocr_engine, comparison
      FROM document_ingest_job WHERE id = $1`,
     [jobId],
   );
   if (rows.length === 0) return null;
-  const row = rows[0]!;
-  return {
-    id: row.id,
-    documentId: row.document_id,
-    s3Key: row.s3_key,
-    fileName: row.file_name,
-    status: row.status,
-    errorMessage: row.error_message,
-    draftId: row.draft_id,
-  };
+  return mapJobRow(rows[0]!);
 }

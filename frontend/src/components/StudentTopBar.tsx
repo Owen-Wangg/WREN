@@ -20,11 +20,12 @@ export function StudentTopBar() {
 
   return (
     <header className="shrink-0 border-b border-border-subtle bg-surface-primary">
-      <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between px-xl py-md">
+      <div className="flex w-full items-center justify-between gap-lg px-xl py-md">
         <button
           type="button"
           onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-md"
+          className="flex shrink-0 items-center gap-md"
+          aria-label={`${appConfig.appName} home`}
         >
           <div className="flex h-[40px] w-[40px] items-center justify-center rounded-md border border-border-subtle">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -40,7 +41,7 @@ export function StudentTopBar() {
           </span>
         </button>
 
-        <nav className="flex items-center gap-xl" aria-label="Main navigation">
+        <nav className="flex shrink-0 items-center gap-xl" aria-label="Main navigation">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
