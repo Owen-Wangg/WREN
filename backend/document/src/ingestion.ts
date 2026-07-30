@@ -20,11 +20,12 @@
  * `segmentParagraphs` function in every case — there is exactly ONE
  * segmentation code path (Requirements 6.2, 6.3, 6.5).
  */
-import type { Segment } from '@wren/types';
+import type { Segment, TipTapDoc } from '@wren/types';
+import { tipTapContentToSegments } from '@wren/types';
 
 import type { DocxExtractor } from './docxExtractor';
 import { UnsupportedFileFormatError } from './errors';
-import type { PdfExtractor } from './pdfExtractor';
+import type { PdfExtractor, RichPdfExtractor } from './pdfExtractor';
 import { segmentParagraphs } from './segmentation';
 
 /** The two accepted upload extensions, named consistently in every message. */
@@ -48,13 +49,15 @@ export type IngestSource = FileUploadSource | PastedTextSource;
 /** Injectable collaborators for the two file-extraction formats. */
 export interface IngestionDeps {
   readonly docxExtractor: DocxExtractor;
-  readonly pdfExtractor: PdfExtractor;
+  readonly pdfExtractor: PdfExtractor | RichPdfExtractor;
 }
 
 /** Extraction produced usable paragraph segments. */
 export interface IngestSuccess {
   readonly status: 'success';
   readonly segments: Segment[];
+  /** TipTap JSON when PDF rich extraction succeeded (server source of truth). */
+  readonly content?: TipTapDoc;
 }
 
 /**
@@ -70,8 +73,9 @@ export interface IngestFallback {
 export type IngestResult = IngestSuccess | IngestFallback;
 
 const FALLBACK_MESSAGE =
-  'We could not extract readable text from this PDF. Please upload a .docx ' +
-  'file or paste the text directly.';
+  'We could not extract readable text from this PDF. For best results upload a ' +
+  '.docx file. Scanned PDFs need OCR language data (default English); try a ' +
+  'text-based PDF or paste the text directly.';
 
 function acceptedFormatsMessage(fileName: string): string {
   return (
@@ -91,6 +95,12 @@ function toBuffer(bytes: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
 }
 
+function isRichPdfExtractor(
+  extractor: PdfExtractor | RichPdfExtractor,
+): extractor is RichPdfExtractor {
+  return typeof (extractor as RichPdfExtractor).extractRich === 'function';
+}
+
 /**
  * Ingest a User-supplied source into ordered, stably-indexed paragraph
  * segments. See the module comment for the per-source-kind behavior.
@@ -108,7 +118,6 @@ export async function ingestUpload(
 
   const extension = extensionOf(source.fileName);
   if (extension !== '.docx' && extension !== '.pdf') {
-    // Reject BEFORE any extraction attempt (Requirement 6.1).
     throw new UnsupportedFileFormatError(acceptedFormatsMessage(source.fileName));
   }
 
@@ -119,23 +128,31 @@ export async function ingestUpload(
     return { status: 'success', segments: segmentParagraphs(text) };
   }
 
-  // .pdf: best-effort, with the no-recoverable-text / extraction-failure
-  // fallback contract. A thrown error is treated the same as empty text —
-  // both are "best effort didn't recover usable text", not a hard failure.
-  let text: string;
+  // .pdf: rich TipTap when available; otherwise plain text.
   try {
-    text = await deps.pdfExtractor.extract(bytes);
+    if (isRichPdfExtractor(deps.pdfExtractor)) {
+      const rich = await deps.pdfExtractor.extractRich(bytes);
+      const segmentsFromContent = tipTapContentToSegments(rich.content);
+      const hasContentText = segmentsFromContent.some((s) => s.text.trim().length > 0);
+      const hasPlainText = rich.text.trim().length > 0;
+      if (!hasContentText && !hasPlainText) {
+        return { status: 'fallback', reason: FALLBACK_MESSAGE };
+      }
+      return {
+        status: 'success',
+        segments: hasContentText ? segmentsFromContent : segmentParagraphs(rich.text),
+        content: rich.content,
+      };
+    }
+
+    const text = await deps.pdfExtractor.extract(bytes);
+    if (text.trim().length === 0) {
+      return { status: 'fallback', reason: FALLBACK_MESSAGE };
+    }
+    return { status: 'success', segments: segmentParagraphs(text) };
   } catch (err) {
-    // Log before falling back: a silent bare catch here hides real failures
-    // (e.g. a native-addon load error) behind the generic fallback message.
     // eslint-disable-next-line no-console
     console.error('[ingestUpload] PDF extraction threw:', err);
     return { status: 'fallback', reason: FALLBACK_MESSAGE };
   }
-
-  if (text.trim().length === 0) {
-    return { status: 'fallback', reason: FALLBACK_MESSAGE };
-  }
-
-  return { status: 'success', segments: segmentParagraphs(text) };
 }

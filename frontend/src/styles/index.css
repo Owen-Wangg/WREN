@@ -78,12 +78,19 @@ body {
   margin: 0 0 0.9em;
 }
 
+/* Inline textStyle font-size from imports must win over surface defaults. */
+.document-editor-surface span[style*='font-size'] {
+  line-height: 1.45;
+}
+
 .document-editor-surface h1 {
   font-family: var(--font-sans);
   font-size: var(--text-heading2);
   font-weight: 700;
   line-height: 1.25;
   margin: 0 0 0.75em;
+  /* Toolbar sits outside the scrollport — small inset only. */
+  scroll-margin-top: 1rem;
 }
 
 .document-editor-surface h2 {
@@ -92,6 +99,7 @@ body {
   font-weight: 650;
   line-height: 1.3;
   margin: 1.25em 0 0.5em;
+  scroll-margin-top: 1rem;
 }
 
 .document-editor-surface h3 {
@@ -100,6 +108,12 @@ body {
   font-weight: 650;
   line-height: 1.35;
   margin: 1em 0 0.4em;
+  scroll-margin-top: 1rem;
+}
+
+/* Imported / toolbar paragraph/heading indent (data-indent + inline margin-left). */
+.document-editor-surface [data-indent] {
+  max-width: 100%;
 }
 
 .document-editor-surface p:last-child {
@@ -118,6 +132,8 @@ body {
   border: 1px solid var(--color-border-subtle);
   padding: 0.4em 0.55em;
   vertical-align: top;
+  position: relative;
+  min-width: 2.5em;
 }
 
 .document-editor-surface th {
@@ -125,19 +141,82 @@ body {
   background: var(--color-surface-muted);
 }
 
+/* TipTap / ProseMirror cell selection while editing tables. */
+.document-editor-surface .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-accent-primary) 12%, transparent);
+  z-index: 1;
+}
+
 .document-editor-surface ul,
 .document-editor-surface ol {
   margin: 0 0 0.9em;
-  padding-left: 1.4em;
+  padding-left: 1.6em;
+  /* Tailwind preflight sets list-style: none — restore markers for TipTap lists. */
+  list-style-position: outside;
+}
+
+.document-editor-surface ul {
+  list-style-type: disc;
+}
+
+.document-editor-surface ol {
+  list-style-type: decimal;
+}
+
+.document-editor-surface ul ul {
+  list-style-type: circle;
+  margin-bottom: 0;
+}
+
+.document-editor-surface ul ul ul {
+  list-style-type: square;
+}
+
+.document-editor-surface ol ol {
+  list-style-type: lower-alpha;
+  margin-bottom: 0;
+}
+
+.document-editor-surface ol ol ol {
+  list-style-type: lower-roman;
 }
 
 .document-editor-surface li {
+  display: list-item;
   margin: 0.2em 0;
+}
+
+.document-editor-surface li > p {
+  margin: 0;
+}
+
+.document-editor-surface .document-editor-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.75em 0;
+  border-radius: 2px;
 }
 
 .document-editor-scroll {
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* Fixed toolbar chrome — elevated above the scrolling document page. */
+.document-editor-toolbar-chrome {
+  position: relative;
+  z-index: 30;
+  overflow: visible;
+  background-color: var(--color-surface-muted);
+  /* Soft hangover onto the page (Google Docs-style), not a hard border. */
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--color-border-subtle) 70%, transparent),
+    0 6px 16px rgba(0, 0, 0, 0.07);
 }
 
 /* TipTap mounts a ProseMirror root — stretch it so the page fills the viewport. */
@@ -150,4 +229,18 @@ body {
 .document-editor-surface.ProseMirror,
 .ProseMirror.document-editor-surface {
   outline: none;
+}
+
+/* Brief flash when jumping to a heading from the Home TOC. */
+.document-editor-surface .document-toc-flash {
+  animation: document-toc-flash 1.2s ease-out;
+}
+
+@keyframes document-toc-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--color-accent-primary, #2563eb) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
 }

@@ -1,21 +1,24 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Download,
   GripVertical,
-  House,
+  ListTree,
   MessageSquare,
+  PanelLeftClose,
   Sparkles,
   Upload,
 } from 'lucide-react';
 
-import { AnchoredFeedbackEditorContainer } from '@/features/editor';
+import { AnchoredFeedbackEditorContainer, HomeSidePanel } from '@/features/editor';
+import type { TableOfContentData } from '@/features/editor';
 import { createAskWrenService } from '@/features/ask-wren';
 import {
   ChatFeedbackSidebar,
   type DocumentNavMode,
 } from '@/components/ChatFeedbackSidebar';
+import { StudentTopBar } from '@/components/StudentTopBar';
 import { appConfig } from '@/config/env';
 import {
   fetchDocument,
@@ -24,14 +27,14 @@ import {
   createDraftFromSource,
   getPresignedUrl,
 } from '@/features/dashboard/dashboardApi';
-import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
-import { useDebriefSubscription } from '@/features/debrief';
+import { generateFeedback, fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
+import { queryKeys } from '@/hooks';
 import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
   docxBytesToTiptapContent,
+  DocxClientParseError,
 } from '@/features/editor/docxContentMapper';
-import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
 import {
   isTipTapDoc,
@@ -46,9 +49,11 @@ import type { JSONContent } from '@tiptap/react';
 const askWrenService = createAskWrenService(apiClient);
 
 const ACTIVE_NAV_KEY = 'wren-active-sidebar-tab';
-const PANEL_WIDTH_DEFAULT = 420;
+const PANEL_WIDTH_DEFAULT = 320;
+/** AI Debrief needs more room for the progress chart labels. */
+const PANEL_WIDTH_DEBRIEF = 420;
 const PANEL_WIDTH_MIN = 280;
-const PANEL_WIDTH_MAX = 480;
+const PANEL_WIDTH_MAX = 560;
 const RAIL_WIDTH_PX = 76;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
@@ -80,16 +85,25 @@ function wordCountFromEditorContent(content: JSONContent): number {
   return wordCountFromTipTapContent(content);
 }
 
-async function parseUploadToTipTap(file: File): Promise<JSONContent | undefined> {
+const DOCX_PARSE_FALLBACK_MESSAGE =
+  'Couldn’t preserve Word formatting for this upload. Plain text from the server will be used — fonts, colors, alignment, and images may be missing.';
+
+/** Client-side TipTap for DOCX only — PDFs use server LiteParse (source of truth). */
+async function parseDocxUploadToTipTap(
+  file: File,
+): Promise<{ content?: JSONContent; warning?: string }> {
+  if (!file.name.toLowerCase().endsWith('.docx')) return {};
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const name = file.name.toLowerCase();
-    if (name.endsWith('.docx')) return await docxBytesToTiptapContent(bytes);
-    if (name.endsWith('.pdf')) return await pdfBytesToTiptapContent(bytes);
-  } catch {
-    // Non-fatal: server plain-text ingest remains the fallback.
+    return { content: await docxBytesToTiptapContent(bytes) };
+  } catch (error) {
+    return {
+      warning:
+        error instanceof DocxClientParseError
+          ? error.message
+          : DOCX_PARSE_FALLBACK_MESSAGE,
+    };
   }
-  return undefined;
 }
 
 function errorMessageFromUnknown(error: unknown): string {
@@ -117,16 +131,16 @@ function readStoredNavMode(): DocumentNavMode {
 
 export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
-  const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
 
   const [activeNav, setActiveNav] = useState<DocumentNavMode>(() => readStoredNavMode());
-  // Start collapsed on Home so the draft is the hero; Ask/Debrief open the panel.
-  const [panelCollapsed, setPanelCollapsed] = useState(
-    () => readStoredNavMode() === 'home',
+  // Home stays open so Overview + TOC remain visible; Ask/Debrief also use the panel.
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(() =>
+    readStoredNavMode() === 'debrief' ? PANEL_WIDTH_DEBRIEF : PANEL_WIDTH_DEFAULT,
   );
-  const [panelWidth, setPanelWidth] = useState(PANEL_WIDTH_DEFAULT);
+  const [tocAnchors, setTocAnchors] = useState<TableOfContentData>([]);
 
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
@@ -140,7 +154,13 @@ export function DocumentEditorPage() {
   // Start polling immediately if we arrived from a fresh upload (router state
   // carries feedbackQueued / legacy initialContent when feedback was auto-queued).
   const [isPollingFeedback, setIsPollingFeedback] = useState(() => {
-    const s = location.state as { feedbackQueued?: boolean; initialContent?: unknown } | null;
+    const s = location.state as {
+      feedbackQueued?: boolean;
+      initialContent?: unknown;
+      ingestQueued?: boolean;
+    } | null;
+    // Don't poll feedback until PDF ingest has produced a draft.
+    if (s?.ingestQueued) return false;
     return !!(s?.feedbackQueued || s?.initialContent);
   });
 
@@ -150,20 +170,34 @@ export function DocumentEditorPage() {
     contentType?: string;
     initialContent?: JSONContent;
     feedbackQueued?: boolean;
+    ingestQueued?: boolean;
+    docxParseWarning?: string;
   } | null;
 
   const routerInitialContent = state?.initialContent;
   const [currentContent, setCurrentContent] = useState<JSONContent>(
     routerInitialContent ?? EMPTY_EDITOR_CONTENT,
   );
+  const [docxParseWarning, setDocxParseWarning] = useState<string | undefined>(
+    () => state?.docxParseWarning,
+  );
+  const [isPollingIngest, setIsPollingIngest] = useState(() => !!state?.ingestQueued);
+  const [ingestError, setIngestError] = useState<string | undefined>(undefined);
 
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const panelDivRef = useRef<HTMLDivElement | null>(null);
 
   const handleNavChange = useCallback((mode: DocumentNavMode) => {
     setActiveNav(mode);
-    // Home keeps the draft full-width; coaching modes open the side panel.
-    setPanelCollapsed(mode === 'home');
+    // Keep the side panel open for Home (TOC) and coaching modes.
+    setPanelCollapsed(false);
+    // Widen for AI Debrief so progress chart labels (Improving / Persistent /
+    // Emerging) fit without clipping; leave a manually widened panel alone.
+    if (mode === 'debrief') {
+      setPanelWidth((current) =>
+        current < PANEL_WIDTH_DEBRIEF ? PANEL_WIDTH_DEBRIEF : current,
+      );
+    }
     try {
       localStorage.setItem(ACTIVE_NAV_KEY, mode);
     } catch {
@@ -232,7 +266,11 @@ export function DocumentEditorPage() {
 
   // Prefer persisted draft.content over ephemeral router state so reload matches DB.
   const editorInitialContent = draftContent ?? routerInitialContent ?? EMPTY_EDITOR_CONTENT;
-  const editorReady = draftQuery.isSuccess || draftQuery.isError || Boolean(routerInitialContent);
+  const editorReady =
+    draftQuery.isSuccess ||
+    draftQuery.isError ||
+    Boolean(routerInitialContent) ||
+    isPollingIngest;
   const editorMountKey = `draft-${draftQuery.data?.id ?? envId}-${draftQuery.data?.versionNumber ?? 0}`;
 
   useEffect(() => {
@@ -266,7 +304,10 @@ export function DocumentEditorPage() {
 
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
-      const tipTap = await parseUploadToTipTap(file);
+      const isDocx = file.name.toLowerCase().endsWith('.docx');
+      // DOCX: client TipTap. PDF: server LiteParse is source of truth (1C).
+      const parsed = isDocx ? await parseDocxUploadToTipTap(file) : {};
+      const tipTap = parsed.content;
       const { uploadUrl, key } = await getPresignedUrl(
         apiClient,
         file.name,
@@ -285,14 +326,22 @@ export function DocumentEditorPage() {
       const cleaned = tipTap
         ? asTipTapDoc(stripAiMarksFromTipTapContent(tipTap))
         : undefined;
-      return createDraftFromSource(
+      const result = await createDraftFromSource(
         apiClient,
         envId,
         { kind: 'file', key },
         cleaned,
       );
+      return { result, docxParseWarning: parsed.warning };
     },
-    onSuccess: (draft) => {
+    onSuccess: ({ result, docxParseWarning: warning }) => {
+      setDocxParseWarning(warning);
+      setIngestError(undefined);
+      if (result.kind === 'ingestQueued') {
+        setIsPollingIngest(true);
+        return;
+      }
+      const draft = result.draft;
       if (isTipTapDoc(draft.content)) {
         setCurrentContent(draft.content as JSONContent);
       }
@@ -315,9 +364,46 @@ export function DocumentEditorPage() {
     resubmitDraftMutation.mutate(file);
   };
 
-  useDebriefSubscription(envId, isPollingFeedback, () => {
-    setIsPollingFeedback(false);
-  });
+  useEffect(() => {
+    if (!isPollingFeedback) return;
+
+    let cancelled = false;
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          const status = await fetchFeedbackStatus(apiClient, envId);
+          if (cancelled) return;
+
+          if (status.status === 'completed') {
+            setIsPollingFeedback(false);
+            clearInterval(interval);
+            void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
+            void queryClient.invalidateQueries({
+              queryKey: [...queryKeys.debrief(envId).slice(0, 4)],
+            });
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.debriefHistory(envId),
+            });
+            return;
+          }
+
+          if (status.status === 'failed') {
+            setIsPollingFeedback(false);
+            clearInterval(interval);
+          }
+        } catch {
+          if (cancelled) return;
+          setIsPollingFeedback(false);
+          clearInterval(interval);
+        }
+      })();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isPollingFeedback, envId, queryClient]);
 
   const handleDownload = async () => {
     const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
@@ -331,13 +417,20 @@ export function DocumentEditorPage() {
   };
 
   const wordCount = wordCountFromEditorContent(currentContent);
+  const documentMeta = [
+    breadcrumb !== 'Document' ? breadcrumb : null,
+    `Draft v${draftVersion}`,
+    `${wordCount.toLocaleString()} words`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   const railItems: Array<{
     id: DocumentNavMode;
     label: string;
     icon: ComponentType<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean | 'true' }>;
   }> = [
-    { id: 'home', label: 'Home', icon: House },
+    { id: 'home', label: 'Contents', icon: ListTree },
     { id: 'chat', label: appConfig.appName, icon: MessageSquare },
     { id: 'debrief', label: 'AI Debrief', icon: Sparkles },
   ];
@@ -352,30 +445,7 @@ export function DocumentEditorPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface-muted/40">
-      {/* Top bar — document name lives here so the draft stays the visual hero */}
-      <div className="flex shrink-0 items-center gap-md border-b border-border-subtle bg-surface-primary px-xl py-sm">
-        <div className="flex min-w-0 items-center gap-md">
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard')}
-            className="shrink-0 text-bodySmall font-sans text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-strong"
-          >
-            <span aria-hidden="true">&larr;</span> Dashboard
-          </button>
-          <span aria-hidden="true" className="text-border-subtle">
-            /
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-bodySmall font-sans font-semibold text-text-primary">
-              {documentName}
-            </p>
-            <p className="truncate text-caption text-text-muted">
-              {breadcrumb !== 'Document' ? `${breadcrumb} · ` : ''}
-              Draft v{draftVersion} · {wordCount.toLocaleString()} words
-            </p>
-          </div>
-        </div>
-      </div>
+      <StudentTopBar />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Icon nav — ~44px hit targets, caption labels */}
@@ -409,6 +479,20 @@ export function DocumentEditorPage() {
                 </button>
               );
             })}
+            {!panelCollapsed && (
+              <button
+                type="button"
+                onClick={() => setPanelCollapsed(true)}
+                aria-label="Close panel"
+                title="Close panel"
+                className={railButtonClass(false)}
+              >
+                <PanelLeftClose size={20} strokeWidth={1.75} aria-hidden="true" />
+                <span className="max-w-full truncate px-[2px] text-caption font-sans font-medium leading-tight">
+                  Close
+                </span>
+              </button>
+            )}
           </div>
 
           <div
@@ -425,14 +509,20 @@ export function DocumentEditorPage() {
             <button
               type="button"
               onClick={handleResubmitClick}
-              disabled={resubmitDraftMutation.isPending}
+              disabled={resubmitDraftMutation.isPending || isPollingIngest}
               title={
                 resubmitDraftMutation.isError
                   ? errorMessageFromUnknown(resubmitDraftMutation.error)
-                  : 'Upload a revised draft'
+                  : isPollingIngest
+                    ? 'Extracting PDF…'
+                    : 'Upload a revised draft (.docx preferred — fonts, colors, alignment, and images round-trip; PDF is best-effort)'
               }
               aria-label={
-                resubmitDraftMutation.isPending ? 'Uploading new draft' : 'Upload new draft'
+                resubmitDraftMutation.isPending
+                  ? 'Uploading new draft'
+                  : isPollingIngest
+                    ? 'Extracting PDF'
+                    : 'Upload new draft'
               }
               className={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
             >
@@ -473,44 +563,11 @@ export function DocumentEditorPage() {
               className={activeNav === 'home' ? 'flex h-full min-h-0 flex-col' : 'hidden'}
               hidden={activeNav !== 'home'}
             >
-              <div className="flex flex-1 flex-col gap-lg overflow-y-auto p-lg">
-                <div>
-                  <p className="text-caption font-sans font-semibold uppercase tracking-wide text-text-muted">
-                    Overview
-                  </p>
-                  <p className="mt-xs text-bodySmall font-sans text-text-secondary leading-relaxed">
-                    Open Ask {appConfig.appName} or AI Debrief from the left menu. Upload and
-                    download stay at the bottom of that menu.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-sm">
-                  <div className="rounded-md border border-border-subtle bg-surface-muted/50 px-md py-sm">
-                    <p className="text-caption text-text-muted">Draft</p>
-                    <p className="text-bodySmall font-semibold text-text-primary">v{draftVersion}</p>
-                  </div>
-                  <div className="rounded-md border border-border-subtle bg-surface-muted/50 px-md py-sm">
-                    <p className="text-caption text-text-muted">Words</p>
-                    <p className="text-bodySmall font-semibold text-text-primary">
-                      {wordCount.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rounded-md border border-border-subtle px-md py-sm">
-                  <p className="text-caption font-semibold text-text-primary">Revise</p>
-                  <p className="mt-xs text-caption text-text-muted leading-relaxed">
-                    Edit in the document, then Regenerate in AI Debrief — or upload a new file
-                    from the left menu.
-                  </p>
-                </div>
-
-                {resubmitDraftMutation.isError && (
-                  <p role="alert" className="text-bodySmall text-signal-critical">
-                    {errorMessageFromUnknown(resubmitDraftMutation.error)}
-                  </p>
-                )}
-              </div>
+              <HomeSidePanel
+                anchors={tocAnchors}
+                documentTitle={documentName}
+                documentMeta={documentMeta}
+              />
             </div>
 
             <div
@@ -583,29 +640,75 @@ export function DocumentEditorPage() {
           </div>
         )}
 
-        {/* Editor — Google Docs-style: full-height page, one scroll */}
-        <main className="document-editor-scroll min-h-0 flex-1 bg-surface-muted/50">
-          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary px-2xl py-2xl shadow-sm sm:px-3xl sm:py-3xl">
-            {!editorReady ? (
-              <p role="status" className="text-bodySmall text-text-secondary">
-                Loading document…
-              </p>
-            ) : (
-              <AnchoredFeedbackEditorContainer
-                key={editorMountKey}
-                environmentId={envId}
-                ariaLabel="Draft editor"
-                initialContent={editorInitialContent}
-                categoryLabels={previewCategoryLabels}
-                highlightedAnchorId={highlightedAnchorId}
-                highlightedQuotedText={highlightedQuotedText}
-                highlightedLocationHint={highlightedLocationHint}
-                showCoachHighlights={showCoachHighlights}
-                onContentChange={(content) => setCurrentContent(content)}
-                className="min-h-0 flex-1"
+        {/* Editor — toolbar chrome fixed; only the page scrolls */}
+        <main className="flex min-h-0 flex-1 flex-col bg-surface-muted/50">
+          {isPollingIngest && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-sm border-b border-border-subtle bg-surface-primary px-lg py-sm"
+            >
+              <span
+                className="inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-accent-primary border-t-transparent"
+                aria-hidden="true"
               />
-            )}
-          </div>
+              <p className="text-bodySmall text-text-secondary">
+                Extracting PDF… this can take a minute for scanned pages.
+              </p>
+            </div>
+          )}
+          {ingestError && !isPollingIngest && (
+            <div
+              role="alert"
+              className="flex items-start justify-between gap-md border-b border-signal-critical/30 bg-signal-critical/10 px-lg py-sm"
+            >
+              <p className="text-bodySmall text-text-primary leading-relaxed">{ingestError}</p>
+              <button
+                type="button"
+                className="shrink-0 text-caption font-sans font-medium text-text-secondary underline-offset-2 hover:underline"
+                onClick={() => setIngestError(undefined)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          {docxParseWarning && (
+            <div
+              role="status"
+              className="flex items-start justify-between gap-md border-b border-signal-caution/40 bg-signal-caution/10 px-lg py-sm"
+            >
+              <p className="text-bodySmall text-text-primary leading-relaxed">
+                {docxParseWarning}
+              </p>
+              <button
+                type="button"
+                className="shrink-0 text-caption font-sans font-medium text-text-secondary underline-offset-2 hover:underline"
+                onClick={() => setDocxParseWarning(undefined)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          {!editorReady ? (
+            <p role="status" className="p-lg text-bodySmall text-text-secondary">
+              Loading document…
+            </p>
+          ) : (
+            <AnchoredFeedbackEditorContainer
+              key={editorMountKey}
+              environmentId={envId}
+              ariaLabel="Draft editor"
+              initialContent={editorInitialContent}
+              categoryLabels={previewCategoryLabels}
+              highlightedAnchorId={highlightedAnchorId}
+              highlightedQuotedText={highlightedQuotedText}
+              highlightedLocationHint={highlightedLocationHint}
+              showCoachHighlights={showCoachHighlights}
+              onContentChange={(content) => setCurrentContent(content)}
+              onTocUpdate={setTocAnchors}
+              className="min-h-0 flex-1"
+            />
+          )}
         </main>
       </div>
     </div>

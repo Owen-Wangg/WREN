@@ -294,6 +294,13 @@ components:
           type: string
           format: date-time
           description: Timestamp when document was created
+        ingestStatus:
+          type: string
+          enum: [queued, processing, completed, failed]
+          description: Present when PDF ingest was enqueued asynchronously
+        ingestJobId:
+          type: string
+          description: Async PDF ingest job id when ingestStatus is present
 
     Draft:
       type: object
@@ -1181,6 +1188,77 @@ paths:
               schema:
                 type: string
 
+  /v1/documents/{documentId}/ingest/status:
+    get:
+      summary: Get async PDF ingest job status
+      tags: [Documents]
+      operationId: getIngestStatus
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ingest job status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [pending, queued, processing, completed, failed]
+                  jobId:
+                    type: string
+                  draftId:
+                    type: string
+                  errorMessage:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   /v1/documents/{documentId}/drafts:
     get:
       summary: Get the latest draft for a document
@@ -1265,6 +1343,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Draft"
+        "202":
+          description: PDF ingest queued asynchronously (poll GET .../ingest/status)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ingestStatus, jobId, documentId]
+                properties:
+                  ingestStatus:
+                    type: string
+                    enum: [queued]
+                  jobId:
+                    type: string
+                  documentId:
+                    type: string
         "400":
           description: Validation error (unsupported format, oversize, extraction failure)
           content:

@@ -70,6 +70,8 @@ export class ComputeStack extends Stack {
   public readonly diffAnchorProgressFunction: lambda.Function;
   public readonly feedbackQueue: sqs.Queue;
   public readonly feedbackDlq: sqs.Queue;
+  public readonly documentIngestQueue: sqs.Queue;
+  public readonly documentIngestDlq: sqs.Queue;
   public readonly appSyncGraphqlUrl: string;
   public readonly appSyncAuthorizerFunction: lambda.Function;
 
@@ -131,8 +133,11 @@ export class ComputeStack extends Stack {
       entry: path.join(monorepoRoot, "backend/document/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 512,
-      timeout: Duration.seconds(60),
+      // OCR + LiteParse needs headroom (scanned PDFs).
+      // PDF ingest is async via SQS so API Gateway's ~29s sync cap does not
+      // abort large OCR jobs — the worker uses this full timeout.
+      memorySize: 2048,
+      timeout: Duration.minutes(3),
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,
@@ -140,14 +145,83 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
+        PDF_OCR_ENABLED: "true",
+        // Bundled next to the handler via commandHooks below.
+        TESSDATA_PREFIX: "/var/task/tessdata",
+        // Optional hook for an external OCR HTTP service (5C).
+        // PDF_OCR_SERVER_URL: "",
         CONVERSATION_TABLE_NAME: props.conversationTableName,
       },
       bundling: {
         ...sharedBundling,
         // Native napi binaries for LiteParse must ship with the bundle.
         nodeModules: ["@llamaindex/liteparse"],
+        commandHooks: {
+          beforeBundling(): string[] {
+            return [];
+          },
+          beforeInstall(): string[] {
+            return [];
+          },
+          afterBundling(inputDir: string, outputDir: string): string[] {
+            const tessdataSrc = path.join(
+              inputDir,
+              "backend",
+              "document",
+              "tessdata",
+            );
+            const isWindows = process.platform === "win32";
+            // Local Windows bundling only installs win32 optional natives.
+            // Force the Lambda (Amazon Linux / glibc) package into the asset so
+            // PDF extract doesn't fail with "Failed to load native module for linux-x64".
+            // `--force` is required on Windows — npm otherwise rejects EBADPLATFORM.
+            const installLinuxNative = isWindows
+              ? `cd /d "${outputDir}" && npm install @llamaindex/liteparse-linux-x64-gnu@2.8.1 --omit=dev --no-save --no-package-lock --force`
+              : `cd "${outputDir}" && npm install @llamaindex/liteparse-linux-x64-gnu@2.8.1 --omit=dev --no-save --no-package-lock --force`;
+            if (isWindows) {
+              return [
+                installLinuxNative,
+                `if exist "${tessdataSrc}" xcopy /E /I /Y "${tessdataSrc}" "${outputDir}\\tessdata"`,
+              ];
+            }
+            return [
+              installLinuxNative,
+              `mkdir -p "${outputDir}/tessdata" && cp -R "${tessdataSrc}/." "${outputDir}/tessdata/" || true`,
+            ];
+          },
+        },
       },
     });
+
+    // -----------------------------------------------------------------------
+    // Document ingest queue (async PDF OCR / LiteParse)
+    // -----------------------------------------------------------------------
+    this.documentIngestDlq = new sqs.Queue(this, "DocumentIngestDlq", {
+      queueName: `${config.stackPrefix}-document-ingest-dlq`,
+      retentionPeriod: Duration.days(14),
+    });
+
+    this.documentIngestQueue = new sqs.Queue(this, "DocumentIngestQueue", {
+      queueName: `${config.stackPrefix}-document-ingest-queue`,
+      // Must exceed DocumentFn timeout so in-flight OCR is not redelivered early.
+      visibilityTimeout: Duration.minutes(4),
+      deadLetterQueue: {
+        queue: this.documentIngestDlq,
+        maxReceiveCount: 3,
+      },
+    });
+
+    this.documentFunction.addEnvironment(
+      "DOCUMENT_INGEST_QUEUE_URL",
+      this.documentIngestQueue.queueUrl,
+    );
+    this.documentIngestQueue.grantSendMessages(this.documentFunction);
+    this.documentFunction.addEventSource(
+      new lambdaEventSources.SqsEventSource(this.documentIngestQueue, {
+        batchSize: 1,
+        maxConcurrency: 5,
+      }),
+    );
 
     // -----------------------------------------------------------------------
     // Admin / Config / Auth / Usage Service Lambda (Node 22)
@@ -493,6 +567,9 @@ export class ComputeStack extends Stack {
       value: this.appSyncGraphqlUrl,
       description: "AppSync GraphQL endpoint for real-time debrief subscriptions",
       exportName: `${config.stackPrefix}-appsync-graphql-url`,
+    });
+    new CfnOutput(this, "DocumentIngestQueueUrl", {
+      value: this.documentIngestQueue.queueUrl,
     });
   }
 

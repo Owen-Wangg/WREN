@@ -150,4 +150,58 @@ describe('stripAiMarksFromTipTapContent', () => {
     const cleaned = stripAiMarksFromTipTapContent(doc);
     expect(cleaned.content?.[0]?.content?.[0]?.marks).toEqual([{ type: 'bold' }]);
   });
+
+  it('keeps textStyle fontSize marks and paragraph indent attrs', () => {
+    const doc: TipTapNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          attrs: { indent: 2 },
+          content: [
+            {
+              type: 'text',
+              text: 'Sized',
+              marks: [
+                { type: 'textStyle', attrs: { fontSize: '18pt' } },
+                { type: 'highlight' },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const cleaned = stripAiMarksFromTipTapContent(doc);
+    const para = cleaned.content?.[0];
+    expect(para?.attrs).toEqual({ indent: 2 });
+    expect(para?.content?.[0]?.marks).toEqual([
+      { type: 'textStyle', attrs: { fontSize: '18pt' } },
+    ]);
+  });
+});
+
+describe('tipTapContentToSegments with indent and font size', () => {
+  it('flattens indented / sized text to plain segments (marks and attrs ignored)', () => {
+    const doc: TipTapNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          attrs: { indent: 1 },
+          content: [
+            {
+              type: 'text',
+              text: 'Indented sized',
+              marks: [{ type: 'textStyle', attrs: { fontSize: '16pt' } }],
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(tipTapContentToSegments(doc)).toEqual([
+      { index: 0, text: 'Indented sized' },
+    ]);
+  });
 });

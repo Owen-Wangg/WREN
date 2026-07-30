@@ -53,7 +53,7 @@
 
   /* Type scale — from Figma text styles */
   --text-caption: 12px;
-  --text-caption--line-height: 1em;
+  --text-caption--line-height: 16px;
   --text-body-small: 14px;
   --text-body-small--line-height: 1.4em;
   --text-body: 16px;

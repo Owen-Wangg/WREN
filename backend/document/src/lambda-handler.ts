@@ -2,7 +2,7 @@
  * Document Service Lambda entry point — routes API Gateway events to service functions.
  * Adapter: API Gateway proxy events → backend/document service handlers.
  */
-import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
+import type { APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -26,6 +26,16 @@ import { enforceSizeLimit } from './sizeLimit.js';
 import { gateSubmission } from './submissionGating.js';
 import { createDraftRevision } from './draftVersioning.js';
 import { DbDraftRepository } from './draftRepository.js';
+import {
+  enqueueIngestJob,
+  getLatestIngestStatus,
+  insertQueuedIngestJob,
+  shouldIngestPdfAsync,
+} from './ingestJob.js';
+import {
+  processIngestQueueMessage,
+  type IngestQueueMessage,
+} from './ingestWorker.js';
 import {
   assertDocumentUploadAllowed,
   assertDraftCreateAllowed,
@@ -242,7 +252,16 @@ async function updateDepartmentUserCounter(
   }
 }
 
-export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
+export const handler = async (event: any): Promise<APIGatewayProxyResult | void> => {
+  // SQS async PDF ingest (LiteParse/OCR) — not an API Gateway event.
+  if (Array.isArray(event?.Records) && event.Records[0]?.eventSource === 'aws:sqs') {
+    for (const record of event.Records) {
+      const body = JSON.parse(record.body) as IngestQueueMessage;
+      await processIngestQueueMessage(body, readS3ObjectBytes);
+    }
+    return;
+  }
+
   try {
     const { httpMethod, resource } = event;
 
@@ -263,6 +282,9 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     }
     if (resource === '/v1/documents/{documentId}/drafts' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDraft(event));
+    }
+    if (resource === '/v1/documents/{documentId}/ingest/status' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetIngestStatus(event));
     }
     if (resource === '/v1/uploads/presign' && httpMethod === 'POST') {
       return await wrapHandler(() => handlePresignUpload(event));
@@ -471,7 +493,11 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   let s3Key = 'inline';
   let ingestSource:
     | { kind: 'paste'; pastedText: string }
-    | { kind: 'file'; fileName: string; bytes: Buffer };
+    | { kind: 'file'; fileName: string; bytes: Buffer }
+    | null = null;
+  let asyncPdf:
+    | { key: string; fileName: string }
+    | null = null;
 
   if (source.kind === 'paste') {
     const text = typeof source.text === 'string' ? source.text : '';
@@ -506,15 +532,60 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
         }),
       };
     }
-    const bytes = await readS3ObjectBytes(key);
     const fileName = key.split('/').pop() || 'upload.docx';
-    ingestSource = { kind: 'file', fileName, bytes };
     s3Key = key;
+    // PDF OCR can exceed API Gateway ~29s — enqueue and return immediately.
+    if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
+      asyncPdf = { key, fileName };
+    } else {
+      const bytes = await readS3ObjectBytes(key);
+      ingestSource = { kind: 'file', fileName, bytes };
+    }
+  }
+
+  await assertDocumentUploadAllowed(actor.userId, db);
+
+  if (asyncPdf) {
+    const insertQuery = `
+      INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      RETURNING id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
+    `;
+    const rows = await db.query(insertQuery, [
+      actor.userId,
+      documentTypeId,
+      contentTypeId,
+      name,
+      JSON.stringify(metadata),
+      'Still Drafting',
+    ]);
+    const documentId = (rows[0] as { id: string }).id;
+    const job = await insertQueuedIngestJob(db, {
+      documentId,
+      s3Key: asyncPdf.key,
+      fileName: asyncPdf.fileName,
+    });
+    await enqueueIngestJob({
+      jobId: job.id,
+      documentId,
+      s3Key: asyncPdf.key,
+      fileName: asyncPdf.fileName,
+      userId: actor.userId,
+      sizeLimitWords,
+    });
+    return {
+      statusCode: 201,
+      body: JSON.stringify({
+        ...toDocumentDto(rows[0]),
+        ingestStatus: 'queued',
+        ingestJobId: job.id,
+      }),
+    };
   }
 
   let ingestResult;
   try {
-    ingestResult = await ingestUpload(ingestSource, { docxExtractor, pdfExtractor });
+    ingestResult = await ingestUpload(ingestSource!, { docxExtractor, pdfExtractor });
   } catch (error) {
     if (error instanceof UnsupportedFileFormatError) {
       return {
@@ -535,10 +606,10 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  // Prefer client TipTap content when provided; still require successful text
-  // extraction as a fallback path for size checks when content is absent.
-  const segments = tipTapContent
-    ? tipTapContentToSegments(tipTapContent)
+  // Prefer client TipTap when provided; otherwise use server PDF TipTap (1C).
+  const storedContent = tipTapContent ?? ingestResult.content;
+  const segments = storedContent
+    ? tipTapContentToSegments(storedContent)
     : ingestResult.segments;
   const sizeResult = enforceSizeLimit(segments, {
     documentTypeSizeLimitWords: sizeLimitWords,
@@ -554,8 +625,6 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       }),
     };
   }
-
-  await assertDocumentUploadAllowed(actor.userId, db);
 
   const insertQuery = `
     INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at)
@@ -581,11 +650,11 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     {
       documentId,
       segments,
-      wordCount: tipTapContent
-        ? wordCountFromTipTapContent(tipTapContent)
+      wordCount: storedContent
+        ? wordCountFromTipTapContent(storedContent)
         : sizeResult.measuredWords,
       s3Key,
-      ...(tipTapContent ? { content: tipTapContent } : {}),
+      ...(storedContent ? { content: storedContent } : {}),
     },
     draftRepo,
   );
@@ -863,10 +932,35 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
           }),
         };
       }
-      const bytes = await readS3ObjectBytes(key);
       const fileName = key.split('/').pop() || 'upload.docx';
-      ingestSource = { kind: 'file', fileName, bytes };
       s3Key = key;
+
+      if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
+        const job = await insertQueuedIngestJob(db, {
+          documentId: documentId as string,
+          s3Key: key,
+          fileName,
+        });
+        await enqueueIngestJob({
+          jobId: job.id,
+          documentId: documentId as string,
+          s3Key: key,
+          fileName,
+          userId: actor.userId,
+          sizeLimitWords,
+        });
+        return {
+          statusCode: 202,
+          body: JSON.stringify({
+            ingestStatus: 'queued',
+            jobId: job.id,
+            documentId,
+          }),
+        };
+      }
+
+      const bytes = await readS3ObjectBytes(key);
+      ingestSource = { kind: 'file', fileName, bytes };
     }
 
     let ingestResult;
@@ -892,8 +986,10 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       };
     }
 
-    normalizedSegments = tipTapContent
-      ? tipTapContentToSegments(tipTapContent)
+    // Client TipTap wins; else server PDF TipTap from ingest.
+    storedContent = tipTapContent ?? ingestResult.content;
+    normalizedSegments = storedContent
+      ? tipTapContentToSegments(storedContent)
       : normalizeSegments(ingestResult.segments);
     const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
@@ -909,8 +1005,8 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
         }),
       };
     }
-    wordCount = tipTapContent
-      ? wordCountFromTipTapContent(tipTapContent)
+    wordCount = storedContent
+      ? wordCountFromTipTapContent(storedContent)
       : sizeResult.measuredWords;
   } else if (tipTapContent) {
     normalizedSegments = tipTapContentToSegments(tipTapContent);
@@ -994,5 +1090,28 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
   return {
     statusCode: 200,
     body: JSON.stringify({ uploadUrl, key }),
+  };
+}
+
+async function handleGetIngestStatus(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+
+  const docRows = await db.query(
+    `SELECT owner_user_id FROM document WHERE id = $1`,
+    [documentId],
+  );
+  if (docRows.length === 0 || docRows[0].owner_user_id !== actor.userId) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  const status = await getLatestIngestStatus(db, documentId as string);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(status),
   };
 }
