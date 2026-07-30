@@ -15,9 +15,20 @@ import { Amplify } from 'aws-amplify';
 import { generateClient } from 'aws-amplify/api';
 
 import { appConfig } from '@/config/env';
-import { authService } from '@/features/auth/defaultAuthService';
 
-function configureAmplify(): ReturnType<typeof generateClient> | null {
+// Amplify v6's generateClient() generic inference causes excessive type-depth
+// errors when the return type is resolved without a concrete schema type param.
+// Typing the client as the raw graphql-callable interface avoids the issue
+// while preserving runtime correctness — we only use .graphql() at call sites.
+export type AppSyncGraphQLClient = {
+  graphql(options: {
+    query: string;
+    variables?: Record<string, unknown>;
+    authMode?: string;
+  }): unknown;
+};
+
+function configureAmplify(): AppSyncGraphQLClient | null {
   if (!appConfig.appSyncUrl) {
     return null;
   }
@@ -38,15 +49,11 @@ function configureAmplify(): ReturnType<typeof generateClient> | null {
     },
   });
 
-  return generateClient({
-    authMode: 'userPool',
-  });
+  return generateClient() as unknown as AppSyncGraphQLClient;
 }
 
 /**
  * The AppSync GraphQL client. Null when VITE_APPSYNC_URL is not configured
  * (local dev / unit tests). useDebriefSubscription checks for null before use.
  */
-export const appSyncClient = configureAmplify();
-
-export { authService };
+export const appSyncClient: AppSyncGraphQLClient | null = configureAmplify();

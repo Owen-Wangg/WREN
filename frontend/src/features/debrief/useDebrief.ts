@@ -20,6 +20,7 @@ import type { FeedbackHelpfulnessInput, HelpfulnessAck } from './debriefTypes';
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 import type { Debrief } from './debriefTypes';
 
+import { queryKeys } from '@/hooks/queryKeys';
 import { apiClient } from '@/services';
 
 /**

@@ -33,7 +33,6 @@ import {
 } from '@/features/editor/docxContentMapper';
 import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
 import { apiClient, ApiError } from '@/services';
-import { queryKeys } from '@/hooks/queryKeys';
 import {
   isTipTapDoc,
   asTipTapDoc,
@@ -247,7 +246,6 @@ export function DocumentEditorPage() {
   }, [draftContent, routerInitialContent]);
 
   const documentName = documentData?.name ?? state?.documentName ?? 'Untitled document';
-
   const breadcrumb = [state?.organizationName, state?.contentType]
     .filter(Boolean)
     .join(' > ') || 'Document';

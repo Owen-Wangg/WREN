@@ -12,6 +12,7 @@ import { ArrowUp, ChevronDown, Minus, Star, TrendingUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
+import { useDocuments, useOrganizations, useWritingTypes } from '@/features/dashboard/useDashboard';
 
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
@@ -21,8 +22,12 @@ import { useAiDebrief, useDebriefHistory, useRegenerateDebrief } from '../useDeb
 import type { ProgressPattern } from '../debriefTypes';
 import type { FeedbackItem } from '@wren/types';
 
-const DEBRIEF_DISCLAIMER_MESSAGE =
-  'The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.';
+function buildDebriefDisclaimer(departmentName?: string): string {
+  const expert = departmentName
+    ? `an expert in ${departmentName}`
+    : 'an expert in your department';
+  return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert} or an admin user.`;
+}
 
 const GENERATING_MESSAGES = [
   'Reading your draft…',
@@ -118,6 +123,15 @@ export function SidebarDebriefPanel({
   activeQuoteId,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
+  const { data: documents } = useDocuments();
+  const { data: writingTypes } = useWritingTypes();
+  const { data: organizations } = useOrganizations();
+
+  const document = documents?.find((d) => d.id === environmentId);
+  const writingType = writingTypes?.find((wt) => wt.id === document?.documentTypeId);
+  const organization = organizations?.find((org) => org.id === writingType?.organizationId);
+  const departmentName = organization?.name;
+
   /** null = latest generation; otherwise a historical draft's debrief */
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -363,7 +377,7 @@ export function SidebarDebriefPanel({
           dismissible
           dismissStorageKey="ai-debrief-disclaimer-dismissed"
           dismissScopeId={environmentId}
-          message={DEBRIEF_DISCLAIMER_MESSAGE}
+          message={buildDebriefDisclaimer(departmentName)}
           className="mb-lg text-caption leading-relaxed"
         />
 

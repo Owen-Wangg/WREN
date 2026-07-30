@@ -1,4 +1,5 @@
 import * as path from "path";
+import { Duration } from "aws-cdk-lib";
 import * as appsync from "aws-cdk-lib/aws-appsync";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -36,8 +37,8 @@ export interface AppSyncRealtimeProps {
  *   - ubc-cic-cdk-best-practices.md: constructs receive concrete objects, own file
  */
 export class AppSyncRealtimeConstruct extends Construct {
-  public readonly api: appsync.GraphqlApi;
-  public readonly graphqlUrl: string;
+  public readonly api!: appsync.GraphqlApi;
+  public readonly graphqlUrl!: string;
 
   constructor(scope: Construct, id: string, props: AppSyncRealtimeProps) {
     super(scope, id);
@@ -63,7 +64,7 @@ export class AppSyncRealtimeConstruct extends Construct {
             // in this system, and the Cognito token itself expires after 1 hour,
             // so a 5-minute TTL is safe and avoids a DB round-trip on every
             // page refresh / network reconnect.
-            resultsCacheTtl: appsync.Duration.seconds(300),
+            resultsCacheTtl: Duration.seconds(300),
           },
         },
         // IAM: Feedback Engine Lambda publishes via SigV4. Students cannot

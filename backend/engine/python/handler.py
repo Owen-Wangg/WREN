@@ -57,9 +57,10 @@ Return a JSON array. Each element must have exactly these keys:
   error_category_id: string  — must be the exact UUID from the taxonomy list below, not the name
   kind: "inline" | "structural"
   question_text: string  — a Socratic question, never a correction or rewrite
-  anchor: { paragraphIndex: int, startOffset: int, endOffset: int } | null  — required for inline, null for structural
+  anchor: { paragraphIndex: int, quotedText: string } | null  — required for inline, null for structural
 Only output valid JSON. No markdown fences, no extra keys, no prose outside the array.
-inline items MUST have a valid anchor. structural items MUST have anchor: null."""
+inline items MUST have a valid anchor. structural items MUST have anchor: null.
+anchor.quotedText MUST be copied verbatim from the paragraph — a complete sentence or clause (not a fragment). Do not paraphrase or shorten it."""
 _GUARDRAIL = (
     "NEVER provide replacement prose, rewrites, corrections, or any text the writer "
     "could paste directly into their document. Every piece of feedback must be a "
@@ -505,24 +506,28 @@ def insert_feedback_items(
         with conn.cursor() as cur:
             for item in feedback_items:
                 try:
-                    # Extract quoted text from the segment using anchor offsets
+                    # Locate the model's quoted text verbatim in the paragraph to
+                    # derive exact character offsets. The model produces quotedText
+                    # (a complete sentence/clause copied verbatim); we find it via
+                    # string search so offsets are always exact.
                     quoted_text = None
                     if item.get('kind') == 'inline' and 'anchor' in item:
                         anchor_data = item['anchor']
                         para_index = anchor_data.get('paragraphIndex', 0)
-                        start_offset = anchor_data.get('startOffset', 0)
-                        end_offset = anchor_data.get('endOffset', 0)
-                        if para_index < len(segments):
+                        model_quote = anchor_data.get('quotedText', '')
+                        if para_index < len(segments) and model_quote:
                             para_text = segments[para_index].get('text', '')
-                            if end_offset > start_offset:
-                                start_offset, end_offset = expand_to_word_boundaries(
-                                    para_text, start_offset, end_offset
-                                )
-                                # Keep expanded offsets on the item for the anchor insert below.
+                            start_offset = para_text.find(model_quote)
+                            if start_offset == -1:
+                                # Case-insensitive fallback
+                                start_offset = para_text.lower().find(model_quote.lower())
+                                if start_offset != -1:
+                                    model_quote = para_text[start_offset:start_offset + len(model_quote)]
+                            if start_offset != -1:
+                                end_offset = start_offset + len(model_quote)
+                                quoted_text = para_text[start_offset:end_offset]
                                 anchor_data['startOffset'] = start_offset
                                 anchor_data['endOffset'] = end_offset
-                                if end_offset <= len(para_text):
-                                    quoted_text = para_text[start_offset:end_offset]
 
                     # Insert feedback item
                     feedback_id = str(uuid.uuid4())
@@ -540,10 +545,17 @@ def insert_feedback_items(
                         draft_id
                     ))
 
-                    # Insert anchor if provided and inline feedback
+                    # Insert anchor if provided, inline, and the quote was found in the paragraph
                     current_anchor_id = None
                     if item.get('kind') == 'inline' and 'anchor' in item:
                         anchor_data = item['anchor']
+                        para_index = anchor_data.get('paragraphIndex', 0)
+                        start_offset = anchor_data.get('startOffset')
+                        end_offset = anchor_data.get('endOffset')
+                        if start_offset is None or end_offset is None:
+                            # Quote was not found in paragraph — skip anchor insert
+                            anchor_data = None
+                    if item.get('kind') == 'inline' and anchor_data:
                         para_index = anchor_data.get('paragraphIndex', 0)
                         start_offset = anchor_data.get('startOffset', 0)
                         end_offset = anchor_data.get('endOffset', 0)

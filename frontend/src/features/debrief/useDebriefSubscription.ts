@@ -51,12 +51,16 @@ export function useDebriefSubscription(
   useEffect(() => {
     if (!enabled || !documentId || !appSyncClient) return;
 
-    const sub = appSyncClient
-      .graphql({
-        query: ON_DEBRIEF_READY_SUBSCRIPTION,
-        variables: { documentId },
-      })
-      .subscribe({
+    // graphql() returns unknown (our AppSyncGraphQLClient type). At runtime
+    // AppSync subscriptions return an observable with .subscribe(); we cast
+    // through unknown to access it without importing Amplify's deep generics.
+    const observable = appSyncClient.graphql({
+      query: ON_DEBRIEF_READY_SUBSCRIPTION,
+      variables: { documentId },
+      authMode: 'userPool',
+    }) as { subscribe: (handlers: { next: (v: { data: unknown }) => void; error: (e: unknown) => void }) => { unsubscribe: () => void } };
+
+    const sub = observable.subscribe({
         next: ({ data }: { data: unknown }) => {
           const raw = (data as Record<string, unknown>)?.['onDebriefReady'];
           const parsed = debriefReadyPayloadSchema.safeParse(raw);
