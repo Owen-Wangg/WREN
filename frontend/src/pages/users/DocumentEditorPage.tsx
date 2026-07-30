@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType }
 import { useLocation, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
+  ChevronUp,
   Download,
   GripVertical,
   ListTree,
@@ -27,6 +28,8 @@ import {
   createDraftFromSource,
   getPresignedUrl,
   fetchIngestStatus,
+  type OcrComparison,
+  type OcrEngineChoice,
 } from '@/features/dashboard/dashboardApi';
 import { fetchFeedbackStatus, generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import {
@@ -35,6 +38,14 @@ import {
   docxBytesToTiptapContent,
   DocxClientParseError,
 } from '@/features/editor/docxContentMapper';
+import { tiptapContentToPdfBlob } from '@/features/editor/pdfExport';
+import { useDraftAutosave } from '@/features/editor/useDraftAutosave';
+import { OcrEngineSelect } from '@/features/editor/components/OcrEngineSelect';
+import { OcrComparisonPanel } from '@/features/editor/components/OcrComparisonPanel';
+import {
+  readOcrEnginePreference,
+  writeOcrEnginePreference,
+} from '@/features/editor/ocrEnginePreference';
 import { apiClient, ApiError } from '@/services';
 import { queryKeys } from '@/hooks/queryKeys';
 import {
@@ -184,6 +195,12 @@ export function DocumentEditorPage() {
   );
   const [isPollingIngest, setIsPollingIngest] = useState(() => !!state?.ingestQueued);
   const [ingestError, setIngestError] = useState<string | undefined>(undefined);
+  const [ocrEngine, setOcrEngine] = useState<OcrEngineChoice>(() => readOcrEnginePreference());
+  const [ocrComparison, setOcrComparison] = useState<OcrComparison | undefined>(undefined);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
+  const downloadMenuRef = useRef<HTMLDivElement | null>(null);
 
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const panelDivRef = useRef<HTMLDivElement | null>(null);
@@ -293,16 +310,28 @@ export function DocumentEditorPage() {
   const draftId = draftQuery.data?.id ?? 'draft-pending';
   const draftVersion = draftQuery.data?.versionNumber ?? 1;
 
+  const {
+    status: autosaveStatus,
+    retry: retryAutosave,
+    flush: flushAutosave,
+  } = useDraftAutosave({
+    documentId: envId,
+    content: currentContent,
+    enabled: editorReady && draftQuery.isSuccess && !isPollingIngest,
+    baselineKey: draftQuery.data?.id,
+  });
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const saveDraftFromEditor = useCallback(async () => {
+    await flushAutosave();
     const cleaned = asTipTapDoc(stripAiMarksFromTipTapContent(currentContent));
     const segments = cleaned
       ? tipTapContentToSegments(cleaned)
       : segmentsFromEditorContent(currentContent);
     await createDraft(apiClient, envId, segments, cleaned);
     await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
-  }, [currentContent, envId, queryClient]);
+  }, [currentContent, envId, flushAutosave, queryClient]);
 
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -333,6 +362,7 @@ export function DocumentEditorPage() {
         envId,
         { kind: 'file', key },
         cleaned,
+        ocrEngine,
       );
       return { result, docxParseWarning: parsed.warning };
     },
@@ -378,6 +408,9 @@ export function DocumentEditorPage() {
         if (status.status === 'completed') {
           setIsPollingIngest(false);
           setIngestError(undefined);
+          if (status.comparison) {
+            setOcrComparison(status.comparison);
+          }
           await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
           try {
             const draft = await fetchLatestDraft(apiClient, envId);
@@ -397,6 +430,9 @@ export function DocumentEditorPage() {
 
         if (status.status === 'failed') {
           setIsPollingIngest(false);
+          if (status.comparison) {
+            setOcrComparison(status.comparison);
+          }
           setIngestError(
             status.errorMessage ??
               'Couldn’t extract this PDF. Try again or upload a .docx for better formatting.',
@@ -459,15 +495,40 @@ export function DocumentEditorPage() {
     };
   }, [isPollingFeedback, envId, queryClient]);
 
-  const handleDownload = async () => {
-    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
-    const blob = await tiptapContentToDocxBlob(cleaned);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${documentName}.docx`;
-    a.click();
-    URL.revokeObjectURL(url);
+  useEffect(() => {
+    if (!downloadMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!downloadMenuRef.current?.contains(event.target as Node)) {
+        setDownloadMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [downloadMenuOpen]);
+
+  const handleDownload = async (format: 'docx' | 'pdf') => {
+    setDownloadMenuOpen(false);
+    setDownloadError(undefined);
+    setDownloadBusy(true);
+    try {
+      const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
+      const blob =
+        format === 'docx'
+          ? await tiptapContentToDocxBlob(cleaned)
+          : await tiptapContentToPdfBlob(cleaned);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${documentName}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDownloadError(
+        error instanceof Error ? error.message : 'Download failed. Please try again.',
+      );
+    } finally {
+      setDownloadBusy(false);
+    }
   };
 
   const wordCount = wordCountFromEditorContent(currentContent);
@@ -553,6 +614,15 @@ export function DocumentEditorPage() {
             className="mt-auto flex flex-col items-stretch gap-[2px] border-t border-border-subtle pb-xs pt-xs"
             aria-label="File actions"
           >
+            <div className="px-[4px] pb-xs">
+              <OcrEngineSelect
+                value={ocrEngine}
+                onChange={(next) => {
+                  setOcrEngine(next);
+                  writeOcrEnginePreference(next);
+                }}
+              />
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -585,18 +655,60 @@ export function DocumentEditorPage() {
                 {resubmitDraftMutation.isPending ? 'Uploading' : 'Upload'}
               </span>
             </button>
-            <button
-              type="button"
-              onClick={handleDownload}
-              title="Download"
-              aria-label="Download"
-              className={railButtonClass(false)}
-            >
-              <Download size={20} strokeWidth={1.75} aria-hidden="true" />
-              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
-                Download
-              </span>
-            </button>
+            <div ref={downloadMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setDownloadMenuOpen((open) => !open)}
+                disabled={downloadBusy}
+                title={downloadError ?? (downloadBusy ? 'Preparing download…' : 'Download')}
+                aria-label={downloadBusy ? 'Preparing download' : 'Download'}
+                aria-expanded={downloadMenuOpen}
+                aria-haspopup="menu"
+                className={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
+              >
+                {downloadBusy ? (
+                  <span
+                    className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-accent-primary border-t-transparent"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Download size={20} strokeWidth={1.75} aria-hidden="true" />
+                )}
+                <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
+                  {downloadBusy ? 'Exporting' : 'Download'}
+                </span>
+                <ChevronUp
+                  size={12}
+                  strokeWidth={2}
+                  className="text-text-muted"
+                  aria-hidden="true"
+                />
+              </button>
+              {downloadMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Download format"
+                  className="absolute bottom-full left-1/2 z-20 mb-xs w-36 -translate-x-1/2 rounded-md border border-border-subtle bg-surface-primary py-xs shadow-md"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full px-sm py-xs text-left text-caption font-sans text-text-primary hover:bg-surface-muted"
+                    onClick={() => void handleDownload('docx')}
+                  >
+                    Download DOCX
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full px-sm py-xs text-left text-caption font-sans text-text-primary hover:bg-surface-muted"
+                    onClick={() => void handleDownload('pdf')}
+                  >
+                    Download PDF
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </nav>
 
@@ -696,6 +808,41 @@ export function DocumentEditorPage() {
 
         {/* Editor — toolbar chrome fixed; only the page scrolls */}
         <main className="flex min-h-0 flex-1 flex-col bg-surface-muted/50">
+          {autosaveStatus !== 'idle' && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center justify-end gap-sm border-b border-border-subtle bg-surface-primary/80 px-lg py-xs"
+            >
+              {autosaveStatus === 'saving' && (
+                <p className="text-caption font-sans text-text-muted">Saving…</p>
+              )}
+              {autosaveStatus === 'saved' && (
+                <p className="text-caption font-sans text-text-muted">Saved</p>
+              )}
+              {autosaveStatus === 'dirty' && (
+                <p className="text-caption font-sans text-text-muted">Unsaved changes</p>
+              )}
+              {autosaveStatus === 'error' && (
+                <p className="text-caption font-sans text-signal-critical">
+                  Failed to save —{' '}
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 hover:text-text-primary"
+                    onClick={retryAutosave}
+                  >
+                    Retry
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
+          {ocrComparison && (
+            <OcrComparisonPanel
+              comparison={ocrComparison}
+              onDismiss={() => setOcrComparison(undefined)}
+            />
+          )}
           {isPollingIngest && (
             <div
               role="status"
