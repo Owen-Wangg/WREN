@@ -16,7 +16,7 @@
  * The `onComplete` callback is called after the cache is updated so the caller
  * can clear its "is generating" state.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 
@@ -47,6 +47,8 @@ export function useDebriefSubscription(
   onComplete: () => void,
 ): void {
   const queryClient = useQueryClient();
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
     if (!enabled || !documentId || !appSyncClient) return;
@@ -87,11 +89,15 @@ export function useDebriefSubscription(
             void queryClient.invalidateQueries({
               queryKey: queryKeys.inlineFeedbackItems(documentId),
             });
-            onComplete();
+            onCompleteRef.current();
           });
         },
         error: (err: unknown) => {
-          console.error('[useDebriefSubscription] subscription error', err);
+          const detail =
+            err && typeof err === 'object' && 'errors' in err
+              ? JSON.stringify((err as { errors: unknown }).errors)
+              : String(err);
+          console.error('[useDebriefSubscription] subscription error', detail);
           // Non-fatal: the polling fallback in DocumentEditorPage handles
           // completion while AppSync is being verified in production.
         },
@@ -100,5 +106,5 @@ export function useDebriefSubscription(
     return () => {
       sub.unsubscribe();
     };
-  }, [documentId, enabled, onComplete, queryClient]);
+  }, [documentId, enabled, queryClient]);
 }

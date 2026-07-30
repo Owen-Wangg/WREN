@@ -213,9 +213,9 @@ def load_document_type_meta(document_type_id: str, conn: psycopg.Connection) -> 
                 (document_type_id,),
             )
             cat_rows = cur.fetchall()
-            category_ids = [r[0] for r in cat_rows]
+            category_ids = [str(r[0]) for r in cat_rows]
             category_names = [r[1] for r in cat_rows]
-            category_guidance = {r[0]: r[2] for r in cat_rows}
+            category_guidance = {str(r[0]): r[2] for r in cat_rows}
 
         return {
             "name": doc_type_name,
