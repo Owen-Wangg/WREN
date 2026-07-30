@@ -289,6 +289,10 @@ export function DocumentEditorPage() {
     draftQuery.isError ||
     Boolean(routerInitialContent) ||
     isPollingIngest;
+  // Debrief/feedback queries must not fire while a PDF is still being ingested
+  // or the draft hasn't loaded yet — an early fetch produces a stale error state
+  // that persists and blocks Regenerate.
+  const isDocumentReady = !isPollingIngest && (draftQuery.isSuccess || draftQuery.isError);
   const editorMountKey = `draft-${draftQuery.data?.id ?? envId}-${draftQuery.data?.versionNumber ?? 0}`;
 
   useEffect(() => {
@@ -749,6 +753,7 @@ export function DocumentEditorPage() {
                 wordCount={wordCount}
                 askWrenService={askWrenService}
                 isGeneratingFeedback={isPollingFeedback}
+                isDocumentReady={isDocumentReady}
                 onBeforeRegenerate={saveDraftFromEditor}
                 onHighlight={(anchorId) => {
                   setActiveQuoteId(`ask:${anchorId}`);

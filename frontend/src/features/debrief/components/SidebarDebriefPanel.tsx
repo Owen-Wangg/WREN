@@ -116,6 +116,11 @@ export interface SidebarDebriefPanelProps {
   /** True while DocumentEditorPage is polling for feedback generation. */
   readonly isGenerating?: boolean;
   /**
+   * False while the document/draft is still loading or being ingested.
+   * Prevents premature fetches and disables Regenerate until ready.
+   */
+  readonly isDocumentReady?: boolean;
+  /**
    * Persist in-editor edits as a new draft before feedback runs.
    * TipTap content stays the source of truth in DocumentEditorPage.
    */
@@ -134,6 +139,7 @@ export function SidebarDebriefPanel({
   environmentId,
   autoRegenerate = false,
   isGenerating = false,
+  isDocumentReady = true,
   onBeforeRegenerate,
   activeQuoteId,
   onQuoteClick,
@@ -152,7 +158,7 @@ export function SidebarDebriefPanel({
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyMenuRef = useRef<HTMLDivElement>(null);
 
-  const debriefQuery = useAiDebrief(environmentId, selectedDraftId);
+  const debriefQuery = useAiDebrief(environmentId, selectedDraftId, isDocumentReady);
   const historyQuery = useDebriefHistory(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
   const [isSavingThenRegen, setIsSavingThenRegen] = useState(false);
@@ -373,7 +379,7 @@ export function SidebarDebriefPanel({
           <button
             type="button"
             onClick={() => void runRegenerate()}
-            disabled={regenerating || debriefQuery.isLoading}
+            disabled={regenerating || debriefQuery.isLoading || !isDocumentReady}
             className="rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             aria-label="Regenerate AI Debrief"
           >
@@ -413,9 +419,18 @@ export function SidebarDebriefPanel({
           className="mb-lg text-caption leading-relaxed"
         />
 
-        {debriefQuery.isLoading && !isGenerating && <DebriefSkeleton />}
+        {!isDocumentReady && (
+          <div className="flex flex-col items-center gap-md py-xl text-center">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
+            <p className="text-bodySmall text-text-secondary">
+              Preparing your document… feedback will be available once it's ready.
+            </p>
+          </div>
+        )}
 
-        {isGenerating && !debrief && (
+        {isDocumentReady && debriefQuery.isLoading && !isGenerating && <DebriefSkeleton />}
+
+        {isDocumentReady && isGenerating && !debrief && (
           <div className="flex flex-col gap-lg py-xl">
             {/* Step indicator */}
             <div className="flex items-center gap-xs">
@@ -444,7 +459,7 @@ export function SidebarDebriefPanel({
           </div>
         )}
 
-        {debriefQuery.isError && (
+        {isDocumentReady && debriefQuery.isError && (
           <div role="alert" className="flex flex-col gap-sm">
             <p className="text-body text-signal-critical">
               Something went wrong loading the AI Debrief.
@@ -465,7 +480,7 @@ export function SidebarDebriefPanel({
           </p>
         )}
 
-        {debrief && !debriefQuery.isLoading && !debriefQuery.isError && (
+        {isDocumentReady && debrief && !debriefQuery.isLoading && !debriefQuery.isError && (
           <>
             {debrief.items.length === 0 ? (
               <div className="flex flex-col items-center gap-md py-xl text-center">

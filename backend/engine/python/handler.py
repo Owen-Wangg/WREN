@@ -56,7 +56,7 @@ _SYSTEM_CORE = (
 )
 _OUTPUT_SCHEMA = """\
 Return a JSON array. Each element must have exactly these keys:
-  error_category_id: string  — must be the exact UUID from the taxonomy list below, not the name
+  error_category_id: string  — must be the exact UUID from the taxonomy block in the document configuration section, not the category name
   kind: "inline" | "structural" | "strength"
   question_text: string  — the opening question that draws the student into this feedback item
   positive_note: string | null  — REQUIRED for kind="strength": a specific, concrete affirmation of what the student did well (e.g. "Your use of R v Smith correctly identifies the ratio decidendi"). null for all other kinds.
@@ -344,12 +344,10 @@ def assemble_prompt(
     category_names_list = doc_type_meta.get('category_names', [])
     category_guidance = doc_type_meta.get('category_guidance', {})
 
-    taxonomy_lines = []
     criteria_blocks = []
     for cid, cname in zip(category_ids, category_names_list):
         if not cid or not cname:
             continue
-        taxonomy_lines.append(f"  {cid}: {cname}")
         override = category_overrides.get(cid, {})
         definition = (override.get('definition') or '').strip()
         criteria = (override.get('criteria') or '').strip()
@@ -364,10 +362,6 @@ def assemble_prompt(
                 block_parts.append(f"  Success criteria: {criteria}")
             criteria_blocks.append('\n'.join(block_parts))
 
-    if taxonomy_lines:
-        taxonomy_block = "Feedback taxonomy (use the UUID as error_category_id):\n" + "\n".join(taxonomy_lines)
-        type_instructions = taxonomy_block + ("\n\n" + type_instructions if type_instructions else "")
-
     if criteria_blocks:
         criteria_section = "Per-category evaluation criteria:\n" + "\n\n".join(criteria_blocks)
         type_instructions = (type_instructions + "\n\n" + criteria_section) if type_instructions else criteria_section
@@ -375,6 +369,7 @@ def assemble_prompt(
     doc_type_config = DocumentTypePromptConfig(
         document_type_name=doc_type_meta.get('name', 'Unknown Document Type'),
         category_names=tuple(category_names_list),
+        category_ids=tuple(category_ids),
         tone=config.get('tone', 'supportive'),
         density=config.get('density', 'moderate'),
         category_priority=tuple(config.get('category_priority', [])),
@@ -1353,6 +1348,21 @@ def process_feedback_request(
         # department's taxonomy and have it silently inserted.
         valid_category_ids = set(doc_type_meta.get('category_ids', []))
         if valid_category_ids:
+            name_to_id = {
+                name.lower(): cid
+                for cid, name in zip(doc_type_meta.get('category_ids', []), doc_type_meta.get('category_names', []))
+            }
+            rescued = 0
+            for item in feedback_items:
+                raw = item.get('error_category_id', '')
+                if raw not in valid_category_ids:
+                    mapped = name_to_id.get(raw.lower())
+                    if mapped:
+                        item['error_category_id'] = mapped
+                        rescued += 1
+            if rescued:
+                logger.info(f"Rescued {rescued} feedback items by mapping category name to UUID")
+
             before_taxonomy = len(feedback_items)
             feedback_items = [
                 item for item in feedback_items
