@@ -72,8 +72,8 @@ export function AiDebriefModal({
   const { data: documents } = useDocuments();
   const { data: writingTypes } = useWritingTypes();
   const { data: organizations } = useOrganizations();
-  const document = documents?.find((d) => d.id === environmentId);
-  const writingType = writingTypes?.find((wt) => wt.id === document?.documentTypeId);
+  const currentDoc = documents?.find((d) => d.id === environmentId);
+  const writingType = writingTypes?.find((wt) => wt.id === currentDoc?.documentTypeId);
   const organization = organizations?.find((org) => org.id === writingType?.organizationId);
   const departmentName = organization?.name;
 

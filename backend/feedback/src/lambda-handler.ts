@@ -90,6 +90,50 @@ function expandToWordBoundaries(
   return { start, end };
 }
 
+/**
+ * Expand a located span to the nearest complete sentence so the displayed
+ * quote is never a dangling clause. Walks backward to a sentence-starting
+ * boundary and forward to a sentence-ending punctuation mark. Capped so we
+ * never pull in more than one sentence beyond the original span.
+ */
+function expandToSentenceBoundaries(
+  text: string,
+  startOffset: number,
+  endOffset: number,
+): { start: number; end: number } {
+  const SENTENCE_END = /[.!?]/;
+  const MAX_LOOKBACK = 200;
+  const MAX_LOOKAHEAD = 200;
+
+  let start = Math.max(0, startOffset);
+  let end = Math.min(text.length, endOffset);
+
+  // Walk backward to the character after the previous sentence-end (or the
+  // beginning of the paragraph), skipping leading whitespace.
+  const lookbackFrom = Math.max(0, start - MAX_LOOKBACK);
+  let s = start;
+  while (s > lookbackFrom) {
+    const ch = text[s - 1] ?? '';
+    if (SENTENCE_END.test(ch)) break;
+    s -= 1;
+  }
+  // Skip whitespace after the sentence boundary.
+  while (s < start && /\s/.test(text[s] ?? '')) s += 1;
+  start = s;
+
+  // Walk forward to the next sentence-end punctuation, then include it.
+  const lookaheadTo = Math.min(text.length, end + MAX_LOOKAHEAD);
+  let e = end;
+  while (e < lookaheadTo) {
+    const ch = text[e] ?? '';
+    e += 1;
+    if (SENTENCE_END.test(ch)) break;
+  }
+  end = e;
+
+  return { start, end };
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -168,13 +212,21 @@ function resolveQuotedTextForItem(
     if (para) {
       if (stored) {
         const fromQuote = resolveExactQuoteInParagraph(para, stored);
-        if (fromQuote) return fromQuote;
+        if (fromQuote) {
+          // Expand the located quote to a full sentence.
+          const idx = para.indexOf(fromQuote);
+          if (idx >= 0) {
+            const sentence = expandToSentenceBoundaries(para, idx, idx + fromQuote.length);
+            return para.slice(sentence.start, sentence.end).trim();
+          }
+          return fromQuote;
+        }
       }
       const start = Number(anchor.start_offset ?? 0);
       const end = Number(anchor.end_offset ?? 0);
       if (end > start && end <= para.length) {
-        const expanded = expandToWordBoundaries(para, start, end);
-        const slice = para.slice(expanded.start, expanded.end).trim();
+        const sentence = expandToSentenceBoundaries(para, start, end);
+        const slice = para.slice(sentence.start, sentence.end).trim();
         if (slice) return slice;
       }
     }
@@ -185,7 +237,14 @@ function resolveQuotedTextForItem(
     for (const segment of segments) {
       const para = typeof segment.text === 'string' ? segment.text : '';
       const fromQuote = resolveExactQuoteInParagraph(para, stored);
-      if (fromQuote) return fromQuote;
+      if (fromQuote) {
+        const idx = para.indexOf(fromQuote);
+        if (idx >= 0) {
+          const sentence = expandToSentenceBoundaries(para, idx, idx + fromQuote.length);
+          return para.slice(sentence.start, sentence.end).trim();
+        }
+        return fromQuote;
+      }
     }
   }
 
@@ -214,6 +273,7 @@ function toFeedbackItemDto(
     kind: row.kind,
     questionText: row.question_text,
     ...(quotedText ? { quotedText } : {}),
+    ...(row.positive_note ? { positiveNote: row.positive_note } : {}),
     ...(row.current_anchor_id ? { currentAnchorId: row.current_anchor_id } : {}),
     ...(row.citation_reference_id ? { citationReferenceId: row.citation_reference_id } : {}),
     sourceDraftId: row.source_draft_id,
@@ -321,7 +381,7 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
 
   const feedbackQuery = `
     SELECT id, document_id, error_category_id, kind, question_text, quoted_text,
-           current_anchor_id, citation_reference_id, source_draft_id, created_at
+           positive_note, current_anchor_id, citation_reference_id, source_draft_id, created_at
     FROM feedback_item
     WHERE document_id = $1${targetDraftId ? ` AND source_draft_id = $2` : ''}
     ORDER BY created_at DESC

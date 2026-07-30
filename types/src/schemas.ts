@@ -446,8 +446,8 @@ export type Anchor = z.infer<typeof anchorSchema>;
 /* FeedbackItem (Requirement 11 — NEVER carries replacement prose)             */
 /* -------------------------------------------------------------------------- */
 
-/** Inline (anchored) vs document-wide structural feedback. */
-export const feedbackKindSchema = z.enum(['inline', 'structural']);
+/** Inline (anchored), document-wide structural, or strength (done-well) feedback. */
+export const feedbackKindSchema = z.enum(['inline', 'structural', 'strength']);
 export type FeedbackKind = z.infer<typeof feedbackKindSchema>;
 
 /**
@@ -462,8 +462,10 @@ export const feedbackItemSchema = z
     documentId: idSchema,
     errorCategoryId: idSchema,
     kind: feedbackKindSchema,
-    /** The Socratic question / error-type flag shown to the writer. */
+    /** The Socratic question shown to the writer. For strength items this is the follow-up question. */
     questionText: z.string().min(1),
+    /** For strength items: the specific affirmation of what was done well. */
+    positiveNote: z.string().optional(),
     /** Exact quote from the document that triggered this feedback (no generation). */
     quotedText: z.string().optional(),
     currentAnchorId: idSchema.optional(),

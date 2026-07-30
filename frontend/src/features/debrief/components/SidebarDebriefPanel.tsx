@@ -29,12 +29,24 @@ function buildDebriefDisclaimer(departmentName?: string): string {
   return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert} or an admin user.`;
 }
 
-const GENERATING_MESSAGES = [
-  'Reading your draft…',
-  'Identifying patterns…',
-  'Building your feedback…',
-  'Almost there…',
-] as const;
+const GENERATING_STEPS: Array<{ message: string; detail: string }> = [
+  {
+    message: 'Reading your draft…',
+    detail: 'Scanning your submission for patterns and structure.',
+  },
+  {
+    message: 'Analysing your writing…',
+    detail: 'Identifying areas of strength and opportunities to improve.',
+  },
+  {
+    message: 'Building your feedback…',
+    detail: 'Crafting specific, Socratic questions for each finding.',
+  },
+  {
+    message: 'Finalising your debrief…',
+    detail: 'Almost ready — this usually takes 20–40 seconds in total.',
+  },
+];
 
 function formatDebriefTimestamp(iso: string): string {
   const date = new Date(iso);
@@ -59,15 +71,15 @@ function formatCompactGeneratedAt(iso: string): string {
   });
 }
 
-function useGeneratingMessage(): string {
+function useGeneratingStep(): { message: string; detail: string; stepIndex: number } {
   const [index, setIndex] = useState(0);
   useEffect(() => {
     const id = setInterval(() => {
-      setIndex((i) => Math.min(i + 1, GENERATING_MESSAGES.length - 1));
-    }, 7000);
+      setIndex((i) => Math.min(i + 1, GENERATING_STEPS.length - 1));
+    }, 8000);
     return () => clearInterval(id);
   }, []);
-  return GENERATING_MESSAGES[index] ?? GENERATING_MESSAGES[0];
+  return { ...(GENERATING_STEPS[index] ?? GENERATING_STEPS[0]!), stepIndex: index };
 }
 
 function DebriefSkeleton() {
@@ -127,8 +139,8 @@ export function SidebarDebriefPanel({
   const { data: writingTypes } = useWritingTypes();
   const { data: organizations } = useOrganizations();
 
-  const document = documents?.find((d) => d.id === environmentId);
-  const writingType = writingTypes?.find((wt) => wt.id === document?.documentTypeId);
+  const currentDoc = documents?.find((d) => d.id === environmentId);
+  const writingType = writingTypes?.find((wt) => wt.id === currentDoc?.documentTypeId);
   const organization = organizations?.find((org) => org.id === writingType?.organizationId);
   const departmentName = organization?.name;
 
@@ -195,7 +207,7 @@ export function SidebarDebriefPanel({
     };
   }, [historyOpen]);
 
-  const generatingMessage = useGeneratingMessage();
+  const generatingStep = useGeneratingStep();
 
   const debrief = debriefQuery.data;
   const regenerating = isSavingThenRegen || regenerate.isPending;
@@ -223,15 +235,22 @@ export function SidebarDebriefPanel({
         : [];
   const canOpenHistory = hasFeedback || historyVersions.length > 0;
 
-  const groupedByCategory = (debrief?.items ?? []).reduce<
-    Record<string, FeedbackItem[]>
-  >((acc, item) => {
-    const key = item.errorCategoryId;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(item);
-    return acc;
-  }, {});
-  const categoryKeys = Object.keys(groupedByCategory);
+  // Group all items by category; within each category separate strengths from questions.
+  const allItems = debrief?.items ?? [];
+  const categoryOrder: string[] = [];
+  const strengthsByCategory: Record<string, FeedbackItem[]> = {};
+  const improvementsByCategory: Record<string, FeedbackItem[]> = {};
+  for (const item of allItems) {
+    const cat = item.errorCategoryId;
+    if (!categoryOrder.includes(cat)) categoryOrder.push(cat);
+    if (item.kind === 'strength' || item.kind === 'structural') {
+      if (!strengthsByCategory[cat]) strengthsByCategory[cat] = [];
+      strengthsByCategory[cat].push(item);
+    } else {
+      if (!improvementsByCategory[cat]) improvementsByCategory[cat] = [];
+      improvementsByCategory[cat].push(item);
+    }
+  }
 
   const selectHistoryVersion = (draftId: string, isLatest: boolean) => {
     setSelectedDraftId(isLatest ? null : draftId);
@@ -384,12 +403,31 @@ export function SidebarDebriefPanel({
         {debriefQuery.isLoading && !isGenerating && <DebriefSkeleton />}
 
         {isGenerating && !debrief && (
-          <div className="flex flex-col items-center gap-md py-xl text-center">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-            <p role="status" className="text-body text-text-secondary">
-              {generatingMessage}
-            </p>
-            <p className="text-bodySmall text-text-muted">This usually takes 20–40 seconds.</p>
+          <div className="flex flex-col gap-lg py-xl">
+            {/* Step indicator */}
+            <div className="flex items-center gap-xs">
+              {GENERATING_STEPS.map((_, i) => (
+                <div
+                  key={i}
+                  className={`h-1.5 flex-1 rounded-full transition-colors duration-500 ${
+                    i <= generatingStep.stepIndex
+                      ? 'bg-accent-primary'
+                      : 'bg-border-subtle'
+                  }`}
+                />
+              ))}
+            </div>
+            <div className="flex flex-col gap-sm">
+              <div className="flex items-center gap-sm">
+                <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
+                <p role="status" className="text-body font-medium text-text-primary">
+                  {generatingStep.message}
+                </p>
+              </div>
+              <p className="text-bodySmall text-text-secondary leading-relaxed pl-[24px]">
+                {generatingStep.detail}
+              </p>
+            </div>
           </div>
         )}
 
@@ -419,13 +457,31 @@ export function SidebarDebriefPanel({
             {debrief.items.length === 0 ? (
               <div className="flex flex-col items-center gap-md py-xl text-center">
                 {isGenerating || regenerating ? (
-                  <>
-                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-                    <p role="status" className="text-body text-text-secondary">
-                      {generatingMessage}
-                    </p>
-                    <p className="text-bodySmall text-text-muted">This usually takes 20–40 seconds.</p>
-                  </>
+                  <div className="flex w-full flex-col gap-lg py-xl">
+                    <div className="flex items-center gap-xs">
+                      {GENERATING_STEPS.map((_, i) => (
+                        <div
+                          key={i}
+                          className={`h-1.5 flex-1 rounded-full transition-colors duration-500 ${
+                            i <= generatingStep.stepIndex
+                              ? 'bg-accent-primary'
+                              : 'bg-border-subtle'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex flex-col gap-sm">
+                      <div className="flex items-center gap-sm">
+                        <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
+                        <p role="status" className="text-body font-medium text-text-primary">
+                          {generatingStep.message}
+                        </p>
+                      </div>
+                      <p className="text-bodySmall text-text-secondary leading-relaxed pl-[24px]">
+                        {generatingStep.detail}
+                      </p>
+                    </div>
+                  </div>
                 ) : (
                   <p className="text-body text-text-secondary">
                     No feedback yet. Click <strong>Regenerate</strong> to save your draft and generate feedback.
@@ -520,124 +576,98 @@ export function SidebarDebriefPanel({
                   </section>
                 )}
 
-                {/* Category sections */}
-                {categoryKeys.map((category) => {
-                  const items = groupedByCategory[category];
-                  const doneWell = items.filter((i) => i.kind === 'structural');
-                  const improvements = items.filter((i) => i.kind === 'inline');
+                {/* ── Per-category sections ── */}
+                {categoryOrder.map((category) => {
+                  const strengths = strengthsByCategory[category] ?? [];
+                  const improvements = improvementsByCategory[category] ?? [];
+                  if (strengths.length === 0 && improvements.length === 0) return null;
                   const categoryLabel = debrief.categoryNames?.[category] ?? category;
 
                   return (
                     <section
                       key={category}
-                      aria-labelledby={`ai-debrief-category-${category}`}
+                      aria-labelledby={`debrief-cat-${category}`}
+                      className="flex flex-col gap-md"
                     >
+                      {/* Category heading */}
                       <h4
-                        id={`ai-debrief-category-${category}`}
-                        className="mb-md flex items-center gap-xs text-heading4 font-sans font-bold text-text-primary"
+                        id={`debrief-cat-${category}`}
+                        className="flex items-center gap-xs text-heading4 font-sans font-bold text-text-primary border-b border-border-subtle pb-xs"
                       >
-                        <Star size={16} className="text-text-muted" aria-hidden="true" />
                         {categoryLabel}
                       </h4>
 
-                      {doneWell.length > 0 && (
-                        <div className="mb-md">
-                          <h5 className="mb-xs text-bodySmall font-semibold text-text-primary">
+                      {/* What's Done Well — affirmations only, zero questions */}
+                      {strengths.length > 0 && (
+                        <div>
+                          <h5 className="mb-sm text-caption font-semibold uppercase tracking-wide text-signal-positive">
                             What&apos;s Done Well
                           </h5>
-                          <ul className="flex flex-col gap-xs pl-md">
-                            {doneWell.map((item) => (
+                          <ul className="flex flex-col gap-sm">
+                            {strengths.map((item) => (
                               <li
                                 key={item.id}
-                                className="flex flex-col gap-xs text-bodySmall text-text-primary"
+                                className="flex items-start gap-sm rounded-md bg-signal-positive/5 px-sm py-xs"
                               >
-                                <div className="flex items-start gap-sm">
-                                  <span className="mt-[2px] text-signal-positive">✓</span>
-                                  <span>{item.questionText}</span>
-                                </div>
-                                {item.quotedText && (
-                                  <blockquote
-                                    className={`ml-sm border-l-2 pl-md italic text-bodySmall cursor-pointer rounded px-sm transition-colors break-words ${
-                                      activeQuoteId === item.id
-                                        ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
-                                        : 'border-signal-positive/30 text-text-secondary hover:bg-signal-positive/5 hover:border-signal-positive/60'
-                                    }`}
-                                    onClick={() =>
-                                      onQuoteClick?.({
-                                        feedbackItemId: item.id,
-                                        anchorId: item.currentAnchorId,
-                                        quotedText: item.quotedText,
-                                      })
-                                    }
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-pressed={activeQuoteId === item.id}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
-                                        onQuoteClick?.({
-                                          feedbackItemId: item.id,
-                                          anchorId: item.currentAnchorId,
-                                          quotedText: item.quotedText,
-                                        });
-                                      }
-                                    }}
-                                  >
-                                    &quot;{item.quotedText}&quot;
-                                  </blockquote>
-                                )}
-                                <CitationDisplay citationReferenceId={item.citationReferenceId} />
+                                <span className="mt-[2px] shrink-0 text-signal-positive">✓</span>
+                                <span className="text-bodySmall text-text-primary">
+                                  {item.positiveNote ?? item.questionText}
+                                </span>
                               </li>
                             ))}
                           </ul>
                         </div>
                       )}
 
+                      {/* Areas for Improvement — questions first, quote as supporting evidence */}
                       {improvements.length > 0 && (
                         <div>
-                          <h5 className="mb-xs text-bodySmall font-semibold text-text-primary">
+                          <h5 className="mb-sm text-caption font-semibold uppercase tracking-wide text-signal-caution">
                             Areas for Improvement
                           </h5>
-                          <ul className="flex flex-col gap-xs pl-md">
+                          <ul className="flex flex-col gap-md">
                             {improvements.map((item) => (
-                              <li
-                                key={item.id}
-                                className="flex flex-col gap-xs text-bodySmall text-text-primary"
-                              >
-                                <div className="flex items-start gap-sm">
-                                  <span className="mt-[2px] text-signal-critical">•</span>
-                                  <span>{item.questionText}</span>
-                                </div>
+                              <li key={item.id} className="flex flex-col gap-xs">
+                                {/* Question is the unavoidable headline */}
+                                <p className="text-bodySmall font-medium text-text-primary">
+                                  {item.questionText}
+                                </p>
+                                {/* Quote is labelled as supporting evidence — subordinate */}
                                 {item.quotedText && (
-                                  <blockquote
-                                    className={`ml-sm border-l-2 pl-md italic text-bodySmall cursor-pointer rounded px-sm transition-colors break-words ${
-                                      activeQuoteId === item.id
-                                        ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
-                                        : 'border-signal-critical/30 text-text-secondary hover:bg-signal-critical/5 hover:border-signal-critical/60'
-                                    }`}
-                                    onClick={() =>
-                                      onQuoteClick?.({
-                                        feedbackItemId: item.id,
-                                        anchorId: item.currentAnchorId,
-                                        quotedText: item.quotedText,
-                                      })
-                                    }
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-pressed={activeQuoteId === item.id}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
+                                  <div className="flex flex-col gap-[2px]">
+                                    <span className="text-caption text-text-muted uppercase tracking-wide">
+                                      From your draft
+                                    </span>
+                                    <blockquote
+                                      className={`border-l-2 pl-md text-bodySmall cursor-pointer rounded-r-sm px-sm py-xs transition-colors break-words ${
+                                        activeQuoteId === item.id
+                                          ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
+                                          : 'border-border-strong text-text-secondary hover:bg-surface-muted/60 hover:border-accent-primary/40'
+                                      }`}
+                                      onClick={() =>
                                         onQuoteClick?.({
                                           feedbackItemId: item.id,
                                           anchorId: item.currentAnchorId,
                                           quotedText: item.quotedText,
-                                        });
+                                        })
                                       }
-                                    }}
-                                  >
-                                    &quot;{item.quotedText}&quot;
-                                  </blockquote>
+                                      role="button"
+                                      tabIndex={0}
+                                      aria-pressed={activeQuoteId === item.id}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          onQuoteClick?.({
+                                            feedbackItemId: item.id,
+                                            anchorId: item.currentAnchorId,
+                                            quotedText: item.quotedText,
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      &ldquo;{item.quotedText}&rdquo;
+                                    </blockquote>
+                                  </div>
                                 )}
                                 <CitationDisplay citationReferenceId={item.citationReferenceId} />
                               </li>

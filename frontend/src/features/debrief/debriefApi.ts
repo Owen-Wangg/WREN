@@ -33,6 +33,7 @@ const feedbackResponseSchema = z.object({
     errorCategoryId: z.string(),
     kind: z.string(),
     questionText: z.string(),
+    positiveNote: z.string().optional(),
     quotedText: z.string().optional(),
     currentAnchorId: z.string().optional(),
     citationReferenceId: z.string().optional(),

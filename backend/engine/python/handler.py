@@ -49,22 +49,36 @@ logger.setLevel(logging.INFO)
 _SYSTEM_CORE = (
     "You are WREN, a Socratic writing coach. Your sole task is to generate "
     "structured feedback on the submitted document using the taxonomy provided. "
-    "Ask probing questions that guide the writer toward improvement without "
-    "providing replacement prose or rewriting their work."
+    "For areas needing improvement, ask probing questions that guide the writer "
+    "toward improvement without providing replacement prose or rewriting their work. "
+    "For strengths, name the specific thing the writer did well and follow it with "
+    "a single question that invites them to build on or reflect on that strength."
 )
 _OUTPUT_SCHEMA = """\
 Return a JSON array. Each element must have exactly these keys:
   error_category_id: string  — must be the exact UUID from the taxonomy list below, not the name
-  kind: "inline" | "structural"
-  question_text: string  — a Socratic question, never a correction or rewrite
-  anchor: { paragraphIndex: int, quotedText: string } | null  — required for inline, null for structural
+  kind: "inline" | "structural" | "strength"
+  question_text: string  — the opening question that draws the student into this feedback item
+  positive_note: string | null  — REQUIRED for kind="strength": a specific, concrete affirmation of what the student did well (e.g. "Your use of R v Smith correctly identifies the ratio decidendi"). null for all other kinds.
+  anchor: { paragraphIndex: int, quotedText: string } | null  — required for kind="inline", null otherwise
 Only output valid JSON. No markdown fences, no extra keys, no prose outside the array.
-inline items MUST have a valid anchor. structural items MUST have anchor: null.
+
+kind rules:
+  "inline"     — anchored to a specific text span; must have a valid anchor; positive_note must be null
+  "structural" — document-wide area for improvement; anchor must be null; positive_note must be null
+  "strength"   — something the student did well; anchor must be null; positive_note MUST be a specific affirmation
+
+For "strength" items:
+  - positive_note names the exact thing done well — be specific, cite the text or technique
+  - question_text then builds on it: ask how they could apply this strength elsewhere, deepen it, or sustain it
+  - Do NOT use positive_note to rewrite or correct anything — it describes what already exists in the document
+
 anchor.quotedText MUST be copied verbatim from the paragraph — a complete sentence or clause (not a fragment). Do not paraphrase or shorten it."""
 _GUARDRAIL = (
     "NEVER provide replacement prose, rewrites, corrections, or any text the writer "
-    "could paste directly into their document. Every piece of feedback must be a "
-    "Socratic question or observation, never a suggested revision."
+    "could paste directly into their document. positive_note must describe what already "
+    "exists in the document, not suggest what could replace it. Every question_text must "
+    "be a Socratic question, never a correction or revision."
 )
 
 _SCAFFOLDING = SystemScaffolding(
@@ -531,10 +545,11 @@ def insert_feedback_items(
 
                     # Insert feedback item
                     feedback_id = str(uuid.uuid4())
+                    positive_note = item.get('positive_note') or None
                     cur.execute("""
                         INSERT INTO feedback_item
-                        (id, document_id, error_category_id, kind, question_text, quoted_text, source_draft_id, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                        (id, document_id, error_category_id, kind, question_text, quoted_text, positive_note, source_draft_id, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     """, (
                         feedback_id,
                         document_id,
@@ -542,6 +557,7 @@ def insert_feedback_items(
                         item.get('kind', 'inline'),
                         item.get('question_text', ''),
                         quoted_text,
+                        positive_note,
                         draft_id
                     ))
 
