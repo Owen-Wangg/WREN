@@ -384,9 +384,13 @@ export class ComputeStack extends Stack {
       actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       resources: [`arn:aws:s3:::${props.documentsBucketName}/*`],
     }));
-    // Amazon Textract OCR (sync DetectDocumentText + async Start/Get).
+    // Amazon Textract OCR (LAYOUT + TABLES analysis).
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: [
+        "textract:AnalyzeDocument",
+        "textract:StartDocumentAnalysis",
+        "textract:GetDocumentAnalysis",
+        // Legacy detect APIs kept for compatibility if rolled back.
         "textract:DetectDocumentText",
         "textract:StartDocumentTextDetection",
         "textract:GetDocumentTextDetection",

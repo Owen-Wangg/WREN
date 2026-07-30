@@ -1,4 +1,4 @@
--- Migration 0016 — OCR engine selection + optional side-by-side comparison payload.
+-- Migration 0017 — OCR engine selection + optional side-by-side comparison payload.
 
 BEGIN;
 

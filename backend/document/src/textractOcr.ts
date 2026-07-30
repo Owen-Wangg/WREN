@@ -1,25 +1,44 @@
 /**
- * Amazon Textract OCR — extracts plain text (+ confidence) from PDF/image bytes
- * or an S3 object, independent of LiteParse/Tesseract.
+ * Amazon Textract OCR via AnalyzeDocument (LAYOUT + TABLES).
  *
- * Sync DetectDocumentText (Bytes) covers images and single-page PDFs.
- * Multi-page PDFs use async StartDocumentTextDetection + poll when S3 is set.
+ * Sync AnalyzeDocument covers images / single-page PDFs (bytes).
+ * Multi-page PDFs use async StartDocumentAnalysis + GetDocumentAnalysis when S3 is set.
+ *
+ * Layout elements map to TipTap headings / paragraphs / lists / tables.
+ * LINE geometry soft-wrap remains as a fallback when layout blocks are absent.
  */
 import {
-  DetectDocumentTextCommand,
-  GetDocumentTextDetectionCommand,
-  StartDocumentTextDetectionCommand,
+  AnalyzeDocumentCommand,
+  GetDocumentAnalysisCommand,
+  StartDocumentAnalysisCommand,
   TextractClient,
   type Block,
 } from '@aws-sdk/client-textract';
 
 import type { TipTapDoc } from '@wren/types';
 
+import {
+  textractLayoutBlocksToTipTap,
+  tipTapDocToPlainText,
+} from './textractLayoutToTipTap.js';
+import {
+  mergeTextractLinesIntoParagraphs,
+  type TextractLine,
+} from './textractLines.js';
+
+export type { TextractLine } from './textractLines.js';
+export {
+  mergeTextractLinesIntoParagraphs,
+  TEXTRACT_PARAGRAPH_BREAK_GAP_RATIO,
+  TEXTRACT_SOFT_WRAP_GAP_RATIO,
+} from './textractLines.js';
+export { textractLayoutBlocksToTipTap } from './textractLayoutToTipTap.js';
+
 export type OcrEngineName = 'tesseract' | 'textract';
 
 export interface TextractOcrResult {
   readonly text: string;
-  readonly lines: readonly { readonly text: string; readonly confidence?: number }[];
+  readonly lines: readonly TextractLine[];
   readonly content: TipTapDoc;
   readonly engine: 'textract';
   readonly durationMs: number;
@@ -43,46 +62,44 @@ export class TextractOcrError extends Error {
 const POLL_INTERVAL_MS = 1500;
 const MAX_POLL_ATTEMPTS = 120;
 
+const ANALYSIS_FEATURES = ['LAYOUT', 'TABLES'] as const;
+
 function getClient(): TextractClient {
   return new TextractClient({
     region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'ca-central-1',
   });
 }
 
-function blocksToLines(blocks: readonly Block[] | undefined): {
-  text: string;
-  lines: { text: string; confidence?: number }[];
-} {
-  const lines: { text: string; confidence?: number }[] = [];
+function blocksToLines(blocks: readonly Block[] | undefined): TextractLine[] {
+  const lines: TextractLine[] = [];
   for (const block of blocks ?? []) {
     if (block.BlockType !== 'LINE' || typeof block.Text !== 'string') continue;
-    const line = block.Text.trim();
-    if (!line) continue;
+    const text = block.Text.trim();
+    if (!text) continue;
+    const box = block.Geometry?.BoundingBox;
     lines.push({
-      text: line,
+      text,
       ...(typeof block.Confidence === 'number' ? { confidence: block.Confidence } : {}),
+      ...(typeof box?.Top === 'number' ? { top: box.Top } : {}),
+      ...(typeof box?.Height === 'number' ? { height: box.Height } : {}),
+      ...(typeof block.Page === 'number' ? { page: block.Page } : {}),
     });
   }
-  return {
-    text: lines.map((l) => l.text).join('\n'),
-    lines,
-  };
+  return lines;
 }
 
-/** TipTap doc from OCR lines (one paragraph per non-empty line). */
-export function textractLinesToTipTap(
-  lines: readonly { readonly text: string }[],
-): TipTapDoc {
-  const paragraphs = lines
-    .map((l) => l.text.trim())
-    .filter(Boolean)
-    .map((text) => ({
-      type: 'paragraph' as const,
-      content: [{ type: 'text' as const, text }],
-    }));
+/** TipTap doc from Textract lines only (geometry merge) — used in unit tests / fallback. */
+export function textractLinesToTipTap(lines: readonly TextractLine[]): TipTapDoc {
+  const paragraphs = mergeTextractLinesIntoParagraphs(lines);
   return {
     type: 'doc',
-    content: paragraphs.length > 0 ? paragraphs : [{ type: 'paragraph' }],
+    content:
+      paragraphs.length > 0
+        ? paragraphs.map((text) => ({
+            type: 'paragraph' as const,
+            content: [{ type: 'text' as const, text }],
+          }))
+        : [{ type: 'paragraph' }],
   };
 }
 
@@ -108,7 +125,7 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function collectAsyncBlocks(
+async function collectAsyncAnalysisBlocks(
   client: TextractClient,
   jobId: string,
 ): Promise<Block[]> {
@@ -116,7 +133,7 @@ async function collectAsyncBlocks(
   let nextToken: string | undefined;
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
     const page = await client.send(
-      new GetDocumentTextDetectionCommand({
+      new GetDocumentAnalysisCommand({
         JobId: jobId,
         ...(nextToken ? { NextToken: nextToken } : {}),
       }),
@@ -124,7 +141,7 @@ async function collectAsyncBlocks(
     const status = page.JobStatus;
     if (status === 'FAILED') {
       throw new TextractOcrError(
-        page.StatusMessage || 'Textract document text detection failed',
+        page.StatusMessage || 'Textract document analysis failed',
         'FAILED',
       );
     }
@@ -137,19 +154,36 @@ async function collectAsyncBlocks(
     }
     await sleep(POLL_INTERVAL_MS);
   }
-  throw new TextractOcrError('Timed out waiting for Textract job', 'TIMEOUT');
+  throw new TextractOcrError('Timed out waiting for Textract analysis job', 'TIMEOUT');
 }
 
 export interface ExtractTextractInput {
-  /** Raw document bytes (sync DetectDocumentText). */
+  /** Raw document bytes (sync AnalyzeDocument). */
   readonly bytes?: Buffer;
   /** S3 location for async multi-page PDF. */
   readonly s3Bucket?: string;
   readonly s3Key?: string;
 }
 
+function resultFromBlocks(
+  blocks: readonly Block[] | undefined,
+  started: number,
+): TextractOcrResult {
+  const safeBlocks = blocks ?? [];
+  const lines = blocksToLines(safeBlocks);
+  const content = textractLayoutBlocksToTipTap(safeBlocks);
+  const text = tipTapDocToPlainText(content) || mergeTextractLinesIntoParagraphs(lines).join('\n\n');
+  return {
+    text,
+    lines,
+    content,
+    engine: 'textract',
+    durationMs: Date.now() - started,
+  };
+}
+
 /**
- * Run Textract OCR and return normalized text + TipTap content.
+ * Run Textract LAYOUT+TABLES analysis and return normalized text + TipTap content.
  */
 export async function extractWithTextract(
   input: ExtractTextractInput,
@@ -160,46 +194,34 @@ export async function extractWithTextract(
   try {
     if (input.s3Bucket && input.s3Key) {
       const start = await client.send(
-        new StartDocumentTextDetectionCommand({
+        new StartDocumentAnalysisCommand({
           DocumentLocation: {
             S3Object: {
               Bucket: input.s3Bucket,
               Name: input.s3Key,
             },
           },
+          FeatureTypes: [...ANALYSIS_FEATURES],
         }),
       );
       if (!start.JobId) {
         throw new TextractOcrError('Textract did not return a job id', 'FAILED');
       }
-      const blocks = await collectAsyncBlocks(client, start.JobId);
-      const { text, lines } = blocksToLines(blocks);
-      return {
-        text,
-        lines,
-        content: textractLinesToTipTap(lines),
-        engine: 'textract',
-        durationMs: Date.now() - started,
-      };
+      const blocks = await collectAsyncAnalysisBlocks(client, start.JobId);
+      return resultFromBlocks(blocks, started);
     }
 
     if (!input.bytes || input.bytes.length === 0) {
       throw new TextractOcrError('No document bytes or S3 location provided', 'UNSUPPORTED');
     }
 
-    const detected = await client.send(
-      new DetectDocumentTextCommand({
+    const analyzed = await client.send(
+      new AnalyzeDocumentCommand({
         Document: { Bytes: input.bytes },
+        FeatureTypes: [...ANALYSIS_FEATURES],
       }),
     );
-    const { text, lines } = blocksToLines(detected.Blocks);
-    return {
-      text,
-      lines,
-      content: textractLinesToTipTap(lines),
-      engine: 'textract',
-      durationMs: Date.now() - started,
-    };
+    return resultFromBlocks(analyzed.Blocks, started);
   } catch (error) {
     if (error instanceof TextractOcrError) throw error;
     mapAwsError(error);
