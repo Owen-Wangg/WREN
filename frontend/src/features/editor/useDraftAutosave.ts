@@ -8,6 +8,7 @@ import { apiClient } from '@/services';
 import { asTipTapDoc, stripAiMarksFromTipTapContent } from '@wren/types';
 
 import type { JSONContent } from '@tiptap/react';
+import type { Draft, TipTapDoc } from '@wren/types';
 
 export type AutosaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
@@ -21,6 +22,8 @@ export interface UseDraftAutosaveOptions {
   readonly enabled: boolean;
   /** Changes when the persisted draft baseline resets (e.g. new version id). */
   readonly baselineKey?: string;
+  /** Called after a successful PATCH so callers can refresh React Query cache. */
+  readonly onSaved?: (draft: Draft) => void;
 }
 
 export interface UseDraftAutosaveResult {
@@ -35,6 +38,7 @@ export function useDraftAutosave({
   content,
   enabled,
   baselineKey,
+  onSaved,
 }: UseDraftAutosaveOptions): UseDraftAutosaveResult {
   const [status, setStatus] = useState<AutosaveStatus>('idle');
   const contentRef = useRef(content);
@@ -45,8 +49,11 @@ export function useDraftAutosave({
   const skipNextDirtyRef = useRef(true);
   const lastSavedJsonRef = useRef<string | null>(null);
   const baselineRef = useRef(baselineKey);
+  const onSavedRef = useRef(onSaved);
+  const persistRef = useRef<() => Promise<boolean>>(async () => false);
 
   contentRef.current = content;
+  onSavedRef.current = onSaved;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -66,43 +73,53 @@ export function useDraftAutosave({
     }
   }, [baselineKey, clearTimer]);
 
-  const persist = useCallback(async (): Promise<boolean> => {
-    if (!enabled || !documentId || savingRef.current) return false;
-    const cleaned = asTipTapDoc(stripAiMarksFromTipTapContent(contentRef.current));
-    if (!cleaned) return false;
+  const persist = useCallback(
+    async (opts?: { keepalive?: boolean }): Promise<boolean> => {
+      if (!enabled || !documentId || savingRef.current) return false;
+      const cleaned = asTipTapDoc(stripAiMarksFromTipTapContent(contentRef.current));
+      if (!cleaned) return false;
 
-    const serialized = JSON.stringify(cleaned);
-    if (serialized === lastSavedJsonRef.current) {
-      dirtyRef.current = false;
-      setStatus((s) => (s === 'dirty' || s === 'error' ? 'saved' : s));
-      return true;
-    }
-
-    savingRef.current = true;
-    setStatus('saving');
-    try {
-      await patchCurrentDraft(apiClient, documentId, cleaned);
-      lastSavedJsonRef.current = serialized;
-      dirtyRef.current = false;
-      retryAttemptRef.current = 0;
-      setStatus('saved');
-      return true;
-    } catch {
-      setStatus('error');
-      const attempt = retryAttemptRef.current;
-      if (attempt < RETRY_DELAYS_MS.length) {
-        const delay = RETRY_DELAYS_MS[attempt]!;
-        retryAttemptRef.current = attempt + 1;
-        clearTimer();
-        timerRef.current = setTimeout(() => {
-          void persist();
-        }, delay);
+      const serialized = JSON.stringify(cleaned);
+      if (serialized === lastSavedJsonRef.current) {
+        dirtyRef.current = false;
+        setStatus((s) => (s === 'dirty' || s === 'error' ? 'saved' : s));
+        return true;
       }
-      return false;
-    } finally {
-      savingRef.current = false;
-    }
-  }, [clearTimer, documentId, enabled]);
+
+      savingRef.current = true;
+      setStatus('saving');
+      try {
+        const draft = await patchCurrentDraft(apiClient, documentId, cleaned as TipTapDoc, {
+          keepalive: opts?.keepalive,
+        });
+        lastSavedJsonRef.current = serialized;
+        dirtyRef.current = false;
+        retryAttemptRef.current = 0;
+        setStatus('saved');
+        if (draft) {
+          onSavedRef.current?.(draft);
+        }
+        return true;
+      } catch {
+        setStatus('error');
+        const attempt = retryAttemptRef.current;
+        if (attempt < RETRY_DELAYS_MS.length && !opts?.keepalive) {
+          const delay = RETRY_DELAYS_MS[attempt]!;
+          retryAttemptRef.current = attempt + 1;
+          clearTimer();
+          timerRef.current = setTimeout(() => {
+            void persistRef.current();
+          }, delay);
+        }
+        return false;
+      } finally {
+        savingRef.current = false;
+      }
+    },
+    [clearTimer, documentId, enabled],
+  );
+
+  persistRef.current = persist;
 
   const schedule = useCallback(() => {
     if (!enabled) return;
@@ -130,13 +147,13 @@ export function useDraftAutosave({
     const flushOnHide = () => {
       if (document.visibilityState === 'hidden' && dirtyRef.current) {
         clearTimer();
-        void persist();
+        void persist({ keepalive: true });
       }
     };
     const flushOnUnload = () => {
       if (!dirtyRef.current) return;
       clearTimer();
-      void persist();
+      void persist({ keepalive: true });
     };
     document.addEventListener('visibilitychange', flushOnHide);
     window.addEventListener('pagehide', flushOnUnload);
@@ -146,6 +163,10 @@ export function useDraftAutosave({
       window.removeEventListener('pagehide', flushOnUnload);
       window.removeEventListener('beforeunload', flushOnUnload);
       clearTimer();
+      // SPA navigation does not fire pagehide reliably — flush pending edits.
+      if (dirtyRef.current) {
+        void persistRef.current();
+      }
     };
   }, [clearTimer, persist]);
 

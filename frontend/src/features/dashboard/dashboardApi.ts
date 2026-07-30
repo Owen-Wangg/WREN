@@ -270,16 +270,21 @@ export function createDraft(
 
 /**
  * Autosave TipTap content onto the current draft without creating a new version.
+ * With `keepalive: true` (unload flush), the response body is not validated and
+ * the return value may be undefined.
  */
 export function patchCurrentDraft(
   client: HttpClient,
   documentId: string,
   content: TipTapDoc,
-): Promise<Draft> {
+  options?: { readonly keepalive?: boolean },
+): Promise<Draft | undefined> {
   return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts/current`, {
     method: 'PATCH',
     body: { content },
-    schema: draftSchema,
+    ...(options?.keepalive
+      ? { keepalive: true }
+      : { schema: draftSchema }),
   });
 }
 

@@ -272,6 +272,9 @@ export function DocumentEditorPage() {
     queryKey: ['document-draft', envId],
     queryFn: () => fetchLatestDraft(apiClient, envId),
     enabled: !!documentId,
+    // Always revalidate on enter so leave/return shows autosaved TipTap content
+    // (mount key is draft id+version, which does not change on content-only PATCH).
+    refetchOnMount: 'always',
   });
 
   const draftContent = useMemo(() => {
@@ -284,26 +287,59 @@ export function DocumentEditorPage() {
 
   // Prefer persisted draft.content over ephemeral router state so reload matches DB.
   const editorInitialContent = draftContent ?? routerInitialContent ?? EMPTY_EDITOR_CONTENT;
+  // Wait for a fetch on this visit before mounting TipTap — otherwise a stale
+  // React Query cache can remount the editor with pre-autosave content.
   const editorReady =
-    draftQuery.isSuccess ||
-    draftQuery.isError ||
+    isPollingIngest ||
     Boolean(routerInitialContent) ||
-    isPollingIngest;
+    draftQuery.isFetchedAfterMount;
   // Debrief/feedback queries must not fire while a PDF is still being ingested
   // or the draft hasn't loaded yet — an early fetch produces a stale error state
   // that persists and blocks Regenerate.
   const isDocumentReady = !isPollingIngest && (draftQuery.isSuccess || draftQuery.isError);
   const editorMountKey = `draft-${draftQuery.data?.id ?? envId}-${draftQuery.data?.versionNumber ?? 0}`;
 
+  // Sync local editor state when the draft *identity* changes (new version), not
+  // on every content-field cache write from autosave (that would wipe keystrokes).
+  const syncedDraftIdentityRef = useRef<string | undefined>(undefined);
+  const seededForVisitRef = useRef(false);
   useEffect(() => {
-    if (draftContent) {
+    seededForVisitRef.current = false;
+    syncedDraftIdentityRef.current = undefined;
+  }, [envId]);
+
+  useEffect(() => {
+    const identity = draftQuery.data
+      ? `${draftQuery.data.id}:${draftQuery.data.versionNumber}`
+      : undefined;
+    if (draftContent && identity && identity !== syncedDraftIdentityRef.current) {
+      syncedDraftIdentityRef.current = identity;
       setCurrentContent(draftContent);
       return;
     }
-    if (routerInitialContent) {
+    if (!draftContent && routerInitialContent && !syncedDraftIdentityRef.current) {
       setCurrentContent(routerInitialContent);
     }
-  }, [draftContent, routerInitialContent]);
+  }, [draftContent, draftQuery.data, routerInitialContent]);
+
+  // Seed once per visit after the enter-page draft fetch — covers content-only
+  // autosave where draft id/version are unchanged.
+  useEffect(() => {
+    if (!editorReady || !draftContent || !draftQuery.data || seededForVisitRef.current) return;
+    if (!(draftQuery.isFetchedAfterMount || Boolean(routerInitialContent) || isPollingIngest)) {
+      return;
+    }
+    seededForVisitRef.current = true;
+    syncedDraftIdentityRef.current = `${draftQuery.data.id}:${draftQuery.data.versionNumber}`;
+    setCurrentContent(draftContent);
+  }, [
+    editorReady,
+    draftContent,
+    draftQuery.data,
+    draftQuery.isFetchedAfterMount,
+    routerInitialContent,
+    isPollingIngest,
+  ]);
 
   const documentName = documentData?.name ?? state?.documentName ?? 'Untitled document';
   const breadcrumb = [state?.organizationName, state?.contentType]
@@ -322,6 +358,9 @@ export function DocumentEditorPage() {
     content: currentContent,
     enabled: editorReady && draftQuery.isSuccess && !isPollingIngest,
     baselineKey: draftQuery.data?.id,
+    onSaved: (draft) => {
+      queryClient.setQueryData(['document-draft', envId], draft);
+    },
   });
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);

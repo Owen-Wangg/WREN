@@ -35,6 +35,11 @@ export interface RequestOptions<T> {
   readonly schema?: ZodType<T>;
   readonly signal?: AbortSignal;
   readonly headers?: Record<string, string>;
+  /**
+   * Keep the request alive across document unload (autosave flush on hide).
+   * Prefer omitting schema validation when true — response bodies may be truncated.
+   */
+  readonly keepalive?: boolean;
 }
 
 /** A typed error covering transport, HTTP, and response-validation failures. */
@@ -59,7 +64,7 @@ export class ApiClient implements HttpClient {
   constructor(private readonly config: ApiClientConfig) {}
 
   async request<T>(path: string, options: RequestOptions<T>): Promise<T> {
-    const { method = 'GET', body, schema, signal, headers } = options;
+    const { method = 'GET', body, schema, signal, headers, keepalive } = options;
 
     const token = await this.config.getAuthToken();
     const url = `${this.config.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
@@ -82,6 +87,7 @@ export class ApiClient implements HttpClient {
         headers: requestHeaders,
         body: body === undefined ? undefined : JSON.stringify(body),
         signal,
+        keepalive: keepalive === true,
       });
     } catch (cause) {
       throw new ApiError(
@@ -100,6 +106,11 @@ export class ApiClient implements HttpClient {
         response.status,
         errorBody,
       );
+    }
+
+    // keepalive unload flushes may not return a full body — treat 2xx as success.
+    if (keepalive) {
+      return undefined as T;
     }
 
     const raw = await safeReadJson(response);
