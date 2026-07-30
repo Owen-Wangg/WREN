@@ -37,7 +37,7 @@ export interface AiDisclaimerNoticeProps {
 }
 
 export const AI_DISCLAIMER_DEFAULT_MESSAGE =
-  'The feedback provided by the application is AI-generated and consists of questions and observations to guide your own revision. It will never rewrite your text. Always use your own judgment and consult a field expert when in doubt.';
+  'The feedback provided by the application is AI-generated and consists of questions and observations to guide your own revision. It will never rewrite your text. Always use your own judgment and consult an expert when in doubt.';
 
 const DEFAULT_DISMISS_KEY = 'wren-ai-disclaimer-dismissed';
 

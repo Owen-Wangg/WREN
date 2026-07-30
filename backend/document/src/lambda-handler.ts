@@ -4,7 +4,9 @@
  */
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import { resolveAccess } from '@wren/auth';
@@ -192,6 +194,69 @@ function toDraftDto(row: any) {
   };
 }
 
+/**
+ * Maintain the department `active_users` counter in `aggregate_counter`.
+ * Called after document INSERT (delta=+1) and after document DELETE (delta=-1).
+ *
+ * Increment is conditional: only fires when the user has no OTHER document in
+ * the same department (first document for that user in that dept).
+ * Decrement is conditional: only fires when the user has NO remaining documents
+ * in the same department after the deletion.
+ *
+ * Non-fatal — a counter drift is preferable to blocking the main operation.
+ */
+async function updateDepartmentUserCounter(
+  documentTypeId: string,
+  userId: string,
+  documentId: string | null,
+  delta: 1 | -1,
+  db: Awaited<ReturnType<typeof getDataAccess>>,
+): Promise<void> {
+  try {
+    if (delta === 1) {
+      // Increment only if this is the user's first document in the department.
+      await db.query(
+        `INSERT INTO aggregate_counter (scope_kind, scope_id, metric, window_start, value)
+         SELECT 'department', dt.department_id, 'active_users', '-infinity'::timestamptz, 1
+         FROM document_type dt
+         WHERE dt.id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM document d2
+             WHERE d2.owner_user_id = $2
+               AND d2.document_type_id IN (
+                   SELECT id FROM document_type WHERE department_id = dt.department_id
+               )
+               AND ($3::uuid IS NULL OR d2.id != $3)
+           )
+         ON CONFLICT (scope_kind, scope_id, metric, window_start)
+         DO UPDATE SET value = aggregate_counter.value + EXCLUDED.value`,
+        [documentTypeId, userId, documentId],
+      );
+    } else {
+      // Decrement only if the user has no remaining documents in the department.
+      // The document row is already deleted at this point.
+      await db.query(
+        `INSERT INTO aggregate_counter (scope_kind, scope_id, metric, window_start, value)
+         SELECT 'department', dt.department_id, 'active_users', '-infinity'::timestamptz, -1
+         FROM document_type dt
+         WHERE dt.id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM document d2
+             WHERE d2.owner_user_id = $2
+               AND d2.document_type_id IN (
+                   SELECT id FROM document_type WHERE department_id = dt.department_id
+               )
+           )
+         ON CONFLICT (scope_kind, scope_id, metric, window_start)
+         DO UPDATE SET value = aggregate_counter.value + EXCLUDED.value`,
+        [documentTypeId, userId],
+      );
+    }
+  } catch (err) {
+    console.warn('updateDepartmentUserCounter: non-fatal error', err);
+  }
+}
+
 export const handler = async (event: any): Promise<APIGatewayProxyResult | void> => {
   // SQS async PDF ingest (LiteParse/OCR) — not an API Gateway event.
   if (Array.isArray(event?.Records) && event.Records[0]?.eventSource === 'aws:sqs') {
@@ -342,7 +407,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   }
 
   const dtRows = await db.query(
-    `SELECT dt.id, d.access_state AS access_state, dt.size_limit_words
+    `SELECT dt.id, d.access_state AS access_state, dt.size_limit_words, d.archived_at
      FROM document_type dt
      INNER JOIN department d ON d.id = dt.department_id
      WHERE dt.id = $1`,
@@ -354,6 +419,16 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       body: JSON.stringify({
         code: 'BAD_REQUEST',
         message: `Document type '${documentTypeId}' was not found`,
+      }),
+    };
+  }
+
+  if (dtRows[0].archived_at) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'DEPARTMENT_ARCHIVED',
+        message: 'This department is no longer accepting submissions.',
       }),
     };
   }
@@ -586,6 +661,9 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   const document = rows[0] as { id: string };
   const documentId = document.id;
 
+  // Maintain department active-user counter (non-fatal if it fails).
+  await updateDepartmentUserCounter(documentTypeId, actor.userId, documentId, 1, db);
+
   const draftRepo = new DbDraftRepository(db);
   await createDraftRevision(
     {
@@ -636,10 +714,22 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
   const db = await getDataAccess();
   const { documentId } = event.pathParameters || {};
 
-  const docQuery = `
-    SELECT owner_user_id FROM document WHERE id = $1
-  `;
-  const docRows = await db.query(docQuery, [documentId]);
+  // REQ-AUDIT-RETENTION-01 criterion 3: require explicit confirmation.
+  const body = event.body ? JSON.parse(event.body) : {};
+  if (body.confirmed !== true) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'CONFIRMATION_REQUIRED',
+        message: 'Set confirmed: true to permanently delete this document and all attached feedback.',
+      }),
+    };
+  }
+
+  const docRows = await db.query<{ owner_user_id: string; document_type_id: string }>(
+    `SELECT owner_user_id, document_type_id FROM document WHERE id = $1`,
+    [documentId],
+  );
 
   if (docRows.length === 0) {
     return {
@@ -655,11 +745,66 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
+  const ownerUserId = docRows[0].owner_user_id;
+  const documentTypeId = docRows[0].document_type_id;
+
+  // Collect all S3 keys BEFORE deleting draft rows (REQ-SEC-PII-01 criterion 3).
+  const draftRows = await db.query<{ s3_key: string }>(
+    `SELECT s3_key FROM draft WHERE document_id = $1`,
+    [documentId],
+  );
+  const s3Keys = draftRows.map((r) => r.s3_key).filter((k) => k && k !== 'inline');
+
+  // Delete Postgres rows in dependency order to satisfy FK constraints.
+  // resolution_status_history and anchor rows are cleaned up by FK CASCADE
+  // when their parent draft/feedback_item rows are deleted.
+  await db.query(
+    `DELETE FROM resolution_status_history
+     WHERE feedback_item_id IN (SELECT id FROM feedback_item WHERE document_id = $1)`,
+    [documentId],
+  );
+  await db.query(
+    `DELETE FROM anchor
+     WHERE draft_id IN (SELECT id FROM draft WHERE document_id = $1)`,
+    [documentId],
+  );
   const [draftResult, feedbackResult] = await Promise.all([
     db.query<{ id: string }>('DELETE FROM draft WHERE document_id = $1 RETURNING id', [documentId]),
     db.query<{ id: string }>('DELETE FROM feedback_item WHERE document_id = $1 RETURNING id', [documentId]),
   ]);
   await db.query('DELETE FROM document WHERE id = $1', [documentId]);
+
+  // Maintain department active-user counter — decrement if this was the user's
+  // last document in the department (non-fatal if it fails).
+  await updateDepartmentUserCounter(documentTypeId, ownerUserId, null, -1, db);
+
+  // Delete S3 objects for all file-upload drafts (REQ-SEC-PII-01 criterion 3).
+  if (s3Keys.length > 0) {
+    const s3 = new S3Client({ region: process.env.AWS_REGION || 'ca-central-1' });
+    const bucketName = process.env.DOCUMENTS_BUCKET_NAME!;
+    // DeleteObjects accepts up to 1000 keys per call.
+    for (let i = 0; i < s3Keys.length; i += 1000) {
+      const batch = s3Keys.slice(i, i + 1000);
+      await s3.send(new DeleteObjectsCommand({
+        Bucket: bucketName,
+        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+      }));
+    }
+  }
+
+  // Delete the DynamoDB conversation session for this document
+  // (REQ-AUDIT-RETENTION-01 criterion 1 / REQ-AUDIT-OPSTATE-01 criterion 4).
+  const conversationTableName = process.env.CONVERSATION_TABLE_NAME;
+  if (conversationTableName) {
+    const dynamo = DynamoDBDocumentClient.from(
+      new DynamoDBClient({ region: process.env.AWS_REGION || 'ca-central-1' }),
+      { marshallOptions: { removeUndefinedValues: true } },
+    );
+    await dynamo.send(new DeleteCommand({
+      TableName: conversationTableName,
+      Key: { sessionId: `${actor.userId}#${documentId}` },
+    }));
+  }
 
   return {
     statusCode: 200,

@@ -41,7 +41,7 @@ import {
 import { requireCapability } from './capabilityGuard';
 import type { QueryExecutor } from './db';
 import { NotFoundError } from './errors';
-import { assertGhostwritingFree } from './promptGuardrail';
+import { assertGhostwritingFree, assertPromptInjectionFree } from './promptGuardrail';
 
 /** Raw `document_type_config` row (snake_case columns from PostgreSQL). */
 interface DocumentTypeConfigRow {
@@ -161,6 +161,18 @@ export async function upsertDocumentTypeConfig(
   // rejected save leaves the previously persisted config entirely untouched.
   if (patch.typePromptText !== undefined && patch.typePromptText !== null) {
     assertGhostwritingFree(patch.typePromptText);
+  }
+
+  // Prompt injection check — runs on all fields that land in Bedrock system
+  // prompts, before any DB write (deny-with-no-mutation pattern).
+  const promptFields = [
+    patch.typePromptText,
+    patch.structureDescription,
+    patch.restrictionsDescription,
+    patch.notesDescription,
+  ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+  for (const field of promptFields) {
+    await assertPromptInjectionFree(field);
   }
 
   const rows = await db.query<DocumentTypeConfigRow>(

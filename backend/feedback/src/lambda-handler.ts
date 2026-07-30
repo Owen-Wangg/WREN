@@ -90,6 +90,50 @@ function expandToWordBoundaries(
   return { start, end };
 }
 
+/**
+ * Expand a located span to the nearest complete sentence so the displayed
+ * quote is never a dangling clause. Walks backward to a sentence-starting
+ * boundary and forward to a sentence-ending punctuation mark. Capped so we
+ * never pull in more than one sentence beyond the original span.
+ */
+function expandToSentenceBoundaries(
+  text: string,
+  startOffset: number,
+  endOffset: number,
+): { start: number; end: number } {
+  const SENTENCE_END = /[.!?]/;
+  const MAX_LOOKBACK = 200;
+  const MAX_LOOKAHEAD = 200;
+
+  let start = Math.max(0, startOffset);
+  let end = Math.min(text.length, endOffset);
+
+  // Walk backward to the character after the previous sentence-end (or the
+  // beginning of the paragraph), skipping leading whitespace.
+  const lookbackFrom = Math.max(0, start - MAX_LOOKBACK);
+  let s = start;
+  while (s > lookbackFrom) {
+    const ch = text[s - 1] ?? '';
+    if (SENTENCE_END.test(ch)) break;
+    s -= 1;
+  }
+  // Skip whitespace after the sentence boundary.
+  while (s < start && /\s/.test(text[s] ?? '')) s += 1;
+  start = s;
+
+  // Walk forward to the next sentence-end punctuation, then include it.
+  const lookaheadTo = Math.min(text.length, end + MAX_LOOKAHEAD);
+  let e = end;
+  while (e < lookaheadTo) {
+    const ch = text[e] ?? '';
+    e += 1;
+    if (SENTENCE_END.test(ch)) break;
+  }
+  end = e;
+
+  return { start, end };
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -168,13 +212,21 @@ function resolveQuotedTextForItem(
     if (para) {
       if (stored) {
         const fromQuote = resolveExactQuoteInParagraph(para, stored);
-        if (fromQuote) return fromQuote;
+        if (fromQuote) {
+          // Expand the located quote to a full sentence.
+          const idx = para.indexOf(fromQuote);
+          if (idx >= 0) {
+            const sentence = expandToSentenceBoundaries(para, idx, idx + fromQuote.length);
+            return para.slice(sentence.start, sentence.end).trim();
+          }
+          return fromQuote;
+        }
       }
       const start = Number(anchor.start_offset ?? 0);
       const end = Number(anchor.end_offset ?? 0);
       if (end > start && end <= para.length) {
-        const expanded = expandToWordBoundaries(para, start, end);
-        const slice = para.slice(expanded.start, expanded.end).trim();
+        const sentence = expandToSentenceBoundaries(para, start, end);
+        const slice = para.slice(sentence.start, sentence.end).trim();
         if (slice) return slice;
       }
     }
@@ -185,7 +237,14 @@ function resolveQuotedTextForItem(
     for (const segment of segments) {
       const para = typeof segment.text === 'string' ? segment.text : '';
       const fromQuote = resolveExactQuoteInParagraph(para, stored);
-      if (fromQuote) return fromQuote;
+      if (fromQuote) {
+        const idx = para.indexOf(fromQuote);
+        if (idx >= 0) {
+          const sentence = expandToSentenceBoundaries(para, idx, idx + fromQuote.length);
+          return para.slice(sentence.start, sentence.end).trim();
+        }
+        return fromQuote;
+      }
     }
   }
 
@@ -214,6 +273,7 @@ function toFeedbackItemDto(
     kind: row.kind,
     questionText: row.question_text,
     ...(quotedText ? { quotedText } : {}),
+    ...(row.positive_note ? { positiveNote: row.positive_note } : {}),
     ...(row.current_anchor_id ? { currentAnchorId: row.current_anchor_id } : {}),
     ...(row.citation_reference_id ? { citationReferenceId: row.citation_reference_id } : {}),
     sourceDraftId: row.source_draft_id,
@@ -321,16 +381,11 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
 
   const feedbackQuery = `
     SELECT id, document_id, error_category_id, kind, question_text, quoted_text,
-           current_anchor_id, citation_reference_id, source_draft_id, created_at
+           positive_note, current_anchor_id, citation_reference_id, source_draft_id, created_at
     FROM feedback_item
     WHERE document_id = $1${targetDraftId ? ` AND source_draft_id = $2` : ''}
     ORDER BY created_at DESC
   `;
-  const feedbackRows = await db.query(
-    feedbackQuery,
-    targetDraftId ? [documentId, targetDraftId] : [documentId],
-  );
-
   const anchorsQuery = `
     SELECT a.id, a.feedback_item_id, a.draft_id, a.paragraph_index, a.start_offset,
            a.end_offset, a.content_fingerprint, a.state
@@ -339,22 +394,47 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     WHERE f.document_id = $1${targetDraftId ? ` AND f.source_draft_id = $2` : ''}
     ORDER BY a.created_at ASC
   `;
-  const anchorRows = await db.query(
-    anchorsQuery,
-    targetDraftId ? [documentId, targetDraftId] : [documentId],
-  );
+  const feedbackArgs = targetDraftId ? [documentId, targetDraftId] : [documentId];
 
-  // Build a categoryId → name map from the distinct category IDs present in the items
+  // Wave 2: all four queries share only documentId/targetDraftId — run concurrently.
+  const [feedbackRows, anchorRows, draftRows, draftSegRows] = await Promise.all([
+    db.query(feedbackQuery, feedbackArgs),
+    db.query(anchorsQuery, feedbackArgs),
+    db.query<{ id: string; version_number: number }>(
+      `SELECT id, version_number FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 2`,
+      [documentId],
+    ),
+    targetDraftId
+      ? db.query(`SELECT segments FROM draft WHERE id = $1 AND document_id = $2`, [targetDraftId, documentId])
+      : Promise.resolve([]),
+  ]);
+
+  // Wave 3: category names and resolution history both depend on wave 2 results.
   const categoryIds = [...new Set(feedbackRows.map((r: any) => r.error_category_id).filter(Boolean))];
+  const [catRows, resolutionRows] = await Promise.all([
+    categoryIds.length > 0
+      ? db.query(`SELECT id, name FROM error_category WHERE id = ANY($1)`, [categoryIds])
+      : Promise.resolve([]),
+    draftRows.length >= 2
+      ? db.query<{ error_category_id: string; resolved: string; partial: string; total: string }>(
+          `SELECT fi.error_category_id,
+                  COUNT(*) FILTER (WHERE rsh.status = 'resolved') AS resolved,
+                  COUNT(*) FILTER (WHERE rsh.status = 'partially_resolved') AS partial,
+                  COUNT(*) AS total
+           FROM resolution_status_history rsh
+           JOIN feedback_item fi ON fi.id = rsh.feedback_item_id
+           WHERE rsh.draft_id = $1
+             AND rsh.status IN ('resolved', 'partially_resolved', 'still_unresolved')
+           GROUP BY fi.error_category_id`,
+          [draftRows[0].id],
+        )
+      : Promise.resolve([]),
+  ]);
+
+  // Build a categoryId → name map
   const categoryNames: Record<string, string> = {};
-  if (categoryIds.length > 0) {
-    const catRows = await db.query(
-      `SELECT id, name FROM error_category WHERE id = ANY($1)`,
-      [categoryIds],
-    );
-    for (const row of catRows as any[]) {
-      categoryNames[row.id] = row.name;
-    }
+  for (const row of catRows as any[]) {
+    categoryNames[row.id] = row.name;
   }
 
   // Build progress summary — uses resolution_status_history (accurate) when available,
@@ -362,32 +442,8 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   type ProgressPattern = { category: string; tendency: 'improving' | 'persistent' | 'emerging'; description: string };
   const progressSummary: ProgressPattern[] = [];
 
-  const draftRows = await db.query<{ id: string; version_number: number }>(
-    `SELECT id, version_number FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 2`,
-    [documentId],
-  );
-
   if (draftRows.length >= 2) {
     const [currentDraft, previousDraft] = draftRows;
-
-    // Check if resolution history exists for the current draft.
-    const resolutionRows = await db.query<{
-      error_category_id: string;
-      resolved: string;
-      partial: string;
-      total: string;
-    }>(
-      `SELECT fi.error_category_id,
-              COUNT(*) FILTER (WHERE rsh.status = 'resolved') AS resolved,
-              COUNT(*) FILTER (WHERE rsh.status = 'partially_resolved') AS partial,
-              COUNT(*) AS total
-       FROM resolution_status_history rsh
-       JOIN feedback_item fi ON fi.id = rsh.feedback_item_id
-       WHERE rsh.draft_id = $1
-         AND rsh.status IN ('resolved', 'partially_resolved', 'still_unresolved')
-       GROUP BY fi.error_category_id`,
-      [currentDraft.id],
-    );
 
     if (resolutionRows.length > 0) {
       // Resolution-based: did the student actually fix the flagged issues?
@@ -469,17 +525,12 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
 
   // Prefer exact draft text for quotes (word-complete), matching editor highlights.
   let segments: Array<{ index?: number; text?: string }> = [];
-  if (targetDraftId) {
-    const draftSegRows = await db.query(
-      `SELECT segments FROM draft WHERE id = $1 AND document_id = $2`,
-      [targetDraftId, documentId],
-    );
-    if (draftSegRows.length > 0) {
-      const raw = (draftSegRows[0] as any).segments;
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? []);
-      segments = Array.isArray(parsed) ? parsed : [];
-    }
+  if (draftSegRows.length > 0) {
+    const raw = (draftSegRows[0] as any).segments;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? []);
+    segments = Array.isArray(parsed) ? parsed : [];
   }
+
   const anchorByFeedbackId = new Map<string, any>();
   for (const row of anchorRows as any[]) {
     if (!anchorByFeedbackId.has(row.feedback_item_id)) {
@@ -489,6 +540,12 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
 
   return {
     statusCode: 200,
+    headers: {
+      // Feedback for a specific draftId is immutable once generated — safe to cache
+      // in the browser for 1 hour. Without a draftId the response reflects the latest
+      // draft which can change after resubmission, so we skip caching.
+      'Cache-Control': targetDraftId ? 'private, max-age=3600, immutable' : 'private, no-cache',
+    },
     body: JSON.stringify({
       items: feedbackRows.map((row: any) =>
         toFeedbackItemDto(row, { anchorByFeedbackId, segments }),

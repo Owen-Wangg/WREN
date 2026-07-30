@@ -24,6 +24,13 @@ const envSchema = z.object({
   VITE_COGNITO_CLIENT_ID: z.string().optional(),
   VITE_AWS_REGION: z.string().default('ca-central-1'),
   /**
+   * AppSync GraphQL endpoint for real-time debrief subscriptions.
+   * Optional so local dev (mock API mode) doesn't require AppSync to be deployed.
+   * When absent the useDebriefSubscription hook is silently disabled and the
+   * polling fallback in DocumentEditorPage handles completion detection.
+   */
+  VITE_APPSYNC_URL: z.string().url().optional(),
+  /**
    * When `"true"`, the app talks to the real API Gateway (`liveApiClient`) and
    * enforces Cognito auth + role-guarded routes. Defaults to `false` so local
    * dev runs entirely against the in-memory mock with no login wall — flip this
@@ -60,6 +67,8 @@ export interface AppConfig {
     readonly clientId: string | undefined;
     readonly region: string;
   };
+  /** AppSync endpoint for real-time subscriptions. Undefined in local mock mode. */
+  readonly appSyncUrl: string | undefined;
 }
 
 export const appConfig: AppConfig = {
@@ -72,6 +81,7 @@ export const appConfig: AppConfig = {
     clientId: env.VITE_COGNITO_CLIENT_ID,
     region: env.VITE_AWS_REGION,
   },
+  appSyncUrl: env.VITE_APPSYNC_URL,
 };
 
 /** True when Cognito pool configuration is present (auth can run for real). */

@@ -29,7 +29,7 @@ export {
   getDepartment,
   listDepartments,
   renameDepartment,
-  deleteDepartment,
+  archiveDepartment,
   setDepartmentAccessState,
 } from './departmentService';
 export {

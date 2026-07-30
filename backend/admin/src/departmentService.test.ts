@@ -8,7 +8,7 @@
  * DepartmentAdmin who administers them.
  */
 import {
-  deleteDepartment,
+  archiveDepartment,
   getDepartment,
   listDepartments,
   renameDepartment,
@@ -24,7 +24,9 @@ describe('read Departments', () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Allard Law' });
 
-    expect(await getDepartment(DEPT, db)).toEqual({ id: DEPT, name: 'Allard Law', prompt: null });
+    const dept = await getDepartment(DEPT, db);
+    expect(dept).toMatchObject({ id: DEPT, name: 'Allard Law', prompt: null });
+    expect(dept?.archivedAt).toBeNull();
     expect(await getDepartment('missing', db)).toBeNull();
   });
 
@@ -88,44 +90,55 @@ describe('renameDepartment (department.manage capability)', () => {
   });
 });
 
-describe('deleteDepartment', () => {
-  it('lets a DepartmentAdmin delete an administered Department', async () => {
+describe('archiveDepartment (TechnicalAdmin only — soft-delete)', () => {
+  it('sets archived_at and returns the archived Department DTO', async () => {
     const db = new FakeDb();
-    db.seedDepartment({ id: DEPT, name: 'Bye' });
+    db.seedDepartment({ id: DEPT, name: 'Law' });
 
-    expect(await deleteDepartment(deptAdminContext([DEPT]), DEPT, db)).toBe(true);
-    expect(await getDepartment(DEPT, db)).toBeNull();
-    expect(await deleteDepartment(deptAdminContext([DEPT]), DEPT, db)).toBe(false);
+    const result = await archiveDepartment(techAdminContext(), DEPT, db);
+    expect(result.id).toBe(DEPT);
+    expect(result.archivedAt).toBeTruthy();
+    expect(db.mutationCount).toBe(1);
   });
 
-  it('denies a DepartmentAdmin of a different department with no mutation', async () => {
+  it('throws NotFoundError when already archived or not found', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Law' });
+    // First archive succeeds
+    await archiveDepartment(techAdminContext(), DEPT, db);
+    // Second archive on already-archived dept throws NotFoundError
+    await expect(
+      archiveDepartment(techAdminContext(), DEPT, db),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('denies a DepartmentAdmin with no mutation', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Keep' });
     await expect(
-      deleteDepartment(deptAdminContext(['other-dept']), DEPT, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
+      archiveDepartment(deptAdminContext([DEPT]), DEPT, db),
+    ).rejects.toThrow('TechnicalAdmin role required');
     expect(db.mutationCount).toBe(0);
-    expect(db.departments.has(DEPT)).toBe(true);
   });
 
   it('denies a Student with no mutation', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Keep' });
     await expect(
-      deleteDepartment(studentContext(), DEPT, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
+      archiveDepartment(studentContext(), DEPT, db),
+    ).rejects.toThrow('TechnicalAdmin role required');
     expect(db.mutationCount).toBe(0);
-    expect(db.departments.has(DEPT)).toBe(true);
   });
 
-  it('denies a TechnicalAdmin (no educational ops) with no mutation', async () => {
+  it('archived department no longer appears in listDepartments', async () => {
     const db = new FakeDb();
-    db.seedDepartment({ id: DEPT, name: 'Keep' });
-    await expect(
-      deleteDepartment(techAdminContext(), DEPT, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
-    expect(db.departments.has(DEPT)).toBe(true);
+    db.seedDepartment({ id: DEPT, name: 'Retiring' });
+    db.seedDepartment({ id: 'dept-2', name: 'Active' });
+
+    await archiveDepartment(techAdminContext(), DEPT, db);
+    const names = (await listDepartments(db)).map((d) => d.name);
+    expect(names).not.toContain('Retiring');
+    expect(names).toContain('Active');
   });
 });
 
@@ -133,6 +146,6 @@ describe('Department owns no Users (Requirement 28.1 / 28.2)', () => {
   it('the department row carries only grouping fields — no user/owner column', () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Allard' });
-    expect(Object.keys(db.departments.get(DEPT)!).sort()).toEqual(['id', 'name', 'prompt']);
+    expect(Object.keys(db.departments.get(DEPT)!).sort()).toEqual(['access_state', 'archived_at', 'id', 'name', 'prompt']);
   });
 });

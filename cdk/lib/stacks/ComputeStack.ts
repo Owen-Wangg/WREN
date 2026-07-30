@@ -10,6 +10,8 @@ import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import type { IKey } from "aws-cdk-lib/aws-kms";
 import type { Construct } from "constructs";
 
+import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct";
+
 import type { AppConfig } from "../config";
 
 /**
@@ -36,6 +38,8 @@ export interface ComputeStackProps extends StackProps {
   readonly userPoolId: string;
   /** Cognito User Pool Client ID (from Cognito stack). */
   readonly userPoolClientId: string;
+  /** Bedrock Guardrail ID for admin prompt injection detection. */
+  readonly promptGuardrailId: string;
 }
 
 /**
@@ -68,6 +72,8 @@ export class ComputeStack extends Stack {
   public readonly feedbackDlq: sqs.Queue;
   public readonly documentIngestQueue: sqs.Queue;
   public readonly documentIngestDlq: sqs.Queue;
+  public readonly appSyncGraphqlUrl: string;
+  public readonly appSyncAuthorizerFunction: lambda.Function;
 
   constructor(scope: Construct, id: string, props: ComputeStackProps) {
     super(scope, id, props);
@@ -146,6 +152,7 @@ export class ComputeStack extends Stack {
         TESSDATA_PREFIX: "/var/task/tessdata",
         // Optional hook for an external OCR HTTP service (5C).
         // PDF_OCR_SERVER_URL: "",
+        CONVERSATION_TABLE_NAME: props.conversationTableName,
       },
       bundling: {
         ...sharedBundling,
@@ -237,6 +244,8 @@ export class ComputeStack extends Stack {
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         COGNITO_USER_POOL_ID: props.userPoolId,
+        PROMPT_GUARDRAIL_ID: props.promptGuardrailId,
+        PROMPT_GUARDRAIL_VERSION: "DRAFT",
       },
       bundling: sharedBundling,
     });
@@ -359,6 +368,50 @@ export class ComputeStack extends Stack {
     });
 
     // -----------------------------------------------------------------------
+    // AppSync Lambda authorizer (Node 22)
+    // Same two-step pattern as the REST authorizer: Cognito JWT → DB identity
+    // + ownership check. Deployed separately so it can be tuned independently.
+    // -----------------------------------------------------------------------
+    this.appSyncAuthorizerFunction = new lambdaNodejs.NodejsFunction(this, "AppSyncAuthorizerFn", {
+      functionName: `${config.stackPrefix}-appsync-authorizer`,
+      entry: path.join(monorepoRoot, "backend/auth/src/appSyncAuthorizer.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      vpc,
+      vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
+      environment: {
+        ...dbEnv,
+        COGNITO_USER_POOL_ID: props.userPoolId,
+        COGNITO_CLIENT_ID: props.userPoolClientId,
+      },
+      bundling: sharedBundling,
+    });
+
+    // DB secret access — same grant pattern as the REST authorizer.
+    this.appSyncAuthorizerFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["secretsmanager:GetSecretValue"],
+      resources: [props.databaseSecretArn],
+    }));
+
+    // -----------------------------------------------------------------------
+    // AppSync real-time API — debrief-ready notifications
+    // -----------------------------------------------------------------------
+    const appSyncRealtime = new AppSyncRealtimeConstruct(this, "AppSyncRealtime", {
+      authorizerFunction: this.appSyncAuthorizerFunction,
+      feedbackEngineRole: this.feedbackEngineFunction.role!,
+      stackPrefix: config.stackPrefix,
+    });
+    this.appSyncGraphqlUrl = appSyncRealtime.graphqlUrl;
+
+    // Inject the AppSync endpoint into the Feedback Engine so it can publish
+    // the debriefReady mutation after writing feedback_item rows.
+    this.feedbackEngineFunction.addEnvironment("APPSYNC_URL", appSyncRealtime.graphqlUrl);
+
+    // -----------------------------------------------------------------------
     // IAM: scoped roles — each function gets only what it needs
     // -----------------------------------------------------------------------
     this.grantDatabaseAccess([
@@ -381,7 +434,7 @@ export class ComputeStack extends Stack {
 
     // Document Lambda: S3 read/write for document uploads + presigned URLs.
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:DeleteObjects"],
       resources: [`arn:aws:s3:::${props.documentsBucketName}/*`],
     }));
     // Amazon Textract OCR (LAYOUT + TABLES analysis).
@@ -398,6 +451,15 @@ export class ComputeStack extends Stack {
       resources: ["*"],
     }));
     props.storageEncryptionKey.grantEncryptDecrypt(this.documentFunction);
+
+    // Document Lambda: DynamoDB DeleteItem to clean up conversation sessions on document deletion
+    // (REQ-AUDIT-RETENTION-01 criterion 1 / REQ-AUDIT-OPSTATE-01 criterion 4).
+    this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["dynamodb:DeleteItem"],
+      resources: [
+        `arn:aws:dynamodb:${this.region}:${this.account}:table/${props.conversationTableName}`,
+      ],
+    }));
 
     // Admin Lambda: S3 read/write for reference material uploads.
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -416,6 +478,14 @@ export class ComputeStack extends Stack {
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles"],
       resources: ["*"],
+    }));
+
+    // Admin Lambda: ApplyGuardrail for prompt injection detection on admin saves.
+    this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["bedrock:ApplyGuardrail"],
+      resources: [
+        `arn:aws:bedrock:${this.region}:${this.account}:guardrail/*`,
+      ],
     }));
 
     // Feedback Engine: Bedrock invoke (scoped to account, model-agnostic for cross-region inference).
@@ -504,6 +574,14 @@ export class ComputeStack extends Stack {
     });
     new CfnOutput(this, "FeedbackDlqUrl", {
       value: this.feedbackDlq.queueUrl,
+    });
+    new CfnOutput(this, "AppSyncAuthorizerFunctionArn", {
+      value: this.appSyncAuthorizerFunction.functionArn,
+    });
+    new CfnOutput(this, "AppSyncGraphqlUrl", {
+      value: this.appSyncGraphqlUrl,
+      description: "AppSync GraphQL endpoint for real-time debrief subscriptions",
+      exportName: `${config.stackPrefix}-appsync-graphql-url`,
     });
     new CfnOutput(this, "DocumentIngestQueueUrl", {
       value: this.documentIngestQueue.queueUrl,

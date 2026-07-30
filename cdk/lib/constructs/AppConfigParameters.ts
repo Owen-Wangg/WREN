@@ -1,3 +1,4 @@
+import { aws_bedrock as bedrock } from "aws-cdk-lib";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import type { AppConfig } from "../config.js";
@@ -23,6 +24,8 @@ export interface AppConfigParametersProps {
 export class AppConfigParameters extends Construct {
   public readonly appNameParameter: StringParameter;
   public readonly bedrockModelIdParameter: StringParameter;
+  public readonly promptGuardrailIdParameter: StringParameter;
+  public readonly promptGuardrailVersionParameter: StringParameter;
 
   constructor(scope: Construct, id: string, props: AppConfigParametersProps) {
     super(scope, id);
@@ -43,6 +46,37 @@ export class AppConfigParameters extends Construct {
       description:
         "Configurable Bedrock model identifier (REQ-NFR-MODEL-01). Resolved at " +
         "runtime; changing it requires configuration only, not code.",
+    });
+
+    // Prompt injection guardrail — scans admin-submitted prompt text for
+    // prompt attack patterns before they are persisted (MEDIUM sensitivity
+    // balances detection against false positives on legitimate instructions).
+    const promptGuardrail = new bedrock.CfnGuardrail(this, "PromptInjectionGuardrail", {
+      name: `${config.stackPrefix}-prompt-injection`,
+      description: "Detects prompt injection attempts in admin-submitted prompt fields.",
+      blockedInputMessaging: "Prompt contains disallowed instructions.",
+      blockedOutputsMessaging: "Response blocked.",
+      contentPolicyConfig: {
+        filtersConfig: [
+          {
+            type: "PROMPT_ATTACK",
+            inputStrength: "MEDIUM",
+            outputStrength: "NONE",
+          },
+        ],
+      },
+    });
+
+    this.promptGuardrailIdParameter = new StringParameter(this, "PromptGuardrailId", {
+      parameterName: `/${config.stackPrefix}/config/prompt-guardrail-id`,
+      stringValue: promptGuardrail.attrGuardrailId,
+      description: "Bedrock Guardrail ID for admin prompt injection detection.",
+    });
+
+    this.promptGuardrailVersionParameter = new StringParameter(this, "PromptGuardrailVersion", {
+      parameterName: `/${config.stackPrefix}/config/prompt-guardrail-version`,
+      stringValue: "DRAFT",
+      description: "Bedrock Guardrail version for admin prompt injection detection.",
     });
   }
 }

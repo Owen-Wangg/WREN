@@ -22,6 +22,8 @@ export interface AmplifyStackProps extends StackProps {
   readonly cognitoUserPoolId: string;
   /** Cognito User Pool Client ID. */
   readonly cognitoClientId: string;
+  /** AppSync GraphQL endpoint for real-time debrief subscriptions. */
+  readonly appSyncGraphqlUrl: string;
 }
 
 /**
@@ -94,6 +96,7 @@ export class AmplifyStack extends Stack {
         VITE_COGNITO_USER_POOL_ID: props.cognitoUserPoolId,
         VITE_COGNITO_CLIENT_ID: props.cognitoClientId,
         VITE_AWS_REGION: config.env.region || "ca-central-1",
+        VITE_APPSYNC_URL: props.appSyncGraphqlUrl,
         // Build config
         NODE_VERSION: "22",
       },

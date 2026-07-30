@@ -1536,11 +1536,16 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-request-parameters:
+        integration.request.querystring.draftId: method.request.querystring.draftId
       x-amazon-apigateway-integration:
         type: aws_proxy
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+        cacheKeyParameters:
+          - method.request.path.documentId
+          - method.request.querystring.draftId
     post:
       summary: Enqueue feedback generation for the current draft
       tags: [Feedback]
@@ -3183,6 +3188,35 @@ paths:
 
   # ==================== Department (single item) ====================
   /v1/departments/{departmentId}:
+    delete:
+      summary: Delete a Department — TechnicalAdmin only
+      tags: [Departments]
+      operationId: deleteDepartment
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Department archived (soft-deleted)
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     get:
       summary: Get a single Department by id
       tags: [Departments]
@@ -3237,6 +3271,60 @@ paths:
             Access-Control-Max-Age:
               schema:
                 type: string
+
+  # ==================== Department users ====================
+  /v1/departments/{departmentId}/users:
+    get:
+      summary: List users active in a department (have submitted at least one document)
+      tags: [Departments]
+      operationId: listDepartmentUsers
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated list of department users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
 
   # ==================== Department prompt ====================
   /v1/departments/{departmentId}/access-state:

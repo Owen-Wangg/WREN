@@ -80,13 +80,16 @@ class ValidatedFeedbackItem:
     """A feedback item that has passed the no-ghostwriting guardrail.
 
     Contains only the allowed fields: category, question, and optionally
-    anchor and citation. No replacement prose, no internal correct version.
+    anchor, citation, and positive_note. No replacement prose, no rewrites.
+    positive_note is set only on strength items (kind="strength") and must
+    describe something already present in the document, never a revision.
     """
 
     category: str
     question: str
     anchor: Optional[dict[str, Any]] = None
     citation: Optional[dict[str, Any]] = None
+    positive_note: Optional[str] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,7 +205,7 @@ def _contains_replacement_prose(text: str) -> bool:
 
 # ─── Allowed fields ───────────────────────────────────────────────────────────
 
-_ALLOWED_FIELDS: frozenset[str] = frozenset({"category", "question", "anchor", "citation"})
+_ALLOWED_FIELDS: frozenset[str] = frozenset({"category", "question", "anchor", "citation", "positive_note"})
 _REQUIRED_FIELDS: frozenset[str] = frozenset({"category", "question"})
 
 
@@ -317,6 +320,12 @@ class OutputGuardrail:
             # Build validated item with only allowed fields
             anchor = raw_item.get("anchor") if "anchor" in raw_item else None
             citation = raw_item.get("citation") if "citation" in raw_item else None
+            positive_note_raw = raw_item.get("positive_note")
+            positive_note = (
+                positive_note_raw.strip()
+                if isinstance(positive_note_raw, str) and positive_note_raw.strip()
+                else None
+            )
 
             accepted.append(
                 ValidatedFeedbackItem(
@@ -324,6 +333,7 @@ class OutputGuardrail:
                     question=question.strip(),
                     anchor=anchor if isinstance(anchor, dict) else None,
                     citation=citation if isinstance(citation, dict) else None,
+                    positive_note=positive_note,
                 )
             )
 

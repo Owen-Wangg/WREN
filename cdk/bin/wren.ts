@@ -59,7 +59,7 @@ const github = {
 // Single-source application configuration (app name + Bedrock model id) is
 // published to SSM by the Config stack so backend Lambdas resolve it at runtime
 // rather than via source literals (REQ-NFR-APPNAME-01, REQ-NFR-MODEL-01).
-new ConfigStack(app, stackName(config, "Config"), {
+const configStack = new ConfigStack(app, stackName(config, "Config"), {
   env: config.env,
   config,
 });
@@ -106,6 +106,7 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   conversationTableName: storageStack.conversationTableName,
   userPoolId: cognitoStack.userPoolId,
   userPoolClientId: cognitoStack.userPoolClientId,
+  promptGuardrailId: configStack.parameters.promptGuardrailIdParameter.stringValue,
 });
 
 // API Gateway stack (depends on Compute for Lambda function ARNs).
@@ -171,6 +172,7 @@ if (github.owner && github.repo) {
     apiEndpoint: amplifyApiEndpoint,
     cognitoUserPoolId: cognitoStack.userPoolId,
     cognitoClientId: cognitoStack.userPoolClientId,
+    appSyncGraphqlUrl: computeStack.appSyncGraphqlUrl,
   });
 } else {
   // eslint-disable-next-line no-console

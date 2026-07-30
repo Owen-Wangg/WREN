@@ -4,7 +4,7 @@
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState } from './departmentService';
+import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState, listDepartmentUsers, archiveDepartment } from './departmentService';
 import {
   listDocumentTypes,
   listAllDocumentTypes,
@@ -32,7 +32,6 @@ import { AuthorizationError, NotFoundError } from './errors';
 import { requireCapability } from './capabilityGuard';
 import {
   assertCanViewDepartment,
-  filterDepartmentsForActor,
   filterDocumentTypesForActor,
   mustScopeDepartmentCatalog,
 } from './departmentScope';
@@ -85,12 +84,19 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/departments' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDepartments(event));
+      return await wrapHandler(() => handleListDepartments(event));
     }
     if (resource === '/v1/departments' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDepartment(event));
     }
     if (resource === '/v1/departments/{departmentId}' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetDepartment(event));
+    }
+    if (resource === '/v1/departments/{departmentId}' && httpMethod === 'DELETE') {
+      return await wrapHandler(() => handleDeleteDepartment(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/users' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListDepartmentUsers(event));
     }
     if (resource === '/v1/departments/{departmentId}/prompt' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateDepartmentPrompt(event));
@@ -202,10 +208,17 @@ async function handleGetMe(event: any): Promise<APIGatewayProxyResult> {
 async function handleListDepartments(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const departments = filterDepartmentsForActor(actor, await listDepartments(db));
+  const departments = await listDepartments(db);
+  // The department `prompt` field is a TechnicalAdmin-authored system instruction
+  // injected into Bedrock prompts. Strip it for non-TechnicalAdmin callers so that
+  // DeptAdmins and Students cannot enumerate another department's prompt content.
+  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
+  const sanitized = departments.map((d: any) =>
+    isTechAdmin ? d : { ...d, prompt: undefined },
+  );
   return {
     statusCode: 200,
-    body: JSON.stringify(departments),
+    body: JSON.stringify(sanitized),
   };
 }
 
@@ -218,9 +231,11 @@ async function handleGetDepartment(event: any): Promise<APIGatewayProxyResult> {
   if (!department) {
     throw new NotFoundError(`Department '${departmentId}' not found`);
   }
+  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
+  const response = isTechAdmin ? department : { ...department, prompt: undefined };
   return {
     statusCode: 200,
-    body: JSON.stringify(department),
+    body: JSON.stringify(response),
   };
 }
 
@@ -558,6 +573,27 @@ async function handleCreateDocumentType(event: any): Promise<APIGatewayProxyResu
   };
 }
 
+async function handleDeleteDepartment(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const department = await archiveDepartment(actor, departmentId, db);
+  return withCors({ statusCode: 200, body: JSON.stringify(department) });
+}
+
+async function handleListDepartmentUsers(event: any): Promise<APIGatewayProxyResult> {
+  parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const qs = event.queryStringParameters || {};
+  const result = await listDepartmentUsers(departmentId, db, {
+    q: qs.q,
+    limit: qs.limit ? parseInt(qs.limit, 10) : undefined,
+    offset: qs.offset ? parseInt(qs.offset, 10) : undefined,
+  });
+  return { statusCode: 200, body: JSON.stringify(result) };
+}
+
 async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
@@ -588,9 +624,34 @@ async function handleListErrorCategories(event: any): Promise<APIGatewayProxyRes
     },
   });
   const categories = await listErrorCategories(documentTypeId, db);
+  // internalGuidance is a Feedback Engine prompt-assembly detection aid that
+  // MUST NEVER be surfaced to Students (REQ-TAXONOMY-01 / Requirement 15.4).
+  // Only TechnicalAdmins and DeptAdmins who administer this document type's
+  // department receive the full DTO; all other callers get name+id only.
+  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
+  const isDeptAdminForType =
+    !isTechAdmin &&
+    actor.administeredDepartmentIds?.length > 0 &&
+    categories.length > 0;
+
+  let canSeeGuidance = isTechAdmin;
+  if (!canSeeGuidance && isDeptAdminForType) {
+    // Verify this actor administers the department that owns this document type.
+    const deptRows = await db.query<{ department_id: string }>(
+      'SELECT department_id FROM document_type WHERE id = $1',
+      [documentTypeId],
+    );
+    const owningDeptId = deptRows[0]?.department_id;
+    canSeeGuidance = !!owningDeptId && (actor.administeredDepartmentIds ?? []).includes(owningDeptId);
+  }
+
+  const response = canSeeGuidance
+    ? categories
+    : categories.map(({ internalGuidance: _stripped, ...safe }: any) => safe);
+
   return {
     statusCode: 200,
-    body: JSON.stringify(categories),
+    body: JSON.stringify(response),
   };
 }
 

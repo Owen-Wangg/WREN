@@ -31,7 +31,8 @@ import {
   type OcrComparison,
   type OcrEngineChoice,
 } from '@/features/dashboard/dashboardApi';
-import { fetchFeedbackStatus, generateFeedback } from '@/features/editor/anchoredFeedbackApi';
+import { generateFeedback, fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
+import { queryKeys } from '@/hooks';
 import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
@@ -47,7 +48,6 @@ import {
   writeOcrEnginePreference,
 } from '@/features/editor/ocrEnginePreference';
 import { apiClient, ApiError } from '@/services';
-import { queryKeys } from '@/hooks/queryKeys';
 import {
   isTipTapDoc,
   asTipTapDoc,
@@ -302,7 +302,6 @@ export function DocumentEditorPage() {
   }, [draftContent, routerInitialContent]);
 
   const documentName = documentData?.name ?? state?.documentName ?? 'Untitled document';
-
   const breadcrumb = [state?.organizationName, state?.contentType]
     .filter(Boolean)
     .join(' > ') || 'Document';
@@ -435,11 +434,11 @@ export function DocumentEditorPage() {
           }
           setIngestError(
             status.errorMessage ??
-              'Couldn’t extract this PDF. Try again or upload a .docx for better formatting.',
+              "Couldn't extract this PDF. Try again or upload a .docx for better formatting.",
           );
         }
       } catch {
-        // Keep polling — transient network errors.
+        // Keep polling - transient network errors.
       }
     };
 
