@@ -102,9 +102,11 @@ export class ApiStack extends Stack {
     // security: [] bypasses the Lambda authorizer for OPTIONS.
     // -----------------------------------------------------------------------
     const allowedOrigins = "*"; // Tighten to Amplify domain in prod
+    // Include PATCH for content-only draft autosave and admin category updates.
+    const allowedMethods = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
     const corsResponseParams = {
       "method.response.header.Access-Control-Allow-Origin": `'${allowedOrigins}'`,
-      "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+      "method.response.header.Access-Control-Allow-Methods": `'${allowedMethods}'`,
       "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
       "method.response.header.Access-Control-Max-Age": "'86400'",
     };
@@ -182,8 +184,12 @@ export class ApiStack extends Stack {
         // cache. Cache key: path param (documentId) + query param (draftId).
         // TTL matches the browser Cache-Control max-age set in the Lambda.
         methodOptions: {
-          "/*/GET": {
-            cachingEnabled: false, // default off for all GETs
+          // Control Tower CT.APIGATEWAY.PR.3 — cache encryption required for the
+          // catch-all method setting even when caching is disabled by default.
+          // Only "*/*" or "{resource_path}/{http_method}" are valid keys.
+          "/*/*": {
+            cachingEnabled: false,
+            cacheDataEncrypted: true,
           },
           "/v1/documents/{documentId}/feedback/GET": {
             cachingEnabled: true,
@@ -201,7 +207,7 @@ export class ApiStack extends Stack {
       "Access-Control-Allow-Origin": `'${allowedOrigins}'`,
       "Access-Control-Allow-Headers":
         "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
-      "Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+      "Access-Control-Allow-Methods": `'${allowedMethods}'`,
     };
     this.api.addGatewayResponse("Default4xx", {
       type: apigateway.ResponseType.DEFAULT_4XX,

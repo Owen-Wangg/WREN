@@ -38,6 +38,7 @@ x-amazon-apigateway-cors:
     - GET
     - POST
     - PUT
+    - PATCH
     - DELETE
     - OPTIONS
   allowedHeaders:
