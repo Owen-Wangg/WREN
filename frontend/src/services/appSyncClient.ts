@@ -69,8 +69,20 @@ function configureAmplify(): AppSyncGraphQLClient | null {
           getTokens: async () => {
             const idToken = readIdTokenFromStorage();
             if (!idToken) return null;
-            // Amplify expects an object with a toString() for each token field.
-            const asToken = (jwt: string) => ({ toString: () => jwt });
+            // Amplify's JWT type requires { toString(), payload } where payload
+            // is the decoded claims object from the JWT middle segment.
+            const decodePayload = (jwt: string) => {
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+                return JSON.parse(atob(jwt.split('.')[1]));
+              } catch {
+                return {};
+              }
+            };
+            const asToken = (jwt: string) => ({
+              toString: () => jwt,
+              payload: decodePayload(jwt),
+            });
             return {
               idToken: asToken(idToken),
               accessToken: asToken(idToken),
