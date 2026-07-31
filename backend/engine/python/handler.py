@@ -52,7 +52,14 @@ _SYSTEM_CORE = (
     "For areas needing improvement, ask probing questions that guide the writer "
     "toward improvement without providing replacement prose or rewriting their work. "
     "For strengths, name the specific thing the writer did well and follow it with "
-    "a single question that invites them to build on or reflect on that strength."
+    "a single question that invites them to build on or reflect on that strength.\n\n"
+    "CONSOLIDATION: When an error or weakness appears multiple times in the document, "
+    "do NOT produce one feedback item per instance. Instead, produce a SINGLE feedback "
+    "item that describes the pattern as a category of error, include 1–2 representative "
+    "examples as anchored quotes, and explicitly note that this pattern appears "
+    "throughout the document (e.g. 'This pattern appears in several places — can you "
+    "review the full document for similar instances?'). The student should understand "
+    "the category of mistake and be prompted to find all occurrences themselves."
 )
 _OUTPUT_SCHEMA = """\
 Return a JSON array. Each element must have exactly these keys:
@@ -73,12 +80,36 @@ For "strength" items:
   - question_text then builds on it: ask how they could apply this strength elsewhere, deepen it, or sustain it
   - Do NOT use positive_note to rewrite or correct anything — it describes what already exists in the document
 
-anchor.quotedText MUST be copied verbatim from the paragraph — a complete sentence or clause (not a fragment). Do not paraphrase or shorten it."""
+anchor.quotedText rules (CRITICAL — follow every rule exactly):
+  1. VERBATIM: Copy the text character-for-character from the paragraph. Never paraphrase, rephrase, summarize, or alter spelling/punctuation in any way.
+  2. RELEVANT: The quoted text MUST be the specific sentence or clause that CONTAINS the error, weakness, or issue your question_text discusses. The reader sees this quote as direct evidence of the problem — if the quote does not demonstrate the issue, the feedback is confusing and useless. Do NOT anchor to a nearby sentence that merely provides context.
+  3. COMPLETE: Always quote a full grammatical sentence or a self-contained clause — from capital letter (or clause start) through to its terminal punctuation. Never truncate mid-sentence, never cut off at an arbitrary word boundary, never produce a fragment that cannot stand alone.
+  4. NO SHORTENING: Do not trim, abbreviate, or use ellipsis. If the relevant sentence is long, quote it in full anyway.
+  5. FINDABLE: The exact character sequence you produce must appear verbatim in the paragraph text at paragraphIndex. If it cannot be found there via exact string match, the anchor will fail silently."""
 _GUARDRAIL = (
     "NEVER provide replacement prose, rewrites, corrections, or any text the writer "
     "could paste directly into their document. positive_note must describe what already "
     "exists in the document, not suggest what could replace it. Every question_text must "
-    "be a Socratic question, never a correction or revision."
+    "be a Socratic question, never a correction or revision.\n\n"
+    "SPELLING & GRAMMAR: For spelling, grammar, and punctuation issues, identify the "
+    "location and type of error but NEVER provide the correction. Ask the student to "
+    "identify and fix it themselves. Do NOT write out the corrected sentence or word.\n\n"
+    "STRENGTH ITEMS: positive_note must be EXCLUSIVELY positive — no hedging ('but', "
+    "'however', 'although'), no implied criticism, no suggestions for change. It must "
+    "read as pure affirmation of what the student already did well. The follow-up "
+    "question_text may invite deeper thinking but must not undermine the affirmation.\n\n"
+    "COVERAGE: You MUST produce at least one kind='strength' item for EVERY "
+    "error_category_id in the taxonomy. If you cannot find something genuinely "
+    "praiseworthy in a category, identify the best attempt or effort the student made "
+    "in that area and affirm it. Never leave a category without a strength item.\n\n"
+    "NO CATEGORY OVERLAP: Each issue must appear in exactly one error_category_id. "
+    "When an issue could fit multiple categories (e.g. a typo could be 'Spelling' or "
+    "'Clarity'), assign it to the MOST SPECIFIC category only. Never flag the same "
+    "text span under multiple categories.\n\n"
+    "NEVER reference 'document-type instructions', 'the instructions', internal "
+    "guidelines, or system-level configuration in your feedback output. Frame all "
+    "feedback as general writing best practice or cite the relevant style guide by its "
+    "public name (e.g. 'McGill Guide', 'Bluebook')."
 )
 
 _SCAFFOLDING = SystemScaffolding(
@@ -426,7 +457,7 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
             'anthropic_version': 'bedrock-2023-05-31',
             'max_tokens': 8192,
             'messages': [{'role': 'user', 'content': user_text}],
-            'temperature': float(config.get('temperature', 0.7)),
+            'temperature': float(config.get('temperature', 0.4)),
         }
         if system_text:
             body['system'] = system_text
@@ -1481,6 +1512,25 @@ def process_feedback_request(
             filtered_count = original_count - len(feedback_items)
             if filtered_count > 0:
                 logger.info(f"Filtered {filtered_count} feedback items outside dept admin selection (kept {len(feedback_items)})")
+
+        # Step 7c: Validate strength coverage — every category should have at least one.
+        categories_with_strengths = {
+            item['error_category_id'] for item in feedback_items
+            if item.get('kind') == 'strength'
+        }
+        categories_missing_strengths = valid_category_ids - categories_with_strengths
+        if categories_missing_strengths:
+            missing_names = [
+                cname for cid, cname in zip(
+                    doc_type_meta.get('category_ids', []),
+                    doc_type_meta.get('category_names', [])
+                )
+                if cid in categories_missing_strengths
+            ]
+            logger.warning(
+                f"Model omitted strength items for {len(categories_missing_strengths)} "
+                f"categories: {missing_names}"
+            )
 
         # Step 8: Insert into database and update counters
         logger.info("Inserting feedback items...")

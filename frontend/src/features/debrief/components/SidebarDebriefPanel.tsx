@@ -8,7 +8,7 @@
  *  - Draft-anchored to specific draftId
  *  - Inline vs. structural feedback separated (Requirement 14.2)
  */
-import { ArrowUp, ChevronDown, Minus, Star, TrendingUp } from 'lucide-react';
+import { ArrowUp, CheckCircle2, ChevronDown, Minus, Star, TrendingUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
@@ -447,23 +447,26 @@ export function SidebarDebriefPanel({
               {GENERATING_STEPS.map((_, i) => (
                 <div
                   key={i}
-                  className={`h-1.5 flex-1 rounded-full transition-colors duration-500 ${
+                  className={`h-2 flex-1 rounded-full transition-colors duration-500 ${
                     i <= generatingStep.stepIndex
-                      ? 'bg-accent-primary'
+                      ? 'bg-accent-primary animate-pulse'
                       : 'bg-border-subtle'
                   }`}
                 />
               ))}
             </div>
-            <div className="flex flex-col gap-sm">
+            <div className="flex flex-col gap-sm rounded-lg border border-accent-primary/20 bg-accent-primary/5 p-md">
               <div className="flex items-center gap-sm">
-                <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-                <p role="status" className="text-body font-medium text-text-primary">
+                <div className="h-5 w-5 shrink-0 animate-spin rounded-full border-[2.5px] border-border-strong border-t-accent-primary" />
+                <p role="status" className="text-body font-semibold text-text-primary">
                   {generatingStep.message}
                 </p>
               </div>
-              <p className="text-bodySmall text-text-secondary leading-relaxed pl-[24px]">
+              <p className="text-bodySmall text-text-secondary leading-relaxed pl-[28px]">
                 {generatingStep.detail}
+              </p>
+              <p className="text-caption text-text-muted pl-[28px]">
+                Please don&apos;t close or refresh this page.
               </p>
             </div>
           </div>
@@ -540,26 +543,46 @@ export function SidebarDebriefPanel({
                         {(() => {
                           const improving = debrief.progressSummary.filter(p => p.tendency === 'improving').length;
                           const persistent = debrief.progressSummary.filter(p => p.tendency === 'persistent').length;
+                          const nearlyResolved = debrief.progressSummary.filter(p => p.tendency === 'nearly_resolved').length;
                           const emerging = debrief.progressSummary.filter(p => p.tendency === 'emerging').length;
                           const topImprovement = debrief.progressSummary.find(p => p.tendency === 'improving');
 
                           return (
                             <>
                               <div className="flex flex-wrap items-center gap-x-md gap-y-xs text-bodySmall">
-                                <div className="flex items-center gap-xs whitespace-nowrap">
-                                  <ArrowUp size={14} className="shrink-0 text-signal-positive" aria-hidden="true" />
-                                  <span className="font-semibold text-text-primary">{improving} Improving</span>
-                                </div>
-                                <span className="text-text-muted" aria-hidden="true">|</span>
-                                <div className="flex items-center gap-xs whitespace-nowrap">
-                                  <Minus size={14} className="shrink-0 text-signal-caution" aria-hidden="true" />
-                                  <span className="font-semibold text-text-primary">{persistent} Persistent</span>
-                                </div>
-                                <span className="text-text-muted" aria-hidden="true">|</span>
-                                <div className="flex items-center gap-xs whitespace-nowrap">
-                                  <Star size={14} className="shrink-0 text-accent-primary" aria-hidden="true" />
-                                  <span className="font-semibold text-text-primary">{emerging} Emerging</span>
-                                </div>
+                                {improving > 0 && (
+                                  <>
+                                    <div className="flex items-center gap-xs whitespace-nowrap">
+                                      <ArrowUp size={14} className="shrink-0 text-signal-positive" aria-hidden="true" />
+                                      <span className="font-semibold text-text-primary">{improving} Improving</span>
+                                    </div>
+                                    <span className="text-text-muted" aria-hidden="true">|</span>
+                                  </>
+                                )}
+                                {persistent > 0 && (
+                                  <>
+                                    <div className="flex items-center gap-xs whitespace-nowrap">
+                                      <Minus size={14} className="shrink-0 text-signal-caution" aria-hidden="true" />
+                                      <span className="font-semibold text-text-primary">{persistent} Persistent</span>
+                                    </div>
+                                    <span className="text-text-muted" aria-hidden="true">|</span>
+                                  </>
+                                )}
+                                {nearlyResolved > 0 && (
+                                  <>
+                                    <div className="flex items-center gap-xs whitespace-nowrap">
+                                      <CheckCircle2 size={14} className="shrink-0 text-signal-positive" aria-hidden="true" />
+                                      <span className="font-semibold text-text-primary">{nearlyResolved} Nearly there</span>
+                                    </div>
+                                    <span className="text-text-muted" aria-hidden="true">|</span>
+                                  </>
+                                )}
+                                {emerging > 0 && (
+                                  <div className="flex items-center gap-xs whitespace-nowrap">
+                                    <Star size={14} className="shrink-0 text-accent-primary" aria-hidden="true" />
+                                    <span className="font-semibold text-text-primary">{emerging} Emerging</span>
+                                  </div>
+                                )}
                               </div>
                               {topImprovement && (
                                 <p className="text-bodySmall font-medium text-signal-positive">
@@ -585,6 +608,9 @@ export function SidebarDebriefPanel({
                             {pattern.tendency === 'persistent' && (
                               <Minus size={14} className="text-signal-caution" aria-hidden="true" />
                             )}
+                            {pattern.tendency === 'nearly_resolved' && (
+                              <CheckCircle2 size={14} className="text-signal-positive" aria-hidden="true" />
+                            )}
                             {pattern.tendency === 'emerging' && (
                               <Star size={14} className="text-accent-primary" aria-hidden="true" />
                             )}
@@ -599,9 +625,11 @@ export function SidebarDebriefPanel({
                                   ? 'bg-signal-positive/10 text-signal-positive'
                                   : pattern.tendency === 'persistent'
                                     ? 'bg-signal-caution/10 text-signal-caution'
-                                    : 'bg-accent-primary/10 text-accent-primary'
+                                    : pattern.tendency === 'nearly_resolved'
+                                      ? 'bg-signal-positive/10 text-signal-positive'
+                                      : 'bg-accent-primary/10 text-accent-primary'
                               }`}>
-                                {pattern.tendency}
+                                {pattern.tendency === 'nearly_resolved' ? 'nearly there' : pattern.tendency}
                               </span>
                             </div>
                             <p className="text-bodySmall leading-relaxed text-text-secondary break-words">
