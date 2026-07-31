@@ -122,17 +122,30 @@ export class CognitoAuthService implements AuthService {
 
     return new Promise((resolve) => {
       this.currentUser!.getSession((error: any, session: any) => {
-        if (error) {
-          resolve(null);
-          return;
-        }
-
-        if (!session.isValid()) {
-          resolve(null);
-          return;
-        }
-
+        if (error || !session.isValid()) { resolve(null); return; }
         resolve(session.getAccessToken().getJwtToken());
+      });
+    });
+  }
+
+  async getIdToken(): Promise<string | null> {
+    if (!this.currentUser) return null;
+
+    return new Promise((resolve) => {
+      this.currentUser!.getSession((error: any, session: any) => {
+        if (error || !session.isValid()) { resolve(null); return; }
+        const idToken: string = session.getIdToken().getJwtToken();
+        // Keep cognito_session in sync so any direct localStorage readers
+        // also have a fresh token.
+        try {
+          const raw = localStorage.getItem('cognito_session');
+          if (raw) {
+            const stored = JSON.parse(raw) as Record<string, unknown>;
+            stored['idToken'] = idToken;
+            localStorage.setItem('cognito_session', JSON.stringify(stored));
+          }
+        } catch { /* non-fatal */ }
+        resolve(idToken);
       });
     });
   }

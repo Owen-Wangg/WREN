@@ -65,17 +65,18 @@ export function useDebriefSubscription(
 
           const { draftId } = parsed.data.data.onDebriefReady;
 
-          void fetchDebrief(apiClient, documentId).then((debrief) => {
+          // Fetch by the specific draftId from the AppSync event — not "latest".
+          // The autosave may have created a newer empty draft by the time this
+          // fires; fetching latest would return that empty draft instead.
+          void fetchDebrief(apiClient, documentId, draftId).then((debrief) => {
+            // Populate both the 'latest' slot and the draftId-specific slot so
+            // the panel renders immediately and history view works. Do NOT
+            // invalidate the debrief prefix here — that would trigger a
+            // background refetch of 'latest' which may return a newer autosaved
+            // draft with 0 items, overwriting the data we just set.
             queryClient.setQueryData(queryKeys.debrief(documentId), debrief);
-            if (draftId && draftId !== 'none') {
-              queryClient.setQueryData(
-                queryKeys.debrief(documentId, draftId),
-                debrief,
-              );
-            }
-            void queryClient.invalidateQueries({
-              queryKey: [...queryKeys.debrief(documentId).slice(0, 4)],
-            });
+            queryClient.setQueryData(queryKeys.debrief(documentId, draftId), debrief);
+            // Invalidate supporting queries that need to reflect the new feedback.
             void queryClient.invalidateQueries({
               queryKey: queryKeys.debriefHistory(documentId),
             });

@@ -12,19 +12,7 @@
  * and the caller falls through to the polling fallback.
  */
 import { appConfig } from '@/config/env';
-
-// ─── Token helpers ──────────────────────────────────────────────────────────
-
-function readIdTokenFromStorage(): string | null {
-  try {
-    const raw = localStorage.getItem('cognito_session');
-    if (!raw) return null;
-    const session = JSON.parse(raw) as { idToken?: string };
-    return session.idToken ?? null;
-  } catch {
-    return null;
-  }
-}
+import { authService } from '@/features/auth/defaultAuthService';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -50,7 +38,7 @@ export async function subscribeToAppSync(
   const graphqlUrl = appConfig.appSyncUrl;
   if (!graphqlUrl) throw new Error('AppSync URL not configured');
 
-  const token = readIdTokenFromStorage();
+  const token = await authService.getIdToken();
   if (!token) throw new Error('No idToken in session — cannot subscribe');
 
   const host = new URL(graphqlUrl).host;
@@ -65,6 +53,13 @@ export async function subscribeToAppSync(
   const header = btoa(JSON.stringify({ Authorization: token, host }));
   const payload = btoa('{}');
   const wsUrl = `${realtimeUrl}?header=${encodeURIComponent(header)}&payload=${encodeURIComponent(payload)}`;
+
+  // Log enough to diagnose without leaking the full token.
+  console.debug('[appSyncClient] connecting', {
+    realtimeUrl,
+    host,
+    tokenPrefix: token.slice(0, 20) + '…',
+  });
 
   return new Promise<() => void>((resolve, reject) => {
     const ws = new WebSocket(wsUrl, ['graphql-ws']);
@@ -84,10 +79,12 @@ export async function subscribeToAppSync(
     };
 
     ws.onopen = () => {
+      console.debug('[appSyncClient] ws open — sending connection_init');
       ws.send(JSON.stringify({ type: 'connection_init' }));
     };
 
     ws.onmessage = (evt: MessageEvent) => {
+      console.debug('[appSyncClient] ws message:', evt.data);
       let msg: { type: string; id?: string; payload?: unknown };
       try {
         msg = JSON.parse(evt.data as string) as typeof msg;
@@ -163,6 +160,7 @@ export async function subscribeToAppSync(
     };
 
     ws.onerror = () => {
+      console.error('[appSyncClient] ws error — readyState:', ws.readyState);
       if (!resolved) {
         resolved = true;
         reject(new Error('WebSocket connection failed'));
@@ -171,6 +169,7 @@ export async function subscribeToAppSync(
 
     ws.onclose = (event: CloseEvent) => {
       if (kaTimer) clearTimeout(kaTimer);
+      console.debug('[appSyncClient] ws close — code:', event.code, 'reason:', event.reason, 'wasClean:', event.wasClean);
       if (!resolved && event.code !== 1000) {
         resolved = true;
         reject(new Error(`WebSocket closed unexpectedly (${event.code})`));
