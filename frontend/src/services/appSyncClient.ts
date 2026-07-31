@@ -1,21 +1,19 @@
 /**
- * Minimal AppSync real-time subscription client using raw WebSockets.
+ * AppSync real-time subscription client using the graphql-ws sub-protocol.
  *
- * Implements the AppSync `graphql-ws` subprotocol directly so we can pass
- * the idToken from CognitoAuthService (stored in localStorage) in the
- * connection_init header — no Amplify auth stack involved.
+ * Manually implements the AppSync graphql-ws protocol over raw WebSocket —
+ * no Amplify client, no third-party GraphQL library.
  *
- * AppSync real-time WebSocket protocol:
- *   wss://<realtime-endpoint>/graphql?header=<b64>&payload=<b64>
- *   Subprotocol: "graphql-ws"
- *   Messages: connection_init → connection_ack → start → data / error / complete
+ * Auth: Cognito idToken read from the `cognito_session` localStorage key
+ * written by CognitoAuthService, passed as a base64+encodeURIComponent header
+ * in the WebSocket URL query string.
  *
- * When VITE_APPSYNC_URL is absent, subscribeToDebrief() is a no-op and returns
- * a no-op unsubscribe — the polling fallback in DocumentEditorPage still works.
+ * When VITE_APPSYNC_URL is absent subscribeToAppSync() throws immediately
+ * and the caller falls through to the polling fallback.
  */
 import { appConfig } from '@/config/env';
 
-// ─── Token helpers ─────────────────────────────────────────────────────────
+// ─── Token helpers ──────────────────────────────────────────────────────────
 
 function readIdTokenFromStorage(): string | null {
   try {
@@ -28,27 +26,7 @@ function readIdTokenFromStorage(): string | null {
   }
 }
 
-// ─── AppSync WebSocket URL builder ─────────────────────────────────────────
-
-/**
- * AppSync has two endpoints:
- *   HTTPS endpoint:   https://<id>.appsync-api.<region>.amazonaws.com/graphql
- *   Realtime endpoint: wss://<id>.appsync-realtime-api.<region>.amazonaws.com/graphql
- *
- * We derive the realtime URL from the HTTPS URL.
- */
-function toRealtimeUrl(httpsUrl: string, header: string, payload: string): string {
-  const realtimeUrl = httpsUrl
-    .replace('https://', 'wss://')
-    .replace('appsync-api', 'appsync-realtime-api');
-  return `${realtimeUrl}?header=${header}&payload=${payload}`;
-}
-
-function b64(obj: unknown): string {
-  return btoa(JSON.stringify(obj));
-}
-
-// ─── Public API ────────────────────────────────────────────────────────────
+// ─── Public API ─────────────────────────────────────────────────────────────
 
 export interface SubscriptionHandlers {
   next: (data: unknown) => void;
@@ -56,98 +34,147 @@ export interface SubscriptionHandlers {
 }
 
 /**
- * Subscribe to `onDebriefReady` for a given documentId.
- * Returns an unsubscribe function. Safe to call when VITE_APPSYNC_URL is absent.
+ * Subscribe to an AppSync real-time subscription.
+ * Returns a Promise that resolves with an unsubscribe function once the
+ * subscription is acknowledged (start_ack), or rejects on connection error.
+ *
+ * URL transformation (per AWS docs):
+ *   HTTP:  https://<id>.appsync-api.<region>.amazonaws.com/graphql
+ *   WS:    wss://<id>.appsync-realtime-api.<region>.amazonaws.com/graphql
  */
-export function subscribeToAppSync(
+export async function subscribeToAppSync(
   query: string,
   variables: Record<string, unknown>,
   handlers: SubscriptionHandlers,
-): () => void {
-  const endpoint = appConfig.appSyncUrl;
-  if (!endpoint) return () => {};
+): Promise<() => void> {
+  const graphqlUrl = appConfig.appSyncUrl;
+  if (!graphqlUrl) throw new Error('AppSync URL not configured');
 
-  const idToken = readIdTokenFromStorage();
-  if (!idToken) {
-    handlers.error([{ message: 'No idToken in session — cannot subscribe' }]);
-    return () => {};
-  }
+  const token = readIdTokenFromStorage();
+  if (!token) throw new Error('No idToken in session — cannot subscribe');
 
-  // AppSync requires the auth header and an empty payload as base64 query params.
-  const header = b64({ Authorization: idToken, host: new URL(endpoint).host });
-  const payload = b64({});
-  const wsUrl = toRealtimeUrl(endpoint, header, payload);
+  const host = new URL(graphqlUrl).host;
 
-  let subId: string | null = null;
-  let closed = false;
-  const ws = new WebSocket(wsUrl, 'graphql-ws');
+  // Derive the realtime WebSocket endpoint from the HTTPS GraphQL URL.
+  const realtimeUrl = graphqlUrl
+    .replace('https://', 'wss://')
+    .replace('appsync-api', 'appsync-realtime-api');
 
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'connection_init' }));
-  };
+  // AppSync requires auth headers as base64-encoded JSON in the URL query
+  // string. Use btoa() + encodeURIComponent() per the AWS reference docs.
+  const header = btoa(JSON.stringify({ Authorization: token, host }));
+  const payload = btoa('{}');
+  const wsUrl = `${realtimeUrl}?header=${encodeURIComponent(header)}&payload=${encodeURIComponent(payload)}`;
 
-  ws.onmessage = (event: MessageEvent) => {
-    let msg: { type: string; id?: string; payload?: unknown };
-    try {
-      msg = JSON.parse(event.data as string) as typeof msg;
-    } catch {
-      return;
-    }
+  return new Promise<() => void>((resolve, reject) => {
+    const ws = new WebSocket(wsUrl, ['graphql-ws']);
+    let subId: string | null = null;
+    let kaTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolved = false;
 
-    switch (msg.type) {
-      case 'connection_ack': {
-        // Send the subscription start after the connection is acknowledged.
-        subId = crypto.randomUUID();
-        ws.send(
-          JSON.stringify({
-            id: subId,
-            type: 'start',
-            payload: {
-              data: JSON.stringify({ query, variables }),
-              extensions: {
-                authorization: { Authorization: idToken, host: new URL(endpoint).host },
-              },
-            },
-          }),
-        );
-        break;
-      }
-      case 'data': {
-        if (msg.id === subId) {
-          handlers.next(msg.payload);
-        }
-        break;
-      }
-      case 'start_ack':
-        // Subscription registered — nothing to do.
-        break;
-      case 'error': {
-        handlers.error(msg.payload);
-        break;
-      }
-      case 'complete':
+    const cleanup = () => {
+      if (kaTimer) clearTimeout(kaTimer);
+      if (
+        ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING
+      ) {
+        if (subId) ws.send(JSON.stringify({ type: 'stop', id: subId }));
         ws.close();
-        break;
-      default:
-        break;
-    }
-  };
+      }
+    };
 
-  ws.onerror = () => {
-    if (!closed) handlers.error([{ message: 'WebSocket error' }]);
-  };
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'connection_init' }));
+    };
 
-  ws.onclose = (event: CloseEvent) => {
-    if (!closed && event.code !== 1000) {
-      handlers.error([{ message: `WebSocket closed unexpectedly (${event.code})` }]);
-    }
-  };
+    ws.onmessage = (evt: MessageEvent) => {
+      let msg: { type: string; id?: string; payload?: unknown };
+      try {
+        msg = JSON.parse(evt.data as string) as typeof msg;
+      } catch {
+        return;
+      }
 
-  return () => {
-    closed = true;
-    if (subId && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ id: subId, type: 'stop' }));
-    }
-    ws.close(1000);
-  };
+      switch (msg.type) {
+        case 'connection_ack': {
+          // Start an initial keep-alive watchdog — AppSync may not send the
+          // first `ka` immediately so we need a timeout from connection time.
+          if (kaTimer) clearTimeout(kaTimer);
+          kaTimer = setTimeout(() => {
+            console.warn('[appSyncClient] keep-alive timeout — closing');
+            cleanup();
+          }, 5 * 60_000);
+
+          subId = crypto.randomUUID();
+          ws.send(
+            JSON.stringify({
+              id: subId,
+              type: 'start',
+              payload: {
+                data: JSON.stringify({ query, variables }),
+                extensions: {
+                  authorization: { Authorization: token, host },
+                },
+              },
+            }),
+          );
+          break;
+        }
+        case 'start_ack': {
+          // Subscription is active — resolve with the cleanup function.
+          if (!resolved) {
+            resolved = true;
+            resolve(cleanup);
+          }
+          break;
+        }
+        case 'data': {
+          if (msg.id === subId) {
+            handlers.next(msg.payload);
+          }
+          break;
+        }
+        case 'ka': {
+          // Keep-alive — reset the 5-minute timeout timer.
+          if (kaTimer) clearTimeout(kaTimer);
+          kaTimer = setTimeout(() => {
+            console.warn('[appSyncClient] keep-alive timeout — closing');
+            cleanup();
+          }, 5 * 60_000);
+          break;
+        }
+        case 'error': {
+          handlers.error(msg.payload);
+          if (!resolved) {
+            resolved = true;
+            const msg0 = (msg.payload as { errors?: { message?: string }[] } | undefined)
+              ?.errors?.[0]?.message;
+            reject(new Error(msg0 ?? 'Subscription error'));
+          }
+          break;
+        }
+        case 'complete': {
+          cleanup();
+          break;
+        }
+        default:
+          break;
+      }
+    };
+
+    ws.onerror = () => {
+      if (!resolved) {
+        resolved = true;
+        reject(new Error('WebSocket connection failed'));
+      }
+    };
+
+    ws.onclose = (event: CloseEvent) => {
+      if (kaTimer) clearTimeout(kaTimer);
+      if (!resolved && event.code !== 1000) {
+        resolved = true;
+        reject(new Error(`WebSocket closed unexpectedly (${event.code})`));
+      }
+    };
+  });
 }

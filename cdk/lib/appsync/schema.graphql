@@ -1,12 +1,12 @@
 type DebriefReady {
-  documentId: ID! @aws_iam @aws_cognito_user_pools
-  draftId: String! @aws_iam @aws_cognito_user_pools
-  itemCount: Int! @aws_iam @aws_cognito_user_pools
+  documentId: ID! @aws_iam @aws_lambda
+  draftId: String! @aws_iam @aws_lambda
+  itemCount: Int! @aws_iam @aws_lambda
 }
 
 type Mutation {
   # Internal-only: invoked by the Feedback Engine Lambda via IAM auth.
-  # Cognito-authenticated students cannot call this mutation directly.
+  # Students cannot invoke this mutation directly.
   publishDebriefReady(documentId: ID!, draftId: String!, itemCount: Int!): DebriefReady
     @aws_iam
 }
@@ -14,7 +14,7 @@ type Mutation {
 type Subscription {
   onDebriefReady(documentId: ID!): DebriefReady
     @aws_subscribe(mutations: ["publishDebriefReady"])
-    @aws_cognito_user_pools
+    @aws_lambda
 }
 
 type Query {

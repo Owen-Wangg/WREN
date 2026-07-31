@@ -428,7 +428,7 @@ export function SidebarDebriefPanel({
           </div>
         )}
 
-        {isDocumentReady && debriefQuery.isLoading && !isGenerating && <DebriefSkeleton />}
+        {isDocumentReady && debriefQuery.isLoading && !isGenerating && !regenerating && <DebriefSkeleton />}
 
         {isDocumentReady && isGenerating && !debrief && (
           <div className="flex flex-col gap-lg py-xl">
@@ -459,7 +459,7 @@ export function SidebarDebriefPanel({
           </div>
         )}
 
-        {isDocumentReady && debriefQuery.isError && (
+        {isDocumentReady && debriefQuery.isError && !regenerating && !isGenerating && (
           <div role="alert" className="flex flex-col gap-sm">
             <p className="text-body text-signal-critical">
               Something went wrong loading the AI Debrief.

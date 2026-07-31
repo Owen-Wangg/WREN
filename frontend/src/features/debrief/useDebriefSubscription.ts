@@ -2,19 +2,14 @@
  * useDebriefSubscription — AppSync real-time subscription for debrief-ready
  * notifications.
  *
- * When the Feedback Engine finishes writing feedback_item rows it publishes a
- * `publishDebriefReady` mutation. This hook subscribes to `onDebriefReady` and,
- * on receipt, fetches the full debrief via REST then updates the React Query
- * cache.
- *
- * Uses a raw WebSocket implementation (appSyncClient.ts) so auth is handled
- * directly with the idToken from CognitoAuthService — no Amplify auth stack.
- *
- * When VITE_APPSYNC_URL is absent (local/mock mode) subscribeToAppSync() is a
- * no-op and the polling fallback in DocumentEditorPage handles completion.
+ * Subscribes to `onDebriefReady` and on receipt fetches the full debrief via
+ * REST then updates the React Query cache.
  *
  * The `onComplete` callback is called after the cache is updated so the caller
  * can clear its "is generating" state.
+ *
+ * When VITE_APPSYNC_URL is absent or the subscription fails, this is a no-op
+ * — the polling fallback in DocumentEditorPage handles completion.
  */
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -57,7 +52,10 @@ export function useDebriefSubscription(
   useEffect(() => {
     if (!enabled || !documentId) return;
 
-    const unsubscribe = subscribeToAppSync(
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
+
+    void subscribeToAppSync(
       ON_DEBRIEF_READY_SUBSCRIPTION,
       { documentId },
       {
@@ -94,8 +92,22 @@ export function useDebriefSubscription(
           );
         },
       },
-    );
+    ).then((unsub) => {
+      if (cancelled) {
+        unsub();
+      } else {
+        unsubscribe = unsub;
+      }
+    }).catch((err: unknown) => {
+      console.error(
+        '[useDebriefSubscription] failed to connect',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
 
-    return unsubscribe;
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, [documentId, enabled, queryClient]);
 }
