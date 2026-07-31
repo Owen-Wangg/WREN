@@ -67,22 +67,23 @@ Return a JSON array. Each element must have exactly these keys:
   kind: "inline" | "structural" | "strength"
   question_text: string  — the opening question that draws the student into this feedback item
   positive_note: string | null  — REQUIRED for kind="strength": a specific, concrete affirmation of what the student did well (e.g. "Your use of R v Smith correctly identifies the ratio decidendi"). null for all other kinds.
-  anchor: { paragraphIndex: int, quotedText: string } | null  — required for kind="inline", null otherwise
+  anchor: { paragraphIndex: int, quotedText: string } | null  — required for kind="inline"; OPTIONAL for kind="strength" (include the verbatim sentence or clause that best exemplifies the strength); null for kind="structural"
 Only output valid JSON. No markdown fences, no extra keys, no prose outside the array.
 
 kind rules:
   "inline"     — anchored to a specific text span; must have a valid anchor; positive_note must be null
   "structural" — document-wide area for improvement; anchor must be null; positive_note must be null
-  "strength"   — something the student did well; anchor must be null; positive_note MUST be a specific affirmation
+  "strength"   — something the student did well; positive_note MUST be a specific affirmation; anchor is encouraged — include the verbatim sentence or clause that best exemplifies the strength when one can be identified
 
 For "strength" items:
   - positive_note names the exact thing done well — be specific, cite the text or technique
+  - anchor is encouraged: identify the sentence or clause in the document that best demonstrates the strength and include it as a verbatim anchor quote
   - question_text then builds on it: ask how they could apply this strength elsewhere, deepen it, or sustain it
   - Do NOT use positive_note to rewrite or correct anything — it describes what already exists in the document
 
 anchor.quotedText rules (CRITICAL — follow every rule exactly):
   1. VERBATIM: Copy the text character-for-character from the paragraph. Never paraphrase, rephrase, summarize, or alter spelling/punctuation in any way.
-  2. RELEVANT: The quoted text MUST be the specific sentence or clause that CONTAINS the error, weakness, or issue your question_text discusses. The reader sees this quote as direct evidence of the problem — if the quote does not demonstrate the issue, the feedback is confusing and useless. Do NOT anchor to a nearby sentence that merely provides context.
+  2. RELEVANT: The quoted text MUST be the specific sentence or clause that CONTAINS the error, weakness, or issue your question_text discusses (or, for strength items, that demonstrates the strength). The reader sees this quote as direct evidence — if the quote does not demonstrate the point, the feedback is confusing and useless. Do NOT anchor to a nearby sentence that merely provides context.
   3. COMPLETE: Always quote a full grammatical sentence or a self-contained clause — from capital letter (or clause start) through to its terminal punctuation. Never truncate mid-sentence, never cut off at an arbitrary word boundary, never produce a fragment that cannot stand alone.
   4. NO SHORTENING: Do not trim, abbreviate, or use ellipsis. If the relevant sentence is long, quote it in full anyway.
   5. FINDABLE: The exact character sequence you produce must appear verbatim in the paragraph text at paragraphIndex. If it cannot be found there via exact string match, the anchor will fail silently."""
@@ -95,9 +96,17 @@ _GUARDRAIL = (
     "location and type of error but NEVER provide the correction. Ask the student to "
     "identify and fix it themselves. Do NOT write out the corrected sentence or word.\n\n"
     "STRENGTH ITEMS: positive_note must be EXCLUSIVELY positive — no hedging ('but', "
-    "'however', 'although'), no implied criticism, no suggestions for change. It must "
-    "read as pure affirmation of what the student already did well. The follow-up "
+    "'however', 'although'), no implied criticism, no suggestions for change. Write it "
+    "in a warm, encouraging tone: open with genuine praise (e.g. 'Your use of...', "
+    "'This is a strong example of...', 'Excellent handling of...') and be specific about "
+    "what the student did well. It must read as direct, heartfelt affirmation of what "
+    "already exists in the document — not a neutral observation. The follow-up "
     "question_text may invite deeper thinking but must not undermine the affirmation.\n\n"
+    "INLINE ANCHOR IS ONE EXAMPLE: The anchor quote for an inline item is a single "
+    "representative instance of the issue. The question_text MUST make clear the student "
+    "should search their whole draft for the same pattern — not just fix that one spot "
+    "(e.g. 'This appears here, but can you find other places where the same issue occurs?'). "
+    "Never write question_text that implies the anchor is the only occurrence.\n\n"
     "COVERAGE: You MUST produce at least one kind='strength' item for EVERY "
     "error_category_id in the taxonomy. If you cannot find something genuinely "
     "praiseworthy in a category, identify the best attempt or effort the student made "
@@ -624,8 +633,11 @@ def insert_feedback_items(
                     # derive exact character offsets. The model produces quotedText
                     # (a complete sentence/clause copied verbatim); we find it via
                     # string search so offsets are always exact.
+                    # Anchors apply to both inline items (required) and strength items (optional).
+                    item_kind = item.get('kind')
+                    anchored_kinds = {'inline', 'strength'}
                     quoted_text = None
-                    if item.get('kind') == 'inline' and 'anchor' in item:
+                    if item_kind in anchored_kinds and 'anchor' in item:
                         anchor_data = item['anchor']
                         para_index = anchor_data.get('paragraphIndex', 0)
                         model_quote = anchor_data.get('quotedText', '')
@@ -669,19 +681,19 @@ def insert_feedback_items(
                                 quoted_text = para_text[start_offset:end_offset]
                                 anchor_data['startOffset'] = start_offset
                                 anchor_data['endOffset'] = end_offset
-                                logger.info(f"Anchor matched ({match_method}) para={para_index} offsets={start_offset}:{end_offset}")
+                                logger.info(f"Anchor matched ({match_method}) kind={item_kind} para={para_index} offsets={start_offset}:{end_offset}")
                             else:
                                 logger.warning(
-                                    f"Anchor match FAILED para={para_index} "
+                                    f"Anchor match FAILED kind={item_kind} para={para_index} "
                                     f"quote_preview={model_quote[:80]!r} "
                                     f"para_preview={para_text[:80]!r}"
                                 )
-                        elif item.get('kind') == 'inline':
+                        elif item_kind == 'inline':
                             if not model_quote:
                                 logger.warning(f"Inline item missing quotedText in anchor")
                             elif para_index >= len(segments):
                                 logger.warning(f"Anchor paragraphIndex={para_index} out of range (segments={len(segments)})")
-                    elif item.get('kind') == 'inline':
+                    elif item_kind == 'inline':
                         logger.warning(f"Inline item missing anchor field entirely")
 
                     # Insert feedback item
@@ -702,9 +714,9 @@ def insert_feedback_items(
                         draft_id
                     ))
 
-                    # Insert anchor if provided, inline, and the quote was found in the paragraph
+                    # Insert anchor if provided, for inline or strength items, when the quote was found
                     current_anchor_id = None
-                    if item.get('kind') == 'inline' and 'anchor' in item:
+                    if item_kind in anchored_kinds and 'anchor' in item:
                         anchor_data = item['anchor']
                         para_index = anchor_data.get('paragraphIndex', 0)
                         start_offset = anchor_data.get('startOffset')
@@ -712,7 +724,7 @@ def insert_feedback_items(
                         if start_offset is None or end_offset is None:
                             # Quote was not found in paragraph — skip anchor insert
                             anchor_data = None
-                    if item.get('kind') == 'inline' and anchor_data:
+                    if item_kind in anchored_kinds and anchor_data:
                         para_index = anchor_data.get('paragraphIndex', 0)
                         start_offset = anchor_data.get('startOffset', 0)
                         end_offset = anchor_data.get('endOffset', 0)
@@ -1551,6 +1563,26 @@ def process_feedback_request(
             logger.warning(
                 f"Model omitted strength items for {len(categories_missing_strengths)} "
                 f"categories: {missing_names}"
+            )
+
+        # Warn when inline items lack anchors or strength items lack anchors (anchor encouraged).
+        inline_missing_anchor = [
+            item.get('error_category_id') for item in feedback_items
+            if item.get('kind') == 'inline' and 'anchor' not in item
+        ]
+        if inline_missing_anchor:
+            logger.warning(
+                f"{len(inline_missing_anchor)} inline item(s) missing anchor — "
+                f"categories: {inline_missing_anchor}"
+            )
+        strength_missing_anchor = [
+            item.get('error_category_id') for item in feedback_items
+            if item.get('kind') == 'strength' and 'anchor' not in item
+        ]
+        if strength_missing_anchor:
+            logger.warning(
+                f"{len(strength_missing_anchor)} strength item(s) missing anchor (quote from doc expected) — "
+                f"categories: {strength_missing_anchor}"
             )
 
         # Step 8: Insert into database and update counters

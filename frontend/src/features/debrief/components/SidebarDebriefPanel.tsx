@@ -673,12 +673,50 @@ export function SidebarDebriefPanel({
                             {strengths.filter((item) => item.positiveNote).map((item) => (
                               <li
                                 key={item.id}
-                                className="flex items-start gap-sm rounded-md bg-signal-positive/5 px-sm py-xs"
+                                className="flex flex-col gap-xs rounded-md bg-signal-positive/5 px-sm py-xs"
                               >
-                                <span className="mt-[2px] shrink-0 text-signal-positive">✓</span>
-                                <span className="text-bodySmall text-text-primary">
-                                  {item.positiveNote}
-                                </span>
+                                <div className="flex items-start gap-sm">
+                                  <span className="mt-[2px] shrink-0 text-signal-positive">✓</span>
+                                  <span className="text-bodySmall text-text-primary">
+                                    {item.positiveNote}
+                                  </span>
+                                </div>
+                                {item.quotedText && (
+                                  <div className="flex flex-col gap-[2px] pl-[20px]">
+                                    <span className="text-caption text-signal-positive/70 uppercase tracking-wide font-medium">
+                                      Where you did this well
+                                    </span>
+                                    <blockquote
+                                      className={`border-l-2 pl-md text-bodySmall italic cursor-pointer rounded-r-sm px-sm py-xs transition-colors break-words ${
+                                        activeQuoteId === item.id
+                                          ? 'border-signal-positive bg-signal-positive/10 text-text-primary'
+                                          : 'border-signal-positive/50 text-text-secondary hover:bg-signal-positive/10 hover:border-signal-positive'
+                                      }`}
+                                      onClick={() =>
+                                        onQuoteClick?.({
+                                          feedbackItemId: item.id,
+                                          anchorId: item.currentAnchorId,
+                                          quotedText: item.quotedText,
+                                        })
+                                      }
+                                      role="button"
+                                      tabIndex={0}
+                                      aria-pressed={activeQuoteId === item.id}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          onQuoteClick?.({
+                                            feedbackItemId: item.id,
+                                            anchorId: item.currentAnchorId,
+                                            quotedText: item.quotedText,
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      &ldquo;{item.quotedText}&rdquo;
+                                    </blockquote>
+                                  </div>
+                                )}
                               </li>
                             ))}
                           </ul>
@@ -698,17 +736,17 @@ export function SidebarDebriefPanel({
                                 <p className="text-bodySmall font-medium text-text-primary">
                                   {item.questionText}
                                 </p>
-                                {/* Quote is labelled as supporting evidence — subordinate */}
+                                {/* Quote is one example of the pattern — label makes clear there may be more */}
                                 {item.quotedText && (
                                   <div className="flex flex-col gap-[2px]">
-                                    <span className="text-caption text-text-muted uppercase tracking-wide">
-                                      From your draft
+                                    <span className="text-caption text-signal-caution/80 uppercase tracking-wide font-medium">
+                                      One example — check your whole draft for this
                                     </span>
                                     <blockquote
-                                      className={`border-l-2 pl-md text-bodySmall cursor-pointer rounded-r-sm px-sm py-xs transition-colors break-words ${
+                                      className={`border-l-2 pl-md text-bodySmall italic cursor-pointer rounded-r-sm px-sm py-xs transition-colors break-words ${
                                         activeQuoteId === item.id
-                                          ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
-                                          : 'border-border-strong text-text-secondary hover:bg-surface-muted/60 hover:border-accent-primary/40'
+                                          ? 'border-signal-caution bg-signal-caution/10 text-text-primary'
+                                          : 'border-signal-caution/40 text-text-secondary hover:bg-signal-caution/10 hover:border-signal-caution'
                                       }`}
                                       onClick={() =>
                                         onQuoteClick?.({

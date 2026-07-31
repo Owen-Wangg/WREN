@@ -379,6 +379,11 @@ export function DocumentEditorPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const saveDraftFromEditor = useCallback(async () => {
+    // Only create a new draft version when there are unsaved editor changes.
+    // If status is 'idle' or 'saved', the current draft already has the latest
+    // content — creating a new version would wastefully bump the version number
+    // (causing "Draft 2" on a fresh PDF that was never edited).
+    if (autosaveStatus !== 'dirty' && autosaveStatus !== 'error') return;
     await flushAutosave();
     const cleaned = asTipTapDoc(stripAiMarksFromTipTapContent(currentContent));
     const segments = cleaned
@@ -386,7 +391,7 @@ export function DocumentEditorPage() {
       : segmentsFromEditorContent(currentContent);
     await createDraft(apiClient, envId, segments, cleaned);
     await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
-  }, [currentContent, envId, flushAutosave, queryClient]);
+  }, [autosaveStatus, currentContent, envId, flushAutosave, queryClient]);
 
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
