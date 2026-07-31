@@ -27,7 +27,7 @@ function buildDebriefDisclaimer(departmentName?: string): string {
   const expert = departmentName
     ? `an expert in ${departmentName}`
     : 'an expert in your department';
-  return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert} or an admin user.`;
+  return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert}.`;
 }
 
 const GENERATING_STEPS: Array<{ message: string; detail: string }> = [
@@ -164,23 +164,16 @@ export function SidebarDebriefPanel({
   // True from when the 202 lands until the AppSync onDebriefReady event fires.
   const [isAwaitingDebrief, setIsAwaitingDebrief] = useState(false);
 
-  // When selectedDraftId is null (latest), the backend resolves to the draft
-  // with the highest version_number — which may be an autosaved draft with no
-  // feedback. If the latest query returns empty and history has items, fall back
-  // to the most recently generated draft so the panel always shows real content.
-  const latestDebriefQuery = useAiDebrief(environmentId, selectedDraftId, isDocumentReady);
-  const fallbackDraftId =
-    latestDebriefQuery.isSuccess &&
-    latestDebriefQuery.data?.items.length === 0 &&
-    !isAwaitingDebrief &&
-    !isGenerating
-      ? (historyQuery.data?.[0]?.draftId ?? null)
-      : null;
-  const debriefQuery = useAiDebrief(
-    environmentId,
-    selectedDraftId ?? fallbackDraftId,
-    isDocumentReady,
-  );
+  // Use history's most recent draftId as the source of truth when no explicit
+  // selection has been made. This bypasses the backend's "latest by
+  // version_number" resolution which may point to an autosaved draft with 0
+  // items. Wait for history to settle before enabling the debrief query so we
+  // don't fire with draftId=null and get a stale error that persists.
+  const historySettled = historyQuery.isSuccess || historyQuery.isError;
+  const effectiveDraftId =
+    selectedDraftId ?? (historyQuery.data?.[0]?.draftId || null);
+  const debriefEnabled = isDocumentReady && (historySettled || !!selectedDraftId);
+  const debriefQuery = useAiDebrief(environmentId, effectiveDraftId, debriefEnabled);
 
   useDebriefSubscription(
     environmentId,

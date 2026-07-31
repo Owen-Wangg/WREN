@@ -49,7 +49,7 @@ const feedbackResponseSchema = z.object({
       description: z.string(),
     }),
   ).optional(),
-  draftId: z.string().optional(),
+  draftId: z.string().nullable().optional(),
 });
 
 const feedbackHistorySchema = z.object({

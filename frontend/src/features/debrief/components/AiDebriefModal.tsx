@@ -55,7 +55,7 @@ function buildDebriefDisclaimer(departmentName?: string): string {
   const expert = departmentName
     ? `an expert in ${departmentName}`
     : 'an expert in your department';
-  return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert} or an admin user.`;
+  return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert}.`;
 }
 
 export function AiDebriefModal({
