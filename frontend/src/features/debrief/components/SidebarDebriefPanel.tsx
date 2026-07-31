@@ -158,12 +158,29 @@ export function SidebarDebriefPanel({
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyMenuRef = useRef<HTMLDivElement>(null);
 
-  const debriefQuery = useAiDebrief(environmentId, selectedDraftId, isDocumentReady);
   const historyQuery = useDebriefHistory(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
   const [isSavingThenRegen, setIsSavingThenRegen] = useState(false);
   // True from when the 202 lands until the AppSync onDebriefReady event fires.
   const [isAwaitingDebrief, setIsAwaitingDebrief] = useState(false);
+
+  // When selectedDraftId is null (latest), the backend resolves to the draft
+  // with the highest version_number — which may be an autosaved draft with no
+  // feedback. If the latest query returns empty and history has items, fall back
+  // to the most recently generated draft so the panel always shows real content.
+  const latestDebriefQuery = useAiDebrief(environmentId, selectedDraftId, isDocumentReady);
+  const fallbackDraftId =
+    latestDebriefQuery.isSuccess &&
+    latestDebriefQuery.data?.items.length === 0 &&
+    !isAwaitingDebrief &&
+    !isGenerating
+      ? (historyQuery.data?.[0]?.draftId ?? null)
+      : null;
+  const debriefQuery = useAiDebrief(
+    environmentId,
+    selectedDraftId ?? fallbackDraftId,
+    isDocumentReady,
+  );
 
   useDebriefSubscription(
     environmentId,

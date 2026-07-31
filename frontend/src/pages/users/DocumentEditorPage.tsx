@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   ChevronUp,
@@ -144,6 +144,7 @@ function readStoredNavMode(): DocumentNavMode {
 export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [activeNav, setActiveNav] = useState<DocumentNavMode>(() => readStoredNavMode());
@@ -195,6 +196,17 @@ export function DocumentEditorPage() {
   );
   const [isPollingIngest, setIsPollingIngest] = useState(() => !!state?.ingestQueued);
   const [ingestError, setIngestError] = useState<string | undefined>(undefined);
+
+  // Strip transient upload flags from history state immediately after mount so
+  // that a page reload does not re-trigger the feedback polling spinner.
+  // replaceState rewrites the history entry in place — no navigation occurs.
+  useEffect(() => {
+    if (!state) return;
+    const { feedbackQueued, ingestQueued, initialContent, ...rest } = state;
+    if (!feedbackQueued && !ingestQueued && !initialContent) return;
+    navigate(location.pathname, { replace: true, state: rest });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
+  }, []);
   const [ocrEngine, setOcrEngine] = useState<OcrEngineChoice>(() => readOcrEnginePreference());
   const [ocrComparison, setOcrComparison] = useState<OcrComparison | undefined>(undefined);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
