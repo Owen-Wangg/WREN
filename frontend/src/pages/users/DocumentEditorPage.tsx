@@ -283,7 +283,8 @@ export function DocumentEditorPage() {
   const draftQuery = useQuery({
     queryKey: ['document-draft', envId],
     queryFn: () => fetchLatestDraft(apiClient, envId),
-    enabled: !!documentId,
+    // Don't fetch while PDF ingest is in progress — no draft exists yet.
+    enabled: !!documentId && !isPollingIngest,
     // Always revalidate on enter so leave/return shows autosaved TipTap content
     // (mount key is draft id+version, which does not change on content-only PATCH).
     refetchOnMount: 'always',
