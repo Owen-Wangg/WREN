@@ -183,7 +183,7 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
                     'restrictions_description': result[7],
                     'notes_description': result[8],
                     'updated_at': result[9],
-                    'temperature': 0.7,
+                    'temperature': 0.4,
                     'bedrock_model_id': bedrock_model_id,
                 }
 
@@ -199,7 +199,7 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
                 'restrictions_description': None,
                 'notes_description': None,
                 'updated_at': None,
-                'temperature': 0.7,
+                'temperature': 0.4,
                 'bedrock_model_id': bedrock_model_id,
             }
     except Exception as e:
@@ -339,8 +339,29 @@ def assemble_prompt(
     base_instructions = config.get('type_prompt_text', '')
     if base_instructions:
         type_instruction_parts.append(base_instructions)
+    # Citation guide — stored as a short key in structure_description; expand to
+    # a full instruction so the model knows which standard to apply.
+    _CITATION_GUIDE_INSTRUCTIONS = {
+        'mcgill': (
+            "Citation Standard: Canadian Guide to Uniform Legal Citation (McGill Guide). "
+            "All citations, footnotes, and references must conform to McGill Guide format. "
+            "Flag any citations that deviate from McGill Guide conventions."
+        ),
+        'coal': (
+            "Citation Standard: Canadian Online Annotation of Legislation (COAL). "
+            "All citations and references must conform to COAL format. "
+            "Flag any citations that deviate from COAL conventions."
+        ),
+    }
+
+    structure_value = (config.get('structure_description') or '').strip()
+    citation_instruction = _CITATION_GUIDE_INSTRUCTIONS.get(structure_value, '')
+    if citation_instruction:
+        type_instruction_parts.append(citation_instruction)
+    elif structure_value and structure_value not in ('', 'custom'):
+        type_instruction_parts.append(f"Structure & Organization: {structure_value}")
+
     for field_label, field_key in [
-        ('Structure & Organization', 'structure_description'),
         ("Restrictions & Don'ts", 'restrictions_description'),
         ('Additional Notes', 'notes_description'),
     ]:

@@ -132,6 +132,16 @@ export async function searchAllUsers(options?: {
   return { items: result.users, total: result.total };
 }
 
+const departmentUsersSchema = z.object({
+  users: z.array(z.object({
+    id: z.string(),
+    firstName: z.string(),
+    lastName: z.string(),
+    email: z.string(),
+  })),
+  total: z.number().int().nonnegative(),
+});
+
 /** Fetch users who have submitted at least one document in a specific department. */
 export async function getDepartmentUsers(
   departmentId: string,
@@ -143,7 +153,7 @@ export async function getDepartmentUsers(
   if (options?.offset) params.append('offset', String(options.offset));
   const qs = params.toString();
   const path = `/v1/departments/${departmentId}/users${qs ? `?${qs}` : ''}`;
-  const result = await apiClient.request(path, { schema: usersSearchSchema });
+  const result = await apiClient.request(path, { schema: departmentUsersSchema });
   return { items: result.users, total: result.total };
 }
 

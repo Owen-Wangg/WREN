@@ -34,7 +34,7 @@ interface EditingUser {
   firstName: string;
   lastName: string;
   email: string;
-  roles: string[];
+  roles?: string[];
   administeredDepartmentIds?: string[];
 }
 
@@ -44,14 +44,16 @@ type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 /** Roles to show/edit on a department screen — DepartmentAdmin only if for THIS dept. */
 function rolesForDepartmentView(
   user: {
-    roles: readonly string[];
+    id: string;
+    roles?: readonly string[];
     administeredDepartmentIds?: readonly string[];
   },
   departmentId: string,
 ): AssignableRole[] {
   const selected: AssignableRole[] = [];
-  if (user.roles.includes('Student')) selected.push('Student');
-  if (user.roles.includes('TechnicalAdmin')) selected.push('TechnicalAdmin');
+  const roles = user.roles ?? [];
+  if (roles.includes('Student')) selected.push('Student');
+  if (roles.includes('TechnicalAdmin')) selected.push('TechnicalAdmin');
   const adminDepts = user.administeredDepartmentIds ?? [];
   if (adminDepts.includes(departmentId)) selected.push('DepartmentAdmin');
   return selected;
@@ -59,7 +61,8 @@ function rolesForDepartmentView(
 
 function formatRolesForDepartment(
   user: {
-    roles: readonly string[];
+    id: string;
+    roles?: readonly string[];
     administeredDepartmentIds?: readonly string[];
   },
   departmentId: string,

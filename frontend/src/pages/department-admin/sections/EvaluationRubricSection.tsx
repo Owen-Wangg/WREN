@@ -31,6 +31,17 @@ interface OrganisationFramework {
   description: string;
 }
 
+interface CitationGuide {
+  key: string;
+  label: string;
+}
+
+const CITATION_GUIDES: CitationGuide[] = [
+  { key: '', label: '— No citation guide specified —' },
+  { key: 'mcgill', label: 'Canadian Guide to Uniform Legal Citation (McGill Guide)' },
+  { key: 'coal', label: 'Canadian Online Annotation of Legislation (COAL)' },
+];
+
 const ORGANISATION_FRAMEWORKS: OrganisationFramework[] = [
   {
     key: 'irac',
@@ -96,6 +107,7 @@ export function EvaluationRubricSection({
     purpose: '',
     restrictions: '',
     notes: '',
+    citationGuide: '',
   });
 
   // ── Criteria state ────────────────────────────────────────────────────────
@@ -149,6 +161,7 @@ export function EvaluationRubricSection({
         purpose: existingConfig.typePromptText ?? '',
         restrictions: existingConfig.restrictionsDescription ?? '',
         notes: existingConfig.notesDescription ?? '',
+        citationGuide: existingConfig.structureDescription ?? '',
       });
       setOverrides(parseOverrides(existingConfig.densityDescription));
     }
@@ -184,6 +197,7 @@ export function EvaluationRubricSection({
         typePromptText: context.purpose,
         restrictionsDescription: context.restrictions,
         notesDescription: context.notes,
+        structureDescription: context.citationGuide,
         densityDescription: serializeOverrides(overrides),
         categoryPriority: Array.from(selectedIds),
       }),
@@ -352,6 +366,24 @@ export function EvaluationRubricSection({
                 />
               </div>
             ))}
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-1">
+                Citation guide
+              </label>
+              <p className="text-xs text-gray-500 mb-2">
+                Which citation standard should the AI use when evaluating references and footnotes?
+              </p>
+              <select
+                value={context.citationGuide}
+                onChange={(e) => setContext((prev) => ({ ...prev, citationGuide: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+              >
+                {CITATION_GUIDES.map((guide) => (
+                  <option key={guide.key} value={guide.key}>{guide.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
         )}
       </div>
