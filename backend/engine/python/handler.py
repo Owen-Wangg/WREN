@@ -490,6 +490,52 @@ def compute_content_fingerprint(text: str, start_offset: int, end_offset: int) -
     return hashlib.sha256(anchor_text.encode()).hexdigest()[:16]
 
 
+def _normalize_whitespace(text: str) -> str:
+    """Collapse runs of whitespace to single spaces for fuzzy anchor matching."""
+    import re
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _fuzzy_find(para_text: str, model_quote: str) -> int:
+    """Find model_quote in para_text using whitespace-normalized comparison.
+
+    OCR output may introduce extra spaces, newlines, or trim differences.
+    Returns the start offset in the ORIGINAL para_text, or -1 if not found.
+    """
+    norm_para = _normalize_whitespace(para_text)
+    norm_quote = _normalize_whitespace(model_quote)
+    if not norm_quote:
+        return -1
+    pos_in_norm = norm_para.lower().find(norm_quote.lower())
+    if pos_in_norm == -1:
+        return -1
+    # Map the normalized position back to the original string position.
+    # Walk through the original text, counting non-collapsed characters.
+    orig_idx = 0
+    norm_idx = 0
+    import re
+    # Build a mapping: for each position in the normalized string, what's the
+    # corresponding position in the original?
+    in_space = False
+    norm_to_orig = []
+    for i, ch in enumerate(para_text):
+        if ch in (' ', '\t', '\n', '\r', '\xa0'):
+            if not in_space:
+                norm_to_orig.append(i)
+                in_space = True
+        else:
+            norm_to_orig.append(i)
+            in_space = False
+    # Handle leading whitespace in original that was stripped in normalized
+    stripped_leading = len(para_text) - len(para_text.lstrip())
+    if stripped_leading > 0 and len(norm_to_orig) > 0:
+        # norm_to_orig[0] should map to the first non-space, adjust if needed
+        pass
+    if pos_in_norm < len(norm_to_orig):
+        return norm_to_orig[pos_in_norm]
+    return -1
+
+
 def expand_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]:
     """Snap offsets so saved quotes never start/end mid-word."""
     start = max(0, min(start, len(text)))
@@ -526,12 +572,38 @@ def insert_feedback_items(
                         model_quote = anchor_data.get('quotedText', '')
                         if para_index < len(segments) and model_quote:
                             para_text = segments[para_index].get('text', '')
+                            # 1. Exact match
                             start_offset = para_text.find(model_quote)
                             if start_offset == -1:
-                                # Case-insensitive fallback
+                                # 2. Case-insensitive exact match
                                 start_offset = para_text.lower().find(model_quote.lower())
                                 if start_offset != -1:
                                     model_quote = para_text[start_offset:start_offset + len(model_quote)]
+                            if start_offset == -1:
+                                # 3. Whitespace-normalized fuzzy match (handles OCR artifacts)
+                                start_offset = _fuzzy_find(para_text, model_quote)
+                                if start_offset != -1:
+                                    # Find the end by matching the normalized length in original
+                                    norm_len = len(_normalize_whitespace(model_quote))
+                                    # Walk forward in original text counting normalized chars
+                                    count = 0
+                                    end_pos = start_offset
+                                    in_space = False
+                                    for j in range(start_offset, len(para_text)):
+                                        ch = para_text[j]
+                                        if ch in (' ', '\t', '\n', '\r', '\xa0'):
+                                            if not in_space:
+                                                count += 1
+                                                in_space = True
+                                        else:
+                                            count += 1
+                                            in_space = False
+                                        if count >= norm_len:
+                                            end_pos = j + 1
+                                            break
+                                    else:
+                                        end_pos = len(para_text)
+                                    model_quote = para_text[start_offset:end_pos]
                             if start_offset != -1:
                                 end_offset = start_offset + len(model_quote)
                                 quoted_text = para_text[start_offset:end_offset]
