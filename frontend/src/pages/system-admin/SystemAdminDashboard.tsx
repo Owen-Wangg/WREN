@@ -152,7 +152,17 @@ export function SystemAdminDashboard() {
                         onChange={(e) => setSelectedModelId(e.target.value)}
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
                       >
-                        {(modelConfigData.allowedModels ?? [{ id: modelConfigData.modelId, label: modelConfigData.modelId }]).map((m) => (
+                        {(modelConfigData.allowedModels ?? [{ id: modelConfigData.modelId, label: modelConfigData.modelId }])
+                          .filter((m) => {
+                            const id = m.id.toLowerCase();
+                            if (id.includes('fable')) return false;
+                            if (id.includes('claude-3')) return false;
+                            if (id.includes('claude-2')) return false;
+                            if (id.includes('claude-v')) return false;
+                            if (id.includes('claude-instant')) return false;
+                            return true;
+                          })
+                          .map((m) => (
                           <option key={m.id} value={m.id}>{m.label}</option>
                         ))}
                       </select>

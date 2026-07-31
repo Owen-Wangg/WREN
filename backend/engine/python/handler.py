@@ -292,7 +292,14 @@ def assemble_prompt(
                 para_lines.append(f"[PARAGRAPH {i} — context only, do NOT generate feedback]\n{text}")
         doc_text = '\n\n'.join(para_lines)
     else:
-        doc_text = '\n'.join([seg.get('text', '') for seg in segments if 'text' in seg])
+        # Always label paragraphs with their index so the model can produce
+        # accurate anchor.paragraphIndex values in inline feedback items.
+        para_lines = []
+        for i, seg in enumerate(segments):
+            text = seg.get('text', '')
+            if text:
+                para_lines.append(f"[PARAGRAPH {i}]\n{text}")
+        doc_text = '\n\n'.join(para_lines)
 
     # Build type instructions: department-level prompt first, then doc-type fields
     type_instruction_parts = []
@@ -574,18 +581,19 @@ def insert_feedback_items(
                             para_text = segments[para_index].get('text', '')
                             # 1. Exact match
                             start_offset = para_text.find(model_quote)
+                            match_method = 'exact' if start_offset != -1 else None
                             if start_offset == -1:
                                 # 2. Case-insensitive exact match
                                 start_offset = para_text.lower().find(model_quote.lower())
                                 if start_offset != -1:
+                                    match_method = 'case-insensitive'
                                     model_quote = para_text[start_offset:start_offset + len(model_quote)]
                             if start_offset == -1:
                                 # 3. Whitespace-normalized fuzzy match (handles OCR artifacts)
                                 start_offset = _fuzzy_find(para_text, model_quote)
                                 if start_offset != -1:
-                                    # Find the end by matching the normalized length in original
+                                    match_method = 'fuzzy-whitespace'
                                     norm_len = len(_normalize_whitespace(model_quote))
-                                    # Walk forward in original text counting normalized chars
                                     count = 0
                                     end_pos = start_offset
                                     in_space = False
@@ -609,6 +617,20 @@ def insert_feedback_items(
                                 quoted_text = para_text[start_offset:end_offset]
                                 anchor_data['startOffset'] = start_offset
                                 anchor_data['endOffset'] = end_offset
+                                logger.info(f"Anchor matched ({match_method}) para={para_index} offsets={start_offset}:{end_offset}")
+                            else:
+                                logger.warning(
+                                    f"Anchor match FAILED para={para_index} "
+                                    f"quote_preview={model_quote[:80]!r} "
+                                    f"para_preview={para_text[:80]!r}"
+                                )
+                        elif item.get('kind') == 'inline':
+                            if not model_quote:
+                                logger.warning(f"Inline item missing quotedText in anchor")
+                            elif para_index >= len(segments):
+                                logger.warning(f"Anchor paragraphIndex={para_index} out of range (segments={len(segments)})")
+                    elif item.get('kind') == 'inline':
+                        logger.warning(f"Inline item missing anchor field entirely")
 
                     # Insert feedback item
                     feedback_id = str(uuid.uuid4())
@@ -851,7 +873,12 @@ def persist_resolution_status(
         curr_segs = [Segment(index=s.get('index', i), text=s.get('text', ''))
                      for i, s in enumerate(new_segments)]
 
+        logger.info(f"DiffEngine: computing diff prev_segs={len(prev_segs)} curr_segs={len(curr_segs)}")
         diff = DiffEngine().compute(prev_segs, curr_segs)
+        logger.info(
+            f"DiffEngine: result changed={len(diff.changed)} added={len(diff.added)} "
+            f"removed={len(diff.removed)} unchanged={len(diff.unchanged)}"
+        )
 
         from wren_engine.anchor_service import Anchor, AnchorState
         from wren_engine.progress_tracker import JudgeInput
