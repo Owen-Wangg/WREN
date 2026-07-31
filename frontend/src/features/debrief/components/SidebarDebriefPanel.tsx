@@ -262,7 +262,7 @@ export function SidebarDebriefPanel({
   for (const item of allItems) {
     const cat = item.errorCategoryId;
     if (!categoryOrder.includes(cat)) categoryOrder.push(cat);
-    if (item.kind === 'strength' || item.kind === 'structural') {
+    if (item.kind === 'strength') {
       if (!strengthsByCategory[cat]) strengthsByCategory[cat] = [];
       strengthsByCategory[cat].push(item);
     } else {
@@ -632,14 +632,14 @@ export function SidebarDebriefPanel({
                             What&apos;s Done Well
                           </h5>
                           <ul className="flex flex-col gap-sm">
-                            {strengths.map((item) => (
+                            {strengths.filter((item) => item.positiveNote).map((item) => (
                               <li
                                 key={item.id}
                                 className="flex items-start gap-sm rounded-md bg-signal-positive/5 px-sm py-xs"
                               >
                                 <span className="mt-[2px] shrink-0 text-signal-positive">✓</span>
                                 <span className="text-bodySmall text-text-primary">
-                                  {item.positiveNote ?? item.questionText}
+                                  {item.positiveNote}
                                 </span>
                               </li>
                             ))}

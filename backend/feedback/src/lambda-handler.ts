@@ -371,12 +371,32 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
     }
     targetDraftId = requestedDraftId;
   } else {
-    // Default: latest draft so regeneration appears to replace rather than append.
-    const latestDraftQuery = `
-      SELECT id FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1
+    // Default: the draft that most recently had feedback generated, not the
+    // draft with the highest version_number. Autosave creates new drafts via
+    // PATCH (content-only) without incrementing version_number, but a file
+    // re-upload creates a new version. In either case the latest feedback-
+    // bearing draft is identified by MAX(feedback_item.created_at) grouped by
+    // source_draft_id — matching the history endpoint's ordering. If no
+    // feedback has ever been generated we fall back to the highest version.
+    const latestFeedbackDraftQuery = `
+      SELECT f.source_draft_id AS id
+      FROM feedback_item f
+      WHERE f.document_id = $1
+      GROUP BY f.source_draft_id
+      ORDER BY MAX(f.created_at) DESC
+      LIMIT 1
     `;
-    const latestDraftRows = await db.query(latestDraftQuery, [documentId]);
-    targetDraftId = (latestDraftRows[0] as any)?.id ?? null;
+    const feedbackDraftRows = await db.query(latestFeedbackDraftQuery, [documentId]);
+    if ((feedbackDraftRows[0] as any)?.id) {
+      targetDraftId = (feedbackDraftRows[0] as any).id;
+    } else {
+      // No feedback yet — fall back to highest version draft.
+      const latestDraftRows = await db.query(
+        `SELECT id FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1`,
+        [documentId],
+      );
+      targetDraftId = (latestDraftRows[0] as any)?.id ?? null;
+    }
   }
 
   const feedbackQuery = `

@@ -66,7 +66,7 @@ const PANEL_WIDTH_DEFAULT = 320;
 const PANEL_WIDTH_DEBRIEF = 420;
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 560;
-const RAIL_WIDTH_PX = 76;
+const RAIL_WIDTH_PX = 92;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
