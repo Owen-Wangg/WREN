@@ -12,6 +12,7 @@ Asserts:
 """
 import sys
 import os
+import re
 
 # handler.py lives at the repo root of backend/engine/python/, not inside a
 # package. Add it to the path so we can import assemble_prompt directly.
@@ -112,8 +113,16 @@ class TestPromptAssemblyWithFootnotes:
         assert "FOOTNOTES/CITATIONS" not in prompt_empty
 
     def test_no_footnotes_prompt_identical_to_omitted_kwarg(self):
-        """Passing footnotes=None produces the exact same prompt as not
-        passing the footnotes kwarg at all (backward-compatible)."""
+        """Passing footnotes=None produces a prompt that is structurally
+        identical to not passing the footnotes kwarg at all (backward
+        compatible) — modulo the per-assembly random boundary token, which
+        `PromptAssembler.assemble()` intentionally regenerates on every call
+        (see prompt_assembly.py's `_generate_boundary_token` docstring: this
+        defends against untrusted content forging a closing delimiter, so
+        it is NOT a fixed value and two separate assemble() calls can never
+        be byte-identical on that account alone). Compare with the token
+        normalized out instead of raw string equality.
+        """
         prompt_without_kwarg = assemble_prompt(
             _MINIMAL_CONFIG,
             _MINIMAL_DOC_TYPE_META,
@@ -130,7 +139,12 @@ class TestPromptAssemblyWithFootnotes:
             footnotes=None,
         )
 
-        assert prompt_without_kwarg == prompt_with_none
+        def normalize_boundary_token(prompt: str) -> str:
+            return re.sub(r"\[[0-9a-f]{32}\]", "[TOKEN]", prompt)
+
+        assert normalize_boundary_token(prompt_without_kwarg) == normalize_boundary_token(
+            prompt_with_none
+        )
 
     def test_multiple_footnotes_all_appear_in_block(self):
         """All footnotes appear in the block, ordered by number."""

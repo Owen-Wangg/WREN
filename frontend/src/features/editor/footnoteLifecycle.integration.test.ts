@@ -26,7 +26,7 @@ import TextExt from '@tiptap/extension-text';
 import { describe, expect, it } from 'vitest';
 
 import { FootnoteNode } from './tiptapFootnote';
-import { extractFootnotes, tipTapContentToSegments, type TipTapNode } from '../../../types/src/tiptapContent';
+import { extractFootnotes, tipTapContentToSegments, type TipTapNode } from '@wren/types';
 
 const extensions = [DocumentExt, ParagraphExt, TextExt, FootnoteNode];
 
