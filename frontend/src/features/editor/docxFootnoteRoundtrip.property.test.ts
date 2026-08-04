@@ -38,11 +38,17 @@ function findFootnoteNodes(content: { content?: unknown[] }): Array<Record<strin
 }
 
 function flattenText(content: unknown): string {
-  const node = content as { text?: string; content?: unknown[] } | null | undefined;
+  const node = content as { type?: string; text?: string; attrs?: { content?: unknown }; content?: unknown[] } | null | undefined;
   if (!node) return '';
   if (typeof node.text === 'string') return node.text;
-  if (!Array.isArray(node.content)) return '';
-  return node.content.map(flattenText).join(' ');
+  const parts: string[] = [];
+  if (node.type === 'footnote' && node.attrs?.content) {
+    parts.push(flattenText(node.attrs.content));
+  }
+  if (Array.isArray(node.content)) {
+    parts.push(...node.content.map(flattenText));
+  }
+  return parts.join(' ');
 }
 
 /** Text without characters that would confuse OOXML paragraph splitting or citation-field regexes. */
@@ -118,10 +124,14 @@ describe('Property 17: the .docx importer never silently discards footnote text'
     await fc.assert(
       fc.asyncProperty(fc.array(fixtureArb, { minLength: 0, maxLength: 5 }), async (fixtures) => {
         const imported = await exportThenImport(fixtures);
-        const fullText = JSON.stringify(imported);
+        // Compare against the actual extracted TEXT content (not
+        // JSON.stringify's escaped serialization, which would double-escape
+        // backslashes and produce false negatives for body text containing
+        // literal `\` characters).
+        const allText = flattenText(imported);
 
         for (const fixture of fixtures) {
-          expect(fullText).toContain(fixture.bodyText);
+          expect(allText).toContain(fixture.bodyText);
         }
       }),
       { numRuns: 25 },

@@ -121,7 +121,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     });
 
     const [activeFootnoteNumber, setActiveFootnoteNumber] = useState<number | null>(null);
+    const setActiveFootnoteNumberRef = useRef(setActiveFootnoteNumber);
+    setActiveFootnoteNumberRef.current = setActiveFootnoteNumber;
     const [footnoteVersion, setFootnoteVersion] = useState(0);
+    const setFootnoteVersionRef = useRef(setFootnoteVersion);
+    setFootnoteVersionRef.current = setFootnoteVersion;
 
     const editor = useEditor({
       extensions: [
@@ -182,17 +186,16 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             .filter(Boolean)
             .join(' '),
         },
-        handleClickOn: (_view, _pos, node) => {
-          if (node.type.name === 'footnote') {
-            setActiveFootnoteNumber(Number(node.attrs.footnoteNumber));
-            return true;
-          }
-          return false;
+        handleClickOn: (_view, _pos, node, _nodePos, event) => {
+          if (node.type.name !== 'footnote') return false;
+          event.preventDefault();
+          setActiveFootnoteNumberRef.current(Number(node.attrs.footnoteNumber));
+          return true;
         },
       },
       onUpdate: ({ editor: current }) => {
         onContentChangeRef.current?.(current.getJSON());
-        setFootnoteVersion((v) => v + 1);
+        setFootnoteVersionRef.current((v) => v + 1);
       },
     });
 

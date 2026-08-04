@@ -31,13 +31,20 @@ async function buildDocxWithFootnote(footnoteBodyText: string): Promise<Uint8Arr
 }
 
 function findFootnoteNode(content: { content?: unknown[] }): Record<string, unknown> | null {
-  const stack: unknown[] = [content];
-  while (stack.length > 0) {
-    const node = stack.pop() as { type?: string; attrs?: Record<string, unknown>; content?: unknown[] };
-    if (node?.type === 'footnote') return node.attrs ?? {};
-    if (Array.isArray(node?.content)) stack.push(...node.content);
-  }
-  return null;
+  let found: Record<string, unknown> | null = null;
+  const visit = (node: unknown) => {
+    if (found) return;
+    const typed = node as { type?: string; attrs?: Record<string, unknown>; content?: unknown[] };
+    if (typed?.type === 'footnote') {
+      found = typed.attrs ?? {};
+      return;
+    }
+    if (Array.isArray(typed?.content)) {
+      for (const child of typed.content) visit(child);
+    }
+  };
+  visit(content);
+  return found;
 }
 
 describe('.docx footnote import', () => {
