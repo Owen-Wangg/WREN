@@ -101,6 +101,10 @@ from .feedback_classifier import (
     FeedbackClassifier,
     compute_density_cap,
 )
+from .footnote_metadata import (
+    FootnoteMetadata,
+    build_footnotes_untrusted_content,
+)
 from .output_guardrail import (
     GuardrailAuditSink,
     GuardrailOutcome,
@@ -187,6 +191,9 @@ __all__ = [
     "DensityOutcome",
     "DensitySetting",
     "compute_density_cap",
+    # Footnote/citation metadata (footnote-citation-support spec, Task 9.1)
+    "FootnoteMetadata",
+    "build_footnotes_untrusted_content",
     # Structural feedback (Requirement 14 / REQ-FB-STRUCTURAL-01 / Task 9.9)
     "StructuralFeedbackProcessor",
     "StructuralFeedbackItem",
