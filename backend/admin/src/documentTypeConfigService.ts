@@ -31,6 +31,7 @@
  * invalidated on the next generation cycle (Requirement 27.3).
  */
 import {
+  citationConfigSchema,
   updateDocumentTypeConfigInputSchema,
   documentTypeConfigSchema,
   type AuthContext,
@@ -55,11 +56,12 @@ interface DocumentTypeConfigRow {
   readonly structure_description: string | null;
   readonly restrictions_description: string | null;
   readonly notes_description: string | null;
+  readonly citation_config: Record<string, unknown> | string | null;
   readonly updated_at: string | Date;
 }
 
 const RETURNING =
-  'document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at';
+  'document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, citation_config, updated_at';
 
 function toIsoString(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
@@ -71,6 +73,10 @@ function toDocumentTypeConfig(row: DocumentTypeConfigRow): DocumentTypeConfig {
     typeof row.category_priority === 'string'
       ? (JSON.parse(row.category_priority) as string[])
       : (row.category_priority ?? []);
+  const citationConfig =
+    typeof row.citation_config === 'string'
+      ? JSON.parse(row.citation_config)
+      : (row.citation_config ?? null);
   return documentTypeConfigSchema.parse({
     documentTypeId: row.document_type_id,
     tone: row.tone,
@@ -82,6 +88,7 @@ function toDocumentTypeConfig(row: DocumentTypeConfigRow): DocumentTypeConfig {
     structureDescription: row.structure_description,
     restrictionsDescription: row.restrictions_description,
     notesDescription: row.notes_description,
+    citationConfig,
     updatedAt: toIsoString(row.updated_at),
   });
 }
@@ -175,9 +182,17 @@ export async function upsertDocumentTypeConfig(
     await assertPromptInjectionFree(field);
   }
 
+  // Citation_Config boundary validation (Requirement 4.7) — re-parsed here
+  // (in addition to updateDocumentTypeConfigInputSchema's own field-level
+  // check) so a violation is identified with the same "deny with no
+  // mutation" posture as the guardrails above, before touching the DB.
+  if (patch.citationConfig !== undefined && patch.citationConfig !== null) {
+    citationConfigSchema.parse(patch.citationConfig);
+  }
+
   const rows = await db.query<DocumentTypeConfigRow>(
-    `INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at)
-     VALUES ($1, $2, $3, COALESCE($4, '[]'::jsonb), $5, $6, $7, $9, $10, $11, now())
+    `INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, citation_config, updated_at)
+     VALUES ($1, $2, $3, COALESCE($4, '[]'::jsonb), $5, $6, $7, $9, $10, $11, $12, now())
      ON CONFLICT (document_type_id) DO UPDATE SET
        tone = COALESCE($2, document_type_config.tone),
        density = COALESCE($3, document_type_config.density),
@@ -188,6 +203,7 @@ export async function upsertDocumentTypeConfig(
        structure_description = COALESCE($9, document_type_config.structure_description),
        restrictions_description = COALESCE($10, document_type_config.restrictions_description),
        notes_description = COALESCE($11, document_type_config.notes_description),
+       citation_config = CASE WHEN $13 THEN $12 ELSE document_type_config.citation_config END,
        updated_at = now()
      RETURNING ${RETURNING}`,
     [
@@ -202,6 +218,8 @@ export async function upsertDocumentTypeConfig(
       patch.structureDescription ?? null,
       patch.restrictionsDescription ?? null,
       patch.notesDescription ?? null,
+      patch.citationConfig !== undefined ? JSON.stringify(patch.citationConfig) : null,
+      patch.citationConfig !== undefined,
     ],
   );
 

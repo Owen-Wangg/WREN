@@ -22,7 +22,7 @@
  */
 import { Node, type JSONContent as CoreJSONContent } from '@tiptap/core';
 import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
-import type { EditorState } from '@tiptap/pm/state';
+import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
 
 /** Persisted footnote payload — the full node-attrs schema (Requirement 1.4, 2.1, 3.4). */
 export interface FootnoteAttrs {
@@ -269,6 +269,157 @@ export const FootnoteNode = Node.create({
       String(node.attrs.footnoteNumber),
     ];
   },
+
+  addCommands() {
+    return {
+      /**
+       * Insert a new footnote at the current cursor position (Requirement 3.1).
+       *
+       * Rejects (returns `false`, no transaction dispatched) when:
+       *   - there is no active selection (Requirement 3.8),
+       *   - the selection is inside an existing footnote's own edit surface
+       *     (Requirement 3.7),
+       *   - 200 footnotes already exist in the document (Requirement 2.1).
+       *
+       * Otherwise inserts an empty footnote node and immediately renumbers
+       * every footnote in the document (Requirements 2.4, 3.3).
+       */
+      insertFootnote:
+        () =>
+        ({ state, chain }: { state: EditorState; chain: () => import('@tiptap/core').ChainedCommands }) => {
+          if (!state.selection) return false;
+          if (isInsideFootnote(state)) return false;
+          if (countFootnotes(state.doc) >= MAX_FOOTNOTES) return false;
+
+          return chain()
+            .insertContent({
+              type: 'footnote',
+              attrs: {
+                // Placeholder number; the renumber command below fixes it to
+                // the correct 1-based document-order position.
+                footnoteNumber: 0,
+                content: EMPTY_FOOTNOTE_BODY,
+                author: '',
+                title: '',
+                source: '',
+                pinpoint: '',
+                year: '',
+              },
+            })
+            .command(({ tr, state: nextState }) => {
+              const { doc: renumbered, changed } = renumberFootnotes(nextState.doc);
+              if (changed) {
+                tr.replaceWith(0, nextState.doc.content.size, renumbered.content);
+              }
+              return true;
+            })
+            .run();
+        },
+
+      /**
+       * Delete the footnote whose `footnoteNumber` attr equals `footnoteNumber`,
+       * removing both the in-body marker and its content/citation attrs
+       * entirely, then renumbers the remaining footnotes (Requirements 2.5, 3.3).
+       * No-op (`false`) when no such footnote exists.
+       */
+      deleteFootnote:
+        (footnoteNumber: number) =>
+        ({ tr, state }: { tr: import('@tiptap/pm/state').Transaction; state: EditorState }) => {
+          let targetFrom = -1;
+          let targetTo = -1;
+          state.doc.descendants((node, pos) => {
+            if (targetFrom !== -1) return false;
+            if (node.type.name === 'footnote' && Number(node.attrs.footnoteNumber) === footnoteNumber) {
+              targetFrom = pos;
+              targetTo = pos + node.nodeSize;
+            }
+            return true;
+          });
+          if (targetFrom === -1) return false;
+
+          tr.delete(targetFrom, targetTo);
+          const { doc: renumbered, changed } = renumberFootnotes(tr.doc);
+          if (changed) {
+            tr.replaceWith(0, tr.doc.content.size, renumbered.content);
+          }
+          return true;
+        },
+
+      /**
+       * Patch citation fields (and/or `content`) on the footnote whose
+       * `footnoteNumber` attr equals `footnoteNumber`. Rejects the ENTIRE
+       * patch (no partial apply) if any citation field value exceeds
+       * {@link MAX_CITATION_FIELD_LENGTH} characters, retaining the
+       * footnote's previous values (Requirement 3.4). Never changes
+       * `footnoteNumber` itself — renumbering is `renumberFootnotes`'s sole
+       * responsibility.
+       */
+      updateFootnoteFields:
+        (footnoteNumber: number, fields: Partial<Omit<FootnoteAttrs, 'footnoteNumber'>>) =>
+        ({ tr, state }: { tr: import('@tiptap/pm/state').Transaction; state: EditorState }) => {
+          for (const key of CITATION_FIELD_NAMES) {
+            const value = fields[key];
+            if (typeof value === 'string' && value.length > MAX_CITATION_FIELD_LENGTH) {
+              return false;
+            }
+          }
+
+          let targetPos = -1;
+          state.doc.descendants((node, pos) => {
+            if (targetPos !== -1) return false;
+            if (node.type.name === 'footnote' && Number(node.attrs.footnoteNumber) === footnoteNumber) {
+              targetPos = pos;
+            }
+            return true;
+          });
+          if (targetPos === -1) return false;
+
+          const node = tr.doc.nodeAt(targetPos);
+          if (!node) return false;
+          tr.setNodeMarkup(targetPos, undefined, { ...node.attrs, ...fields });
+          return true;
+        },
+    };
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('footnoteRenumberOnPaste'),
+        // Catches paste (and any other transaction that inserts/removes
+        // footnote nodes without going through insertFootnote/deleteFootnote,
+        // e.g. drag-and-drop) and appends a renumbering transaction whenever
+        // the resulting doc's footnote numbering has drifted from document
+        // order (Requirement 2.4, 2.5). `renumberFootnotes` is a no-op when
+        // already sequential, so this never produces a spurious extra step.
+        appendTransaction(transactions, _oldState, newState) {
+          if (!transactions.some((tr) => tr.docChanged)) return null;
+          const { doc: renumbered, changed } = renumberFootnotes(newState.doc);
+          if (!changed) return null;
+          const tr = newState.tr;
+          tr.replaceWith(0, newState.doc.content.size, renumbered.content);
+          tr.setMeta('addToHistory', false);
+          return tr;
+        },
+      }),
+    ];
+  },
 });
 
 export { CITATION_FIELD_NAMES };
+
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    footnote: {
+      /** Insert a new footnote at the current cursor position (Requirement 3.1). */
+      insertFootnote: () => ReturnType;
+      /** Delete the footnote with the given `footnoteNumber` (Requirement 3.3). */
+      deleteFootnote: (footnoteNumber: number) => ReturnType;
+      /** Patch citation fields / content on the footnote with the given `footnoteNumber` (Requirement 3.4). */
+      updateFootnoteFields: (
+        footnoteNumber: number,
+        fields: Partial<Omit<FootnoteAttrs, 'footnoteNumber'>>,
+      ) => ReturnType;
+    };
+  }
+}
