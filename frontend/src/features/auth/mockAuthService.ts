@@ -97,6 +97,10 @@ export class MockAuthService implements AuthService {
     return this.currentAccessToken;
   }
 
+  async getIdToken(): Promise<string | null> {
+    return this.currentAccessToken;
+  }
+
   async forgotPassword(email: string): Promise<void> {
     // Mock: silently succeeds if the account exists; fails otherwise
     const account = this.accounts.get(email.toLowerCase());

@@ -108,12 +108,14 @@ class PatternTendency(str, Enum):
 
     - ``IMPROVING``: open items in this category decreased across Drafts.
     - ``PERSISTENT``: open items in this category persist across Drafts.
+    - ``NEARLY_RESOLVED``: only 1 open item remains and the count has not increased.
     - ``EMERGING``: this category newly appears (with open items) in the latest
       Draft only.
     """
 
     IMPROVING = "improving"
     PERSISTENT = "persistent"
+    NEARLY_RESOLVED = "nearly_resolved"
     EMERGING = "emerging"
 
 
@@ -401,6 +403,9 @@ class ProgressTracker:
             if open_latest < open_first:
                 # Open items decreased across Drafts (including resolved to zero).
                 acks.append(PatternAck(category_id, PatternTendency.IMPROVING))
+            elif open_latest == 1 and open_first <= 1:
+                # Only 1 item remains and it never grew — nearly resolved, not persistent.
+                acks.append(PatternAck(category_id, PatternTendency.NEARLY_RESOLVED))
             elif open_first > 0 and open_latest > 0:
                 # Open items persist across Drafts without decreasing.
                 acks.append(PatternAck(category_id, PatternTendency.PERSISTENT))

@@ -1,26 +1,21 @@
 /**
  * useDebriefSubscription — AppSync real-time subscription for debrief-ready
- * notifications (replaces the setInterval polling loop in DocumentEditorPage).
+ * notifications.
  *
- * When the Feedback Engine finishes writing feedback_item rows it publishes a
- * `publishDebriefReady` mutation. This hook subscribes to `onDebriefReady` and,
- * on receipt, fetches the full debrief via REST then updates the React Query
- * cache — identical to what the polling callback did, but triggered immediately.
- *
- * The subscription payload is validated with Zod before touching the cache
- * (frontend steering §7: "validate API responses at the boundary").
- *
- * When appSyncClient is null (VITE_APPSYNC_URL absent in local/mock mode) the
- * hook is a no-op — the polling fallback in DocumentEditorPage still works.
+ * Subscribes to `onDebriefReady` and on receipt fetches the full debrief via
+ * REST then updates the React Query cache.
  *
  * The `onComplete` callback is called after the cache is updated so the caller
  * can clear its "is generating" state.
+ *
+ * When VITE_APPSYNC_URL is absent or the subscription fails, this is a no-op
+ * — the polling fallback in DocumentEditorPage handles completion.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 
-import { appSyncClient } from '@/services/appSyncClient';
+import { subscribeToAppSync } from '@/services/appSyncClient';
 import { fetchDebrief } from './debriefApi';
 import { queryKeys } from '@/hooks/queryKeys';
 import { apiClient } from '@/services';
@@ -36,9 +31,13 @@ const ON_DEBRIEF_READY_SUBSCRIPTION = /* GraphQL */ `
 `;
 
 const debriefReadyPayloadSchema = z.object({
-  documentId: z.string(),
-  draftId: z.string(),
-  itemCount: z.number().int().nonnegative(),
+  data: z.object({
+    onDebriefReady: z.object({
+      documentId: z.string(),
+      draftId: z.string(),
+      itemCount: z.number().int().nonnegative(),
+    }),
+  }),
 });
 
 export function useDebriefSubscription(
@@ -47,58 +46,69 @@ export function useDebriefSubscription(
   onComplete: () => void,
 ): void {
   const queryClient = useQueryClient();
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
-    if (!enabled || !documentId || !appSyncClient) return;
+    if (!enabled || !documentId) return;
 
-    // graphql() returns unknown (our AppSyncGraphQLClient type). At runtime
-    // AppSync subscriptions return an observable with .subscribe(); we cast
-    // through unknown to access it without importing Amplify's deep generics.
-    const observable = appSyncClient.graphql({
-      query: ON_DEBRIEF_READY_SUBSCRIPTION,
-      variables: { documentId },
-      authMode: 'userPool',
-    }) as { subscribe: (handlers: { next: (v: { data: unknown }) => void; error: (e: unknown) => void }) => { unsubscribe: () => void } };
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
 
-    const sub = observable.subscribe({
-        next: ({ data }: { data: unknown }) => {
-          const raw = (data as Record<string, unknown>)?.['onDebriefReady'];
-          const parsed = debriefReadyPayloadSchema.safeParse(raw);
+    void subscribeToAppSync(
+      ON_DEBRIEF_READY_SUBSCRIPTION,
+      { documentId },
+      {
+        next: (payload: unknown) => {
+          const parsed = debriefReadyPayloadSchema.safeParse(payload);
           if (!parsed.success) return;
 
-          const { draftId } = parsed.data;
+          const { draftId } = parsed.data.data.onDebriefReady;
 
-          // Fetch the full debrief via REST — the subscription is a signal, not
-          // a data carrier (frontend steering §7: validate at the boundary).
-          void fetchDebrief(apiClient, documentId).then((debrief) => {
+          // Fetch by the specific draftId from the AppSync event — not "latest".
+          // The autosave may have created a newer empty draft by the time this
+          // fires; fetching latest would return that empty draft instead.
+          void fetchDebrief(apiClient, documentId, draftId).then((debrief) => {
+            // Populate both the 'latest' slot and the draftId-specific slot so
+            // the panel renders immediately and history view works. Do NOT
+            // invalidate the debrief prefix here — that would trigger a
+            // background refetch of 'latest' which may return a newer autosaved
+            // draft with 0 items, overwriting the data we just set.
             queryClient.setQueryData(queryKeys.debrief(documentId), debrief);
-            if (draftId && draftId !== 'none') {
-              queryClient.setQueryData(
-                queryKeys.debrief(documentId, draftId),
-                debrief,
-              );
-            }
-            void queryClient.invalidateQueries({
-              queryKey: [...queryKeys.debrief(documentId).slice(0, 4)],
-            });
+            queryClient.setQueryData(queryKeys.debrief(documentId, draftId), debrief);
+            // Invalidate supporting queries that need to reflect the new feedback.
             void queryClient.invalidateQueries({
               queryKey: queryKeys.debriefHistory(documentId),
             });
             void queryClient.invalidateQueries({
               queryKey: queryKeys.inlineFeedbackItems(documentId),
             });
-            onComplete();
+            onCompleteRef.current();
           });
         },
         error: (err: unknown) => {
-          console.error('[useDebriefSubscription] subscription error', err);
-          // Non-fatal: the polling fallback in DocumentEditorPage handles
-          // completion while AppSync is being verified in production.
+          console.error(
+            '[useDebriefSubscription] subscription error',
+            JSON.stringify(err),
+          );
         },
-      });
+      },
+    ).then((unsub) => {
+      if (cancelled) {
+        unsub();
+      } else {
+        unsubscribe = unsub;
+      }
+    }).catch((err: unknown) => {
+      console.error(
+        '[useDebriefSubscription] failed to connect',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
 
     return () => {
-      sub.unsubscribe();
+      cancelled = true;
+      unsubscribe?.();
     };
-  }, [documentId, enabled, onComplete, queryClient]);
+  }, [documentId, enabled, queryClient]);
 }

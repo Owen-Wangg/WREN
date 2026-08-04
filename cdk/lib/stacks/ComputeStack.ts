@@ -345,6 +345,10 @@ export class ComputeStack extends Stack {
         ...dbEnv,
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
+        // AppSync Lambda auth uses the Cognito idToken (not accessToken).
+        // The frontend sends the idToken in the Authorization header per the
+        // AppSync @aws_lambda auth convention.
+        COGNITO_TOKEN_USE: 'id',
       },
       bundling: sharedBundling,
     });

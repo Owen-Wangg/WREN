@@ -110,15 +110,21 @@ export function createAppSyncAuthorizerHandler(depsProvider: AppSyncDepsProvider
     if (!context.roles.includes('Student')) return deny();
 
     // Ownership check: the subscribed documentId must belong to this student.
+    //
+    // AppSync invokes the Lambda authorizer twice for WebSocket subscriptions:
+    //   1. Connection phase (HTTP upgrade): queryString and variables are empty.
+    //      Allow the connection based on JWT + Student role alone.
+    //   2. Subscription phase (start message): variables contain documentId.
+    //      Enforce ownership here.
     const documentId =
       typeof event.requestContext.variables?.['documentId'] === 'string'
         ? event.requestContext.variables['documentId']
         : null;
 
-    if (!documentId) return deny();
-
-    const owns = await isDocumentOwner(documentId, context.userId, db);
-    if (!owns) return deny();
+    if (documentId) {
+      const owns = await isDocumentOwner(documentId, context.userId, db);
+      if (!owns) return deny();
+    }
 
     return {
       isAuthorized: true,
@@ -127,9 +133,6 @@ export function createAppSyncAuthorizerHandler(depsProvider: AppSyncDepsProvider
         roles: JSON.stringify(context.roles),
       },
       // No ttlOverride — use the 300s TTL configured in the CDK construct.
-      // The authorizer only runs at WebSocket connection time (not per-message),
-      // and document ownership is immutable, so caching reconnections for 5
-      // minutes is safe and avoids unnecessary DB round-trips.
     };
   };
 }

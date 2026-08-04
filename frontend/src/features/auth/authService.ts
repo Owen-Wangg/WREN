@@ -81,6 +81,8 @@ export interface AuthService {
   signOut(): void;
   /** Resolves the current access token (refreshing if needed), or `null`. */
   getAccessToken(): Promise<string | null>;
+  /** Resolves the current ID token (refreshing if needed), or `null`. */
+  getIdToken(): Promise<string | null>;
   /** Initiates the forgot-password flow — Cognito sends a reset code to the email. */
   forgotPassword(email: string): Promise<void>;
   /** Completes the forgot-password flow — verifies the code and sets the new password. */

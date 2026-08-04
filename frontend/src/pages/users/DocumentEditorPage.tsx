@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   ChevronUp,
@@ -58,7 +58,7 @@ const PANEL_WIDTH_DEFAULT = 320;
 const PANEL_WIDTH_DEBRIEF = 420;
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 560;
-const RAIL_WIDTH_PX = 76;
+const RAIL_WIDTH_PX = 92;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -136,6 +136,7 @@ function readStoredNavMode(): DocumentNavMode {
 export function DocumentEditorPage() {
   const { documentId } = useParams<{ documentId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [activeNav, setActiveNav] = useState<DocumentNavMode>(() => readStoredNavMode());
@@ -187,6 +188,19 @@ export function DocumentEditorPage() {
   );
   const [isPollingIngest, setIsPollingIngest] = useState(() => !!state?.ingestQueued);
   const [ingestError, setIngestError] = useState<string | undefined>(undefined);
+
+  // Strip transient upload flags from history state immediately after mount so
+  // that a page reload does not re-trigger the feedback polling spinner.
+  // replaceState rewrites the history entry in place — no navigation occurs.
+  useEffect(() => {
+    if (!state) return;
+    const { feedbackQueued, ingestQueued, initialContent, ...rest } = state;
+    if (!feedbackQueued && !ingestQueued && !initialContent) return;
+    navigate(location.pathname, { replace: true, state: rest });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
+  }, []);
+  const [ocrEngine, setOcrEngine] = useState<OcrEngineChoice>(() => readOcrEnginePreference());
+  const [ocrComparison, setOcrComparison] = useState<OcrComparison | undefined>(undefined);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
@@ -261,7 +275,8 @@ export function DocumentEditorPage() {
   const draftQuery = useQuery({
     queryKey: ['document-draft', envId],
     queryFn: () => fetchLatestDraft(apiClient, envId),
-    enabled: !!documentId,
+    // Don't fetch while PDF ingest is in progress — no draft exists yet.
+    enabled: !!documentId && !isPollingIngest,
     // Always revalidate on enter so leave/return shows autosaved TipTap content
     // (mount key is draft id+version, which does not change on content-only PATCH).
     refetchOnMount: 'always',
@@ -282,8 +297,11 @@ export function DocumentEditorPage() {
   const editorReady =
     isPollingIngest ||
     Boolean(routerInitialContent) ||
-    draftQuery.isError ||
-    (draftQuery.isSuccess && draftQuery.isFetchedAfterMount);
+    draftQuery.isFetchedAfterMount;
+  // Debrief/feedback queries must not fire while a PDF is still being ingested
+  // or the draft hasn't loaded yet — an early fetch produces a stale error state
+  // that persists and blocks Regenerate.
+  const isDocumentReady = !isPollingIngest && (draftQuery.isSuccess || draftQuery.isError);
   const editorMountKey = `draft-${draftQuery.data?.id ?? envId}-${draftQuery.data?.versionNumber ?? 0}`;
 
   // Sync local editor state when the draft *identity* changes (new version), not
@@ -353,14 +371,23 @@ export function DocumentEditorPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const saveDraftFromEditor = useCallback(async () => {
+    // Only create a new draft version when the editor content differs from what
+    // is already persisted. Comparing serialised JSON directly is more reliable
+    // than trusting autosaveStatus, which can transiently show 'dirty' during
+    // the initial content-seeding renders even on an untouched PDF.
     await flushAutosave();
     const cleaned = asTipTapDoc(stripAiMarksFromTipTapContent(currentContent));
+    const persistedJson = draftContent ? JSON.stringify(
+      asTipTapDoc(stripAiMarksFromTipTapContent(draftContent)) ?? draftContent
+    ) : null;
+    const editorJson = cleaned ? JSON.stringify(cleaned) : null;
+    if (persistedJson !== null && persistedJson === editorJson) return;
     const segments = cleaned
       ? tipTapContentToSegments(cleaned)
       : segmentsFromEditorContent(currentContent);
     await createDraft(apiClient, envId, segments, cleaned);
     await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
-  }, [currentContent, envId, flushAutosave, queryClient]);
+  }, [currentContent, draftContent, envId, flushAutosave, queryClient]);
 
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -764,6 +791,7 @@ export function DocumentEditorPage() {
                 wordCount={wordCount}
                 askWrenService={askWrenService}
                 isGeneratingFeedback={isPollingFeedback}
+                isDocumentReady={isDocumentReady}
                 onBeforeRegenerate={saveDraftFromEditor}
                 onHighlight={(anchorId) => {
                   setActiveQuoteId(`ask:${anchorId}`);

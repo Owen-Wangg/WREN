@@ -22,7 +22,7 @@ import { feedbackItemSchema, idSchema, isoDateTimeSchema } from '@wren/types';
 /** A single pattern-level progress acknowledgment (Requirement 18, REQ-PROGRESS-ACK-01). */
 export const progressPatternSchema = z.object({
   category: z.string().min(1),
-  tendency: z.enum(['improving', 'persistent', 'emerging']),
+  tendency: z.enum(['improving', 'persistent', 'nearly_resolved', 'emerging']),
   description: z.string().min(1),
 });
 export type ProgressPattern = z.infer<typeof progressPatternSchema>;

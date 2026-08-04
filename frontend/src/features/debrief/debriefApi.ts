@@ -29,27 +29,27 @@ export const FEEDBACK_HELPFULNESS_PATH = '/v1/feedback-helpfulness';
 const feedbackResponseSchema = z.object({
   items: z.array(z.object({
     id: z.string(),
-    documentId: z.string().optional(),
+    documentId: z.string().nullable().optional(),
     errorCategoryId: z.string(),
     kind: z.string(),
     questionText: z.string(),
-    positiveNote: z.string().optional(),
-    quotedText: z.string().optional(),
-    currentAnchorId: z.string().optional(),
-    citationReferenceId: z.string().optional(),
-    sourceDraftId: z.string().optional(),
-    createdAt: z.string().optional(),
+    positiveNote: z.string().nullable().optional(),
+    quotedText: z.string().nullable().optional(),
+    currentAnchorId: z.string().nullable().optional(),
+    citationReferenceId: z.string().nullable().optional(),
+    sourceDraftId: z.string().nullable().optional(),
+    createdAt: z.string().nullable().optional(),
   }).passthrough()),
-  anchors: z.array(z.object({}).passthrough()).optional(),
-  categoryNames: z.record(z.string(), z.string()).optional(),
+  anchors: z.array(z.object({}).passthrough()).nullable().optional(),
+  categoryNames: z.record(z.string(), z.string()).nullable().optional(),
   progressSummary: z.array(
     z.object({
       category: z.string(),
       tendency: z.enum(['improving', 'persistent', 'emerging']),
       description: z.string(),
     }),
-  ).optional(),
-  draftId: z.string().optional(),
+  ).nullable().optional(),
+  draftId: z.string().nullable().optional(),
 });
 
 const feedbackHistorySchema = z.object({

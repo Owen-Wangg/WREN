@@ -30,11 +30,12 @@ import { apiClient } from '@/services';
 export function useAiDebrief(
   environmentId: string,
   draftId?: string | null,
+  enabled = true,
 ): UseQueryResult<Debrief> {
   return useQuery({
     queryKey: queryKeys.debrief(environmentId, draftId ?? undefined),
     queryFn: () => fetchDebrief(apiClient, environmentId, draftId ?? undefined),
-    enabled: !!environmentId,
+    enabled: !!environmentId && enabled,
   });
 }
 

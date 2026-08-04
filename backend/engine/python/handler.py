@@ -52,33 +52,73 @@ _SYSTEM_CORE = (
     "For areas needing improvement, ask probing questions that guide the writer "
     "toward improvement without providing replacement prose or rewriting their work. "
     "For strengths, name the specific thing the writer did well and follow it with "
-    "a single question that invites them to build on or reflect on that strength."
+    "a single question that invites them to build on or reflect on that strength.\n\n"
+    "CONSOLIDATION: When an error or weakness appears multiple times in the document, "
+    "do NOT produce one feedback item per instance. Instead, produce a SINGLE feedback "
+    "item that describes the pattern as a category of error, include 1–2 representative "
+    "examples as anchored quotes, and explicitly note that this pattern appears "
+    "throughout the document (e.g. 'This pattern appears in several places — can you "
+    "review the full document for similar instances?'). The student should understand "
+    "the category of mistake and be prompted to find all occurrences themselves."
 )
 _OUTPUT_SCHEMA = """\
 Return a JSON array. Each element must have exactly these keys:
-  error_category_id: string  — must be the exact UUID from the taxonomy list below, not the name
+  error_category_id: string  — must be the exact UUID from the taxonomy block in the document configuration section, not the category name
   kind: "inline" | "structural" | "strength"
   question_text: string  — the opening question that draws the student into this feedback item
   positive_note: string | null  — REQUIRED for kind="strength": a specific, concrete affirmation of what the student did well (e.g. "Your use of R v Smith correctly identifies the ratio decidendi"). null for all other kinds.
-  anchor: { paragraphIndex: int, quotedText: string } | null  — required for kind="inline", null otherwise
+  anchor: { paragraphIndex: int, quotedText: string } | null  — required for kind="inline"; OPTIONAL for kind="strength" (include the verbatim sentence or clause that best exemplifies the strength); null for kind="structural"
 Only output valid JSON. No markdown fences, no extra keys, no prose outside the array.
 
 kind rules:
   "inline"     — anchored to a specific text span; must have a valid anchor; positive_note must be null
   "structural" — document-wide area for improvement; anchor must be null; positive_note must be null
-  "strength"   — something the student did well; anchor must be null; positive_note MUST be a specific affirmation
+  "strength"   — something the student did well; positive_note MUST be a specific affirmation; anchor is encouraged — include the verbatim sentence or clause that best exemplifies the strength when one can be identified
 
 For "strength" items:
   - positive_note names the exact thing done well — be specific, cite the text or technique
+  - anchor is encouraged: identify the sentence or clause in the document that best demonstrates the strength and include it as a verbatim anchor quote
   - question_text then builds on it: ask how they could apply this strength elsewhere, deepen it, or sustain it
   - Do NOT use positive_note to rewrite or correct anything — it describes what already exists in the document
 
-anchor.quotedText MUST be copied verbatim from the paragraph — a complete sentence or clause (not a fragment). Do not paraphrase or shorten it."""
+anchor.quotedText rules (CRITICAL — follow every rule exactly):
+  1. VERBATIM: Copy the text character-for-character from the paragraph. Never paraphrase, rephrase, summarize, or alter spelling/punctuation in any way.
+  2. RELEVANT: The quoted text MUST be the specific sentence or clause that CONTAINS the error, weakness, or issue your question_text discusses (or, for strength items, that demonstrates the strength). The reader sees this quote as direct evidence — if the quote does not demonstrate the point, the feedback is confusing and useless. Do NOT anchor to a nearby sentence that merely provides context.
+  3. COMPLETE: Always quote a full grammatical sentence or a self-contained clause — from capital letter (or clause start) through to its terminal punctuation. Never truncate mid-sentence, never cut off at an arbitrary word boundary, never produce a fragment that cannot stand alone.
+  4. NO SHORTENING: Do not trim, abbreviate, or use ellipsis. If the relevant sentence is long, quote it in full anyway.
+  5. FINDABLE: The exact character sequence you produce must appear verbatim in the paragraph text at paragraphIndex. If it cannot be found there via exact string match, the anchor will fail silently."""
 _GUARDRAIL = (
     "NEVER provide replacement prose, rewrites, corrections, or any text the writer "
     "could paste directly into their document. positive_note must describe what already "
     "exists in the document, not suggest what could replace it. Every question_text must "
-    "be a Socratic question, never a correction or revision."
+    "be a Socratic question, never a correction or revision.\n\n"
+    "SPELLING & GRAMMAR: For spelling, grammar, and punctuation issues, identify the "
+    "location and type of error but NEVER provide the correction. Ask the student to "
+    "identify and fix it themselves. Do NOT write out the corrected sentence or word.\n\n"
+    "STRENGTH ITEMS: positive_note must be EXCLUSIVELY positive — no hedging ('but', "
+    "'however', 'although'), no implied criticism, no suggestions for change. Write it "
+    "in a warm, encouraging tone: open with genuine praise (e.g. 'Your use of...', "
+    "'This is a strong example of...', 'Excellent handling of...') and be specific about "
+    "what the student did well. It must read as direct, heartfelt affirmation of what "
+    "already exists in the document — not a neutral observation. The follow-up "
+    "question_text may invite deeper thinking but must not undermine the affirmation.\n\n"
+    "INLINE ANCHOR IS ONE EXAMPLE: The anchor quote for an inline item is a single "
+    "representative instance of the issue. The question_text MUST make clear the student "
+    "should search their whole draft for the same pattern — not just fix that one spot "
+    "(e.g. 'This appears here, but can you find other places where the same issue occurs?'). "
+    "Never write question_text that implies the anchor is the only occurrence.\n\n"
+    "COVERAGE: You MUST produce at least one kind='strength' item for EVERY "
+    "error_category_id in the taxonomy. If you cannot find something genuinely "
+    "praiseworthy in a category, identify the best attempt or effort the student made "
+    "in that area and affirm it. Never leave a category without a strength item.\n\n"
+    "NO CATEGORY OVERLAP: Each issue must appear in exactly one error_category_id. "
+    "When an issue could fit multiple categories (e.g. a typo could be 'Spelling' or "
+    "'Clarity'), assign it to the MOST SPECIFIC category only. Never flag the same "
+    "text span under multiple categories.\n\n"
+    "NEVER reference 'document-type instructions', 'the instructions', internal "
+    "guidelines, or system-level configuration in your feedback output. Frame all "
+    "feedback as general writing best practice or cite the relevant style guide by its "
+    "public name (e.g. 'McGill Guide', 'Bluebook')."
 )
 
 _SCAFFOLDING = SystemScaffolding(
@@ -152,7 +192,7 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
                     'restrictions_description': result[7],
                     'notes_description': result[8],
                     'updated_at': result[9],
-                    'temperature': 0.7,
+                    'temperature': 0.4,
                     'bedrock_model_id': bedrock_model_id,
                 }
 
@@ -168,7 +208,7 @@ def load_prompt_config(document_type_id: str, conn: psycopg.Connection) -> dict[
                 'restrictions_description': None,
                 'notes_description': None,
                 'updated_at': None,
-                'temperature': 0.7,
+                'temperature': 0.4,
                 'bedrock_model_id': bedrock_model_id,
             }
     except Exception as e:
@@ -213,9 +253,9 @@ def load_document_type_meta(document_type_id: str, conn: psycopg.Connection) -> 
                 (document_type_id,),
             )
             cat_rows = cur.fetchall()
-            category_ids = [r[0] for r in cat_rows]
+            category_ids = [str(r[0]) for r in cat_rows]
             category_names = [r[1] for r in cat_rows]
-            category_guidance = {r[0]: r[2] for r in cat_rows}
+            category_guidance = {str(r[0]): r[2] for r in cat_rows}
 
         return {
             "name": doc_type_name,
@@ -292,7 +332,14 @@ def assemble_prompt(
                 para_lines.append(f"[PARAGRAPH {i} — context only, do NOT generate feedback]\n{text}")
         doc_text = '\n\n'.join(para_lines)
     else:
-        doc_text = '\n'.join([seg.get('text', '') for seg in segments if 'text' in seg])
+        # Always label paragraphs with their index so the model can produce
+        # accurate anchor.paragraphIndex values in inline feedback items.
+        para_lines = []
+        for i, seg in enumerate(segments):
+            text = seg.get('text', '')
+            if text:
+                para_lines.append(f"[PARAGRAPH {i}]\n{text}")
+        doc_text = '\n\n'.join(para_lines)
 
     # Build type instructions: department-level prompt first, then doc-type fields
     type_instruction_parts = []
@@ -301,8 +348,29 @@ def assemble_prompt(
     base_instructions = config.get('type_prompt_text', '')
     if base_instructions:
         type_instruction_parts.append(base_instructions)
+    # Citation guide — stored as a short key in structure_description; expand to
+    # a full instruction so the model knows which standard to apply.
+    _CITATION_GUIDE_INSTRUCTIONS = {
+        'mcgill': (
+            "Citation Standard: Canadian Guide to Uniform Legal Citation (McGill Guide). "
+            "All citations, footnotes, and references must conform to McGill Guide format. "
+            "Flag any citations that deviate from McGill Guide conventions."
+        ),
+        'coal': (
+            "Citation Standard: Canadian Online Annotation of Legislation (COAL). "
+            "All citations and references must conform to COAL format. "
+            "Flag any citations that deviate from COAL conventions."
+        ),
+    }
+
+    structure_value = (config.get('structure_description') or '').strip()
+    citation_instruction = _CITATION_GUIDE_INSTRUCTIONS.get(structure_value, '')
+    if citation_instruction:
+        type_instruction_parts.append(citation_instruction)
+    elif structure_value and structure_value not in ('', 'custom'):
+        type_instruction_parts.append(f"Structure & Organization: {structure_value}")
+
     for field_label, field_key in [
-        ('Structure & Organization', 'structure_description'),
         ("Restrictions & Don'ts", 'restrictions_description'),
         ('Additional Notes', 'notes_description'),
     ]:
@@ -344,12 +412,10 @@ def assemble_prompt(
     category_names_list = doc_type_meta.get('category_names', [])
     category_guidance = doc_type_meta.get('category_guidance', {})
 
-    taxonomy_lines = []
     criteria_blocks = []
     for cid, cname in zip(category_ids, category_names_list):
         if not cid or not cname:
             continue
-        taxonomy_lines.append(f"  {cid}: {cname}")
         override = category_overrides.get(cid, {})
         definition = (override.get('definition') or '').strip()
         criteria = (override.get('criteria') or '').strip()
@@ -364,10 +430,6 @@ def assemble_prompt(
                 block_parts.append(f"  Success criteria: {criteria}")
             criteria_blocks.append('\n'.join(block_parts))
 
-    if taxonomy_lines:
-        taxonomy_block = "Feedback taxonomy (use the UUID as error_category_id):\n" + "\n".join(taxonomy_lines)
-        type_instructions = taxonomy_block + ("\n\n" + type_instructions if type_instructions else "")
-
     if criteria_blocks:
         criteria_section = "Per-category evaluation criteria:\n" + "\n\n".join(criteria_blocks)
         type_instructions = (type_instructions + "\n\n" + criteria_section) if type_instructions else criteria_section
@@ -375,6 +437,7 @@ def assemble_prompt(
     doc_type_config = DocumentTypePromptConfig(
         document_type_name=doc_type_meta.get('name', 'Unknown Document Type'),
         category_names=tuple(category_names_list),
+        category_ids=tuple(category_ids),
         tone=config.get('tone', 'supportive'),
         density=config.get('density', 'moderate'),
         category_priority=tuple(config.get('category_priority', [])),
@@ -424,7 +487,7 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
             'anthropic_version': 'bedrock-2023-05-31',
             'max_tokens': 8192,
             'messages': [{'role': 'user', 'content': user_text}],
-            'temperature': float(config.get('temperature', 0.7)),
+            'temperature': float(config.get('temperature', 0.4)),
         }
         if system_text:
             body['system'] = system_text
@@ -495,6 +558,52 @@ def compute_content_fingerprint(text: str, start_offset: int, end_offset: int) -
     return hashlib.sha256(anchor_text.encode()).hexdigest()[:16]
 
 
+def _normalize_whitespace(text: str) -> str:
+    """Collapse runs of whitespace to single spaces for fuzzy anchor matching."""
+    import re
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _fuzzy_find(para_text: str, model_quote: str) -> int:
+    """Find model_quote in para_text using whitespace-normalized comparison.
+
+    OCR output may introduce extra spaces, newlines, or trim differences.
+    Returns the start offset in the ORIGINAL para_text, or -1 if not found.
+    """
+    norm_para = _normalize_whitespace(para_text)
+    norm_quote = _normalize_whitespace(model_quote)
+    if not norm_quote:
+        return -1
+    pos_in_norm = norm_para.lower().find(norm_quote.lower())
+    if pos_in_norm == -1:
+        return -1
+    # Map the normalized position back to the original string position.
+    # Walk through the original text, counting non-collapsed characters.
+    orig_idx = 0
+    norm_idx = 0
+    import re
+    # Build a mapping: for each position in the normalized string, what's the
+    # corresponding position in the original?
+    in_space = False
+    norm_to_orig = []
+    for i, ch in enumerate(para_text):
+        if ch in (' ', '\t', '\n', '\r', '\xa0'):
+            if not in_space:
+                norm_to_orig.append(i)
+                in_space = True
+        else:
+            norm_to_orig.append(i)
+            in_space = False
+    # Handle leading whitespace in original that was stripped in normalized
+    stripped_leading = len(para_text) - len(para_text.lstrip())
+    if stripped_leading > 0 and len(norm_to_orig) > 0:
+        # norm_to_orig[0] should map to the first non-space, adjust if needed
+        pass
+    if pos_in_norm < len(norm_to_orig):
+        return norm_to_orig[pos_in_norm]
+    return -1
+
+
 def expand_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]:
     """Snap offsets so saved quotes never start/end mid-word."""
     start = max(0, min(start, len(text)))
@@ -524,24 +633,68 @@ def insert_feedback_items(
                     # derive exact character offsets. The model produces quotedText
                     # (a complete sentence/clause copied verbatim); we find it via
                     # string search so offsets are always exact.
+                    # Anchors apply to both inline items (required) and strength items (optional).
+                    item_kind = item.get('kind')
+                    anchored_kinds = {'inline', 'strength'}
                     quoted_text = None
-                    if item.get('kind') == 'inline' and 'anchor' in item:
+                    if item_kind in anchored_kinds and 'anchor' in item:
                         anchor_data = item['anchor']
                         para_index = anchor_data.get('paragraphIndex', 0)
                         model_quote = anchor_data.get('quotedText', '')
                         if para_index < len(segments) and model_quote:
                             para_text = segments[para_index].get('text', '')
+                            # 1. Exact match
                             start_offset = para_text.find(model_quote)
+                            match_method = 'exact' if start_offset != -1 else None
                             if start_offset == -1:
-                                # Case-insensitive fallback
+                                # 2. Case-insensitive exact match
                                 start_offset = para_text.lower().find(model_quote.lower())
                                 if start_offset != -1:
+                                    match_method = 'case-insensitive'
                                     model_quote = para_text[start_offset:start_offset + len(model_quote)]
+                            if start_offset == -1:
+                                # 3. Whitespace-normalized fuzzy match (handles OCR artifacts)
+                                start_offset = _fuzzy_find(para_text, model_quote)
+                                if start_offset != -1:
+                                    match_method = 'fuzzy-whitespace'
+                                    norm_len = len(_normalize_whitespace(model_quote))
+                                    count = 0
+                                    end_pos = start_offset
+                                    in_space = False
+                                    for j in range(start_offset, len(para_text)):
+                                        ch = para_text[j]
+                                        if ch in (' ', '\t', '\n', '\r', '\xa0'):
+                                            if not in_space:
+                                                count += 1
+                                                in_space = True
+                                        else:
+                                            count += 1
+                                            in_space = False
+                                        if count >= norm_len:
+                                            end_pos = j + 1
+                                            break
+                                    else:
+                                        end_pos = len(para_text)
+                                    model_quote = para_text[start_offset:end_pos]
                             if start_offset != -1:
                                 end_offset = start_offset + len(model_quote)
                                 quoted_text = para_text[start_offset:end_offset]
                                 anchor_data['startOffset'] = start_offset
                                 anchor_data['endOffset'] = end_offset
+                                logger.info(f"Anchor matched ({match_method}) kind={item_kind} para={para_index} offsets={start_offset}:{end_offset}")
+                            else:
+                                logger.warning(
+                                    f"Anchor match FAILED kind={item_kind} para={para_index} "
+                                    f"quote_preview={model_quote[:80]!r} "
+                                    f"para_preview={para_text[:80]!r}"
+                                )
+                        elif item_kind == 'inline':
+                            if not model_quote:
+                                logger.warning(f"Inline item missing quotedText in anchor")
+                            elif para_index >= len(segments):
+                                logger.warning(f"Anchor paragraphIndex={para_index} out of range (segments={len(segments)})")
+                    elif item_kind == 'inline':
+                        logger.warning(f"Inline item missing anchor field entirely")
 
                     # Insert feedback item
                     feedback_id = str(uuid.uuid4())
@@ -561,9 +714,9 @@ def insert_feedback_items(
                         draft_id
                     ))
 
-                    # Insert anchor if provided, inline, and the quote was found in the paragraph
+                    # Insert anchor if provided, for inline or strength items, when the quote was found
                     current_anchor_id = None
-                    if item.get('kind') == 'inline' and 'anchor' in item:
+                    if item_kind in anchored_kinds and 'anchor' in item:
                         anchor_data = item['anchor']
                         para_index = anchor_data.get('paragraphIndex', 0)
                         start_offset = anchor_data.get('startOffset')
@@ -571,7 +724,7 @@ def insert_feedback_items(
                         if start_offset is None or end_offset is None:
                             # Quote was not found in paragraph — skip anchor insert
                             anchor_data = None
-                    if item.get('kind') == 'inline' and anchor_data:
+                    if item_kind in anchored_kinds and anchor_data:
                         para_index = anchor_data.get('paragraphIndex', 0)
                         start_offset = anchor_data.get('startOffset', 0)
                         end_offset = anchor_data.get('endOffset', 0)
@@ -784,7 +937,12 @@ def persist_resolution_status(
         curr_segs = [Segment(index=s.get('index', i), text=s.get('text', ''))
                      for i, s in enumerate(new_segments)]
 
+        logger.info(f"DiffEngine: computing diff prev_segs={len(prev_segs)} curr_segs={len(curr_segs)}")
         diff = DiffEngine().compute(prev_segs, curr_segs)
+        logger.info(
+            f"DiffEngine: result changed={len(diff.changed)} added={len(diff.added)} "
+            f"removed={len(diff.removed)} unchanged={len(diff.unchanged)}"
+        )
 
         from wren_engine.anchor_service import Anchor, AnchorState
         from wren_engine.progress_tracker import JudgeInput
@@ -1353,6 +1511,21 @@ def process_feedback_request(
         # department's taxonomy and have it silently inserted.
         valid_category_ids = set(doc_type_meta.get('category_ids', []))
         if valid_category_ids:
+            name_to_id = {
+                name.lower(): cid
+                for cid, name in zip(doc_type_meta.get('category_ids', []), doc_type_meta.get('category_names', []))
+            }
+            rescued = 0
+            for item in feedback_items:
+                raw = item.get('error_category_id', '')
+                if raw not in valid_category_ids:
+                    mapped = name_to_id.get(raw.lower())
+                    if mapped:
+                        item['error_category_id'] = mapped
+                        rescued += 1
+            if rescued:
+                logger.info(f"Rescued {rescued} feedback items by mapping category name to UUID")
+
             before_taxonomy = len(feedback_items)
             feedback_items = [
                 item for item in feedback_items
@@ -1372,6 +1545,45 @@ def process_feedback_request(
             filtered_count = original_count - len(feedback_items)
             if filtered_count > 0:
                 logger.info(f"Filtered {filtered_count} feedback items outside dept admin selection (kept {len(feedback_items)})")
+
+        # Step 7c: Validate strength coverage — every category should have at least one.
+        categories_with_strengths = {
+            item['error_category_id'] for item in feedback_items
+            if item.get('kind') == 'strength'
+        }
+        categories_missing_strengths = valid_category_ids - categories_with_strengths
+        if categories_missing_strengths:
+            missing_names = [
+                cname for cid, cname in zip(
+                    doc_type_meta.get('category_ids', []),
+                    doc_type_meta.get('category_names', [])
+                )
+                if cid in categories_missing_strengths
+            ]
+            logger.warning(
+                f"Model omitted strength items for {len(categories_missing_strengths)} "
+                f"categories: {missing_names}"
+            )
+
+        # Warn when inline items lack anchors or strength items lack anchors (anchor encouraged).
+        inline_missing_anchor = [
+            item.get('error_category_id') for item in feedback_items
+            if item.get('kind') == 'inline' and 'anchor' not in item
+        ]
+        if inline_missing_anchor:
+            logger.warning(
+                f"{len(inline_missing_anchor)} inline item(s) missing anchor — "
+                f"categories: {inline_missing_anchor}"
+            )
+        strength_missing_anchor = [
+            item.get('error_category_id') for item in feedback_items
+            if item.get('kind') == 'strength' and 'anchor' not in item
+        ]
+        if strength_missing_anchor:
+            logger.warning(
+                f"{len(strength_missing_anchor)} strength item(s) missing anchor (quote from doc expected) — "
+                f"categories: {strength_missing_anchor}"
+            )
 
         # Step 8: Insert into database and update counters
         logger.info("Inserting feedback items...")

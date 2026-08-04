@@ -23,7 +23,7 @@
  * `kind === 'structural'` item is never mistaken for an anchored inline item.
  */
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArrowUp, Minus, Star, TrendingUp, X } from 'lucide-react';
+import { ArrowUp, CheckCircle2, Minus, Star, TrendingUp, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
@@ -55,7 +55,7 @@ function buildDebriefDisclaimer(departmentName?: string): string {
   const expert = departmentName
     ? `an expert in ${departmentName}`
     : 'an expert in your department';
-  return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert} or an admin user.`;
+  return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert}.`;
 }
 
 export function AiDebriefModal({
@@ -303,6 +303,9 @@ export function AiDebriefModal({
                                 {pattern.tendency === 'persistent' && (
                                   <Minus size={16} className="text-signal-caution" aria-hidden="true" />
                                 )}
+                                {pattern.tendency === 'nearly_resolved' && (
+                                  <CheckCircle2 size={16} className="text-signal-positive" aria-hidden="true" />
+                                )}
                                 {pattern.tendency === 'emerging' && (
                                   <Star size={16} className="text-accent-primary" aria-hidden="true" />
                                 )}
@@ -317,9 +320,11 @@ export function AiDebriefModal({
                                       ? 'bg-signal-positive/10 text-signal-positive'
                                       : pattern.tendency === 'persistent'
                                         ? 'bg-signal-caution/10 text-signal-caution'
-                                        : 'bg-accent-primary/10 text-accent-primary'
+                                        : pattern.tendency === 'nearly_resolved'
+                                          ? 'bg-signal-positive/10 text-signal-positive'
+                                          : 'bg-accent-primary/10 text-accent-primary'
                                   }`}>
-                                    {pattern.tendency}
+                                    {pattern.tendency === 'nearly_resolved' ? 'nearly there' : pattern.tendency}
                                   </span>
                                 </div>
                                 <p className="text-bodySmall leading-relaxed text-text-secondary">
