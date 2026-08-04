@@ -148,3 +148,81 @@ export function asTipTapDoc(value: unknown): TipTapDoc | undefined {
   if (!isTipTapDoc(value)) return undefined;
   return value as TipTapDoc;
 }
+
+/**
+ * A single well-formed footnote extracted from a TipTap document
+ * (footnote-citation-support spec, Requirement 5.5).
+ */
+export interface ExtractedFootnote {
+  footnoteNumber: number;
+  /** Index of the segment (paragraph/heading) containing the marker. */
+  paragraphIndex: number;
+  /** Plain-text flatten of the footnote's rich body. */
+  content: string;
+  author: string;
+  title: string;
+  source: string;
+  pinpoint: string;
+  year: string;
+}
+
+/** Find every `footnote` node directly or transitively under `node` (does not recurse into a found footnote's own `content` attr). */
+function findFootnoteNodes(node: TipTapNode): TipTapNode[] {
+  const out: TipTapNode[] = [];
+  const walk = (current: TipTapNode) => {
+    if (current.type === 'footnote') {
+      out.push(current);
+      return;
+    }
+    for (const child of current.content ?? []) walk(child);
+  };
+  walk(node);
+  return out;
+}
+
+/**
+ * Structured footnote extraction for the Feedback Engine (Requirement 5.1,
+ * 5.5). Returns `[]` for `null`/`undefined` content (Requirement 5.5). Skips
+ * (omits) any footnote node missing `footnoteNumber` or `content`, continuing
+ * to process the rest without throwing (Requirement 5.7) — mirrors the
+ * fault-tolerance pattern already used by {@link asTipTapDoc} (narrow-and-skip
+ * rather than throw). Entries are sorted ascending by `footnoteNumber`
+ * (Requirement 5.3's ordering, matching Property 10).
+ */
+export function extractFootnotes(content: TipTapNode | null | undefined): ExtractedFootnote[] {
+  if (!content || content.type !== 'doc') return [];
+
+  const out: ExtractedFootnote[] = [];
+  let paragraphIndex = 0;
+
+  const walk = (node: TipTapNode) => {
+    const type = node.type ?? '';
+    if (type === 'paragraph' || type === 'heading') {
+      const footnotesInParagraph = findFootnoteNodes(node);
+      for (const fn of footnotesInParagraph) {
+        const num = fn.attrs?.footnoteNumber;
+        const body = fn.attrs?.content;
+        if (typeof num !== 'number' || !Number.isInteger(num) || num <= 0 || body === undefined) {
+          continue;
+        }
+        out.push({
+          footnoteNumber: num,
+          paragraphIndex,
+          content: collectPlainText(body as TipTapNode),
+          author: String(fn.attrs?.author ?? ''),
+          title: String(fn.attrs?.title ?? ''),
+          source: String(fn.attrs?.source ?? ''),
+          pinpoint: String(fn.attrs?.pinpoint ?? ''),
+          year: String(fn.attrs?.year ?? ''),
+        });
+      }
+      paragraphIndex += 1;
+      return;
+    }
+    for (const child of node.content ?? []) walk(child);
+  };
+
+  for (const child of content.content ?? []) walk(child);
+
+  return out.sort((a, b) => a.footnoteNumber - b.footnoteNumber);
+}
