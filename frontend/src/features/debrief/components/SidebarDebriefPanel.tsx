@@ -16,8 +16,9 @@ import { useDocuments, useOrganizations, useWritingTypes } from '@/features/dash
 
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
+import { SectionApplicabilityToggle } from './SectionApplicabilityToggle';
 
-import { useAiDebrief, useDebriefHistory, useRegenerateDebrief } from '../useDebrief';
+import { useAiDebrief, useDebriefHistory, useRegenerateDebrief, useSectionApplicability } from '../useDebrief';
 import { useDebriefSubscription } from '../useDebriefSubscription';
 
 import type { ProgressPattern } from '../debriefTypes';
@@ -174,6 +175,8 @@ export function SidebarDebriefPanel({
     selectedDraftId ?? (historyQuery.data?.[0]?.draftId || null);
   const debriefEnabled = isDocumentReady && (historySettled || !!selectedDraftId);
   const debriefQuery = useAiDebrief(environmentId, effectiveDraftId, debriefEnabled);
+  const activeDraftId = debriefQuery.data?.draftId ?? effectiveDraftId;
+  const applicabilityQuery = useSectionApplicability(environmentId, activeDraftId);
 
   useDebriefSubscription(
     environmentId,
@@ -658,9 +661,17 @@ export function SidebarDebriefPanel({
                       {/* Category heading */}
                       <h4
                         id={`debrief-cat-${category}`}
-                        className="flex items-center gap-xs text-heading4 font-sans font-bold text-text-primary border-b border-border-subtle pb-xs"
+                        className="flex items-center justify-between gap-xs text-heading4 font-sans font-bold text-text-primary border-b border-border-subtle pb-xs"
                       >
-                        {categoryLabel}
+                        <span>{categoryLabel}</span>
+                        {activeDraftId && (
+                          <SectionApplicabilityToggle
+                            environmentId={environmentId}
+                            draftId={activeDraftId}
+                            errorCategoryId={category}
+                            initialVote={applicabilityQuery.data?.votes[category]}
+                          />
+                        )}
                       </h4>
 
                       {/* What's Done Well — affirmations only, zero questions */}

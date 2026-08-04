@@ -62,3 +62,18 @@ export type FeedbackHelpfulnessInput = z.infer<
 
 export const helpfulnessAckSchema = z.object({ recorded: z.boolean() }).strict();
 export type HelpfulnessAck = z.infer<typeof helpfulnessAckSchema>;
+
+export const sectionApplicabilityInputSchema = z
+  .object({
+    environmentId: idSchema,
+    draftId: idSchema,
+    errorCategoryId: idSchema,
+    applicable: z.boolean(),
+  })
+  .strict();
+export type SectionApplicabilityInput = z.infer<typeof sectionApplicabilityInputSchema>;
+
+export const sectionApplicabilityVotesSchema = z
+  .object({ votes: z.record(z.string(), z.boolean()) })
+  .strict();
+export type SectionApplicabilityVotes = z.infer<typeof sectionApplicabilityVotesSchema>;

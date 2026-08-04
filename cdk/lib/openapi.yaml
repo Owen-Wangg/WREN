@@ -2726,6 +2726,149 @@ paths:
               schema:
                 type: string
 
+  /v1/feedback-section-applicability:
+    get:
+      summary: Fetch per-section applicability votes for a debrief
+      description: |
+        Returns a map of errorCategoryId → applicable (boolean) for the given
+        document + draft. Only the owning student can read their own votes.
+      tags: [Feedback]
+      operationId: getSectionApplicability
+      parameters:
+        - name: environmentId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Document ID (writing environment)
+        - name: draftId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Draft version the debrief was generated against
+      responses:
+        "200":
+          description: Votes map
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [votes]
+                properties:
+                  votes:
+                    type: object
+                    additionalProperties:
+                      type: boolean
+                    description: Map of errorCategoryId → applicable
+        "400":
+          description: Missing required query parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+    post:
+      summary: Record a student's applicable/not-applicable vote on a debrief section
+      description: |
+        Upserts a per-category applicability vote for the owning student.
+        Toggling the same category replaces the previous vote. Persisted
+        anonymously (no user_id stored); keyed by document + draft + category.
+      tags: [Feedback]
+      operationId: recordSectionApplicability
+      x-amazon-apigateway-request-validator: full
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [environmentId, draftId, errorCategoryId, applicable]
+              properties:
+                environmentId:
+                  type: string
+                  format: uuid
+                  description: Document ID (writing environment)
+                draftId:
+                  type: string
+                  format: uuid
+                  description: Draft version the debrief was generated against
+                errorCategoryId:
+                  type: string
+                  format: uuid
+                  description: The error category (debrief section) being rated
+                applicable:
+                  type: boolean
+                  description: Whether the student considers this section applicable to their writing
+      responses:
+        "200":
+          description: Vote recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recorded]
+                properties:
+                  recorded:
+                    type: boolean
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   /v1/analytics/feedback-helpfulness:
     get:
       summary: Get helpfulness-rating analytics for a document type

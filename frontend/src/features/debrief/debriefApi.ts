@@ -1,8 +1,19 @@
 import { z } from 'zod';
 
-import { feedbackHelpfulnessInputSchema, helpfulnessAckSchema } from './debriefTypes';
+import {
+  feedbackHelpfulnessInputSchema,
+  helpfulnessAckSchema,
+  sectionApplicabilityInputSchema,
+  sectionApplicabilityVotesSchema,
+} from './debriefTypes';
 
-import type { Debrief, FeedbackHelpfulnessInput, HelpfulnessAck } from './debriefTypes';
+import type {
+  Debrief,
+  FeedbackHelpfulnessInput,
+  HelpfulnessAck,
+  SectionApplicabilityInput,
+  SectionApplicabilityVotes,
+} from './debriefTypes';
 import type { HttpClient } from '@/services';
 
 // Paths — all real /v1 routes
@@ -25,6 +36,7 @@ export function regenerateDebriefPath(environmentId: string): string {
 }
 
 export const FEEDBACK_HELPFULNESS_PATH = '/v1/feedback-helpfulness';
+export const FEEDBACK_SECTION_APPLICABILITY_PATH = '/v1/feedback-section-applicability';
 
 const feedbackResponseSchema = z.object({
   items: z.array(z.object({
@@ -125,6 +137,29 @@ export async function regenerateDebrief(
     method: 'POST',
     schema: z.object({ jobId: z.string().optional(), status: z.string().optional() }).passthrough(),
   });
+}
+
+/** Records an applicable/not-applicable vote for one debrief section (upsert). */
+export function recordSectionApplicability(
+  client: HttpClient,
+  input: SectionApplicabilityInput,
+): Promise<HelpfulnessAck> {
+  const body = sectionApplicabilityInputSchema.parse(input);
+  return client.request(FEEDBACK_SECTION_APPLICABILITY_PATH, {
+    method: 'POST',
+    body,
+    schema: helpfulnessAckSchema,
+  });
+}
+
+/** Fetches all applicability votes for the given document + draft. */
+export function fetchSectionApplicability(
+  client: HttpClient,
+  environmentId: string,
+  draftId: string,
+): Promise<SectionApplicabilityVotes> {
+  const path = `${FEEDBACK_SECTION_APPLICABILITY_PATH}?environmentId=${encodeURIComponent(environmentId)}&draftId=${encodeURIComponent(draftId)}`;
+  return client.request(path, { schema: sectionApplicabilityVotesSchema });
 }
 
 /**

@@ -14,6 +14,10 @@ import {
   type DocumentTypeContext,
 } from './askWren.js';
 import {
+  upsertSectionApplicability,
+  getSectionApplicabilityVotes,
+} from './sectionApplicabilityService.js';
+import {
   assertAskMessageAllowed,
   reserveDebriefGeneration,
   UsageLimitReachedError,
@@ -321,6 +325,12 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     }
     if (resource === '/v1/feedback-helpfulness' && httpMethod === 'POST') {
       return await wrapHandler(() => handleRecordFeedbackHelpfulness(event));
+    }
+    if (resource === '/v1/feedback-section-applicability' && httpMethod === 'POST') {
+      return await wrapHandler(() => handleRecordSectionApplicability(event));
+    }
+    if (resource === '/v1/feedback-section-applicability' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetSectionApplicability(event));
     }
 
     return withCors({
@@ -1004,4 +1014,56 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
       message: reply,
     }),
   };
+}
+
+async function handleRecordSectionApplicability(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  if (!actor.userId) {
+    return withCors({ statusCode: 401, body: JSON.stringify({ code: 'UNAUTHORIZED', message: 'Authentication required' }) });
+  }
+
+  const body = event.body ? JSON.parse(event.body) : {};
+  const { environmentId, draftId, errorCategoryId, applicable } = body;
+
+  if (!environmentId || !draftId || !errorCategoryId || typeof applicable !== 'boolean') {
+    return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'environmentId, draftId, errorCategoryId, and applicable are required' }) });
+  }
+
+  const db = await getDataAccess();
+  const docRows = await db.query<{ owner_user_id: string }>(
+    `SELECT owner_user_id FROM document WHERE id = $1`,
+    [environmentId],
+  );
+  if (docRows.length === 0 || docRows[0].owner_user_id !== actor.userId) {
+    return withCors({ statusCode: 404, body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }) });
+  }
+
+  await upsertSectionApplicability(db, environmentId, draftId, errorCategoryId, applicable);
+
+  return withCors({ statusCode: 200, body: JSON.stringify({ recorded: true }) });
+}
+
+async function handleGetSectionApplicability(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  if (!actor.userId) {
+    return withCors({ statusCode: 401, body: JSON.stringify({ code: 'UNAUTHORIZED', message: 'Authentication required' }) });
+  }
+
+  const { environmentId, draftId } = event.queryStringParameters || {};
+  if (!environmentId || !draftId) {
+    return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'environmentId and draftId are required' }) });
+  }
+
+  const db = await getDataAccess();
+  const docRows = await db.query<{ owner_user_id: string }>(
+    `SELECT owner_user_id FROM document WHERE id = $1`,
+    [environmentId],
+  );
+  if (docRows.length === 0 || docRows[0].owner_user_id !== actor.userId) {
+    return withCors({ statusCode: 404, body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }) });
+  }
+
+  const votes = await getSectionApplicabilityVotes(db, environmentId, draftId);
+
+  return withCors({ statusCode: 200, body: JSON.stringify({ votes }) });
 }

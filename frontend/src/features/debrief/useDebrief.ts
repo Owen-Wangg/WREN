@@ -11,12 +11,19 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   fetchDebrief,
   fetchDebriefHistory,
+  fetchSectionApplicability,
   recordFeedbackHelpfulness,
+  recordSectionApplicability,
   regenerateDebrief,
 } from './debriefApi';
 
 import type { DebriefHistoryVersion } from './debriefApi';
-import type { FeedbackHelpfulnessInput, HelpfulnessAck } from './debriefTypes';
+import type {
+  FeedbackHelpfulnessInput,
+  HelpfulnessAck,
+  SectionApplicabilityInput,
+  SectionApplicabilityVotes,
+} from './debriefTypes';
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 import type { Debrief } from './debriefTypes';
 
@@ -62,6 +69,30 @@ export function useRegenerateDebrief(
 ): UseMutationResult<void, unknown, void> {
   return useMutation({
     mutationFn: () => regenerateDebrief(apiClient, environmentId),
+  });
+}
+
+/** Fetches all per-section applicability votes for a debrief. */
+export function useSectionApplicability(
+  environmentId: string,
+  draftId: string | null | undefined,
+): UseQueryResult<SectionApplicabilityVotes> {
+  return useQuery({
+    queryKey: queryKeys.sectionApplicability(environmentId, draftId ?? ''),
+    queryFn: () => fetchSectionApplicability(apiClient, environmentId, draftId!),
+    enabled: !!environmentId && !!draftId,
+  });
+}
+
+/** Records (upserts) an applicable/not-applicable vote for one debrief section. */
+export function useRecordSectionApplicability(): UseMutationResult<
+  HelpfulnessAck,
+  unknown,
+  SectionApplicabilityInput
+> {
+  return useMutation({
+    mutationFn: (input: SectionApplicabilityInput) =>
+      recordSectionApplicability(apiClient, input),
   });
 }
 
