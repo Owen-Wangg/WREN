@@ -199,8 +199,6 @@ export function DocumentEditorPage() {
     navigate(location.pathname, { replace: true, state: rest });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
   }, []);
-  const [ocrEngine, setOcrEngine] = useState<OcrEngineChoice>(() => readOcrEnginePreference());
-  const [ocrComparison, setOcrComparison] = useState<OcrComparison | undefined>(undefined);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
