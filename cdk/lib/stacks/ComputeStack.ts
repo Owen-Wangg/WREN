@@ -133,7 +133,7 @@ export class ComputeStack extends Stack {
       entry: path.join(monorepoRoot, "backend/document/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      // OCR + LiteParse needs headroom (scanned PDFs).
+      // Textract OCR needs headroom for multi-page PDF analysis.
       // PDF ingest is async via SQS so API Gateway's ~29s sync cap does not
       // abort large OCR jobs — the worker uses this full timeout.
       memorySize: 2048,
@@ -146,57 +146,15 @@ export class ComputeStack extends Stack {
         ...dbEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
         PDF_OCR_ENABLED: "true",
-        // Default OCR engine; runtime override via request body `ocrEngine`.
-        PDF_OCR_ENGINE: "tesseract",
-        // Bundled next to the handler via commandHooks below.
-        TESSDATA_PREFIX: "/var/task/tessdata",
-        // Optional hook for an external OCR HTTP service (5C).
-        // PDF_OCR_SERVER_URL: "",
+        // Textract is the sole OCR engine — no LiteParse/Tesseract.
+        PDF_OCR_ENGINE: "textract",
         CONVERSATION_TABLE_NAME: props.conversationTableName,
       },
-      bundling: {
-        ...sharedBundling,
-        // Native napi binaries for LiteParse must ship with the bundle.
-        nodeModules: ["@llamaindex/liteparse"],
-        commandHooks: {
-          beforeBundling(): string[] {
-            return [];
-          },
-          beforeInstall(): string[] {
-            return [];
-          },
-          afterBundling(inputDir: string, outputDir: string): string[] {
-            const tessdataSrc = path.join(
-              inputDir,
-              "backend",
-              "document",
-              "tessdata",
-            );
-            const isWindows = process.platform === "win32";
-            // Local Windows bundling only installs win32 optional natives.
-            // Force the Lambda (Amazon Linux / glibc) package into the asset so
-            // PDF extract doesn't fail with "Failed to load native module for linux-x64".
-            // `--force` is required on Windows — npm otherwise rejects EBADPLATFORM.
-            const installLinuxNative = isWindows
-              ? `cd /d "${outputDir}" && npm install @llamaindex/liteparse-linux-x64-gnu@2.8.1 --omit=dev --no-save --no-package-lock --force`
-              : `cd "${outputDir}" && npm install @llamaindex/liteparse-linux-x64-gnu@2.8.1 --omit=dev --no-save --no-package-lock --force`;
-            if (isWindows) {
-              return [
-                installLinuxNative,
-                `if exist "${tessdataSrc}" xcopy /E /I /Y "${tessdataSrc}" "${outputDir}\\tessdata"`,
-              ];
-            }
-            return [
-              installLinuxNative,
-              `mkdir -p "${outputDir}/tessdata" && cp -R "${tessdataSrc}/." "${outputDir}/tessdata/" || true`,
-            ];
-          },
-        },
-      },
+      bundling: sharedBundling,
     });
 
     // -----------------------------------------------------------------------
-    // Document ingest queue (async PDF OCR / LiteParse)
+    // Document ingest queue (async PDF OCR via Textract)
     // -----------------------------------------------------------------------
     this.documentIngestDlq = new sqs.Queue(this, "DocumentIngestDlq", {
       queueName: `${config.stackPrefix}-document-ingest-dlq`,

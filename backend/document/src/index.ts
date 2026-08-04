@@ -19,8 +19,8 @@ export {
 } from './ingestion';
 export { UnsupportedFileFormatError } from './errors';
 export { MammothDocxExtractor, type DocxExtractor } from './docxExtractor';
-export { LiteParsePdfExtractor, resetLiteParseCache, type PdfExtractor, type RichPdfExtractor } from './pdfExtractor';
-export { spatialPagesToTipTap } from './pdfToTipTap';
+export { type PdfExtractor, type RichPdfExtractor } from './pdfExtractor';
+export { TextractPdfExtractor } from './textractPdfExtractor';
 export {
   createDraftRevision,
   selectCurrentDraft,

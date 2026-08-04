@@ -183,7 +183,7 @@ export function createDocument(
     source: { kind: 'file'; key: string } | { kind: 'paste'; text: string };
     /** Optional TipTap JSON so rich formatting survives reload. */
     content?: TipTapDoc;
-    /** OCR engine for PDF ingest (`tesseract` | `textract` | `compare`). */
+    /** OCR engine for PDF ingest. */
     ocrEngine?: OcrEngineChoice;
   },
 ): Promise<Document> {
@@ -226,7 +226,6 @@ const ocrEngineResultSchema = z.object({
 });
 
 const ocrComparisonSchema = z.object({
-  tesseract: ocrEngineResultSchema.optional(),
   textract: ocrEngineResultSchema.optional(),
   primaryEngine: z.string(),
 });
@@ -242,7 +241,7 @@ const ingestStatusSchema = z.object({
 
 export type IngestStatus = z.infer<typeof ingestStatusSchema>;
 export type OcrComparison = z.infer<typeof ocrComparisonSchema>;
-export type OcrEngineChoice = 'tesseract' | 'textract' | 'compare';
+export type OcrEngineChoice = 'textract';
 
 /** Polls async PDF ingest status (`queued` → `completed` / `failed`). */
 export function fetchIngestStatus(

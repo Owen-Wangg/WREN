@@ -339,7 +339,7 @@ export const documentSchema = z
     metadata: z.record(z.string(), z.string()),
     status: documentStatusSchema,
     createdAt: isoDateTimeSchema,
-    /** Present when PDF ingest was enqueued (async OCR / LiteParse). */
+    /** Present when PDF ingest was enqueued (async Textract OCR). */
     ingestStatus: z.enum(['queued', 'processing', 'completed', 'failed']).optional(),
     ingestJobId: z.string().min(1).optional(),
   })

@@ -34,7 +34,7 @@ export {
 } from './textractLines.js';
 export { textractLayoutBlocksToTipTap } from './textractLayoutToTipTap.js';
 
-export type OcrEngineName = 'tesseract' | 'textract';
+export type OcrEngineName = 'textract';
 
 export interface TextractOcrResult {
   readonly text: string;
@@ -228,13 +228,9 @@ export async function extractWithTextract(
   }
 }
 
-/** Resolve default OCR engine from env (runtime override may replace). */
+/** Resolve OCR engine — always returns 'textract' (Tesseract/LiteParse removed). */
 export function resolveOcrEngine(
-  override?: string | null,
-): OcrEngineName | 'compare' {
-  const raw = (override ?? process.env.PDF_OCR_ENGINE ?? 'tesseract')
-    .trim()
-    .toLowerCase();
-  if (raw === 'textract' || raw === 'compare' || raw === 'tesseract') return raw;
-  return 'tesseract';
+  _override?: string | null,
+): OcrEngineName {
+  return 'textract';
 }

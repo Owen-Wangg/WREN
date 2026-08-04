@@ -28,8 +28,6 @@ import {
   createDraftFromSource,
   getPresignedUrl,
   fetchIngestStatus,
-  type OcrComparison,
-  type OcrEngineChoice,
 } from '@/features/dashboard/dashboardApi';
 import { generateFeedback, fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
 import { queryKeys } from '@/hooks';
@@ -41,12 +39,6 @@ import {
 } from '@/features/editor/docxContentMapper';
 import { tiptapContentToPdfBlob } from '@/features/editor/pdfExport';
 import { useDraftAutosave } from '@/features/editor/useDraftAutosave';
-import { OcrEngineSelect } from '@/features/editor/components/OcrEngineSelect';
-import { OcrComparisonPanel } from '@/features/editor/components/OcrComparisonPanel';
-import {
-  readOcrEnginePreference,
-  writeOcrEnginePreference,
-} from '@/features/editor/ocrEnginePreference';
 import { apiClient, ApiError } from '@/services';
 import {
   isTipTapDoc,
@@ -100,7 +92,7 @@ function wordCountFromEditorContent(content: JSONContent): number {
 const DOCX_PARSE_FALLBACK_MESSAGE =
   'Couldn’t preserve Word formatting for this upload. Plain text from the server will be used — fonts, colors, alignment, and images may be missing.';
 
-/** Client-side TipTap for DOCX only — PDFs use server LiteParse (source of truth). */
+/** Client-side TipTap for DOCX only — PDFs use server Textract (source of truth). */
 async function parseDocxUploadToTipTap(
   file: File,
 ): Promise<{ content?: JSONContent; warning?: string }> {
@@ -195,8 +187,6 @@ export function DocumentEditorPage() {
   );
   const [isPollingIngest, setIsPollingIngest] = useState(() => !!state?.ingestQueued);
   const [ingestError, setIngestError] = useState<string | undefined>(undefined);
-  const [ocrEngine, setOcrEngine] = useState<OcrEngineChoice>(() => readOcrEnginePreference());
-  const [ocrComparison, setOcrComparison] = useState<OcrComparison | undefined>(undefined);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
@@ -375,7 +365,7 @@ export function DocumentEditorPage() {
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
       const isDocx = file.name.toLowerCase().endsWith('.docx');
-      // DOCX: client TipTap. PDF: server LiteParse is source of truth (1C).
+      // DOCX: client TipTap. PDF: server Textract is source of truth.
       const parsed = isDocx ? await parseDocxUploadToTipTap(file) : {};
       const tipTap = parsed.content;
       const { uploadUrl, key } = await getPresignedUrl(
@@ -401,7 +391,7 @@ export function DocumentEditorPage() {
         envId,
         { kind: 'file', key },
         cleaned,
-        ocrEngine,
+        'textract',
       );
       return { result, docxParseWarning: parsed.warning };
     },
@@ -447,9 +437,6 @@ export function DocumentEditorPage() {
         if (status.status === 'completed') {
           setIsPollingIngest(false);
           setIngestError(undefined);
-          if (status.comparison) {
-            setOcrComparison(status.comparison);
-          }
           await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
           try {
             const draft = await fetchLatestDraft(apiClient, envId);
@@ -469,9 +456,6 @@ export function DocumentEditorPage() {
 
         if (status.status === 'failed') {
           setIsPollingIngest(false);
-          if (status.comparison) {
-            setOcrComparison(status.comparison);
-          }
           setIngestError(
             status.errorMessage ??
               "Couldn't extract this PDF. Try again or upload a .docx for better formatting.",
@@ -653,15 +637,6 @@ export function DocumentEditorPage() {
             className="mt-auto flex flex-col items-stretch gap-[2px] border-t border-border-subtle pb-xs pt-xs"
             aria-label="File actions"
           >
-            <div className="px-[4px] pb-xs">
-              <OcrEngineSelect
-                value={ocrEngine}
-                onChange={(next) => {
-                  setOcrEngine(next);
-                  writeOcrEnginePreference(next);
-                }}
-              />
-            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -875,12 +850,6 @@ export function DocumentEditorPage() {
                 </p>
               )}
             </div>
-          )}
-          {ocrComparison && (
-            <OcrComparisonPanel
-              comparison={ocrComparison}
-              onDismiss={() => setOcrComparison(undefined)}
-            />
           )}
           {isPollingIngest && (
             <div

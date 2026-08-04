@@ -1,10 +1,10 @@
 /**
- * Convert LiteParse spatial text items into TipTap JSONContent (Scope B+).
+ * Convert spatial text items into TipTap JSONContent (Scope B+).
  *
  * Heuristics (4A): soft-wrap paragraph merging, font-name marks, font-size +
  * style headings, non-heading fontSize textStyle marks, x-based indent,
  * nested lists, column-clustered tables with cell marks.
- * Optional LiteParse extras (color / underline / strike) pass through when
+ * Optional extras (color / underline / strike) pass through when
  * present; paragraph/heading textAlign is inferred from geometry.
  */
 import type { TipTapDoc, TipTapNode } from '@wren/types';
@@ -765,7 +765,7 @@ function percentile(sorted: number[], p: number): number {
   return sorted[idx]!;
 }
 
-/** Build a TipTap doc from LiteParse-style pages of spatial text items. */
+/** Build a TipTap doc from spatial pages of text items. */
 export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   const allItems = pages.flatMap((p) => p.textItems ?? []);
   const rawLines = itemsToLines(allItems);

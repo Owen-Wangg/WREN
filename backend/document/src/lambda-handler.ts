@@ -258,7 +258,7 @@ async function updateDepartmentUserCounter(
 }
 
 export const handler = async (event: any): Promise<APIGatewayProxyResult | void> => {
-  // SQS async PDF ingest (LiteParse/OCR) — not an API Gateway event.
+  // SQS async PDF ingest (Textract OCR) — not an API Gateway event.
   if (Array.isArray(event?.Records) && event.Records[0]?.eventSource === 'aws:sqs') {
     for (const record of event.Records) {
       const body = JSON.parse(record.body) as IngestQueueMessage;

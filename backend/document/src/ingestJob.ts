@@ -12,7 +12,6 @@ import { resolveOcrEngine } from './textractOcr.js';
 export type IngestJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
 export interface OcrComparisonResult {
-  readonly tesseract?: { readonly text: string; readonly durationMs: number; readonly textLength: number };
   readonly textract?: { readonly text: string; readonly durationMs: number; readonly textLength: number };
   readonly primaryEngine: string;
 }
@@ -173,7 +172,7 @@ function mapJobRow(row: {
     status: row.status,
     errorMessage: row.error_message,
     draftId: row.draft_id,
-    ocrEngine: row.ocr_engine ?? 'tesseract',
+    ocrEngine: row.ocr_engine ?? 'textract',
     comparison: parseComparison(row.comparison),
   };
 }

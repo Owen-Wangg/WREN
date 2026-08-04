@@ -10,10 +10,10 @@
  *     accepted formats, before any extraction is attempted (Requirement 6.1).
  *   - `.docx`: extracted via the injected {@link DocxExtractor}.
  *   - `.pdf`: best-effort extraction via the injected {@link PdfExtractor}
- *     (design: LiteParse-backed — see `pdfExtractor.ts` for the concrete
- *     `LiteParsePdfExtractor`). No-recoverable-text (empty/whitespace-only)
- *     or a thrown error both become a structured `fallback` result — never
- *     an uncaught exception (Requirement 6.1.4).
+ *     (Textract-backed — see `textractPdfExtractor.ts`).
+ *     No-recoverable-text (empty/whitespace-only) or a thrown error both
+ *     become a structured `fallback` result — never an uncaught exception
+ *     (Requirement 6.1.4).
  *   - Pasted text: accepted directly, no extraction step.
  *
  * Extracted or pasted text is segmented through the SAME pure
