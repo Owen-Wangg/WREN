@@ -936,5 +936,72 @@ export function segmentsToTiptapContent(
   };
 }
 
+/**
+ * A single parsed footnote/endnote, in source-document order.
+ *
+ * Implementation note (deviates from `design.md`'s originally-planned
+ * low-level `word/footnotes.xml` zip reader): the installed `officeparser`
+ * version (7.2.3) surfaces footnotes/endnotes natively via
+ * `OfficeContentNode.notes` (`type: 'note'`, `metadata.noteType`,
+ * `metadata.noteId`) — see the package's documented "Extract footnotes,
+ * endnotes & slide notes" API. Reading raw `word/footnotes.xml` bytes
+ * ourselves would duplicate parsing `officeparser` already does correctly
+ * and is unnecessary; `extractFootnotesXml` is kept as the documented
+ * extraction seam so callers (and tests) have one function to depend on,
+ * but it is implemented as a thin adapter over `officeparser`'s AST rather
+ * than a bespoke zip/XML reader (Requirements 8.3, 8.4).
+ */
+export interface ParsedFootnoteXml {
+  /** The source document's raw `w:id` (or note id), as a string — not renumbered. */
+  id: string;
+  /** Plain-text paragraphs that make up the footnote's body, in order. */
+  paragraphs: string[];
+}
+
+/**
+ * Recursively collect every `notes` entry attached to any node in the tree,
+ * in document-order (depth-first, matching the order `officeNodesToTiptapBlocks`
+ * walks the same tree for body content).
+ */
+function collectOfficeNotes(nodes: OfficeContentNode[]): OfficeContentNode[] {
+  const out: OfficeContentNode[] = [];
+  for (const node of nodes) {
+    if (node.notes && node.notes.length > 0) {
+      out.push(...node.notes);
+    }
+    if (node.children && node.children.length > 0) {
+      out.push(...collectOfficeNotes(node.children));
+    }
+  }
+  return out;
+}
+
+/**
+ * Extract every footnote/endnote from a parsed `officeparser` AST as
+ * `{ id, paragraphs }` entries, in document order. Returns `[]` when the
+ * document has no notes. Never throws — a note whose text cannot be split
+ * into paragraphs still yields a single-paragraph entry from its flattened
+ * `text` (Requirement 8.4's "never silently discard" posture starts here).
+ */
+export function extractFootnotesXml(nodes: OfficeContentNode[]): ParsedFootnoteXml[] {
+  const notes = collectOfficeNotes(nodes);
+  return notes
+    .filter((note) => note.type === 'note')
+    .map((note, index) => {
+      const meta = note.metadata as { noteId?: string } | undefined;
+      const paragraphChildren = (note.children ?? []).filter(
+        (child) => child.type === 'paragraph' || child.type === 'heading',
+      );
+      const paragraphs =
+        paragraphChildren.length > 0
+          ? paragraphChildren.map((p) => (p.text ?? '').trim()).filter((t) => t.length > 0)
+          : [(note.text ?? '').trim()].filter((t) => t.length > 0);
+      return {
+        id: meta?.noteId ?? String(index),
+        paragraphs,
+      };
+    });
+}
+
 // Keep export for any callers that imported the recursive walker name.
 export { officeNodeToTiptapBlocks };

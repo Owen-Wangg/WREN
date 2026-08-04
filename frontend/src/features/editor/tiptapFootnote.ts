@@ -21,7 +21,7 @@
  * render time from node order.
  */
 import { Node, type JSONContent as CoreJSONContent } from '@tiptap/core';
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { EditorState } from '@tiptap/pm/state';
 
 /** Persisted footnote payload — the full node-attrs schema (Requirement 1.4, 2.1, 3.4). */
@@ -78,6 +78,101 @@ export function countFootnotes(doc: ProseMirrorNode): number {
     if (node.type.name === 'footnote') count += 1;
   });
   return count;
+}
+
+/**
+ * Result of a renumbering pass: the (possibly rewritten) document plus
+ * whether any `footnoteNumber` attr actually changed.
+ */
+export interface RenumberResult {
+  doc: ProseMirrorNode;
+  changed: boolean;
+}
+
+/**
+ * Walk the document in order, collect every `footnote` node, and rewrite each
+ * one's `footnoteNumber` attr to its 1-based position in that walk
+ * (Requirements 2.1, 2.3, 2.4, 2.5).
+ *
+ * Pure — takes a ProseMirror document node and returns a (possibly new) node;
+ * never mutates its input in place. A no-op (`changed: false`, same `doc`
+ * reference) when the current numbering already matches document order, so
+ * callers can invoke it defensively (after every insert/delete/paste)
+ * without introducing spurious transactions when nothing needs renumbering.
+ */
+export function renumberFootnotes(doc: ProseMirrorNode): RenumberResult {
+  const currentNumbers: number[] = [];
+  doc.descendants((node) => {
+    if (node.type.name === 'footnote') {
+      currentNumbers.push(Number(node.attrs.footnoteNumber));
+    }
+  });
+
+  const alreadySequential = currentNumbers.every((n, i) => n === i + 1);
+  if (alreadySequential) {
+    return { doc, changed: false };
+  }
+
+  let nextNumber = 1;
+  let changed = false;
+  const nextContent = mapFragmentRenumbering(
+    doc.content,
+    () => nextNumber++,
+    () => {
+      changed = true;
+    },
+  );
+
+  if (!changed) {
+    return { doc, changed: false };
+  }
+
+  const nextDoc = doc.type.create(doc.attrs, nextContent, doc.marks);
+  return { doc: nextDoc, changed: true };
+}
+
+/**
+ * Recursively rebuild a ProseMirror {@link Fragment}, rewriting every
+ * `footnote` node's `footnoteNumber` attr via `nextNumber()`. `onChange` is
+ * invoked the first time an attr actually differs from its current value.
+ * Returns the original fragment reference when nothing changed underneath it.
+ */
+function mapFragmentRenumbering(
+  fragment: Fragment,
+  nextNumber: () => number,
+  onChange: () => void,
+): Fragment {
+  let anyChanged = false;
+  const nodes: ProseMirrorNode[] = [];
+
+  fragment.forEach((node) => {
+    if (node.type.name === 'footnote') {
+      const assigned = nextNumber();
+      if (Number(node.attrs.footnoteNumber) !== assigned) {
+        anyChanged = true;
+        onChange();
+        nodes.push(
+          node.type.create({ ...node.attrs, footnoteNumber: assigned }, node.content, node.marks),
+        );
+      } else {
+        nodes.push(node);
+      }
+      return;
+    }
+    if (node.content.childCount > 0) {
+      const mappedContent = mapFragmentRenumbering(node.content, nextNumber, onChange);
+      if (mappedContent !== node.content) {
+        anyChanged = true;
+        nodes.push(node.type.create(node.attrs, mappedContent, node.marks));
+      } else {
+        nodes.push(node);
+      }
+      return;
+    }
+    nodes.push(node);
+  });
+
+  return anyChanged ? Fragment.fromArray(nodes) : fragment;
 }
 
 /**
