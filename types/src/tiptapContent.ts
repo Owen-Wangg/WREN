@@ -19,9 +19,21 @@ export type TipTapNode = {
 /** Marks that are editor chrome, not writer content. */
 const AI_MARK_TYPES = new Set(['highlight', 'comment']);
 
-/** Collect plain text under a node (marks ignored). */
+/** Collect plain text under a node (marks ignored).
+ *
+ * A `footnote` node (footnote-citation-support spec, Requirements 5.4, 7.1,
+ * 7.5) contributes only its inline marker placeholder `[N]` (using
+ * `attrs.footnoteNumber`) — never its `content` body — so footnote bodies
+ * never pollute the paragraph-level segment substrate that drives diffing,
+ * anchoring, and per-paragraph AI feedback. `[?]` is emitted when
+ * `footnoteNumber` is missing or not a positive integer.
+ */
 export function collectPlainText(node: TipTapNode | undefined | null): string {
   if (!node) return '';
+  if (node.type === 'footnote') {
+    const n = node.attrs?.footnoteNumber;
+    return typeof n === 'number' && Number.isInteger(n) && n > 0 ? `[${n}]` : '[?]';
+  }
   if (typeof node.text === 'string') return node.text;
   if (!Array.isArray(node.content)) return '';
   return node.content.map(collectPlainText).join('');

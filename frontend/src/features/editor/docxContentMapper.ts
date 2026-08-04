@@ -14,6 +14,7 @@ import type { JSONContent } from '@tiptap/react';
 import {
   AlignmentType,
   Document,
+  FootnoteReferenceRun,
   HeadingLevel,
   ImageRun,
   Packer,
@@ -691,9 +692,57 @@ function imageRunFromTipTap(node: JSONContent): ImageRun | null {
   });
 }
 
-function tiptapInlineContentToRuns(inline: JSONContent[]): ParagraphChild[] {
+/** Renders one `Paragraph` per footnote: non-empty citation fields (author/
+ * title/source/pinpoint/year), each rendered only if non-empty (matching the
+ * existing "omit empty" convention already used for `alignment`/`indent`
+ * elsewhere in this file), followed by the rich-text body content mapped
+ * through `tiptapInlineContentToRuns` (Task 12.2). */
+function footnoteBodyToDocxParagraphs(
+  attrs: Record<string, unknown> | undefined | null,
+  footnotesById: Map<number, Paragraph[]>,
+): Paragraph[] {
+  const citationParts = [
+    typeof attrs?.author === 'string' ? attrs.author : '',
+    typeof attrs?.title === 'string' ? attrs.title : '',
+    typeof attrs?.source === 'string' ? attrs.source : '',
+    typeof attrs?.pinpoint === 'string' ? attrs.pinpoint : '',
+    typeof attrs?.year === 'string' ? attrs.year : '',
+  ].filter((v) => v.trim().length > 0);
+
+  const paragraphs: Paragraph[] = [];
+  if (citationParts.length > 0) {
+    paragraphs.push(new Paragraph({ children: [new TextRun({ text: citationParts.join(', ') })] }));
+  }
+
+  const body = attrs?.content as JSONContent | undefined;
+  if (body && Array.isArray(body.content)) {
+    for (const block of body.content) {
+      if (block.type === 'paragraph' || block.type === 'heading') {
+        paragraphs.push(
+          new Paragraph({ children: tiptapInlineContentToRuns(block.content ?? [], footnotesById) }),
+        );
+      }
+    }
+  }
+
+  return paragraphs.length > 0 ? paragraphs : [new Paragraph({})];
+}
+
+function tiptapInlineContentToRuns(
+  inline: JSONContent[],
+  footnotesById: Map<number, Paragraph[]>,
+): ParagraphChild[] {
   const children: ParagraphChild[] = [];
   for (const node of inline) {
+    if (node.type === 'footnote') {
+      const id = Number(node.attrs?.footnoteNumber);
+      if (Number.isInteger(id) && id > 0) {
+        // Already 1..N, sequential, no gaps (renumberFootnotes' invariant).
+        footnotesById.set(id, footnoteBodyToDocxParagraphs(node.attrs, footnotesById));
+        children.push(new FootnoteReferenceRun(id));
+      }
+      continue;
+    }
     if (node.type === 'image') {
       const image = imageRunFromTipTap(node);
       if (image) children.push(image);
@@ -740,8 +789,8 @@ function paragraphAlignmentFromAttrs(
   return align ? ALIGNMENT_TO_DOCX[align] : undefined;
 }
 
-function blockToDocxParagraph(node: JSONContent): Paragraph {
-  const children = tiptapInlineContentToRuns(node.content ?? []);
+function blockToDocxParagraph(node: JSONContent, footnotesById: Map<number, Paragraph[]>): Paragraph {
+  const children = tiptapInlineContentToRuns(node.content ?? [], footnotesById);
   const indent = paragraphIndentFromAttrs(node.attrs as Record<string, unknown> | undefined);
   const alignment = paragraphAlignmentFromAttrs(
     node.attrs as Record<string, unknown> | undefined,
@@ -768,7 +817,11 @@ function imageBlockToDocxParagraph(node: JSONContent): Paragraph | null {
   return new Paragraph({ children: [image] });
 }
 
-function listToDocxParagraphs(node: JSONContent, level = 0): Paragraph[] {
+function listToDocxParagraphs(
+  node: JSONContent,
+  footnotesById: Map<number, Paragraph[]>,
+  level = 0,
+): Paragraph[] {
   const ordered = node.type === 'orderedList';
   const out: Paragraph[] = [];
   for (const item of node.content ?? []) {
@@ -777,7 +830,7 @@ function listToDocxParagraphs(node: JSONContent, level = 0): Paragraph[] {
       if (child.type === 'paragraph' || child.type === 'heading') {
         out.push(
           new Paragraph({
-            children: tiptapInlineContentToRuns(child.content ?? []),
+            children: tiptapInlineContentToRuns(child.content ?? [], footnotesById),
             numbering: ordered
               ? { reference: 'wren-ordered', level }
               : undefined,
@@ -797,31 +850,31 @@ function listToDocxParagraphs(node: JSONContent, level = 0): Paragraph[] {
         const imagePara = imageBlockToDocxParagraph(child);
         if (imagePara) out.push(imagePara);
       } else if (child.type === 'bulletList' || child.type === 'orderedList') {
-        out.push(...listToDocxParagraphs(child, level + 1));
+        out.push(...listToDocxParagraphs(child, footnotesById, level + 1));
       }
     }
   }
   return out;
 }
 
-function cellBlocksToParagraphs(cell: JSONContent): Paragraph[] {
+function cellBlocksToParagraphs(cell: JSONContent, footnotesById: Map<number, Paragraph[]>): Paragraph[] {
   const blocks = cell.content ?? [];
   if (blocks.length === 0) return [new Paragraph({})];
   const paragraphs: Paragraph[] = [];
   for (const block of blocks) {
     if (block.type === 'paragraph' || block.type === 'heading') {
-      paragraphs.push(blockToDocxParagraph(block));
+      paragraphs.push(blockToDocxParagraph(block, footnotesById));
     } else if (block.type === 'image') {
       const imagePara = imageBlockToDocxParagraph(block);
       if (imagePara) paragraphs.push(imagePara);
     } else if (block.type === 'bulletList' || block.type === 'orderedList') {
-      paragraphs.push(...listToDocxParagraphs(block));
+      paragraphs.push(...listToDocxParagraphs(block, footnotesById));
     }
   }
   return paragraphs.length > 0 ? paragraphs : [new Paragraph({})];
 }
 
-function tableToDocx(node: JSONContent): DocxTable {
+function tableToDocx(node: JSONContent, footnotesById: Map<number, Paragraph[]>): DocxTable {
   const rows = (node.content ?? []).filter((r) => r.type === 'tableRow');
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -833,7 +886,7 @@ function tableToDocx(node: JSONContent): DocxTable {
             .map(
               (cell) =>
                 new TableCell({
-                  children: cellBlocksToParagraphs(cell),
+                  children: cellBlocksToParagraphs(cell, footnotesById),
                 }),
             ),
         }),
@@ -844,11 +897,17 @@ function tableToDocx(node: JSONContent): DocxTable {
 /**
  * Builds a `.docx` as raw bytes from the editor's current `JSONContent`.
  * Prefer this in Node / tests; browsers can wrap with `tiptapContentToDocxBlob`.
+ *
+ * Footnotes: each `footnote` node becomes a `FootnoteReferenceRun` keyed by
+ * its `footnoteNumber` (already 1..N, sequential, no gaps), with its full
+ * content+citation payload collected into the `Document`'s `footnotes` map
+ * (Requirement 8.2).
  */
 export async function tiptapContentToDocxBytes(
   content: JSONContent,
 ): Promise<Uint8Array> {
-  const children = tiptapContentToDocxChildren(content);
+  const footnotesById = new Map<number, Paragraph[]>();
+  const children = tiptapContentToDocxChildren(content, footnotesById);
   const document = new Document({
     numbering: {
       config: [
@@ -863,6 +922,16 @@ export async function tiptapContentToDocxBytes(
         },
       ],
     },
+    ...(footnotesById.size > 0
+      ? {
+          footnotes: Object.fromEntries(
+            Array.from(footnotesById.entries()).map(([id, paragraphs]) => [
+              String(id),
+              { children: paragraphs },
+            ]),
+          ),
+        }
+      : {}),
     sections: [{ children: children.length > 0 ? children : [new Paragraph({})] }],
   });
 
@@ -891,19 +960,20 @@ export function tiptapContentToDocxParagraphs(content: JSONContent): Paragraph[]
 
 export function tiptapContentToDocxChildren(
   content: JSONContent,
+  footnotesById: Map<number, Paragraph[]> = new Map(),
 ): Array<Paragraph | DocxTable> {
   const blocks = content.content ?? [];
   const out: Array<Paragraph | DocxTable> = [];
   for (const node of blocks) {
     if (node.type === 'paragraph' || node.type === 'heading') {
-      out.push(blockToDocxParagraph(node));
+      out.push(blockToDocxParagraph(node, footnotesById));
     } else if (node.type === 'image') {
       const imagePara = imageBlockToDocxParagraph(node);
       if (imagePara) out.push(imagePara);
     } else if (node.type === 'bulletList' || node.type === 'orderedList') {
-      out.push(...listToDocxParagraphs(node));
+      out.push(...listToDocxParagraphs(node, footnotesById));
     } else if (node.type === 'table') {
-      out.push(tableToDocx(node));
+      out.push(tableToDocx(node, footnotesById));
     }
   }
   return out;

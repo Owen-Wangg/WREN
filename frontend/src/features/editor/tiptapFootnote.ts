@@ -408,6 +408,39 @@ export const FootnoteNode = Node.create({
 
 export { CITATION_FIELD_NAMES };
 
+/**
+ * Minimal citation-config shape this validator depends on — avoids a
+ * frontend dependency on `@wren/types`'s full `CitationConfig` just for the
+ * one field this function reads (kept structurally compatible so callers
+ * can pass a real `CitationConfig` directly).
+ */
+export interface CitationConfigLike {
+  requiredFields: readonly string[];
+}
+
+/**
+ * Returns the exact subset of `citationConfig.requiredFields` whose
+ * corresponding footnote field is empty or whitespace-only (Requirement 4.4).
+ * Returns `[]` when `citationConfig` is absent — no Citation_Config means no
+ * required-field enforcement (Requirement 4.5).
+ *
+ * Only recognized citation field names (`author`, `title`, `source`,
+ * `pinpoint`, `year`) are checked against the footnote's own field values;
+ * an unrecognized entry in `requiredFields` (e.g. a typo) is reported as
+ * missing, since the footnote can never have a non-empty value for a field
+ * name it does not carry.
+ */
+export function validateFootnoteAgainstCitationConfig(
+  footnote: Pick<FootnoteAttrs, CitationFieldName>,
+  citationConfig: CitationConfigLike | null | undefined,
+): string[] {
+  if (!citationConfig) return [];
+  return citationConfig.requiredFields.filter((fieldName) => {
+    const value = (footnote as Record<string, unknown>)[fieldName];
+    return typeof value !== 'string' || value.trim().length === 0;
+  });
+}
+
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     footnote: {
