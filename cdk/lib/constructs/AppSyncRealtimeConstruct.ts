@@ -15,6 +15,8 @@ export interface AppSyncRealtimeProps {
   readonly authorizerFunction: lambda.IFunction;
   /** IAM role of the Feedback Engine Lambda — granted publish-only access. */
   readonly feedbackEngineRole: iam.IRole;
+  /** IAM role of the Notification Lambda — granted notification publish access. */
+  readonly notificationLambdaRole?: iam.IRole;
   readonly stackPrefix: string;
 }
 
@@ -95,8 +97,37 @@ export class AppSyncRealtimeConstruct extends Construct {
       ),
     });
 
+    // Notification mutations: fan payload directly to subscribers (None data source).
+    noneDs.createResolver("PublishNotificationResolver", {
+      typeName: "Mutation",
+      fieldName: "publishNotification",
+      requestMappingTemplate: appsync.MappingTemplate.fromString(
+        '{"version":"2017-02-28","payload":$util.toJson($context.arguments)}',
+      ),
+      responseMappingTemplate: appsync.MappingTemplate.fromString(
+        "$util.toJson($context.result)",
+      ),
+    });
+
+    noneDs.createResolver("PublishNotificationStateChangeResolver", {
+      typeName: "Mutation",
+      fieldName: "publishNotificationStateChange",
+      requestMappingTemplate: appsync.MappingTemplate.fromString(
+        '{"version":"2017-02-28","payload":$util.toJson($context.arguments)}',
+      ),
+      responseMappingTemplate: appsync.MappingTemplate.fromString(
+        "$util.toJson($context.result)",
+      ),
+    });
+
     // Least-privilege: Feedback Engine role may only invoke this one mutation.
     api.grantMutation(props.feedbackEngineRole, "publishDebriefReady");
+
+    // Notification Lambda role: may invoke notification publish mutations.
+    if (props.notificationLambdaRole) {
+      api.grantMutation(props.notificationLambdaRole, "publishNotification");
+      api.grantMutation(props.notificationLambdaRole, "publishNotificationStateChange");
+    }
 
     // Allow AppSync to invoke the Lambda authorizer.
     props.authorizerFunction.grantInvoke(
