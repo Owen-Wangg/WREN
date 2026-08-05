@@ -26,6 +26,7 @@ export type {
 } from './types.js';
 
 export { recipientResolver } from './recipientResolver.js';
-export { lifecycleStateMachine, type TransitionResult } from './lifecycle.js';
+export { lifecycleStateMachine, isTerminalState, type TransitionResult } from './lifecycle.js';
 export { buildDedupKey } from './dedup.js';
-export { renderTemplate, sanitizeValue } from './templateRenderer.js';
+export { renderTemplate, renderActionUrl, sanitizeValue } from './templateRenderer.js';
+export { validateNoLeakConstraint, type NoLeakValidationResult } from './noLeakValidation.js';
