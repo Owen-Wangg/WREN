@@ -25,6 +25,10 @@ from wren_engine.prompt_assembly import (
     DocumentTypePromptConfig,
     UntrustedContent,
 )
+from wren_engine.footnote_metadata import (
+    FootnoteMetadata,
+    build_footnotes_untrusted_content,
+)
 from wren_engine.diff_engine import DiffEngine
 from wren_engine.anchor_service import AnchorService
 from wren_engine.anchor_service import compute_fingerprint as compute_anchor_fingerprint
@@ -234,6 +238,99 @@ def load_draft_segments(draft_id: str, conn: psycopg.Connection) -> list[dict[st
         raise
 
 
+def _extract_footnotes_from_content(content: Any) -> list[FootnoteMetadata]:
+    """Walk TipTap JSON content and extract well-formed footnote nodes.
+
+    Mirrors the TypeScript `extractFootnotes` logic from `@wren/types` —
+    collects footnote nodes with a positive-integer footnoteNumber and a
+    content field, skips malformed nodes, returns sorted ascending by
+    footnoteNumber (Requirements 5.1, 5.5, 5.7).
+    """
+    if not content or not isinstance(content, dict):
+        return []
+
+    results: list[FootnoteMetadata] = []
+    stack: list[Any] = [content]
+
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+
+        if node.get("type") == "footnote":
+            attrs = node.get("attrs") or {}
+            fn_num = attrs.get("footnoteNumber")
+            fn_content = attrs.get("content")
+            # Validate: must have positive int footnoteNumber and a content field
+            if (
+                fn_num is not None
+                and isinstance(fn_num, (int, float))
+                and int(fn_num) > 0
+                and fn_content is not None
+            ):
+                body_text = _collect_plain_text(fn_content)
+                results.append(
+                    FootnoteMetadata(
+                        footnote_number=int(fn_num),
+                        content=body_text,
+                        author=str(attrs.get("author") or ""),
+                        title=str(attrs.get("title") or ""),
+                        source=str(attrs.get("source") or ""),
+                        pinpoint=str(attrs.get("pinpoint") or ""),
+                        year=str(attrs.get("year") or ""),
+                    )
+                )
+            # Don't recurse into footnote node's own content children
+            continue
+
+        children = node.get("content")
+        if isinstance(children, list):
+            stack.extend(children)
+
+    results.sort(key=lambda fn: fn.footnote_number)
+    return results
+
+
+def _collect_plain_text(node: Any) -> str:
+    """Recursively collect plain text from a TipTap JSON node."""
+    if not node or not isinstance(node, dict):
+        return ""
+    if isinstance(node.get("text"), str):
+        return node["text"]
+    children = node.get("content")
+    if not isinstance(children, list):
+        return ""
+    return "".join(_collect_plain_text(child) for child in children)
+
+
+def load_draft_footnotes(draft_id: str, conn: psycopg.Connection) -> list[FootnoteMetadata]:
+    """Load footnote metadata from draft content (Task 9.3).
+
+    Reads the `content` column (TipTap JSONContent) from the draft row,
+    walks its tree for well-formed `footnote` nodes, and returns structured
+    metadata suitable for `build_footnotes_untrusted_content`.
+
+    Returns an empty list when the draft has no `content` column or no
+    footnote nodes — callers should only append the footnotes block to
+    the untrusted list when the return value is non-empty.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT content FROM draft WHERE id = %s
+            """, (draft_id,))
+
+            result = cur.fetchone()
+            if not result or not result[0]:
+                return []
+
+            content = json.loads(result[0]) if isinstance(result[0], str) else result[0]
+            return _extract_footnotes_from_content(content)
+    except Exception as e:
+        logger.error(f"Error loading draft footnotes: {str(e)}")
+        return []
+
+
 def load_document_type_meta(document_type_id: str, conn: psycopg.Connection) -> dict[str, Any]:
     """Return { name, category_names, category_ids, category_guidance } for a document type.
 
@@ -320,6 +417,7 @@ def assemble_prompt(
     reference_materials: list[dict[str, Any]],
     *,
     focus_paragraph_indices: set[int] | None = None,
+    footnotes: list[FootnoteMetadata] | None = None,
 ) -> str:
     """Assemble the layered prompt for Bedrock using PromptAssembler."""
     if focus_paragraph_indices is not None:
@@ -455,6 +553,13 @@ def assemble_prompt(
         label="SUBMITTED DOCUMENT",
         text=doc_text,
     ))
+
+    # Append the FOOTNOTES/CITATIONS block only when footnotes are present
+    # (Task 9.3, Requirement 5.6: absent footnotes → prompt unchanged).
+    if footnotes:
+        footnotes_block = build_footnotes_untrusted_content(footnotes)
+        if footnotes_block is not None:
+            untrusted.append(footnotes_block)
 
     assembled = _ASSEMBLER.assemble(_SCAFFOLDING, doc_type_config, untrusted)
 
@@ -1378,6 +1483,10 @@ def process_feedback_request(
             logger.warning(f"No segments found for draft {draft_id}")
             return
 
+        # Step 3b: Load footnotes from draft content (Task 9.3)
+        logger.info("Loading draft footnotes...")
+        draft_footnotes = load_draft_footnotes(draft_id, conn)
+
         # ─── Carry-forward evaluation (guard gate) ───────────────────────────
         focus_paragraph_indices: set[int] | None = None
 
@@ -1460,6 +1569,7 @@ def process_feedback_request(
         prompt = assemble_prompt(
             config, doc_type_meta, department_prompt, segments, reference_materials,
             focus_paragraph_indices=focus_paragraph_indices,
+            footnotes=draft_footnotes if draft_footnotes else None,
         )
 
         # ─── Start resolution judging in parallel with Bedrock generation ─────

@@ -18,7 +18,7 @@
  * `.docx` content (Requirement 6.2) via the MIT-only mapper in
  * `../docxContentMapper`.
  */
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
 import { CommentExtension } from '@sereneinserenade/tiptap-comment-extension';
 import Highlight from '@tiptap/extension-highlight';
@@ -42,9 +42,12 @@ import StarterKit from '@tiptap/starter-kit';
 
 import { docxBytesToTiptapContent, tiptapContentToDocxBlob } from '../docxContentMapper';
 import { FontSize } from '../tiptapFontSize';
+import { FootnoteNode, type CitationConfigLike, type FootnoteAttrs } from '../tiptapFootnote';
 import { BlockLayoutCommands, IndentableHeading, IndentableParagraph } from '../tiptapIndent';
 
 import { EditorToolbar } from './toolbar/EditorToolbar';
+import { FootnoteList } from './FootnoteList';
+import { FootnotePanel } from './FootnotePanel';
 
 export type { TableOfContentData, TableOfContentDataItem } from '@tiptap/extension-table-of-contents';
 
@@ -61,6 +64,8 @@ export interface DocumentEditorProps {
   readonly onCommentActivated?: (commentId: string | null) => void;
   /** Fires when the document heading outline changes (Home panel TOC). */
   readonly onTocUpdate?: (anchors: TableOfContentData) => void;
+  /** Citation configuration for footnote field validation (Requirement 4.4). */
+  readonly citationConfig?: CitationConfigLike | null;
 }
 
 /** Imperative handle exposed via `ref` for driving the editor + `.docx` I/O. */
@@ -81,6 +86,18 @@ function getEditorScrollParent(): HTMLElement | Window {
   );
 }
 
+/** Collects all footnote attrs from the editor's document state. */
+function collectFootnotes(editor: Editor | null): FootnoteAttrs[] {
+  if (!editor) return [];
+  const footnotes: FootnoteAttrs[] = [];
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === 'footnote') {
+      footnotes.push(node.attrs as FootnoteAttrs);
+    }
+  });
+  return footnotes.sort((a, b) => a.footnoteNumber - b.footnoteNumber);
+}
+
 export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorProps>(
   function DocumentEditor(
     {
@@ -90,6 +107,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       onContentChange,
       onCommentActivated,
       onTocUpdate,
+      citationConfig,
     },
     ref,
   ) {
@@ -101,6 +119,13 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       onCommentActivatedRef.current = onCommentActivated;
       onTocUpdateRef.current = onTocUpdate;
     });
+
+    const [activeFootnoteNumber, setActiveFootnoteNumber] = useState<number | null>(null);
+    const setActiveFootnoteNumberRef = useRef(setActiveFootnoteNumber);
+    setActiveFootnoteNumberRef.current = setActiveFootnoteNumber;
+    const [footnoteVersion, setFootnoteVersion] = useState(0);
+    const setFootnoteVersionRef = useRef(setFootnoteVersion);
+    setFootnoteVersionRef.current = setFootnoteVersion;
 
     const editor = useEditor({
       extensions: [
@@ -150,6 +175,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           HTMLAttributes: { 'data-ai-feedback': 'true' },
           onCommentActivated: (commentId) => onCommentActivatedRef.current?.(commentId),
         }),
+        FootnoteNode,
       ],
       content: initialContent ?? EMPTY_DOC,
       editorProps: {
@@ -160,9 +186,16 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             .filter(Boolean)
             .join(' '),
         },
+        handleClickOn: (_view, _pos, node, _nodePos, event) => {
+          if (node.type.name !== 'footnote') return false;
+          event.preventDefault();
+          setActiveFootnoteNumberRef.current(Number(node.attrs.footnoteNumber));
+          return true;
+        },
       },
       onUpdate: ({ editor: current }) => {
         onContentChangeRef.current?.(current.getJSON());
+        setFootnoteVersionRef.current((v) => v + 1);
       },
     });
 
@@ -173,11 +206,32 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         importDocx: async (bytes: Uint8Array) => {
           const content = await docxBytesToTiptapContent(bytes);
           editor?.commands.setContent(content);
+          setFootnoteVersion((v) => v + 1);
         },
         exportDocx: () => tiptapContentToDocxBlob(editor?.getJSON() ?? EMPTY_DOC),
       }),
       [editor],
     );
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- version used as cache-buster
+    const footnotes = collectFootnotes(editor);
+    void footnoteVersion; // read to subscribe React to the version bump
+    const activeFootnote = footnotes.find((f) => f.footnoteNumber === activeFootnoteNumber) ?? null;
+
+    const handleSaveFootnote = useCallback(
+      (fields: Partial<Omit<FootnoteAttrs, 'footnoteNumber'>>) => {
+        if (activeFootnoteNumber == null || !editor) return;
+        editor.commands.updateFootnoteFields(activeFootnoteNumber, fields);
+        setActiveFootnoteNumber(null);
+      },
+      [activeFootnoteNumber, editor],
+    );
+
+    const handleDeleteFootnote = useCallback(() => {
+      if (activeFootnoteNumber == null || !editor) return;
+      editor.commands.deleteFootnote(activeFootnoteNumber);
+      setActiveFootnoteNumber(null);
+    }, [activeFootnoteNumber, editor]);
 
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -194,6 +248,20 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
                 .filter(Boolean)
                 .join(' ')}
             />
+            {activeFootnote && (
+              <FootnotePanel
+                open={true}
+                onOpenChange={(isOpen) => {
+                  if (!isOpen) setActiveFootnoteNumber(null);
+                }}
+                footnote={activeFootnote}
+                citationConfig={citationConfig}
+                onSave={handleSaveFootnote}
+                onDelete={handleDeleteFootnote}
+                anchor={<span />}
+              />
+            )}
+            <FootnoteList footnotes={footnotes} />
           </div>
         </div>
       </div>

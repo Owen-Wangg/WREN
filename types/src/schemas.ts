@@ -819,6 +819,24 @@ export type UpdateErrorCategoryInput = z.infer<typeof updateErrorCategoryInputSc
  * any change to this record invalidates previously cached feedback for the
  * Document Type (Requirement 27.3 / REQ-NFR-COST-01).
  */
+/**
+ * Department-scoped citation style + required-field configuration for a
+ * Document Type (footnote-citation-support spec, Requirement 4.3). Reuses
+ * `documentTypeConfigService`'s existing authorization/upsert boundary — no
+ * new service, no new capability.
+ */
+export const citationConfigSchema = z
+  .object({
+    /** Citation style identifier, e.g. "Bluebook" (Requirement 4.3, 4.7). */
+    citationStyle: z.string().min(1).max(50),
+    /** Required citation field identifiers, e.g. ["author", "title", "year"]. */
+    requiredFields: z.array(z.string().min(1).max(50)).max(20),
+    /** Optional formatting template string, e.g. "{author}, {title} ({year})". */
+    formattingTemplate: z.string().max(1000).nullable().optional(),
+  })
+  .strict();
+export type CitationConfig = z.infer<typeof citationConfigSchema>;
+
 export const documentTypeConfigSchema = z
   .object({
     documentTypeId: idSchema,
@@ -840,6 +858,8 @@ export const documentTypeConfigSchema = z
     restrictionsDescription: z.string().nullable().optional(),
     /** Additional notes / miscellaneous guidance. */
     notesDescription: z.string().nullable().optional(),
+    /** Citation style + required-field config for footnotes (Requirement 4). */
+    citationConfig: citationConfigSchema.nullable().optional(),
     updatedAt: isoDateTimeSchema,
   })
   .strict();
@@ -857,6 +877,7 @@ export const updateDocumentTypeConfigInputSchema = z
     structureDescription: z.string().nullable().optional(),
     restrictionsDescription: z.string().nullable().optional(),
     notesDescription: z.string().nullable().optional(),
+    citationConfig: citationConfigSchema.nullable().optional(),
   })
   .strict();
 export type UpdateDocumentTypeConfigInput = z.infer<

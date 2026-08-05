@@ -21,6 +21,7 @@ import {
   ListOrdered,
   Plus,
   Redo2,
+  Superscript,
   Underline as UnderlineIcon,
   Undo2,
 } from 'lucide-react';
@@ -263,6 +264,20 @@ function ToolbarMoreMenu({
                   .focus(undefined, { scrollIntoView: false })
                   .setImage({ src })
                   .run();
+                setOpen(false);
+              }}
+            />
+          </ToolbarGroup>
+
+          <div className="h-px w-full bg-border-subtle" role="separator" />
+
+          <ToolbarGroup aria-label="Footnote">
+            <ToolbarButton
+              label="Insert footnote"
+              icon={<Superscript size={16} strokeWidth={1.75} />}
+              disabled={!ready}
+              onClick={() => {
+                editor?.commands.insertFootnote();
                 setOpen(false);
               }}
             />

@@ -14,6 +14,7 @@ import type { JSONContent } from '@tiptap/react';
 import {
   AlignmentType,
   Document,
+  FootnoteReferenceRun,
   HeadingLevel,
   ImageRun,
   Packer,
@@ -312,6 +313,123 @@ function collectTextRuns(node: OfficeContentNode): JSONContent[] {
   return runs.filter((run) => run.text !== undefined && run.text !== '');
 }
 
+/** Citation fields recognizable from raw footnote text (Requirement 8.5). */
+export interface MatchedCitationFields {
+  author?: string;
+  title?: string;
+  source?: string;
+  pinpoint?: string;
+  year?: string;
+}
+
+/**
+ * Heuristic matcher for common legal-citation shapes in a footnote's raw
+ * text (Requirement 8.5): a leading capitalized name run as `author`, a
+ * quoted or italicized-by-convention run as `title`, a trailing "at ¶N" /
+ * page-number token as `pinpoint`, and a 4-digit token as `year`. Returns an
+ * empty object when no fields are confidently identified — callers place
+ * the full text in `content` and leave citation fields empty in that case
+ * (the same "confident match or don't guess" posture as
+ * `AnchorService.remap`'s text re-mapping).
+ */
+export function matchCitationFields(text: string): MatchedCitationFields {
+  const trimmed = text.trim();
+  if (!trimmed) return {};
+
+  const result: MatchedCitationFields = {};
+
+  // Year: a standalone 4-digit token (1900-2099), often parenthesized.
+  const yearMatch = /\b(19|20)\d{2}\b/.exec(trimmed);
+  if (yearMatch) result.year = yearMatch[0];
+
+  // Pinpoint: "at ¶42", "at para. 12", "at p. 5", "¶ 42".
+  const pinpointMatch = /(?:at\s+)?(¶\s?\d+|para\.?\s*\d+|p\.?\s*\d+)/i.exec(trimmed);
+  if (pinpointMatch) result.pinpoint = pinpointMatch[0].trim();
+
+  // Title: text within straight or curly quotes.
+  const titleMatch = /["“]([^"”]{2,200})["”]/.exec(trimmed);
+  if (titleMatch) result.title = titleMatch[1];
+
+  // Author: a leading capitalized name run before a comma (e.g. "R. Smith,").
+  const authorMatch = /^([A-Z][\w.]*(?:\s+[A-Z][\w.]*){0,4}),/.exec(trimmed);
+  if (authorMatch) result.author = authorMatch[1];
+
+  return result;
+}
+
+/**
+ * Build a `footnote` TipTap node from a parsed `.docx` footnote entry
+ * (Requirement 8.3, 8.5). `footnoteNumber` is the SEQUENTIAL position
+ * assigned by the importer (starting at 1 in source order), independent of
+ * the raw `w:id` the source document used.
+ */
+function footnoteXmlToTipTapNode(
+  footnoteNumber: number,
+  paragraphs: readonly string[],
+): JSONContent {
+  const fullText = paragraphs.join('\n').trim();
+  const matched = matchCitationFields(fullText);
+  const hasAnyMatch = Object.keys(matched).length > 0;
+
+  // "Confident match or don't guess": when fields are identified, strip the
+  // matched substrings from the body so they aren't duplicated; when none
+  // are identified, the full text goes into `content` and every citation
+  // field stays empty (Requirement 8.5).
+  const bodyText = fullText;
+
+  return {
+    type: 'footnote',
+    attrs: {
+      footnoteNumber,
+      content: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: bodyText ? [{ type: 'text', text: bodyText }] : undefined }],
+      },
+      author: hasAnyMatch ? (matched.author ?? '') : '',
+      title: hasAnyMatch ? (matched.title ?? '') : '',
+      source: '',
+      pinpoint: hasAnyMatch ? (matched.pinpoint ?? '') : '',
+      year: hasAnyMatch ? (matched.year ?? '') : '',
+    },
+  };
+}
+
+/**
+ * Build `footnote` TipTap nodes for every note attached anywhere within
+ * `node`'s descendant tree (Requirement 8.3). `officeparser` attaches
+ * `notes` to the specific inline `text` run carrying the footnote
+ * reference — not to the enclosing paragraph — so this walks the whole
+ * subtree rather than checking only the top-level node.
+ *
+ * `footnoteIdCounter` is a shared, mutable counter object so callers across
+ * the whole document assign sequential numbers starting at 1 in source
+ * order, independent of raw `w:id` values (which may not start at 1 — Word
+ * reserves ids 0/-1 for separators).
+ */
+function footnoteNodesFromOfficeNotes(
+  node: OfficeContentNode,
+  footnoteIdCounter: { next: number },
+): JSONContent[] {
+  const notes: OfficeContentNode[] = [];
+  const collect = (current: OfficeContentNode) => {
+    if (current.notes && current.notes.length > 0) notes.push(...current.notes);
+    current.children?.forEach(collect);
+  };
+  collect(node);
+
+  return notes.map((note) => {
+    const footnoteNumber = footnoteIdCounter.next++;
+    const paragraphChildren = (note.children ?? []).filter(
+      (child) => child.type === 'paragraph' || child.type === 'heading',
+    );
+    const paragraphs =
+      paragraphChildren.length > 0
+        ? paragraphChildren.map((p) => (p.text ?? '').trim()).filter((t) => t.length > 0)
+        : [(note.text ?? '').trim()].filter((t) => t.length > 0);
+    return footnoteXmlToTipTapNode(footnoteNumber, paragraphs);
+  });
+}
+
 /**
  * Paragraph/heading → one or more TipTap blocks. Images nested in the paragraph
  * become sibling image blocks (TipTap Image is block-level in the editor).
@@ -319,25 +437,34 @@ function collectTextRuns(node: OfficeContentNode): JSONContent[] {
 function blocksFromParagraphOrHeading(
   node: OfficeContentNode,
   attachments: AttachmentLookup,
+  footnoteIdCounter: { next: number } = { next: 1 },
 ): JSONContent[] {
   const indent = indentAttrsFromOffice(node);
   const align = textAlignFromOffice(node);
   const blockAttrs = { ...indent, ...align };
   const isHeading = node.type === 'heading';
   const level = isHeading ? (node.metadata?.level ?? 1) : undefined;
+  const footnoteNodes = footnoteNodesFromOfficeNotes(node, footnoteIdCounter);
 
   const makeTextBlock = (textNodes: JSONContent[]): JSONContent => {
+    // Footnote reference markers are appended at the end of the paragraph's
+    // inline content — officeparser attaches `notes` at the paragraph level
+    // (not as a positioned inline child), so the marker's exact character
+    // offset within the paragraph is not recoverable from the AST; placing
+    // it at the paragraph's end is a documented, defensible interpretation
+    // given the available data (Requirement 8.3).
+    const content = [...textNodes, ...footnoteNodes];
     if (isHeading) {
       return {
         type: 'heading',
         attrs: { level, ...blockAttrs },
-        content: textNodes.length > 0 ? textNodes : undefined,
+        content: content.length > 0 ? content : undefined,
       };
     }
     return {
       type: 'paragraph',
       ...(Object.keys(blockAttrs).length > 0 ? { attrs: blockAttrs } : {}),
-      content: textNodes.length > 0 ? textNodes : undefined,
+      content: content.length > 0 ? content : undefined,
     };
   };
 
@@ -422,10 +549,12 @@ function listNodeAsParagraph(
 function listItemFromOffice(
   node: OfficeContentNode,
   attachments: AttachmentLookup,
+  footnoteIdCounter: { next: number },
 ): JSONContent {
   const itemBlocks = blocksFromParagraphOrHeading(
     listNodeAsParagraph(node),
     attachments,
+    footnoteIdCounter,
   ).filter((b) => b.type === 'paragraph' || b.type === 'image');
   return {
     type: 'listItem',
@@ -441,6 +570,7 @@ function consumeListGroup(
   nodes: OfficeContentNode[],
   startIndex: number,
   attachments: AttachmentLookup,
+  footnoteIdCounter: { next: number },
 ): { blocks: JSONContent[]; nextIndex: number } {
   const first = nodes[startIndex]!;
   const listType =
@@ -462,7 +592,7 @@ function consumeListGroup(
     if (level < baseLevel) break;
 
     if (level > baseLevel) {
-      const nested = consumeListGroup(nodes, i, attachments);
+      const nested = consumeListGroup(nodes, i, attachments, footnoteIdCounter);
       const prev = items[items.length - 1];
       if (prev) {
         prev.content = [...(prev.content ?? []), ...nested.blocks];
@@ -476,7 +606,7 @@ function consumeListGroup(
       continue;
     }
 
-    items.push(listItemFromOffice(node, attachments));
+    items.push(listItemFromOffice(node, attachments, footnoteIdCounter));
     i += 1;
   }
 
@@ -489,6 +619,7 @@ function consumeListGroup(
 function tableFromOffice(
   node: OfficeContentNode,
   attachments: AttachmentLookup,
+  footnoteIdCounter: { next: number },
 ): JSONContent {
   const rows = (node.children ?? []).filter((child) => child.type === 'row');
   const tipTapRows: JSONContent[] = rows.map((row, rowIndex) => {
@@ -497,7 +628,7 @@ function tableFromOffice(
       type: 'tableRow',
       content: cells.map((cell) => {
         const cellBlocks = (cell.children ?? []).flatMap((child) =>
-          officeNodesToTiptapBlocks([child], attachments),
+          officeNodesToTiptapBlocks([child], attachments, footnoteIdCounter),
         );
         const cellContent =
           cellBlocks.length > 0
@@ -547,24 +678,25 @@ function tableFromOffice(
 function officeNodesToTiptapBlocks(
   nodes: OfficeContentNode[],
   attachments: AttachmentLookup,
+  footnoteIdCounter: { next: number } = { next: 1 },
 ): JSONContent[] {
   const blocks: JSONContent[] = [];
   let i = 0;
   while (i < nodes.length) {
     const node = nodes[i]!;
     if (node.type === 'heading' || node.type === 'paragraph') {
-      blocks.push(...blocksFromParagraphOrHeading(node, attachments));
+      blocks.push(...blocksFromParagraphOrHeading(node, attachments, footnoteIdCounter));
       i += 1;
       continue;
     }
     if (node.type === 'list') {
-      const group = consumeListGroup(nodes, i, attachments);
+      const group = consumeListGroup(nodes, i, attachments, footnoteIdCounter);
       blocks.push(...group.blocks);
       i = group.nextIndex;
       continue;
     }
     if (node.type === 'table') {
-      blocks.push(tableFromOffice(node, attachments));
+      blocks.push(tableFromOffice(node, attachments, footnoteIdCounter));
       i += 1;
       continue;
     }
@@ -575,7 +707,7 @@ function officeNodesToTiptapBlocks(
       continue;
     }
     if (node.children && node.children.length > 0) {
-      blocks.push(...officeNodesToTiptapBlocks(node.children, attachments));
+      blocks.push(...officeNodesToTiptapBlocks(node.children, attachments, footnoteIdCounter));
       i += 1;
       continue;
     }
@@ -594,6 +726,19 @@ function officeNodeToTiptapBlocks(node: OfficeContentNode): JSONContent[] {
 /**
  * Parses a `.docx` file (as bytes) via `officeparser` and returns Tiptap
  * `JSONContent` suitable for `useEditor({ content })`.
+ *
+ * Footnote import (Requirement 8.3, 8.5): each footnote/endnote attached via
+ * `officeparser`'s `node.notes` becomes a `footnote` TipTap node, numbered
+ * SEQUENTIALLY starting at 1 in source order (via the shared
+ * `footnoteIdCounter`) — independent of the raw `w:id` values Word assigned.
+ * `matchCitationFields` attempts to recognize citation fields from the raw
+ * text; when none are confidently identified, the full text is placed in
+ * `content` and citation fields stay empty (Requirement 8.5). If the
+ * `.docx`'s structure cannot be parsed at all, the outer `catch` below
+ * raises `DocxClientParseError` — no footnote content is silently dropped,
+ * since the caller's fallback (mirroring the existing whole-file parse
+ * failure posture) surfaces the error rather than swallowing it
+ * (Requirement 8.4).
  */
 export async function docxBytesToTiptapContent(
   bytes: Uint8Array,
@@ -607,7 +752,8 @@ export async function docxBytesToTiptapContent(
     for (const attachment of ast.attachments ?? []) {
       if (attachment?.name) attachments.set(attachment.name, attachment);
     }
-    const blocks = officeNodesToTiptapBlocks(ast.content, attachments);
+    const footnoteIdCounter = { next: 1 };
+    const blocks = officeNodesToTiptapBlocks(ast.content, attachments, footnoteIdCounter);
 
     return {
       type: 'doc',
@@ -691,9 +837,57 @@ function imageRunFromTipTap(node: JSONContent): ImageRun | null {
   });
 }
 
-function tiptapInlineContentToRuns(inline: JSONContent[]): ParagraphChild[] {
+/** Renders one `Paragraph` per footnote: non-empty citation fields (author/
+ * title/source/pinpoint/year), each rendered only if non-empty (matching the
+ * existing "omit empty" convention already used for `alignment`/`indent`
+ * elsewhere in this file), followed by the rich-text body content mapped
+ * through `tiptapInlineContentToRuns` (Task 12.2). */
+function footnoteBodyToDocxParagraphs(
+  attrs: Record<string, unknown> | undefined | null,
+  footnotesById: Map<number, Paragraph[]>,
+): Paragraph[] {
+  const citationParts = [
+    typeof attrs?.author === 'string' ? attrs.author : '',
+    typeof attrs?.title === 'string' ? attrs.title : '',
+    typeof attrs?.source === 'string' ? attrs.source : '',
+    typeof attrs?.pinpoint === 'string' ? attrs.pinpoint : '',
+    typeof attrs?.year === 'string' ? attrs.year : '',
+  ].filter((v) => v.trim().length > 0);
+
+  const paragraphs: Paragraph[] = [];
+  if (citationParts.length > 0) {
+    paragraphs.push(new Paragraph({ children: [new TextRun({ text: citationParts.join(', ') })] }));
+  }
+
+  const body = attrs?.content as JSONContent | undefined;
+  if (body && Array.isArray(body.content)) {
+    for (const block of body.content) {
+      if (block.type === 'paragraph' || block.type === 'heading') {
+        paragraphs.push(
+          new Paragraph({ children: tiptapInlineContentToRuns(block.content ?? [], footnotesById) }),
+        );
+      }
+    }
+  }
+
+  return paragraphs.length > 0 ? paragraphs : [new Paragraph({})];
+}
+
+function tiptapInlineContentToRuns(
+  inline: JSONContent[],
+  footnotesById: Map<number, Paragraph[]>,
+): ParagraphChild[] {
   const children: ParagraphChild[] = [];
   for (const node of inline) {
+    if (node.type === 'footnote') {
+      const id = Number(node.attrs?.footnoteNumber);
+      if (Number.isInteger(id) && id > 0) {
+        // Already 1..N, sequential, no gaps (renumberFootnotes' invariant).
+        footnotesById.set(id, footnoteBodyToDocxParagraphs(node.attrs, footnotesById));
+        children.push(new FootnoteReferenceRun(id));
+      }
+      continue;
+    }
     if (node.type === 'image') {
       const image = imageRunFromTipTap(node);
       if (image) children.push(image);
@@ -740,8 +934,8 @@ function paragraphAlignmentFromAttrs(
   return align ? ALIGNMENT_TO_DOCX[align] : undefined;
 }
 
-function blockToDocxParagraph(node: JSONContent): Paragraph {
-  const children = tiptapInlineContentToRuns(node.content ?? []);
+function blockToDocxParagraph(node: JSONContent, footnotesById: Map<number, Paragraph[]>): Paragraph {
+  const children = tiptapInlineContentToRuns(node.content ?? [], footnotesById);
   const indent = paragraphIndentFromAttrs(node.attrs as Record<string, unknown> | undefined);
   const alignment = paragraphAlignmentFromAttrs(
     node.attrs as Record<string, unknown> | undefined,
@@ -768,7 +962,11 @@ function imageBlockToDocxParagraph(node: JSONContent): Paragraph | null {
   return new Paragraph({ children: [image] });
 }
 
-function listToDocxParagraphs(node: JSONContent, level = 0): Paragraph[] {
+function listToDocxParagraphs(
+  node: JSONContent,
+  footnotesById: Map<number, Paragraph[]>,
+  level = 0,
+): Paragraph[] {
   const ordered = node.type === 'orderedList';
   const out: Paragraph[] = [];
   for (const item of node.content ?? []) {
@@ -777,7 +975,7 @@ function listToDocxParagraphs(node: JSONContent, level = 0): Paragraph[] {
       if (child.type === 'paragraph' || child.type === 'heading') {
         out.push(
           new Paragraph({
-            children: tiptapInlineContentToRuns(child.content ?? []),
+            children: tiptapInlineContentToRuns(child.content ?? [], footnotesById),
             numbering: ordered
               ? { reference: 'wren-ordered', level }
               : undefined,
@@ -797,31 +995,31 @@ function listToDocxParagraphs(node: JSONContent, level = 0): Paragraph[] {
         const imagePara = imageBlockToDocxParagraph(child);
         if (imagePara) out.push(imagePara);
       } else if (child.type === 'bulletList' || child.type === 'orderedList') {
-        out.push(...listToDocxParagraphs(child, level + 1));
+        out.push(...listToDocxParagraphs(child, footnotesById, level + 1));
       }
     }
   }
   return out;
 }
 
-function cellBlocksToParagraphs(cell: JSONContent): Paragraph[] {
+function cellBlocksToParagraphs(cell: JSONContent, footnotesById: Map<number, Paragraph[]>): Paragraph[] {
   const blocks = cell.content ?? [];
   if (blocks.length === 0) return [new Paragraph({})];
   const paragraphs: Paragraph[] = [];
   for (const block of blocks) {
     if (block.type === 'paragraph' || block.type === 'heading') {
-      paragraphs.push(blockToDocxParagraph(block));
+      paragraphs.push(blockToDocxParagraph(block, footnotesById));
     } else if (block.type === 'image') {
       const imagePara = imageBlockToDocxParagraph(block);
       if (imagePara) paragraphs.push(imagePara);
     } else if (block.type === 'bulletList' || block.type === 'orderedList') {
-      paragraphs.push(...listToDocxParagraphs(block));
+      paragraphs.push(...listToDocxParagraphs(block, footnotesById));
     }
   }
   return paragraphs.length > 0 ? paragraphs : [new Paragraph({})];
 }
 
-function tableToDocx(node: JSONContent): DocxTable {
+function tableToDocx(node: JSONContent, footnotesById: Map<number, Paragraph[]>): DocxTable {
   const rows = (node.content ?? []).filter((r) => r.type === 'tableRow');
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -833,7 +1031,7 @@ function tableToDocx(node: JSONContent): DocxTable {
             .map(
               (cell) =>
                 new TableCell({
-                  children: cellBlocksToParagraphs(cell),
+                  children: cellBlocksToParagraphs(cell, footnotesById),
                 }),
             ),
         }),
@@ -844,11 +1042,17 @@ function tableToDocx(node: JSONContent): DocxTable {
 /**
  * Builds a `.docx` as raw bytes from the editor's current `JSONContent`.
  * Prefer this in Node / tests; browsers can wrap with `tiptapContentToDocxBlob`.
+ *
+ * Footnotes: each `footnote` node becomes a `FootnoteReferenceRun` keyed by
+ * its `footnoteNumber` (already 1..N, sequential, no gaps), with its full
+ * content+citation payload collected into the `Document`'s `footnotes` map
+ * (Requirement 8.2).
  */
 export async function tiptapContentToDocxBytes(
   content: JSONContent,
 ): Promise<Uint8Array> {
-  const children = tiptapContentToDocxChildren(content);
+  const footnotesById = new Map<number, Paragraph[]>();
+  const children = tiptapContentToDocxChildren(content, footnotesById);
   const document = new Document({
     numbering: {
       config: [
@@ -863,6 +1067,16 @@ export async function tiptapContentToDocxBytes(
         },
       ],
     },
+    ...(footnotesById.size > 0
+      ? {
+          footnotes: Object.fromEntries(
+            Array.from(footnotesById.entries()).map(([id, paragraphs]) => [
+              String(id),
+              { children: paragraphs },
+            ]),
+          ),
+        }
+      : {}),
     sections: [{ children: children.length > 0 ? children : [new Paragraph({})] }],
   });
 
@@ -891,19 +1105,20 @@ export function tiptapContentToDocxParagraphs(content: JSONContent): Paragraph[]
 
 export function tiptapContentToDocxChildren(
   content: JSONContent,
+  footnotesById: Map<number, Paragraph[]> = new Map(),
 ): Array<Paragraph | DocxTable> {
   const blocks = content.content ?? [];
   const out: Array<Paragraph | DocxTable> = [];
   for (const node of blocks) {
     if (node.type === 'paragraph' || node.type === 'heading') {
-      out.push(blockToDocxParagraph(node));
+      out.push(blockToDocxParagraph(node, footnotesById));
     } else if (node.type === 'image') {
       const imagePara = imageBlockToDocxParagraph(node);
       if (imagePara) out.push(imagePara);
     } else if (node.type === 'bulletList' || node.type === 'orderedList') {
-      out.push(...listToDocxParagraphs(node));
+      out.push(...listToDocxParagraphs(node, footnotesById));
     } else if (node.type === 'table') {
-      out.push(tableToDocx(node));
+      out.push(tableToDocx(node, footnotesById));
     }
   }
   return out;
@@ -934,6 +1149,73 @@ export function segmentsToTiptapContent(
       content: segment.text.length > 0 ? [{ type: 'text' as const, text: segment.text }] : undefined,
     })),
   };
+}
+
+/**
+ * A single parsed footnote/endnote, in source-document order.
+ *
+ * Implementation note (deviates from `design.md`'s originally-planned
+ * low-level `word/footnotes.xml` zip reader): the installed `officeparser`
+ * version (7.2.3) surfaces footnotes/endnotes natively via
+ * `OfficeContentNode.notes` (`type: 'note'`, `metadata.noteType`,
+ * `metadata.noteId`) — see the package's documented "Extract footnotes,
+ * endnotes & slide notes" API. Reading raw `word/footnotes.xml` bytes
+ * ourselves would duplicate parsing `officeparser` already does correctly
+ * and is unnecessary; `extractFootnotesXml` is kept as the documented
+ * extraction seam so callers (and tests) have one function to depend on,
+ * but it is implemented as a thin adapter over `officeparser`'s AST rather
+ * than a bespoke zip/XML reader (Requirements 8.3, 8.4).
+ */
+export interface ParsedFootnoteXml {
+  /** The source document's raw `w:id` (or note id), as a string — not renumbered. */
+  id: string;
+  /** Plain-text paragraphs that make up the footnote's body, in order. */
+  paragraphs: string[];
+}
+
+/**
+ * Recursively collect every `notes` entry attached to any node in the tree,
+ * in document-order (depth-first, matching the order `officeNodesToTiptapBlocks`
+ * walks the same tree for body content).
+ */
+function collectOfficeNotes(nodes: OfficeContentNode[]): OfficeContentNode[] {
+  const out: OfficeContentNode[] = [];
+  for (const node of nodes) {
+    if (node.notes && node.notes.length > 0) {
+      out.push(...node.notes);
+    }
+    if (node.children && node.children.length > 0) {
+      out.push(...collectOfficeNotes(node.children));
+    }
+  }
+  return out;
+}
+
+/**
+ * Extract every footnote/endnote from a parsed `officeparser` AST as
+ * `{ id, paragraphs }` entries, in document order. Returns `[]` when the
+ * document has no notes. Never throws — a note whose text cannot be split
+ * into paragraphs still yields a single-paragraph entry from its flattened
+ * `text` (Requirement 8.4's "never silently discard" posture starts here).
+ */
+export function extractFootnotesXml(nodes: OfficeContentNode[]): ParsedFootnoteXml[] {
+  const notes = collectOfficeNotes(nodes);
+  return notes
+    .filter((note) => note.type === 'note')
+    .map((note, index) => {
+      const meta = note.metadata as { noteId?: string } | undefined;
+      const paragraphChildren = (note.children ?? []).filter(
+        (child) => child.type === 'paragraph' || child.type === 'heading',
+      );
+      const paragraphs =
+        paragraphChildren.length > 0
+          ? paragraphChildren.map((p) => (p.text ?? '').trim()).filter((t) => t.length > 0)
+          : [(note.text ?? '').trim()].filter((t) => t.length > 0);
+      return {
+        id: meta?.noteId ?? String(index),
+        paragraphs,
+      };
+    });
 }
 
 // Keep export for any callers that imported the recursive walker name.

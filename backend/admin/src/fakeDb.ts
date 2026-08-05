@@ -70,6 +70,7 @@ interface DocumentTypeConfigRow {
   structure_description: string | null;
   restrictions_description: string | null;
   notes_description: string | null;
+  citation_config: Record<string, unknown> | null;
   updated_at: Date;
 }
 
@@ -467,6 +468,7 @@ export class FakeDb implements QueryExecutor {
       structure_description: row.structure_description ?? null,
       restrictions_description: row.restrictions_description ?? null,
       notes_description: row.notes_description ?? null,
+      citation_config: row.citation_config ?? null,
       updated_at: row.updated_at ?? new Date(),
     };
     this.documentTypeConfigs.set(full.document_type_id, full);
@@ -1241,6 +1243,7 @@ export class FakeDb implements QueryExecutor {
             structure_description: null,
             restrictions_description: null,
             notes_description: null,
+            citation_config: null,
             updated_at: new Date(),
           };
       this.documentTypeConfigs.set(documentTypeId, row);
@@ -1249,21 +1252,26 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        'SELECT document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at FROM document_type_config WHERE document_type_id = $1',
+        'SELECT document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, citation_config, updated_at FROM document_type_config WHERE document_type_id = $1',
       )
     ) {
       const row = this.documentTypeConfigs.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at)')) {
+    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, citation_config, updated_at)')) {
       this.mutationCount += 1;
-      const [documentTypeId, tone, density, categoryPriorityJson, typePromptText, toneDescription, densityDescription, shouldSetPrompt, structureDescription, restrictionsDescription, notesDescription] =
-        params as [string, string | null, string | null, string | null, string | null, string | null, string | null, boolean, string | null, string | null, string | null];
+      const [documentTypeId, tone, density, categoryPriorityJson, typePromptText, toneDescription, densityDescription, shouldSetPrompt, structureDescription, restrictionsDescription, notesDescription, citationConfigJson, shouldSetCitationConfig] =
+        params as [string, string | null, string | null, string | null, string | null, string | null, string | null, boolean, string | null, string | null, string | null, string | null, boolean];
       const existing = this.documentTypeConfigs.get(documentTypeId);
       const categoryPriority = categoryPriorityJson
         ? (JSON.parse(categoryPriorityJson) as string[])
         : existing?.category_priority ?? [];
+      const citationConfig = shouldSetCitationConfig
+        ? citationConfigJson
+          ? (JSON.parse(citationConfigJson) as Record<string, unknown>)
+          : null
+        : existing?.citation_config ?? null;
       const row: DocumentTypeConfigRow = {
         document_type_id: documentTypeId,
         tone: tone ?? existing?.tone ?? null,
@@ -1275,6 +1283,7 @@ export class FakeDb implements QueryExecutor {
         structure_description: structureDescription ?? existing?.structure_description ?? null,
         restrictions_description: restrictionsDescription ?? existing?.restrictions_description ?? null,
         notes_description: notesDescription ?? existing?.notes_description ?? null,
+        citation_config: citationConfig,
         updated_at: new Date(),
       };
       this.documentTypeConfigs.set(documentTypeId, row);
