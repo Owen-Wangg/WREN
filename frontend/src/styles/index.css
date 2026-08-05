@@ -244,3 +244,55 @@ body {
     background-color: transparent;
   }
 }
+
+/* ── Header / footer editor regions ──────────────────────────────────────── */
+
+.header-footer-editor-surface {
+  font-family: var(--font-serif);
+  font-size: var(--text-bodySmall, 0.875rem);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  min-height: 1.5em;
+}
+
+.header-footer-editor-surface:focus {
+  outline: none;
+}
+
+.header-footer-editor-surface p {
+  margin: 0;
+}
+
+/* Non-editable chip rendered by PageNumberNode / DateNode. */
+.header-footer-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.4em;
+  margin: 0 0.15em;
+  border-radius: 3px;
+  font-family: var(--font-sans);
+  font-size: 0.75em;
+  font-weight: 500;
+  line-height: 1.6;
+  user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.header-footer-chip--page {
+  background: color-mix(in srgb, var(--color-accent-primary, #2563eb) 12%, transparent);
+  color: var(--color-accent-primary, #2563eb);
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary, #2563eb) 30%, transparent);
+}
+
+.header-footer-chip--date {
+  background: color-mix(in srgb, var(--color-text-muted, #6b7280) 10%, transparent);
+  color: var(--color-text-muted, #6b7280);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted, #6b7280) 25%, transparent);
+}
+
+/* ProseMirror selected state for chips. */
+.header-footer-chip.ProseMirror-selectednode {
+  outline: 2px solid var(--color-accent-primary, #2563eb);
+  outline-offset: 1px;
+}

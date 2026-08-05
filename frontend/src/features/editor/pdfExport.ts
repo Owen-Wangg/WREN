@@ -1,10 +1,27 @@
 /**
  * Client-side TipTap → PDF export via HTML render + html2canvas + jsPDF.
+ *
+ * Header/footer are drawn programmatically on every page using jsPDF's text API
+ * after the body image is sliced. Page-number and date tokens in the
+ * header/footer TipTap JSON are resolved at draw time.
  */
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
 import type { JSONContent } from '@tiptap/react';
+
+export interface PdfExportOptions {
+  /** TipTap JSON for the repeating page header; null/undefined = no header. */
+  readonly header?: JSONContent | null;
+  /** TipTap JSON for the repeating page footer; null/undefined = no footer. */
+  readonly footer?: JSONContent | null;
+  /**
+   * ISO timestamp of when the document content was last edited.
+   * Used to resolve dateNode chips. Falls back to empty string when absent.
+   * Never use new Date() here — the timestamp must come from the stored draft.
+   */
+  readonly lastEditedAt?: string | null;
+}
 
 function escapeHtml(text: string): string {
   return text
@@ -123,9 +140,75 @@ function renderNode(node: JSONContent): string {
 }
 
 /**
- * Render TipTap JSON to a PDF Blob (letter size, multi-page).
+ * Extract plain text from a header/footer TipTap doc, resolving pageNumber
+ * and date node chips as placeholder tokens for later substitution.
+ *
+ * Returns an array of text segments with optional `{type}` token markers so
+ * the caller can stamp the right value at page-draw time.
  */
-export async function tiptapContentToPdfBlob(content: JSONContent): Promise<Blob> {
+type TextSegment =
+  | { kind: 'text'; value: string }
+  | { kind: 'pageNumber' }
+  | { kind: 'date' };
+
+function extractHFSegments(node: JSONContent): TextSegment[] {
+  if (!node) return [];
+  if (node.type === 'pageNumber') return [{ kind: 'pageNumber' }];
+  if (node.type === 'date') return [{ kind: 'date' }];
+  if (node.type === 'text') return [{ kind: 'text', value: node.text ?? '' }];
+  if (node.type === 'hardBreak') return [{ kind: 'text', value: ' ' }];
+  return (node.content ?? []).flatMap(extractHFSegments);
+}
+
+function resolveHFText(
+  doc: JSONContent | null | undefined,
+  pageNum: number,
+  totalPages: number,
+  dateStr: string,
+): string {
+  if (!doc) return '';
+  return extractHFSegments(doc)
+    .map((seg) => {
+      if (seg.kind === 'pageNumber') return `Page ${pageNum} of ${totalPages}`;
+      if (seg.kind === 'date') return dateStr;
+      return seg.value;
+    })
+    .join('')
+    .trim();
+}
+
+function formatLastEditedAt(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
+/**
+ * Render TipTap JSON to a PDF Blob (letter size, multi-page).
+ * Header and footer are drawn programmatically on every page.
+ */
+export async function tiptapContentToPdfBlob(
+  content: JSONContent,
+  options?: PdfExportOptions,
+): Promise<Blob> {
+  const hasHeader = options?.header != null;
+  const hasFooter = options?.footer != null;
+  const dateStr = formatLastEditedAt(options?.lastEditedAt);
+
+  // Reserve vertical space for header/footer bands (pt units match jsPDF).
+  const HEADER_BAND = hasHeader ? 20 : 0;
+  const FOOTER_BAND = hasFooter ? 20 : 0;
+  const SIDE_MARGIN = 36;
+  const TOP_MARGIN = 36 + HEADER_BAND;
+  const BOTTOM_MARGIN = 36 + FOOTER_BAND;
+
   const host = document.createElement('div');
   host.setAttribute('data-pdf-export', 'true');
   host.style.cssText = [
@@ -133,7 +216,7 @@ export async function tiptapContentToPdfBlob(content: JSONContent): Promise<Blob
     'left:-10000px',
     'top:0',
     'width:816px',
-    'padding:48px',
+    `padding:${TOP_MARGIN}px ${SIDE_MARGIN}px ${BOTTOM_MARGIN}px`,
     'background:#fff',
     'color:#111',
     'font-family:Georgia,"Times New Roman",serif',
@@ -155,24 +238,53 @@ export async function tiptapContentToPdfBlob(content: JSONContent): Promise<Blob
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 36;
-    const usableWidth = pageWidth - margin * 2;
-    const usableHeight = pageHeight - margin * 2;
+    const usableWidth = pageWidth - SIDE_MARGIN * 2;
+    const usableHeight = pageHeight - SIDE_MARGIN * 2;
     const imgWidth = usableWidth;
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-    let heightLeft = imgHeight;
-    let position = margin;
+    const totalPages = Math.max(1, Math.ceil(imgHeight / usableHeight));
+
     const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
-    pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
+    let heightLeft = imgHeight;
+    let imgPosition = SIDE_MARGIN;
+    let pageIndex = 0;
+
+    const drawHeaderFooter = (pgNum: number) => {
+      pdf.setFontSize(8);
+      pdf.setTextColor(100, 100, 100);
+
+      if (hasHeader) {
+        const text = resolveHFText(options!.header, pgNum, totalPages, dateStr);
+        if (text) {
+          pdf.text(text, SIDE_MARGIN, SIDE_MARGIN - 6, { baseline: 'bottom' });
+        }
+      }
+
+      if (hasFooter) {
+        const text = resolveHFText(options!.footer, pgNum, totalPages, dateStr);
+        if (text) {
+          pdf.text(text, SIDE_MARGIN, pageHeight - SIDE_MARGIN + 6, { baseline: 'top' });
+        }
+      }
+
+      pdf.setTextColor(0, 0, 0);
+      pdf.setFontSize(12);
+    };
+
+    pdf.addImage(imgData, 'JPEG', SIDE_MARGIN, imgPosition, imgWidth, imgHeight);
+    drawHeaderFooter(pageIndex + 1);
     heightLeft -= usableHeight;
+    pageIndex += 1;
 
     while (heightLeft > 0) {
-      position = margin - (imgHeight - heightLeft);
+      imgPosition = SIDE_MARGIN - (imgHeight - heightLeft);
       pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
+      pdf.addImage(imgData, 'JPEG', SIDE_MARGIN, imgPosition, imgWidth, imgHeight);
+      drawHeaderFooter(pageIndex + 1);
       heightLeft -= usableHeight;
+      pageIndex += 1;
     }
 
     return pdf.output('blob');

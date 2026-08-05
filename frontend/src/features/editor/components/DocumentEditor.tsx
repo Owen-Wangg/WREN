@@ -44,6 +44,7 @@ import { docxBytesToTiptapContent, tiptapContentToDocxBlob } from '../docxConten
 import { FontSize } from '../tiptapFontSize';
 import { FootnoteNode, type CitationConfigLike, type FootnoteAttrs } from '../tiptapFootnote';
 import { BlockLayoutCommands, IndentableHeading, IndentableParagraph } from '../tiptapIndent';
+import { PageNumberNode, DateNode } from '../tiptapHeaderFooterNodes';
 
 import { EditorToolbar } from './toolbar/EditorToolbar';
 import { FootnoteList } from './FootnoteList';
@@ -54,12 +55,20 @@ export type { TableOfContentData, TableOfContentDataItem } from '@tiptap/extensi
 export interface DocumentEditorProps {
   /** Initial Tiptap document content (e.g. mapped from an uploaded `.docx`). */
   readonly initialContent?: JSONContent;
+  /** Initial header Tiptap doc; omit for a blank header. */
+  readonly initialHeaderContent?: JSONContent;
+  /** Initial footer Tiptap doc; omit for a blank footer. */
+  readonly initialFooterContent?: JSONContent;
   /** Accessible name for the editing surface (exposed as `role="textbox"`). */
   readonly ariaLabel?: string;
   /** Extra classes applied to the editing surface. */
   readonly className?: string;
   /** Fires with the editor's `JSONContent` on every content change. */
   readonly onContentChange?: (content: JSONContent) => void;
+  /** Fires when the header content changes. */
+  readonly onHeaderChange?: (content: JSONContent) => void;
+  /** Fires when the footer content changes. */
+  readonly onFooterChange?: (content: JSONContent) => void;
   /** Fires with the activated comment id (or `null`) when a comment mark is focused. */
   readonly onCommentActivated?: (commentId: string | null) => void;
   /** Fires when the document heading outline changes (Home panel TOC). */
@@ -72,6 +81,10 @@ export interface DocumentEditorProps {
 export interface DocumentEditorHandle {
   /** The underlying Tiptap {@link Editor}, or `null` before it is created. */
   getEditor: () => Editor | null;
+  /** The header Tiptap editor, or `null` before it is created. */
+  getHeaderEditor: () => Editor | null;
+  /** The footer Tiptap editor, or `null` before it is created. */
+  getFooterEditor: () => Editor | null;
   /** Replaces the document content from `.docx` bytes (Requirement 6.2). */
   importDocx: (bytes: Uint8Array) => Promise<void>;
   /** Serializes the current content to a `.docx` `Blob` (Requirement 52.2). */
@@ -102,9 +115,13 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
   function DocumentEditor(
     {
       initialContent,
+      initialHeaderContent,
+      initialFooterContent,
       ariaLabel,
       className,
       onContentChange,
+      onHeaderChange,
+      onFooterChange,
       onCommentActivated,
       onTocUpdate,
       citationConfig,
@@ -112,10 +129,14 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     ref,
   ) {
     const onContentChangeRef = useRef(onContentChange);
+    const onHeaderChangeRef = useRef(onHeaderChange);
+    const onFooterChangeRef = useRef(onFooterChange);
     const onCommentActivatedRef = useRef(onCommentActivated);
     const onTocUpdateRef = useRef(onTocUpdate);
     useEffect(() => {
       onContentChangeRef.current = onContentChange;
+      onHeaderChangeRef.current = onHeaderChange;
+      onFooterChangeRef.current = onFooterChange;
       onCommentActivatedRef.current = onCommentActivated;
       onTocUpdateRef.current = onTocUpdate;
     });
@@ -199,10 +220,42 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       },
     });
 
+    const headerEditor = useEditor({
+      extensions: [StarterKit, TextStyle, FontSize, FontFamily, Color, PageNumberNode, DateNode],
+      content: initialHeaderContent ?? EMPTY_DOC,
+      editorProps: {
+        attributes: {
+          role: 'textbox',
+          'aria-label': 'Document header',
+          class: 'header-footer-editor-surface prose max-w-none focus:outline-none',
+        },
+      },
+      onUpdate: ({ editor: current }) => {
+        onHeaderChangeRef.current?.(current.getJSON());
+      },
+    });
+
+    const footerEditor = useEditor({
+      extensions: [StarterKit, TextStyle, FontSize, FontFamily, Color, PageNumberNode, DateNode],
+      content: initialFooterContent ?? EMPTY_DOC,
+      editorProps: {
+        attributes: {
+          role: 'textbox',
+          'aria-label': 'Document footer',
+          class: 'header-footer-editor-surface prose max-w-none focus:outline-none',
+        },
+      },
+      onUpdate: ({ editor: current }) => {
+        onFooterChangeRef.current?.(current.getJSON());
+      },
+    });
+
     useImperativeHandle(
       ref,
       (): DocumentEditorHandle => ({
         getEditor: () => editor,
+        getHeaderEditor: () => headerEditor,
+        getFooterEditor: () => footerEditor,
         importDocx: async (bytes: Uint8Array) => {
           const content = await docxBytesToTiptapContent(bytes);
           editor?.commands.setContent(content);
@@ -210,7 +263,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         },
         exportDocx: () => tiptapContentToDocxBlob(editor?.getJSON() ?? EMPTY_DOC),
       }),
-      [editor],
+      [editor, headerEditor, footerEditor],
     );
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- version used as cache-buster
@@ -241,27 +294,48 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           </div>
         </div>
         <div className="document-editor-scroll min-h-0 flex-1 overflow-y-auto bg-surface-muted/50">
-          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary px-2xl pb-2xl pt-lg shadow-sm sm:px-3xl sm:pb-3xl">
-            <EditorContent
-              editor={editor}
-              className={['block h-full min-h-full flex-1 px-0', className]
-                .filter(Boolean)
-                .join(' ')}
-            />
-            {activeFootnote && (
-              <FootnotePanel
-                open={true}
-                onOpenChange={(isOpen) => {
-                  if (!isOpen) setActiveFootnoteNumber(null);
-                }}
-                footnote={activeFootnote}
-                citationConfig={citationConfig}
-                onSave={handleSaveFootnote}
-                onDelete={handleDeleteFootnote}
-                anchor={<span />}
+          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary shadow-sm">
+            {/* Header region */}
+            <div
+              className="document-header-region border-b border-border-subtle px-2xl py-sm sm:px-3xl"
+              aria-label="Document header"
+            >
+              <p className="mb-1 text-caption font-sans text-text-muted select-none">Header</p>
+              <EditorContent editor={headerEditor} />
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 px-2xl pb-2xl pt-lg sm:px-3xl sm:pb-3xl">
+              <EditorContent
+                editor={editor}
+                className={['block h-full min-h-full flex-1 px-0', className]
+                  .filter(Boolean)
+                  .join(' ')}
               />
-            )}
-            <FootnoteList footnotes={footnotes} />
+              {activeFootnote && (
+                <FootnotePanel
+                  open={true}
+                  onOpenChange={(isOpen) => {
+                    if (!isOpen) setActiveFootnoteNumber(null);
+                  }}
+                  footnote={activeFootnote}
+                  citationConfig={citationConfig}
+                  onSave={handleSaveFootnote}
+                  onDelete={handleDeleteFootnote}
+                  anchor={<span />}
+                />
+              )}
+              <FootnoteList footnotes={footnotes} />
+            </div>
+
+            {/* Footer region */}
+            <div
+              className="document-footer-region border-t border-border-subtle px-2xl py-sm sm:px-3xl"
+              aria-label="Document footer"
+            >
+              <p className="mb-1 text-caption font-sans text-text-muted select-none">Footer</p>
+              <EditorContent editor={footerEditor} />
+            </div>
           </div>
         </div>
       </div>

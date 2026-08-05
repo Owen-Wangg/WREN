@@ -83,13 +83,16 @@ export interface DraftRepository {
   getCurrentDraft(documentId: string): Promise<Draft | null>;
 
   /**
-   * Update TipTap content + word count on the current (highest-version) Draft
-   * without creating a new version. Returns null when the Document has no Draft.
+   * Update TipTap content + word count (+ optional header/footer) on the
+   * current (highest-version) Draft without creating a new version.
+   * Returns null when the Document has no Draft.
    */
   updateCurrentDraftContent(
     documentId: string,
     content: TipTapDoc,
     wordCount: number,
+    header?: TipTapDoc | null,
+    footer?: TipTapDoc | null,
   ): Promise<Draft | null>;
 
   /**
@@ -108,7 +111,10 @@ interface DraftRow {
   readonly segments: unknown;
   readonly word_count: number;
   readonly created_at: string | Date;
+  readonly content_updated_at?: string | Date | null;
   readonly content?: unknown;
+  readonly header?: unknown;
+  readonly footer?: unknown;
 }
 
 /** Raw `feedback_item` row (snake_case columns from PostgreSQL). */
@@ -125,7 +131,7 @@ interface FeedbackItemRow {
 }
 
 const DRAFT_COLUMNS =
-  'id, document_id, version_number, s3_key, segments, word_count, created_at, content';
+  'id, document_id, version_number, s3_key, segments, word_count, created_at, content_updated_at, content, header, footer';
 
 const FEEDBACK_ITEM_COLUMNS =
   'id, document_id, error_category_id, kind, question_text, ' +
@@ -167,6 +173,8 @@ function parseOptionalContent(value: unknown): TipTapDoc | undefined {
 /** Map a raw `draft` row to the validated shared {@link Draft} DTO. */
 function toDraft(row: DraftRow): Draft {
   const content = parseOptionalContent(row.content);
+  const header = parseOptionalContent(row.header);
+  const footer = parseOptionalContent(row.footer);
   return draftSchema.parse({
     id: row.id,
     documentId: row.document_id,
@@ -175,7 +183,10 @@ function toDraft(row: DraftRow): Draft {
     segments: parseJsonbColumn(row.segments),
     wordCount: row.word_count,
     createdAt: toIso(row.created_at),
+    contentUpdatedAt: row.content_updated_at != null ? toIso(row.content_updated_at) : null,
     ...(content ? { content } : {}),
+    ...(header ? { header } : {}),
+    ...(footer ? { footer } : {}),
   });
 }
 
@@ -245,11 +256,16 @@ export class DbDraftRepository implements DraftRepository {
     documentId: string,
     content: TipTapDoc,
     wordCount: number,
+    header?: TipTapDoc | null,
+    footer?: TipTapDoc | null,
   ): Promise<Draft | null> {
     const rows = await this.db.query<DraftRow>(
       `UPDATE draft
        SET content = $2::jsonb,
-           word_count = $3
+           word_count = $3,
+           content_updated_at = NOW(),
+           header = CASE WHEN $4::jsonb IS NOT NULL THEN $4::jsonb ELSE header END,
+           footer = CASE WHEN $5::jsonb IS NOT NULL THEN $5::jsonb ELSE footer END
        WHERE id = (
          SELECT id FROM draft
          WHERE document_id = $1
@@ -257,7 +273,13 @@ export class DbDraftRepository implements DraftRepository {
          LIMIT 1
        )
        RETURNING ${DRAFT_COLUMNS}`,
-      [documentId, JSON.stringify(content), wordCount],
+      [
+        documentId,
+        JSON.stringify(content),
+        wordCount,
+        header != null ? JSON.stringify(header) : null,
+        footer != null ? JSON.stringify(footer) : null,
+      ],
     );
     const row = rows[0];
     return row ? toDraft(row) : null;

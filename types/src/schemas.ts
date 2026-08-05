@@ -404,8 +404,14 @@ export const draftSchema = z
     segments: z.array(segmentSchema),
     wordCount: z.number().int().nonnegative(),
     createdAt: isoDateTimeSchema,
+    /** When the TipTap content was last autosaved; null for legacy drafts. */
+    contentUpdatedAt: isoDateTimeSchema.nullable().optional(),
     /** TipTap JSONContent when rich formatting was persisted; omit for legacy. */
     content: tipTapDocSchema.optional(),
+    /** TipTap JSONContent for the repeating page header; omit when not set. */
+    header: tipTapDocSchema.optional(),
+    /** TipTap JSONContent for the repeating page footer; omit when not set. */
+    footer: tipTapDocSchema.optional(),
   })
   .strict();
 export type Draft = z.infer<typeof draftSchema>;

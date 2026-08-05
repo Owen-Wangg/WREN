@@ -183,6 +183,8 @@ export function DocumentEditorPage() {
   const [currentContent, setCurrentContent] = useState<JSONContent>(
     routerInitialContent ?? EMPTY_EDITOR_CONTENT,
   );
+  const [currentHeader, setCurrentHeader] = useState<JSONContent | null>(null);
+  const [currentFooter, setCurrentFooter] = useState<JSONContent | null>(null);
   const [docxParseWarning, setDocxParseWarning] = useState<string | undefined>(
     () => state?.docxParseWarning,
   );
@@ -288,6 +290,18 @@ export function DocumentEditorPage() {
     return segmentsToTiptapContent(draftQuery.data.segments);
   }, [draftQuery.data]);
 
+  const draftHeader = useMemo(
+    () => (isTipTapDoc(draftQuery.data?.header) ? (draftQuery.data!.header as JSONContent) : null),
+    [draftQuery.data],
+  );
+  const draftFooter = useMemo(
+    () => (isTipTapDoc(draftQuery.data?.footer) ? (draftQuery.data!.footer as JSONContent) : null),
+    [draftQuery.data],
+  );
+
+  // The last-autosaved timestamp from the draft; used as the dateNode value in PDF export.
+  const contentUpdatedAt = draftQuery.data?.contentUpdatedAt ?? draftQuery.data?.createdAt ?? null;
+
   // Prefer persisted draft.content over ephemeral router state so reload matches DB.
   const editorInitialContent = draftContent ?? routerInitialContent ?? EMPTY_EDITOR_CONTENT;
   // Wait for a fetch on this visit before mounting TipTap — otherwise a stale
@@ -359,6 +373,8 @@ export function DocumentEditorPage() {
   } = useDraftAutosave({
     documentId: envId,
     content: currentContent,
+    header: currentHeader,
+    footer: currentFooter,
     enabled: editorReady && draftQuery.isSuccess && !isPollingIngest,
     baselineKey: draftQuery.data?.id,
     onSaved: (draft) => {
@@ -563,7 +579,11 @@ export function DocumentEditorPage() {
       const blob =
         format === 'docx'
           ? await tiptapContentToDocxBlob(cleaned)
-          : await tiptapContentToPdfBlob(cleaned);
+          : await tiptapContentToPdfBlob(cleaned, {
+              header: currentHeader,
+              footer: currentFooter,
+              lastEditedAt: contentUpdatedAt,
+            });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -934,12 +954,16 @@ export function DocumentEditorPage() {
               environmentId={envId}
               ariaLabel="Draft editor"
               initialContent={editorInitialContent}
+              initialHeaderContent={draftHeader ?? undefined}
+              initialFooterContent={draftFooter ?? undefined}
               categoryLabels={previewCategoryLabels}
               highlightedAnchorId={highlightedAnchorId}
               highlightedQuotedText={highlightedQuotedText}
               highlightedLocationHint={highlightedLocationHint}
               showCoachHighlights={showCoachHighlights}
               onContentChange={(content) => setCurrentContent(content)}
+              onHeaderChange={(h) => setCurrentHeader(h)}
+              onFooterChange={(f) => setCurrentFooter(f)}
               onTocUpdate={setTocAnchors}
               className="min-h-0 flex-1"
             />

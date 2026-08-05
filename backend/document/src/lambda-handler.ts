@@ -856,7 +856,8 @@ async function handleGetLatestDraft(event: any): Promise<APIGatewayProxyResult> 
 }
 
 /**
- * Autosave: update TipTap content on the current draft without a new version.
+ * Autosave: update TipTap content (+ optional header/footer) on the current
+ * draft without a new version.
  */
 async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
@@ -896,8 +897,16 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
 
   const cleaned = stripAiMarksFromTipTapContent(tipTapContent) as TipTapDoc;
   const wordCount = wordCountFromTipTapContent(cleaned);
+  const header = isTipTapDoc(body.header) ? (body.header as TipTapDoc) : undefined;
+  const footer = isTipTapDoc(body.footer) ? (body.footer as TipTapDoc) : undefined;
   const repo = new DbDraftRepository(db);
-  const draft = await repo.updateCurrentDraftContent(documentId, cleaned, wordCount);
+  const draft = await repo.updateCurrentDraftContent(
+    documentId,
+    cleaned,
+    wordCount,
+    header ?? null,
+    footer ?? null,
+  );
 
   if (!draft) {
     return {

@@ -18,6 +18,10 @@ const RETRY_DELAYS_MS = [1000, 3000, 8000] as const;
 export interface UseDraftAutosaveOptions {
   readonly documentId: string;
   readonly content: JSONContent;
+  /** Header TipTap doc to persist alongside body content. */
+  readonly header?: JSONContent | null;
+  /** Footer TipTap doc to persist alongside body content. */
+  readonly footer?: JSONContent | null;
   /** When false, skip autosave (e.g. while initial draft is still loading). */
   readonly enabled: boolean;
   /** Changes when the persisted draft baseline resets (e.g. new version id). */
@@ -36,12 +40,16 @@ export interface UseDraftAutosaveResult {
 export function useDraftAutosave({
   documentId,
   content,
+  header,
+  footer,
   enabled,
   baselineKey,
   onSaved,
 }: UseDraftAutosaveOptions): UseDraftAutosaveResult {
   const [status, setStatus] = useState<AutosaveStatus>('idle');
   const contentRef = useRef(content);
+  const headerRef = useRef(header);
+  const footerRef = useRef(footer);
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -53,6 +61,8 @@ export function useDraftAutosave({
   const persistRef = useRef<() => Promise<boolean>>(async () => false);
 
   contentRef.current = content;
+  headerRef.current = header;
+  footerRef.current = footer;
   onSavedRef.current = onSaved;
 
   const clearTimer = useCallback(() => {
@@ -91,6 +101,8 @@ export function useDraftAutosave({
       try {
         const draft = await patchCurrentDraft(apiClient, documentId, cleaned as TipTapDoc, {
           keepalive: opts?.keepalive,
+          header: headerRef.current != null ? (headerRef.current as TipTapDoc) : null,
+          footer: footerRef.current != null ? (footerRef.current as TipTapDoc) : null,
         });
         lastSavedJsonRef.current = serialized;
         dirtyRef.current = false;
