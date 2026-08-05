@@ -121,6 +121,7 @@ const apiStack = new ApiStack(app, stackName(config, "Api"), {
   feedbackFunctionArn: computeStack.feedbackOrchestratorFunction.functionArn,
   adminFunctionArn: computeStack.adminFunction.functionArn,
   auditFunctionArn: computeStack.auditFunction.functionArn,
+  notificationFunctionArn: computeStack.notificationFunction.functionArn,
 });
 
 // Observability stack (CloudWatch, X-Ray, alarms)
@@ -135,6 +136,7 @@ new ObservabilityStack(app, stackName(config, "Observability"), {
     computeStack.adminFunction.functionName,
     computeStack.auditFunction.functionName,
     computeStack.diffAnchorProgressFunction.functionName,
+    computeStack.notificationFunction.functionName,
   ],
   feedbackQueueName: computeStack.feedbackQueue.queueName,
   feedbackDlqName: computeStack.feedbackDlq.queueName,

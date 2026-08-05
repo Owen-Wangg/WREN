@@ -1,17 +1,20 @@
 /**
- * `<SectionApplicabilityToggle>` — Applicable / Not Applicable vote on one
+ * `<SectionApplicabilityToggle>` — Thumbs up / Thumbs down vote on one
  * AI Debrief category section.
  *
- * The student can mark any section as "Not Applicable" (e.g. the feedback
- * doesn't apply to their assignment). Votes are persisted anonymously via
+ * The student can mark any section as applicable (thumbs up, green) or
+ * not applicable (thumbs down, red). Votes are persisted anonymously via
  * POST /v1/feedback-section-applicability (upsert semantics — toggling the
  * same category replaces the previous vote). State is optimistic: the UI
  * responds immediately and silently reverts on error.
+ *
+ * After voting, a brief "Feedback noted" confirmation appears and fades out.
  *
  * Privacy: no user_id is stored server-side (same pattern as
  * feedback_helpfulness_rating / migration 0009).
  */
 import { useCallback, useEffect, useState } from 'react';
+import { ThumbsUp, ThumbsDown } from 'lucide-react';
 
 import { useRecordSectionApplicability } from '../useDebrief';
 
@@ -30,6 +33,7 @@ export function SectionApplicabilityToggle({
   initialVote,
 }: SectionApplicabilityToggleProps) {
   const [vote, setVote] = useState<boolean | undefined>(initialVote);
+  const [showAck, setShowAck] = useState(false);
   const { mutate, isPending } = useRecordSectionApplicability();
 
   // Sync with server-loaded initial value (arrives async after first render).
@@ -37,17 +41,26 @@ export function SectionApplicabilityToggle({
     setVote(initialVote);
   }, [initialVote]);
 
+  // Auto-hide the acknowledgment after 2 seconds.
+  useEffect(() => {
+    if (!showAck) return;
+    const timer = setTimeout(() => setShowAck(false), 2000);
+    return () => clearTimeout(timer);
+  }, [showAck]);
+
   const handleToggle = useCallback(
     (next: boolean) => {
       const prev = vote;
       // Optimistic update.
       setVote(next);
+      setShowAck(true);
       mutate(
         { environmentId, draftId, errorCategoryId, applicable: next },
         {
           onError: () => {
             // Revert on failure.
             setVote(prev);
+            setShowAck(false);
           },
         },
       );
@@ -57,38 +70,45 @@ export function SectionApplicabilityToggle({
 
   return (
     <div
-      className="flex items-center gap-xs shrink-0"
+      className="flex items-center gap-sm shrink-0"
       role="group"
       aria-label="Is this feedback applicable to your writing?"
     >
       <button
         type="button"
         aria-pressed={vote === true}
+        aria-label="Applicable"
         disabled={isPending}
         onClick={() => handleToggle(true)}
         className={[
-          'rounded-md px-sm py-[2px] text-caption font-sans font-medium transition-colors',
+          'rounded-full p-[6px] transition-colors',
           vote === true
-            ? 'bg-signal-positive/15 text-signal-positive border border-signal-positive/40'
-            : 'border border-border-subtle text-text-muted hover:border-signal-positive/40 hover:text-signal-positive',
+            ? 'bg-green-100 text-green-600'
+            : 'text-text-muted hover:bg-green-50 hover:text-green-600',
         ].join(' ')}
       >
-        Applicable
+        <ThumbsUp size={16} aria-hidden="true" />
       </button>
       <button
         type="button"
         aria-pressed={vote === false}
+        aria-label="Not Applicable"
         disabled={isPending}
         onClick={() => handleToggle(false)}
         className={[
-          'rounded-md px-sm py-[2px] text-caption font-sans font-medium transition-colors',
+          'rounded-full p-[6px] transition-colors',
           vote === false
-            ? 'bg-surface-muted text-text-secondary border border-border-strong'
-            : 'border border-border-subtle text-text-muted hover:border-border-strong hover:text-text-secondary',
+            ? 'bg-red-100 text-red-600'
+            : 'text-text-muted hover:bg-red-50 hover:text-red-600',
         ].join(' ')}
       >
-        Not Applicable
+        <ThumbsDown size={16} aria-hidden="true" />
       </button>
+      {showAck && (
+        <span className="text-xs font-sans text-text-muted transition-opacity duration-300">
+          Feedback noted
+        </span>
+      )}
     </div>
   );
 }

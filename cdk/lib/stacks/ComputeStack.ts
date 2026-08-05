@@ -6,11 +6,14 @@ import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as events from "aws-cdk-lib/aws-events";
+import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import type { IKey } from "aws-cdk-lib/aws-kms";
 import type { Construct } from "constructs";
 
 import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct";
+import { NotificationInfraConstruct } from "../constructs/NotificationInfraConstruct";
 
 import type { AppConfig } from "../config";
 
@@ -72,6 +75,8 @@ export class ComputeStack extends Stack {
   public readonly feedbackDlq: sqs.Queue;
   public readonly documentIngestQueue: sqs.Queue;
   public readonly documentIngestDlq: sqs.Queue;
+  public readonly notificationFunction: lambda.Function;
+  public readonly notificationTopicArn: string;
   public readonly appSyncGraphqlUrl: string;
   public readonly appSyncAuthorizerFunction: lambda.Function;
 
@@ -326,6 +331,77 @@ export class ComputeStack extends Stack {
     });
 
     // -----------------------------------------------------------------------
+    // Notification Infrastructure (SNS topic + SQS queue + DLQ + SSM params)
+    // -----------------------------------------------------------------------
+    const notificationInfra = new NotificationInfraConstruct(this, "NotificationInfra", {
+      stackPrefix: config.stackPrefix,
+    });
+    this.notificationTopicArn = notificationInfra.topic.topicArn;
+
+    // -----------------------------------------------------------------------
+    // Notification Service Lambda (Node 22) — processes SQS events, REST API,
+    // and EventBridge scheduled override-expiry scanning.
+    // -----------------------------------------------------------------------
+    this.notificationFunction = new lambdaNodejs.NodejsFunction(this, "NotificationFn", {
+      functionName: `${config.stackPrefix}-notification`,
+      entry: path.join(monorepoRoot, "backend/notification/src/lambda-handler.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 512,
+      timeout: Duration.seconds(30),
+      vpc,
+      vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
+      environment: {
+        ...dbEnv,
+        NOTIFICATION_TOPIC_ARN: notificationInfra.topic.topicArn,
+        OVERRIDE_EXPIRY_WARNING_HOURS: "24",
+      },
+      bundling: sharedBundling,
+    });
+
+    // SQS event source: the notification Lambda is triggered by messages on the queue.
+    this.notificationFunction.addEventSource(
+      new lambdaEventSources.SqsEventSource(notificationInfra.queue, {
+        batchSize: 5,
+        maxConcurrency: 10,
+      }),
+    );
+
+    // EventBridge rule: invoke every 15 minutes for override-expiry scanning.
+    const overrideExpiryRule = new events.Rule(this, "OverrideExpiryRule", {
+      ruleName: `${config.stackPrefix}-notification-override-expiry`,
+      schedule: events.Schedule.rate(Duration.minutes(15)),
+      description: "Scans for expiring/expired usage overrides to generate notifications",
+    });
+    overrideExpiryRule.addTarget(new targets.LambdaFunction(this.notificationFunction));
+
+    // IAM: SNS publish (for the notification topic, though primarily used by producers)
+    notificationInfra.topic.grantPublish(this.notificationFunction);
+
+    // IAM: SSM parameter read (notification config thresholds)
+    this.notificationFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ssm:GetParameter", "ssm:GetParameters"],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/${config.stackPrefix}/notifications/*`,
+      ],
+    }));
+
+    // Expose the notification topic ARN to other Lambdas that publish events.
+    this.feedbackOrchestratorFunction.addEnvironment(
+      "NOTIFICATION_TOPIC_ARN",
+      notificationInfra.topic.topicArn,
+    );
+    notificationInfra.topic.grantPublish(this.feedbackOrchestratorFunction);
+
+    this.adminFunction.addEnvironment(
+      "NOTIFICATION_TOPIC_ARN",
+      notificationInfra.topic.topicArn,
+    );
+    notificationInfra.topic.grantPublish(this.adminFunction);
+
+    // -----------------------------------------------------------------------
     // AppSync Lambda authorizer (Node 22)
     // Same two-step pattern as the REST authorizer: Cognito JWT → DB identity
     // + ownership check. Deployed separately so it can be tuned independently.
@@ -365,6 +441,7 @@ export class ComputeStack extends Stack {
     const appSyncRealtime = new AppSyncRealtimeConstruct(this, "AppSyncRealtime", {
       authorizerFunction: this.appSyncAuthorizerFunction,
       feedbackEngineRole: this.feedbackEngineFunction.role!,
+      notificationLambdaRole: this.notificationFunction.role!,
       stackPrefix: config.stackPrefix,
     });
     this.appSyncGraphqlUrl = appSyncRealtime.graphqlUrl;
@@ -372,6 +449,10 @@ export class ComputeStack extends Stack {
     // Inject the AppSync endpoint into the Feedback Engine so it can publish
     // the debriefReady mutation after writing feedback_item rows.
     this.feedbackEngineFunction.addEnvironment("APPSYNC_URL", appSyncRealtime.graphqlUrl);
+
+    // Inject the AppSync endpoint into the Notification Lambda so it can
+    // publish real-time notification mutations to subscribers.
+    this.notificationFunction.addEnvironment("APPSYNC_URL", appSyncRealtime.graphqlUrl);
 
     // -----------------------------------------------------------------------
     // IAM: scoped roles — each function gets only what it needs
@@ -384,6 +465,7 @@ export class ComputeStack extends Stack {
       this.feedbackOrchestratorFunction,
       this.feedbackEngineFunction,
       this.diffAnchorProgressFunction,
+      this.notificationFunction,
     ], props.databaseSecretArn);
 
     // Authorizer: look up Cognito email/name when auto-provisioning app_user on first login.
@@ -547,6 +629,14 @@ export class ComputeStack extends Stack {
     });
     new CfnOutput(this, "DocumentIngestQueueUrl", {
       value: this.documentIngestQueue.queueUrl,
+    });
+    new CfnOutput(this, "NotificationFunctionArn", {
+      value: this.notificationFunction.functionArn,
+    });
+    new CfnOutput(this, "NotificationTopicArn", {
+      value: this.notificationTopicArn,
+      description: "SNS topic ARN for publishing notification events",
+      exportName: `${config.stackPrefix}-notification-topic-arn`,
     });
   }
 

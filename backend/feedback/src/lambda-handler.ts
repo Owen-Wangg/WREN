@@ -6,6 +6,7 @@ import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
+import { publishNotificationEvent } from '@wren/notification';
 
 import {
   appendAskWrenTurn,
@@ -52,12 +53,25 @@ function parseAuthContext(event: any) {
   };
 }
 
-async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<APIGatewayProxyResult> {
+async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>, event?: any): Promise<APIGatewayProxyResult> {
   try {
     return withCors(await fn());
   } catch (error: any) {
     console.error('Error:', error);
     if (error instanceof UsageLimitReachedError) {
+      // Publish usage-limit-reached notification (best-effort).
+      if (event?.requestContext?.authorizer?.userId) {
+        publishNotificationEvent({
+          typeSlug: 'usage-limit-reached',
+          entityId: event.requestContext.authorizer.userId,
+          recipientUserId: event.requestContext.authorizer.userId,
+          context: {
+            message: error.message,
+          },
+        }).catch((err) => {
+          console.warn('Failed to publish usage-limit-reached notification:', err);
+        });
+      }
       return withCors({
         statusCode: 429,
         body: JSON.stringify({ code: error.code, message: error.message }),
@@ -681,6 +695,22 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
       enqueuedAt: new Date().toISOString(),
     }),
   }));
+
+  // Publish ai-debrief-ready notification asynchronously (best-effort).
+  // The notification is published eagerly on enqueue; the actual "ready"
+  // state is signalled via AppSync when the engine finishes. If the engine
+  // fails, a separate mechanism would publish ai-debrief-failed.
+  publishNotificationEvent({
+    typeSlug: 'ai-debrief-ready',
+    entityId: String(draft.id),
+    recipientUserId: actor.userId,
+    context: {
+      documentId,
+      draftId: String(draft.id),
+    },
+  }).catch((err) => {
+    console.warn('Failed to publish ai-debrief-ready notification:', err);
+  });
 
   return {
     statusCode: 202,

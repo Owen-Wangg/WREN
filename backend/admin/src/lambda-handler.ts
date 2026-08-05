@@ -4,6 +4,7 @@
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
+import { publishNotificationEvent } from '@wren/notification';
 import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState, listDepartmentUsers, archiveDepartment } from './departmentService';
 import {
   listDocumentTypes,
@@ -379,6 +380,21 @@ async function handleAssignRole(event: any): Promise<APIGatewayProxyResult> {
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   await assignRole(actor, body, db);
+
+  // Publish department-appointment notification for the user receiving the role.
+  publishNotificationEvent({
+    typeSlug: 'department-appointment',
+    entityId: body.userId,
+    recipientUserId: body.userId,
+    departmentId: body.departmentId,
+    context: {
+      role: body.role,
+      departmentId: body.departmentId ?? '',
+    },
+  }).catch((err) => {
+    console.warn('Failed to publish department-appointment notification:', err);
+  });
+
   return {
     statusCode: 200,
     body: JSON.stringify({ success: true, userId: body.userId, role: body.role }),
@@ -443,6 +459,22 @@ async function handleGrantOverride(event: any): Promise<APIGatewayProxyResult> {
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const result = await grantOverride(actor, body, db);
+
+  // Publish access-grant-approved notification for the student receiving the override.
+  publishNotificationEvent({
+    typeSlug: 'access-grant-approved',
+    entityId: result.id,
+    recipientUserId: body.userId,
+    documentTypeId: body.documentTypeId,
+    context: {
+      overrideId: result.id,
+      documentTypeId: body.documentTypeId,
+      reason: body.reason ?? '',
+    },
+  }).catch((err) => {
+    console.warn('Failed to publish access-grant-approved notification:', err);
+  });
+
   return {
     statusCode: 200,
     body: JSON.stringify(result),

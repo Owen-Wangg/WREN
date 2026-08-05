@@ -1,16 +1,22 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { Home, Info, Bell, User } from 'lucide-react';
+import { Home, Info, User } from 'lucide-react';
 
 import { appConfig } from '@/config/env';
+import { NotificationBell } from '@/features/notifications/components/NotificationBell';
+import { useUnreadCount } from '@/features/notifications/hooks/useNotificationActions';
+import { useApiClient } from '@/services/apiClient';
 
 const navItems = [
   { to: '/dept-admin', label: 'Dashboard', icon: Home },
   { to: '/dept-admin/guide', label: 'Guide', icon: Info },
-  { to: '/dept-admin/notifications', label: 'Notifications', icon: Bell },
+  { to: '/dept-admin/notifications', label: 'Notifications', icon: undefined },
   { to: '/dept-admin/profile', label: 'Profile', icon: User },
 ] as const;
 
 export function DepartmentAdminLayout() {
+  const client = useApiClient();
+  const { data: unreadCount } = useUnreadCount({ client });
+
   return (
     <div className="flex min-h-screen flex-col bg-surface-muted">
       <header className="border-b border-border-subtle bg-surface-primary">
@@ -31,7 +37,7 @@ export function DepartmentAdminLayout() {
           </div>
 
           <nav className="flex items-center gap-xl" aria-label="Main navigation">
-            {navItems.map((item) => (
+            {navItems.filter(item => item.icon).map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -43,10 +49,11 @@ export function DepartmentAdminLayout() {
                   ].join(' ')
                 }
               >
-                <item.icon size={22} aria-hidden="true" />
+                {item.icon && <item.icon size={22} aria-hidden="true" />}
                 <span>{item.label}</span>
               </NavLink>
             ))}
+            <NotificationBell unreadCount={unreadCount ?? 0} />
           </nav>
         </div>
       </header>
