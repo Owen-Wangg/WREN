@@ -32,3 +32,4 @@ export { renderTemplate, renderActionUrl, sanitizeValue } from './templateRender
 export { validateNoLeakConstraint, type NoLeakValidationResult } from './noLeakValidation.js';
 export { NotificationServiceImpl } from './notificationService.js';
 export { NotificationTypeCatalogServiceImpl } from './catalogService.js';
+export { checkOverrideExpiry, type OverrideExpiryConfig } from './overrideExpiryHandler.js';
