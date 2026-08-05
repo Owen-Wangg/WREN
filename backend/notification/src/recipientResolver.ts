@@ -46,8 +46,19 @@ export async function recipientResolver(
         break;
       }
       case 'DepartmentAdmin': {
-        // Resolve all Org Owners whose scope includes the relevant department
-        const departmentId = event.departmentId ?? event.documentTypeId;
+        // Resolve all Org Owners whose scope includes the relevant department.
+        // If departmentId is provided directly, use it. Otherwise, resolve via
+        // the writing_type (Document Type) → organization FK.
+        let departmentId = event.departmentId;
+
+        if (!departmentId && event.documentTypeId) {
+          const orgRows = await deps.query<{ organization_id: string }>(
+            `SELECT organization_id FROM writing_type WHERE id = $1`,
+            [event.documentTypeId],
+          );
+          departmentId = orgRows[0]?.organization_id;
+        }
+
         if (!departmentId) break;
 
         // Query Org Owners scoped to this department/organization
