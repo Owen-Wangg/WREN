@@ -4,7 +4,7 @@ import {
   PieChart, Pie, Cell,
 } from 'recharts';
 
-import { useGetHelpfulnessAnalytics, useGetImprovementTrends } from '@/hooks/useDepartmentAdmin';
+import { useGetHelpfulnessAnalytics, useGetImprovementTrends, useGetSectionApplicabilityAnalytics } from '@/hooks/useDepartmentAdmin';
 
 export interface FeedbackCategory {
   id: string;
@@ -42,6 +42,7 @@ function relativeTime(isoString: string): string {
 export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
   const { data: helpfulness, isLoading: helpfulnessLoading } = useGetHelpfulnessAnalytics(documentTypeId);
   const { data: trendsData, isLoading: trendsLoading } = useGetImprovementTrends(documentTypeId);
+  const { data: sectionApplicability, isLoading: sectionApplicabilityLoading } = useGetSectionApplicabilityAnalytics(documentTypeId);
 
   // ── Date filter state ─────────────────────────────────────────────────────
   const [preset, setPreset] = useState<RangePreset>('12w');
@@ -329,6 +330,91 @@ export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
                 </ul>
               )}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Section Applicability */}
+      <div className="mt-10">
+        <h2 className="text-xl font-semibold text-gray-900">Feedback Section Applicability</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          Sections students marked as "Not Applicable" most often — sorted by not-applicable rate.
+          Only sections with at least one response are shown.
+        </p>
+
+        {sectionApplicabilityLoading ? (
+          <p className="mt-6 text-sm text-gray-500">Loading applicability data…</p>
+        ) : !sectionApplicability || sectionApplicability.sections.length === 0 ? (
+          <p className="mt-6 text-sm text-gray-500">
+            No applicability votes yet. Votes appear once students start rating debrief sections.
+          </p>
+        ) : (
+          <div className="mt-6 rounded-lg border border-gray-200 bg-white">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Section
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 w-32">
+                    Not applicable
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 w-20">
+                    Responses
+                  </th>
+                  <th className="px-4 py-3 w-40" aria-label="Bar" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {sectionApplicability.sections.map((row) => (
+                  <tr key={row.categoryId} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 font-medium text-gray-900">{row.categoryName}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-700">
+                      {row.notApplicablePct !== null ? (
+                        <span
+                          className={[
+                            'font-semibold',
+                            row.notApplicablePct >= 50 ? 'text-red-600' : row.notApplicablePct >= 25 ? 'text-amber-600' : 'text-gray-700',
+                          ].join(' ')}
+                        >
+                          {row.notApplicablePct}%
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                      <span className="ml-1 text-xs text-gray-400">
+                        ({row.notApplicableCount}/{row.total})
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-500">
+                      {row.total}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1" aria-hidden="true">
+                        <div className="h-2 flex-1 rounded-full bg-gray-100 overflow-hidden">
+                          <div
+                            className={[
+                              'h-full rounded-full transition-all',
+                              (row.notApplicablePct ?? 0) >= 50
+                                ? 'bg-red-400'
+                                : (row.notApplicablePct ?? 0) >= 25
+                                ? 'bg-amber-400'
+                                : 'bg-gray-300',
+                            ].join(' ')}
+                            style={{ width: `${row.notApplicablePct ?? 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {sectionApplicability.asOf && (
+              <p className="px-4 py-2 text-xs text-gray-400 border-t border-gray-100">
+                Last updated {relativeTime(sectionApplicability.asOf)}
+              </p>
+            )}
           </div>
         )}
       </div>

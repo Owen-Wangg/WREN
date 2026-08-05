@@ -141,6 +141,10 @@ export const queryKeys = {
   improvementTrends: (documentTypeId: string) =>
     [ns, 'department-admin', 'improvement-trends', documentTypeId] as const,
 
+  /** Per-section not-applicable vote aggregates for a specific document type. */
+  sectionApplicabilityAnalytics: (documentTypeId: string) =>
+    [ns, 'department-admin', 'section-applicability-analytics', documentTypeId] as const,
+
   /** Department-wide (tier 1) reference materials. */
   departmentReferenceMaterial: (departmentId: string) =>
     [ns, 'departments', departmentId, 'reference-material'] as const,

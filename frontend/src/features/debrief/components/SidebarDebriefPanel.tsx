@@ -396,11 +396,7 @@ export function SidebarDebriefPanel({
             className="rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             aria-label="Regenerate AI Debrief"
           >
-            {regenerating ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-            ) : (
-              '↻ Regenerate'
-            )}
+            ↻ Regenerate
           </button>
           {!regenerating && (
             <span className="px-sm text-caption text-text-muted whitespace-nowrap text-right leading-tight">
@@ -459,16 +455,13 @@ export function SidebarDebriefPanel({
               ))}
             </div>
             <div className="flex flex-col gap-sm rounded-lg border border-accent-primary/20 bg-accent-primary/5 p-md">
-              <div className="flex items-center gap-sm">
-                <div className="h-5 w-5 shrink-0 animate-spin rounded-full border-[2.5px] border-border-strong border-t-accent-primary" />
-                <p role="status" className="text-body font-semibold text-text-primary">
-                  {generatingStep.message}
-                </p>
-              </div>
-              <p className="text-bodySmall text-text-secondary leading-relaxed pl-[28px]">
+              <p role="status" className="text-body font-semibold text-text-primary">
+                {generatingStep.message}
+              </p>
+              <p className="text-bodySmall text-text-secondary leading-relaxed">
                 {generatingStep.detail}
               </p>
-              <p className="text-caption text-text-muted pl-[28px]">
+              <p className="text-caption text-text-muted">
                 Please don&apos;t close or refresh this page.
               </p>
             </div>
@@ -515,13 +508,10 @@ export function SidebarDebriefPanel({
                       ))}
                     </div>
                     <div className="flex flex-col gap-sm">
-                      <div className="flex items-center gap-sm">
-                        <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-                        <p role="status" className="text-body font-medium text-text-primary">
-                          {generatingStep.message}
-                        </p>
-                      </div>
-                      <p className="text-bodySmall text-text-secondary leading-relaxed pl-[24px]">
+                      <p role="status" className="text-body font-medium text-text-primary">
+                        {generatingStep.message}
+                      </p>
+                      <p className="text-bodySmall text-text-secondary leading-relaxed">
                         {generatingStep.detail}
                       </p>
                     </div>

@@ -16,6 +16,7 @@ import {
   getAnalytics,
   getHelpfulnessAnalytics,
   getImprovementTrends,
+  getSectionApplicabilityAnalytics,
 } from '@/services/api/departmentAdminApi';
 import { useApiClient } from '@/services/apiClient';
 
@@ -97,6 +98,20 @@ export function useGetImprovementTrends(documentTypeId: string) {
   return useQuery({
     queryKey: queryKeys.improvementTrends(documentTypeId),
     queryFn: () => getImprovementTrends(client, documentTypeId),
+    staleTime: 60_000,
+    enabled: !!documentTypeId,
+  });
+}
+
+/**
+ * Query hook: per-section not-applicable vote aggregates for a document type.
+ * Rows are sorted descending by not-applicable percentage (most-flagged first).
+ */
+export function useGetSectionApplicabilityAnalytics(documentTypeId: string) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: queryKeys.sectionApplicabilityAnalytics(documentTypeId),
+    queryFn: () => getSectionApplicabilityAnalytics(client, documentTypeId),
     staleTime: 60_000,
     enabled: !!documentTypeId,
   });

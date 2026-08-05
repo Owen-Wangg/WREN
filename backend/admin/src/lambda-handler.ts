@@ -23,6 +23,7 @@ import { listMyAccessGrants } from './accessGrantService';
 import { getAnalytics, getImprovementTrends } from './analyticsService';
 import { BedrockClient, ListInferenceProfilesCommand } from '@aws-sdk/client-bedrock';
 import { getHelpfulnessAnalytics } from './helpfulnessAnalyticsService';
+import { getSectionApplicabilityAnalytics } from './sectionApplicabilityAnalyticsService';
 import {
   getPlatformUsagePolicyForAdmin,
   updatePlatformUsagePolicy,
@@ -157,6 +158,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     }
     if (resource === '/v1/analytics/feedback-helpfulness' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetHelpfulnessAnalytics(event));
+    }
+    if (resource === '/v1/analytics/section-applicability' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetSectionApplicabilityAnalytics(event));
     }
     if (resource === '/v1/analytics/improvement-trends' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetImprovementTrends(event));
@@ -767,6 +771,20 @@ async function handleGetHelpfulnessAnalytics(event: any): Promise<APIGatewayProx
     });
   }
   const result = await getHelpfulnessAnalytics(actor, documentTypeId, db);
+  return withCors({ statusCode: 200, body: JSON.stringify(result) });
+}
+
+async function handleGetSectionApplicabilityAnalytics(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.queryStringParameters || {};
+  if (!documentTypeId) {
+    return withCors({
+      statusCode: 400,
+      body: JSON.stringify({ code: 'BAD_REQUEST', message: 'documentTypeId query parameter is required' }),
+    });
+  }
+  const result = await getSectionApplicabilityAnalytics(actor, documentTypeId, db);
   return withCors({ statusCode: 200, body: JSON.stringify(result) });
 }
 
