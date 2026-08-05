@@ -86,6 +86,24 @@ async function isDocumentOwner(
   return rows[0]?.owner_user_id === userId;
 }
 
+/**
+ * Determine the subscription type from the GraphQL query string.
+ * Returns 'debrief' for onDebriefReady, 'notification' for notification
+ * subscriptions, or 'unknown' for connection-phase or unrecognized queries.
+ */
+function resolveSubscriptionType(
+  queryString: string | undefined,
+): 'debrief' | 'notification' | 'unknown' {
+  if (!queryString) return 'unknown';
+  if (/onNotification\b|onNotificationStateChange\b/.test(queryString)) {
+    return 'notification';
+  }
+  if (/onDebriefReady\b/.test(queryString)) {
+    return 'debrief';
+  }
+  return 'unknown';
+}
+
 export function createAppSyncAuthorizerHandler(depsProvider: AppSyncDepsProvider) {
   return async (event: AppSyncAuthorizerEvent): Promise<AppSyncAuthorizerResponse> => {
     const token = extractToken(event.authorizationToken);
@@ -105,8 +123,32 @@ export function createAppSyncAuthorizerHandler(depsProvider: AppSyncDepsProvider
     const context = await mapSubjectToAuthContext(subject, db);
     if (!context) return deny();
 
-    // Only Students hold subscriptions. Admins and other roles do not interact
-    // with the student-facing debrief subscription surface.
+    const subscriptionType = resolveSubscriptionType(event.requestContext.queryString);
+
+    // --- Notification subscriptions: any authenticated role ---
+    // Enforces: recipientUserId argument must equal the authenticated user's ID
+    // so a user can only subscribe to their own notification stream.
+    if (subscriptionType === 'notification') {
+      const recipientUserId =
+        typeof event.requestContext.variables?.['recipientUserId'] === 'string'
+          ? event.requestContext.variables['recipientUserId']
+          : null;
+
+      // If recipientUserId is present, enforce self-subscription.
+      if (recipientUserId && recipientUserId !== context.userId) {
+        return deny();
+      }
+
+      return {
+        isAuthorized: true,
+        resolverContext: {
+          userId: context.userId,
+          roles: JSON.stringify(context.roles),
+        },
+      };
+    }
+
+    // --- Debrief subscriptions: Student role + document ownership ---
     if (!context.roles.includes('Student')) return deny();
 
     // Ownership check: the subscribed documentId must belong to this student.
