@@ -3785,3 +3785,376 @@ paths:
               schema:
                 type: string
 
+
+  # ==================== Notifications ====================
+  /v1/notifications:
+    get:
+      summary: Get paginated notification inbox (any authenticated role)
+      tags: [Notifications]
+      operationId: getNotifications
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: Opaque cursor for keyset pagination
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Page size
+        - name: stateFilter
+          in: query
+          schema:
+            type: string
+            enum: [unread, read]
+          description: Optional lifecycle state filter
+      responses:
+        "200":
+          description: Paginated notification inbox
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [notifications, nextCursor, unreadCount]
+                properties:
+                  notifications:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        typeSlug:
+                          type: string
+                        typeLabel:
+                          type: string
+                        renderedContent:
+                          type: string
+                        state:
+                          type: string
+                          enum: [unread, read]
+                        createdAt:
+                          type: string
+                          format: date-time
+                        actionUrl:
+                          type: string
+                          nullable: true
+                  nextCursor:
+                    type: string
+                    nullable: true
+                  unreadCount:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotificationFunctionArn}/invocations"
+
+  /v1/notifications/unread-count:
+    get:
+      summary: Get unread notification count for badge display (any authenticated role)
+      tags: [Notifications]
+      operationId: getUnreadCount
+      responses:
+        "200":
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotificationFunctionArn}/invocations"
+
+  /v1/notifications/{id}:
+    patch:
+      summary: Transition notification state (any authenticated role)
+      tags: [Notifications]
+      operationId: transitionNotificationState
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state:
+                  type: string
+                  enum: [read, dismissed]
+      responses:
+        "200":
+          description: State transition successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        "400":
+          description: Invalid state transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Notification not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotificationFunctionArn}/invocations"
+
+  /v1/notifications/bulk:
+    post:
+      summary: Bulk notification action (any authenticated role)
+      tags: [Notifications]
+      operationId: bulkNotificationAction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [markAllRead, dismissAll]
+      responses:
+        "200":
+          description: Bulk action result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  affected:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotificationFunctionArn}/invocations"
+
+  # ==================== Admin Notification Type Catalog ====================
+  /v1/admin/notification-types:
+    get:
+      summary: List notification type catalog (TechnicalAdmin only)
+      tags: [Notifications, Admin]
+      operationId: listNotificationTypes
+      responses:
+        "200":
+          description: List of notification types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    slug:
+                      type: string
+                    label:
+                      type: string
+                    displayTemplate:
+                      type: string
+                    actionUrlTemplate:
+                      type: string
+                      nullable: true
+                    targetRoles:
+                      type: array
+                      items:
+                        type: string
+                        enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                    dedupStrategy:
+                      type: object
+                    createdAt:
+                      type: string
+                      format: date-time
+                    updatedAt:
+                      type: string
+                      format: date-time
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Forbidden — TechnicalAdmin role required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotificationFunctionArn}/invocations"
+    post:
+      summary: Create notification type (TechnicalAdmin only)
+      tags: [Notifications, Admin]
+      operationId: createNotificationType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug, label, targetRoles, displayTemplate, dedupStrategy]
+              properties:
+                slug:
+                  type: string
+                label:
+                  type: string
+                targetRoles:
+                  type: array
+                  items:
+                    type: string
+                    enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                displayTemplate:
+                  type: string
+                actionUrlTemplate:
+                  type: string
+                dedupStrategy:
+                  type: object
+                  required: [enabled]
+                  properties:
+                    enabled:
+                      type: boolean
+                    windowMinutes:
+                      type: integer
+                    keyFields:
+                      type: array
+                      items:
+                        type: string
+      responses:
+        "201":
+          description: Created notification type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  slug:
+                    type: string
+                  label:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Forbidden — TechnicalAdmin role required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotificationFunctionArn}/invocations"
+
+  /v1/admin/notification-types/{id}:
+    put:
+      summary: Update notification type (TechnicalAdmin only)
+      tags: [Notifications, Admin]
+      operationId: updateNotificationType
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                targetRoles:
+                  type: array
+                  items:
+                    type: string
+                    enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                displayTemplate:
+                  type: string
+                actionUrlTemplate:
+                  type: string
+                  nullable: true
+                dedupStrategy:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    windowMinutes:
+                      type: integer
+                    keyFields:
+                      type: array
+                      items:
+                        type: string
+      responses:
+        "200":
+          description: Updated notification type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  slug:
+                    type: string
+                  label:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Forbidden — TechnicalAdmin role required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Notification type not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotificationFunctionArn}/invocations"

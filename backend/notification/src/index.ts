@@ -33,3 +33,4 @@ export { validateNoLeakConstraint, type NoLeakValidationResult } from './noLeakV
 export { NotificationServiceImpl } from './notificationService.js';
 export { NotificationTypeCatalogServiceImpl } from './catalogService.js';
 export { checkOverrideExpiry, type OverrideExpiryConfig } from './overrideExpiryHandler.js';
+export { publishNotificationEvent } from './publishEvent.js';

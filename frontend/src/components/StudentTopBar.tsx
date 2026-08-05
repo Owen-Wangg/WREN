@@ -3,20 +3,24 @@
  * the document editor so both surfaces stay visually identical.
  */
 import { NavLink, useNavigate } from 'react-router-dom';
-import { FilePlus, FolderOpen, Info, Bell, User } from 'lucide-react';
+import { FilePlus, FolderOpen, Info, User } from 'lucide-react';
 
 import { appConfig } from '@/config/env';
+import { NotificationBell } from '@/features/notifications/components/NotificationBell';
+import { useUnreadCount } from '@/features/notifications/hooks/useNotificationActions';
+import { useApiClient } from '@/services/apiClient';
 
 const navItems = [
   { to: '/dashboard/new', label: 'New Document', icon: FilePlus },
   { to: '/dashboard', label: 'All Documents', icon: FolderOpen },
   { to: '/guide', label: 'Guide', icon: Info },
-  { to: '/notifications', label: 'Notifications', icon: Bell },
   { to: '/profile', label: 'Profile', icon: User },
 ] as const;
 
 export function StudentTopBar() {
   const navigate = useNavigate();
+  const client = useApiClient();
+  const { data: unreadCount } = useUnreadCount({ client });
 
   return (
     <header className="shrink-0 border-b border-border-subtle bg-surface-primary">
@@ -58,6 +62,7 @@ export function StudentTopBar() {
               <span>{item.label}</span>
             </NavLink>
           ))}
+          <NotificationBell unreadCount={unreadCount ?? 0} />
         </nav>
       </div>
     </header>
