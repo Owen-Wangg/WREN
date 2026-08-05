@@ -11,6 +11,8 @@ import { lifecycleStateMachine, isTerminalState } from './lifecycle.js';
 import { buildDedupKey } from './dedup.js';
 import { renderTemplate, sanitizeValue } from './templateRenderer.js';
 import type { NotificationEvent, NotificationState, TargetRole, DedupStrategy } from './types.js';
+import { NotificationServiceImpl, type NotificationServiceDeps } from './notificationService.js';
+import { validateNoLeakConstraint } from './noLeakValidation.js';
 
 /* -------------------------------------------------------------------------- */
 /* Shared arbitraries                                                          */
@@ -426,6 +428,529 @@ describe('Feature: in-app-notifications, Property 14: Stored content resilience'
         (template, context) => {
           const result = renderTemplate(template, context);
           expect(typeof result.content).toBe('string');
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Shared mock helpers                                                         */
+/* -------------------------------------------------------------------------- */
+
+function createMockDeps(overrides?: Partial<NotificationServiceDeps>): NotificationServiceDeps {
+  return {
+    query: jest.fn().mockResolvedValue([]),
+    execute: jest.fn().mockResolvedValue(1),
+    ...overrides,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Property 7: Type catalog referential integrity                              */
+/* -------------------------------------------------------------------------- */
+
+describe('Feature: in-app-notifications, Property 7: Type catalog referential integrity', () => {
+  it('processEvent throws when typeSlug does not exist in the catalog', async () => {
+    await fc.assert(
+      fc.asyncProperty(arbSlug, arbEntityId, async (slug, entityId) => {
+        const deps = createMockDeps({
+          query: jest.fn().mockResolvedValue([]),
+        });
+        const service = new NotificationServiceImpl(deps);
+        const event: NotificationEvent = {
+          typeSlug: slug,
+          entityId,
+          context: {},
+        };
+        await expect(service.processEvent(event)).rejects.toThrow(/not found/i);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('processEvent succeeds when typeSlug exists in the catalog', async () => {
+    await fc.assert(
+      fc.asyncProperty(arbSlug, arbEntityId, arbUserId, async (slug, entityId, userId) => {
+        const typeRow = {
+          id: 'type-id-1',
+          slug,
+          display_template: 'Hello {{name}}',
+          action_url_template: null,
+          target_roles: JSON.stringify(['Student']),
+          dedup_strategy: JSON.stringify({ enabled: false }),
+        };
+        const deps = createMockDeps({
+          query: jest.fn()
+            .mockResolvedValueOnce([typeRow]) // type lookup
+            .mockResolvedValue([]),           // recipient resolver
+          execute: jest.fn().mockResolvedValue(1),
+        });
+        const service = new NotificationServiceImpl(deps);
+        const event: NotificationEvent = {
+          typeSlug: slug,
+          entityId,
+          context: { name: 'Test' },
+          recipientUserId: userId,
+        };
+        const result = await service.processEvent(event);
+        expect(result.created).toBeGreaterThanOrEqual(0);
+        expect(result.deduplicated).toBeGreaterThanOrEqual(0);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Property 4: Persistent creation with unread state                           */
+/* -------------------------------------------------------------------------- */
+
+describe('Feature: in-app-notifications, Property 4: Persistent creation with unread state', () => {
+  it('processEvent always inserts notifications with state unread', async () => {
+    await fc.assert(
+      fc.asyncProperty(arbSlug, arbEntityId, arbUserId, async (slug, entityId, userId) => {
+        const typeRow = {
+          id: 'type-id-1',
+          slug,
+          display_template: 'Notification for {{user}}',
+          action_url_template: null,
+          target_roles: JSON.stringify(['Student']),
+          dedup_strategy: JSON.stringify({ enabled: false }),
+        };
+        const executeFn = jest.fn().mockResolvedValue(1);
+        const deps = createMockDeps({
+          query: jest.fn()
+            .mockResolvedValueOnce([typeRow])
+            .mockResolvedValue([]),
+          execute: executeFn,
+        });
+        const service = new NotificationServiceImpl(deps);
+        const event: NotificationEvent = {
+          typeSlug: slug,
+          entityId,
+          context: { user: 'test' },
+          recipientUserId: userId,
+        };
+        await service.processEvent(event);
+
+        // Verify the INSERT SQL contains 'unread' state
+        if (executeFn.mock.calls.length > 0) {
+          const sql: string = executeFn.mock.calls[0][0];
+          expect(sql).toContain("'unread'");
+        }
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('processEvent sets created_at to NOW() in the INSERT SQL', async () => {
+    await fc.assert(
+      fc.asyncProperty(arbSlug, arbEntityId, arbUserId, async (slug, entityId, userId) => {
+        const typeRow = {
+          id: 'type-id-1',
+          slug,
+          display_template: 'Test {{item}}',
+          action_url_template: null,
+          target_roles: JSON.stringify(['Student']),
+          dedup_strategy: JSON.stringify({ enabled: false }),
+        };
+        const executeFn = jest.fn().mockResolvedValue(1);
+        const deps = createMockDeps({
+          query: jest.fn()
+            .mockResolvedValueOnce([typeRow])
+            .mockResolvedValue([]),
+          execute: executeFn,
+        });
+        const service = new NotificationServiceImpl(deps);
+        const event: NotificationEvent = {
+          typeSlug: slug,
+          entityId,
+          context: { item: 'val' },
+          recipientUserId: userId,
+        };
+        await service.processEvent(event);
+
+        if (executeFn.mock.calls.length > 0) {
+          const sql: string = executeFn.mock.calls[0][0];
+          expect(sql).toContain('NOW()');
+        }
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Property 1: In-app-only delivery invariant                                  */
+/* -------------------------------------------------------------------------- */
+
+describe('Feature: in-app-notifications, Property 1: In-app-only delivery invariant', () => {
+  it('NotificationView from getInbox contains no email/phone/sms field', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        arbUserId,
+        fc.integer({ min: 1, max: 20 }),
+        async (userId, limit) => {
+          const mockRows = [
+            {
+              id: 'notif-1',
+              type_slug: 'test-type',
+              type_label: 'Test Type',
+              rendered_content: 'Hello',
+              state: 'unread' as const,
+              created_at: '2026-01-01T00:00:00Z',
+              action_url: null,
+            },
+          ];
+          const deps = createMockDeps({
+            query: jest.fn()
+              .mockResolvedValueOnce(mockRows)           // getInbox query
+              .mockResolvedValueOnce([{ count: '1' }]),  // unread count
+          });
+          const service = new NotificationServiceImpl(deps);
+          const result = await service.getInbox(userId, { limit });
+
+          for (const notification of result.notifications) {
+            const keys = Object.keys(notification);
+            expect(keys).not.toContain('email');
+            expect(keys).not.toContain('phone');
+            expect(keys).not.toContain('sms');
+            expect(keys).not.toContain('emailAddress');
+            expect(keys).not.toContain('phoneNumber');
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('ProcessResult from processEvent contains no external delivery info', async () => {
+    await fc.assert(
+      fc.asyncProperty(arbSlug, arbEntityId, arbUserId, async (slug, entityId, userId) => {
+        const typeRow = {
+          id: 'type-id-1',
+          slug,
+          display_template: 'Hello {{name}}',
+          action_url_template: null,
+          target_roles: JSON.stringify(['Student']),
+          dedup_strategy: JSON.stringify({ enabled: false }),
+        };
+        const deps = createMockDeps({
+          query: jest.fn()
+            .mockResolvedValueOnce([typeRow])
+            .mockResolvedValue([]),
+          execute: jest.fn().mockResolvedValue(1),
+        });
+        const service = new NotificationServiceImpl(deps);
+        const event: NotificationEvent = {
+          typeSlug: slug,
+          entityId,
+          context: { name: 'Test' },
+          recipientUserId: userId,
+        };
+        const result = await service.processEvent(event);
+        const keys = Object.keys(result);
+        expect(keys).not.toContain('emailsSent');
+        expect(keys).not.toContain('smsSent');
+        expect(keys).not.toContain('pushSent');
+        expect(keys).not.toContain('externalDeliveries');
+        // Only contains created and deduplicated
+        expect(keys.sort()).toEqual(['created', 'deduplicated']);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Property 11: Pagination and filtering correctness                           */
+/* -------------------------------------------------------------------------- */
+
+describe('Feature: in-app-notifications, Property 11: Pagination and filtering correctness', () => {
+  it('getInbox never returns more than limit items', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        arbUserId,
+        fc.integer({ min: 1, max: 100 }),
+        fc.integer({ min: 0, max: 50 }),
+        async (userId, limit, extraRows) => {
+          // Generate rows up to limit + extraRows + 1 to simulate "more results"
+          const totalRows = limit + extraRows;
+          const mockRows = Array.from({ length: totalRows }, (_, i) => ({
+            id: `notif-${i}`,
+            type_slug: 'test-type',
+            type_label: 'Test',
+            rendered_content: `Content ${i}`,
+            state: 'unread' as const,
+            created_at: new Date(2026, 0, 1, 0, 0, totalRows - i).toISOString(),
+            action_url: null,
+          }));
+          const deps = createMockDeps({
+            query: jest.fn()
+              .mockResolvedValueOnce(mockRows.slice(0, limit + 1)) // getInbox returns limit+1 for cursor
+              .mockResolvedValueOnce([{ count: '5' }]),
+          });
+          const service = new NotificationServiceImpl(deps);
+          const result = await service.getInbox(userId, { limit });
+          expect(result.notifications.length).toBeLessThanOrEqual(limit);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('nextCursor is null when results are less than or equal to limit', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        arbUserId,
+        fc.integer({ min: 1, max: 100 }),
+        async (userId, limit) => {
+          // Return fewer rows than limit+1 (no extra page)
+          const fewRows = Math.max(0, Math.min(limit - 1, 5));
+          const mockRows = Array.from({ length: fewRows }, (_, i) => ({
+            id: `notif-${i}`,
+            type_slug: 'test-type',
+            type_label: 'Test',
+            rendered_content: `Content ${i}`,
+            state: 'unread' as const,
+            created_at: new Date(2026, 0, 1, 0, 0, fewRows - i).toISOString(),
+            action_url: null,
+          }));
+          const deps = createMockDeps({
+            query: jest.fn()
+              .mockResolvedValueOnce(mockRows)
+              .mockResolvedValueOnce([{ count: '0' }]),
+          });
+          const service = new NotificationServiceImpl(deps);
+          const result = await service.getInbox(userId, { limit });
+          expect(result.nextCursor).toBeNull();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('nextCursor is non-null when more results exist (rows > limit)', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        arbUserId,
+        fc.integer({ min: 1, max: 50 }),
+        async (userId, limit) => {
+          // Return limit+1 rows to trigger pagination
+          const mockRows = Array.from({ length: limit + 1 }, (_, i) => ({
+            id: `notif-${i}`,
+            type_slug: 'test-type',
+            type_label: 'Test',
+            rendered_content: `Content ${i}`,
+            state: 'unread' as const,
+            created_at: new Date(2026, 0, 1, 0, 0, limit + 1 - i).toISOString(),
+            action_url: null,
+          }));
+          const deps = createMockDeps({
+            query: jest.fn()
+              .mockResolvedValueOnce(mockRows)
+              .mockResolvedValueOnce([{ count: '10' }]),
+          });
+          const service = new NotificationServiceImpl(deps);
+          const result = await service.getInbox(userId, { limit });
+          expect(result.nextCursor).not.toBeNull();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Property 2: Inbox ordering                                                  */
+/* -------------------------------------------------------------------------- */
+
+describe('Feature: in-app-notifications, Property 2: Inbox ordering', () => {
+  it('getInbox returns notifications in the same order as the DB (created_at DESC)', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        arbUserId,
+        fc.array(
+          fc.date({ min: new Date(2020, 0, 1), max: new Date(2027, 11, 31) }),
+          { minLength: 2, maxLength: 20 },
+        ),
+        async (userId, dates) => {
+          // Sort dates descending to simulate DB ORDER BY created_at DESC
+          const sortedDates = [...dates].sort((a, b) => b.getTime() - a.getTime());
+          const mockRows = sortedDates.map((d, i) => ({
+            id: `notif-${i}`,
+            type_slug: 'test-type',
+            type_label: 'Test',
+            rendered_content: `Content ${i}`,
+            state: 'unread' as const,
+            created_at: d.toISOString(),
+            action_url: null,
+          }));
+          const deps = createMockDeps({
+            query: jest.fn()
+              .mockResolvedValueOnce(mockRows)
+              .mockResolvedValueOnce([{ count: '0' }]),
+          });
+          const service = new NotificationServiceImpl(deps);
+          const result = await service.getInbox(userId, { limit: 100 });
+
+          // Verify the service preserves the DB order (doesn't reorder)
+          for (let i = 1; i < result.notifications.length; i++) {
+            const prev = new Date(result.notifications[i - 1].createdAt).getTime();
+            const curr = new Date(result.notifications[i].createdAt).getTime();
+            expect(prev).toBeGreaterThanOrEqual(curr);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Property 12: Bulk operation completeness                                    */
+/* -------------------------------------------------------------------------- */
+
+describe('Feature: in-app-notifications, Property 12: Bulk operation completeness', () => {
+  it('bulkTransition markAllRead calls UPDATE with state=unread filter', async () => {
+    await fc.assert(
+      fc.asyncProperty(arbUserId, async (userId) => {
+        const executeFn = jest.fn().mockResolvedValue(5);
+        const deps = createMockDeps({ execute: executeFn });
+        const service = new NotificationServiceImpl(deps);
+        await service.bulkTransition(userId, 'markAllRead');
+
+        expect(executeFn).toHaveBeenCalledTimes(1);
+        const sql: string = executeFn.mock.calls[0][0];
+        expect(sql).toContain("state = 'read'");
+        expect(sql).toContain("state = 'unread'");
+        expect(executeFn.mock.calls[0][1]).toContain(userId);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('bulkTransition dismissAll calls UPDATE with state!=dismissed filter', async () => {
+    await fc.assert(
+      fc.asyncProperty(arbUserId, async (userId) => {
+        const executeFn = jest.fn().mockResolvedValue(3);
+        const deps = createMockDeps({ execute: executeFn });
+        const service = new NotificationServiceImpl(deps);
+        await service.bulkTransition(userId, 'dismissAll');
+
+        expect(executeFn).toHaveBeenCalledTimes(1);
+        const sql: string = executeFn.mock.calls[0][0];
+        expect(sql).toContain("state = 'dismissed'");
+        expect(sql).toContain("state != 'dismissed'");
+        expect(executeFn.mock.calls[0][1]).toContain(userId);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Property 3: Unread count accuracy                                           */
+/* -------------------------------------------------------------------------- */
+
+describe('Feature: in-app-notifications, Property 3: Unread count accuracy', () => {
+  it('getUnreadCount returns the count from the DB query', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        arbUserId,
+        fc.integer({ min: 0, max: 10000 }),
+        async (userId, expectedCount) => {
+          const deps = createMockDeps({
+            query: jest.fn().mockResolvedValue([{ count: String(expectedCount) }]),
+          });
+          const service = new NotificationServiceImpl(deps);
+          const result = await service.getUnreadCount(userId);
+          expect(result).toBe(expectedCount);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Property 8: No-leak validation for Student-targeted types                   */
+/* -------------------------------------------------------------------------- */
+
+describe('Feature: in-app-notifications, Property 8: No-leak validation for Student-targeted types', () => {
+  const NUMERIC_PLACEHOLDERS = [
+    '{{score}}', '{{count}}', '{{total}}', '{{number}}', '{{quantity}}',
+    '{{numItems}}', '{{itemCount}}', '{{feedbackCount}}', '{{rating}}',
+    '{{percentage}}', '{{percent}}', '{{avg}}', '{{average}}', '{{sum}}',
+    '{{min}}', '{{max}}', '{{totalScore}}', '{{itemCount}}',
+    '{{feedbackRating}}', '{{userPercentage}}',
+  ];
+
+  it('rejects templates with numeric placeholders when targeting Student', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...NUMERIC_PLACEHOLDERS),
+        fc.string({ minLength: 0, maxLength: 50 }),
+        (numericPlaceholder, prefix) => {
+          const template = `${prefix} ${numericPlaceholder} notification`;
+          const result = validateNoLeakConstraint(template, ['Student']);
+          expect(result.valid).toBe(false);
+          expect(result.violations.length).toBeGreaterThan(0);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('allows any template when NOT targeting Student', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...NUMERIC_PLACEHOLDERS),
+        fc.constantFrom<TargetRole[]>(['DepartmentAdmin'], ['TechnicalAdmin'], ['DepartmentAdmin', 'TechnicalAdmin']),
+        (numericPlaceholder, roles) => {
+          const template = `Alert: ${numericPlaceholder} items`;
+          const result = validateNoLeakConstraint(template, roles);
+          expect(result.valid).toBe(true);
+          expect(result.violations).toHaveLength(0);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('allows qualitative templates when targeting Student', () => {
+    const SAFE_TEMPLATES = [
+      'Your draft is ready for review',
+      'A new comment was posted on {{documentTitle}}',
+      'Your submission has been {{status}}',
+      'Feedback is available for {{assignmentName}}',
+      'Welcome to {{courseName}}!',
+    ];
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...SAFE_TEMPLATES),
+        (template) => {
+          const result = validateNoLeakConstraint(template, ['Student']);
+          expect(result.valid).toBe(true);
+          expect(result.violations).toHaveLength(0);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('rejects randomly generated templates with numeric placeholder patterns for Student', () => {
+    fc.assert(
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-zA-Z]+$/.test(s)),
+        fc.constantFrom('Score', 'Count', 'Total', 'Number', 'Rating', 'Percentage', 'Percent', 'Qty'),
+        (prefix, suffix) => {
+          const template = `Value: {{${prefix}${suffix}}}`;
+          const result = validateNoLeakConstraint(template, ['Student']);
+          expect(result.valid).toBe(false);
+          expect(result.violations.length).toBeGreaterThan(0);
         },
       ),
       { numRuns: 100 },
