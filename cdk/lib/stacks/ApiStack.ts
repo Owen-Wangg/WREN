@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import YAML from "js-yaml";
-import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Duration, Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -102,9 +102,11 @@ export class ApiStack extends Stack {
     // security: [] bypasses the Lambda authorizer for OPTIONS.
     // -----------------------------------------------------------------------
     const allowedOrigins = "*"; // Tighten to Amplify domain in prod
+    // Include PATCH for content-only draft autosave and admin category updates.
+    const allowedMethods = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
     const corsResponseParams = {
       "method.response.header.Access-Control-Allow-Origin": `'${allowedOrigins}'`,
-      "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+      "method.response.header.Access-Control-Allow-Methods": `'${allowedMethods}'`,
       "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
       "method.response.header.Access-Control-Max-Age": "'86400'",
     };
@@ -173,6 +175,28 @@ export class ApiStack extends Stack {
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.ERROR,
         tracingEnabled: true, // X-Ray tracing
+        // Enable the response cache cluster (0.5 GB — cheapest tier, sufficient
+        // for per-user debrief payloads). Per-method caching is opt-in below.
+        cacheClusterEnabled: true,
+        cacheClusterSize: "0.5",
+        // Per-method cache override: GET /v1/documents/{documentId}/feedback
+        // Feedback for a specific draftId is immutable once generated — safe to
+        // cache. Cache key: path param (documentId) + query param (draftId).
+        // TTL matches the browser Cache-Control max-age set in the Lambda.
+        methodOptions: {
+          // Control Tower CT.APIGATEWAY.PR.3 — cache encryption required for the
+          // catch-all method setting even when caching is disabled by default.
+          // Only "*/*" or "{resource_path}/{http_method}" are valid keys.
+          "/*/*": {
+            cachingEnabled: false,
+            cacheDataEncrypted: true,
+          },
+          "/v1/documents/{documentId}/feedback/GET": {
+            cachingEnabled: true,
+            cacheTtl: Duration.seconds(3600),
+            cacheDataEncrypted: true,
+          },
+        },
       },
       cloudWatchRole: true,
     });
@@ -183,7 +207,7 @@ export class ApiStack extends Stack {
       "Access-Control-Allow-Origin": `'${allowedOrigins}'`,
       "Access-Control-Allow-Headers":
         "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
-      "Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+      "Access-Control-Allow-Methods": `'${allowedMethods}'`,
     };
     this.api.addGatewayResponse("Default4xx", {
       type: apigateway.ResponseType.DEFAULT_4XX,

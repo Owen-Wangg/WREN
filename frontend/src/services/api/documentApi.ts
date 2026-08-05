@@ -108,6 +108,7 @@ export async function deleteDocument(
 
   return client.request(`${DOCUMENTS_PATH}/${documentId}`, {
     method: 'DELETE',
+    body: { confirmed: true },
     schema: responseSchema,
   });
 }

@@ -35,6 +35,7 @@ import {
 import { requireCapability } from './capabilityGuard';
 import type { QueryExecutor } from './db';
 import { NotFoundError } from './errors';
+import { assertPromptInjectionFree } from './promptGuardrail';
 
 /** Raw `department` row (snake_case columns from PostgreSQL). */
 interface DepartmentRow {
@@ -43,10 +44,11 @@ interface DepartmentRow {
   readonly prompt: string | null;
   readonly access_state?: 'OPEN' | 'LOCKED' | null;
   readonly active_user_count?: string | number;
+  readonly archived_at?: string | null;
 }
 
 /** The columns every read/write returns, in the shared DTO's field order. */
-const RETURNING = 'id, name, prompt, access_state';
+const RETURNING = 'id, name, prompt, access_state, archived_at';
 
 /** Map a raw row to the validated shared {@link Department} DTO. */
 function toDepartment(row: DepartmentRow): Department {
@@ -60,6 +62,7 @@ function toDepartment(row: DepartmentRow): Department {
     activeUserCount: row.active_user_count !== undefined
       ? parseInt(String(row.active_user_count), 10)
       : undefined,
+    archivedAt: row.archived_at ?? null,
   });
 }
 
@@ -103,15 +106,77 @@ export async function listDepartments(
   db: QueryExecutor,
 ): Promise<Department[]> {
   const rows = await db.query<DepartmentRow>(
-    `SELECT d.id, d.name, d.prompt, d.access_state,
-            COUNT(DISTINCT doc.owner_user_id)::int AS active_user_count
+    `SELECT d.id, d.name, d.prompt, d.access_state, d.archived_at,
+            COALESCE(ac.value, 0)::int AS active_user_count
      FROM department d
-     LEFT JOIN document_type dt ON dt.department_id = d.id
-     LEFT JOIN document doc ON doc.document_type_id = dt.id
-     GROUP BY d.id, d.name, d.prompt, d.access_state
+     LEFT JOIN aggregate_counter ac
+       ON  ac.scope_kind    = 'department'
+       AND ac.scope_id      = d.id
+       AND ac.metric        = 'active_users'
+       AND ac.window_start  = '-infinity'::timestamptz
+     WHERE d.archived_at IS NULL
      ORDER BY d.name ASC`,
   );
   return rows.map(toDepartment);
+}
+
+/** Shape returned by {@link listDepartmentUsers}. */
+export interface DepartmentUserSummary {
+  readonly id: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly email: string;
+}
+
+/**
+ * List users who have submitted at least one document to any document type
+ * belonging to this department — the same definition as the `active_users`
+ * aggregate counter.
+ */
+export async function listDepartmentUsers(
+  departmentId: string,
+  db: QueryExecutor,
+  options?: { q?: string; limit?: number; offset?: number },
+): Promise<{ users: DepartmentUserSummary[]; total: number }> {
+  const search = options?.q?.trim() || null;
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+
+  const rows = await db.query<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    total: string;
+  }>(
+    `SELECT u.id, u.first_name, u.last_name, u.email,
+            COUNT(*) OVER() AS total
+     FROM app_user u
+     WHERE EXISTS (
+       SELECT 1 FROM document d
+       JOIN document_type dt ON dt.id = d.document_type_id
+       WHERE d.owner_user_id = u.id
+         AND dt.department_id = $1
+     )
+     AND ($2::text IS NULL
+          OR u.first_name ILIKE $2
+          OR u.last_name  ILIKE $2
+          OR u.email      ILIKE $2)
+     ORDER BY u.last_name ASC, u.first_name ASC
+     LIMIT $3 OFFSET $4`,
+    [departmentId, search ? `%${search}%` : null, limit, offset],
+  );
+
+  const total = rows[0] ? parseInt(rows[0].total, 10) : 0;
+  return {
+    users: rows.map((r) => ({
+      id: r.id,
+      firstName: r.first_name,
+      lastName: r.last_name,
+      email: r.email,
+    })),
+    total,
+  };
 }
 
 /**
@@ -160,6 +225,11 @@ export async function updateDepartmentPrompt(
 
   const { prompt } = updateDepartmentPromptInputSchema.parse(input);
 
+  // Prompt injection check — runs before DB write (deny-with-no-mutation).
+  if (prompt) {
+    await assertPromptInjectionFree(prompt);
+  }
+
   const rows = await db.query<DepartmentRow>(
     `UPDATE department SET prompt = $2 WHERE id = $1 RETURNING ${RETURNING}`,
     [id, prompt],
@@ -207,23 +277,30 @@ export async function setDepartmentAccessState(
 }
 
 /**
- * Delete a Department grouping (DepartmentAdmin for their administered
- * Departments). Returns `true` when a row was removed, `false` when no
- * Department had that id.
+ * Archive a Department (soft-delete). Sets `archived_at` to NOW() so the
+ * department is invisible to students and blocks new submissions, but all
+ * child data (document types, documents, student feedback) is preserved.
+ *
+ * TechnicalAdmin only — archiving is a platform-level operation.
+ * Returns the archived Department DTO, or throws {@link NotFoundError}.
  */
-export async function deleteDepartment(
+export async function archiveDepartment(
   actor: AuthContext,
   id: string,
   db: QueryExecutor,
-): Promise<boolean> {
-  requireCapability(actor, {
-    capability: 'department.manage',
-    scope: { kind: 'department', departmentId: id },
-  });
+): Promise<Department> {
+  if (!actor.roles.includes('TechnicalAdmin')) {
+    throw Object.assign(new Error('TechnicalAdmin role required'), { statusCode: 403 });
+  }
 
-  const rows = await db.query<{ id: string }>(
-    'DELETE FROM department WHERE id = $1 RETURNING id',
+  const rows = await db.query<DepartmentRow>(
+    `UPDATE department SET archived_at = now() WHERE id = $1 AND archived_at IS NULL RETURNING ${RETURNING}`,
     [id],
   );
-  return rows.length > 0;
+
+  const row = rows[0];
+  if (!row) {
+    throw new NotFoundError(`Department '${id}' not found or already archived`);
+  }
+  return toDepartment(row);
 }

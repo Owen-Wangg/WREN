@@ -2,9 +2,11 @@
  * Document Service Lambda entry point — routes API Gateway events to service functions.
  * Adapter: API Gateway proxy events → backend/document service handlers.
  */
-import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
+import type { APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import { resolveAccess } from '@wren/auth';
@@ -17,7 +19,8 @@ import {
 } from '@wren/types';
 
 import { MammothDocxExtractor } from './docxExtractor.js';
-import { LiteParsePdfExtractor } from './pdfExtractor.js';
+import { createPdfExtractor } from './ocrFactory.js';
+import { resolveOcrEngine } from './textractOcr.js';
 import { UnsupportedFileFormatError } from './errors.js';
 import { ingestUpload } from './ingestion.js';
 import { enforceSizeLimit } from './sizeLimit.js';
@@ -25,19 +28,33 @@ import { gateSubmission } from './submissionGating.js';
 import { createDraftRevision } from './draftVersioning.js';
 import { DbDraftRepository } from './draftRepository.js';
 import {
+  enqueueIngestJob,
+  getLatestIngestStatus,
+  insertQueuedIngestJob,
+  shouldIngestPdfAsync,
+} from './ingestJob.js';
+import {
+  processIngestQueueMessage,
+  type IngestQueueMessage,
+} from './ingestWorker.js';
+import {
   assertDocumentUploadAllowed,
   assertDraftCreateAllowed,
   UsageLimitReachedError,
 } from '@wren/admin/lifetimeUsagePolicy';
 
 const docxExtractor = new MammothDocxExtractor();
-const pdfExtractor = new LiteParsePdfExtractor();
+
+function parseOcrEngineFromBody(body: Record<string, unknown>): string {
+  const raw = body.ocrEngine;
+  return resolveOcrEngine(typeof raw === 'string' ? raw : null);
+}
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
     'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
 };
 
 function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
@@ -177,7 +194,79 @@ function toDraftDto(row: any) {
   };
 }
 
-export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
+/**
+ * Maintain the department `active_users` counter in `aggregate_counter`.
+ * Called after document INSERT (delta=+1) and after document DELETE (delta=-1).
+ *
+ * Increment is conditional: only fires when the user has no OTHER document in
+ * the same department (first document for that user in that dept).
+ * Decrement is conditional: only fires when the user has NO remaining documents
+ * in the same department after the deletion.
+ *
+ * Non-fatal — a counter drift is preferable to blocking the main operation.
+ */
+async function updateDepartmentUserCounter(
+  documentTypeId: string,
+  userId: string,
+  documentId: string | null,
+  delta: 1 | -1,
+  db: Awaited<ReturnType<typeof getDataAccess>>,
+): Promise<void> {
+  try {
+    if (delta === 1) {
+      // Increment only if this is the user's first document in the department.
+      await db.query(
+        `INSERT INTO aggregate_counter (scope_kind, scope_id, metric, window_start, value)
+         SELECT 'department', dt.department_id, 'active_users', '-infinity'::timestamptz, 1
+         FROM document_type dt
+         WHERE dt.id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM document d2
+             WHERE d2.owner_user_id = $2
+               AND d2.document_type_id IN (
+                   SELECT id FROM document_type WHERE department_id = dt.department_id
+               )
+               AND ($3::uuid IS NULL OR d2.id != $3)
+           )
+         ON CONFLICT (scope_kind, scope_id, metric, window_start)
+         DO UPDATE SET value = aggregate_counter.value + EXCLUDED.value`,
+        [documentTypeId, userId, documentId],
+      );
+    } else {
+      // Decrement only if the user has no remaining documents in the department.
+      // The document row is already deleted at this point.
+      await db.query(
+        `INSERT INTO aggregate_counter (scope_kind, scope_id, metric, window_start, value)
+         SELECT 'department', dt.department_id, 'active_users', '-infinity'::timestamptz, -1
+         FROM document_type dt
+         WHERE dt.id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM document d2
+             WHERE d2.owner_user_id = $2
+               AND d2.document_type_id IN (
+                   SELECT id FROM document_type WHERE department_id = dt.department_id
+               )
+           )
+         ON CONFLICT (scope_kind, scope_id, metric, window_start)
+         DO UPDATE SET value = aggregate_counter.value + EXCLUDED.value`,
+        [documentTypeId, userId],
+      );
+    }
+  } catch (err) {
+    console.warn('updateDepartmentUserCounter: non-fatal error', err);
+  }
+}
+
+export const handler = async (event: any): Promise<APIGatewayProxyResult | void> => {
+  // SQS async PDF ingest (Textract OCR) — not an API Gateway event.
+  if (Array.isArray(event?.Records) && event.Records[0]?.eventSource === 'aws:sqs') {
+    for (const record of event.Records) {
+      const body = JSON.parse(record.body) as IngestQueueMessage;
+      await processIngestQueueMessage(body, readS3ObjectBytes);
+    }
+    return;
+  }
+
   try {
     const { httpMethod, resource } = event;
 
@@ -198,6 +287,12 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     }
     if (resource === '/v1/documents/{documentId}/drafts' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDraft(event));
+    }
+    if (resource === '/v1/documents/{documentId}/drafts/current' && httpMethod === 'PATCH') {
+      return await wrapHandler(() => handlePatchCurrentDraft(event));
+    }
+    if (resource === '/v1/documents/{documentId}/ingest/status' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetIngestStatus(event));
     }
     if (resource === '/v1/uploads/presign' && httpMethod === 'POST') {
       return await wrapHandler(() => handlePresignUpload(event));
@@ -292,6 +387,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     | { kind?: string; text?: string; key?: string }
     | undefined;
   const tipTapContent = parseRequestTipTapContent(body.content);
+  const ocrEngine = parseOcrEngineFromBody(body);
 
   if (!documentTypeId || !name) {
     return {
@@ -311,7 +407,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   }
 
   const dtRows = await db.query(
-    `SELECT dt.id, d.access_state AS access_state, dt.size_limit_words
+    `SELECT dt.id, d.access_state AS access_state, dt.size_limit_words, d.archived_at
      FROM document_type dt
      INNER JOIN department d ON d.id = dt.department_id
      WHERE dt.id = $1`,
@@ -323,6 +419,16 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       body: JSON.stringify({
         code: 'BAD_REQUEST',
         message: `Document type '${documentTypeId}' was not found`,
+      }),
+    };
+  }
+
+  if (dtRows[0].archived_at) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'DEPARTMENT_ARCHIVED',
+        message: 'This department is no longer accepting submissions.',
       }),
     };
   }
@@ -396,7 +502,11 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   let s3Key = 'inline';
   let ingestSource:
     | { kind: 'paste'; pastedText: string }
-    | { kind: 'file'; fileName: string; bytes: Buffer };
+    | { kind: 'file'; fileName: string; bytes: Buffer }
+    | null = null;
+  let asyncPdf:
+    | { key: string; fileName: string }
+    | null = null;
 
   if (source.kind === 'paste') {
     const text = typeof source.text === 'string' ? source.text : '';
@@ -431,15 +541,70 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
         }),
       };
     }
-    const bytes = await readS3ObjectBytes(key);
     const fileName = key.split('/').pop() || 'upload.docx';
-    ingestSource = { kind: 'file', fileName, bytes };
     s3Key = key;
+    // PDF OCR can exceed API Gateway ~29s — enqueue and return immediately.
+    if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
+      asyncPdf = { key, fileName };
+    } else {
+      const bytes = await readS3ObjectBytes(key);
+      ingestSource = { kind: 'file', fileName, bytes };
+    }
+  }
+
+  await assertDocumentUploadAllowed(actor.userId, db);
+
+  if (asyncPdf) {
+    const insertQuery = `
+      INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      RETURNING id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
+    `;
+    const rows = await db.query(insertQuery, [
+      actor.userId,
+      documentTypeId,
+      contentTypeId,
+      name,
+      JSON.stringify(metadata),
+      'Still Drafting',
+    ]);
+    const documentId = (rows[0] as { id: string }).id;
+    const job = await insertQueuedIngestJob(db, {
+      documentId,
+      s3Key: asyncPdf.key,
+      fileName: asyncPdf.fileName,
+      ocrEngine,
+    });
+    await enqueueIngestJob({
+      jobId: job.id,
+      documentId,
+      s3Key: asyncPdf.key,
+      fileName: asyncPdf.fileName,
+      userId: actor.userId,
+      sizeLimitWords,
+      ocrEngine,
+    });
+    return {
+      statusCode: 201,
+      body: JSON.stringify({
+        ...toDocumentDto(rows[0]),
+        ingestStatus: 'queued',
+        ingestJobId: job.id,
+      }),
+    };
   }
 
   let ingestResult;
   try {
-    ingestResult = await ingestUpload(ingestSource, { docxExtractor, pdfExtractor });
+    const { extractor } = createPdfExtractor({
+      engine: ocrEngine,
+      s3Bucket: process.env.DOCUMENTS_BUCKET_NAME,
+      s3Key: typeof s3Key === 'string' && s3Key !== 'inline' ? s3Key : undefined,
+    });
+    ingestResult = await ingestUpload(ingestSource!, {
+      docxExtractor,
+      pdfExtractor: extractor,
+    });
   } catch (error) {
     if (error instanceof UnsupportedFileFormatError) {
       return {
@@ -460,10 +625,10 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  // Prefer client TipTap content when provided; still require successful text
-  // extraction as a fallback path for size checks when content is absent.
-  const segments = tipTapContent
-    ? tipTapContentToSegments(tipTapContent)
+  // Prefer client TipTap when provided; otherwise use server PDF TipTap (1C).
+  const storedContent = tipTapContent ?? ingestResult.content;
+  const segments = storedContent
+    ? tipTapContentToSegments(storedContent)
     : ingestResult.segments;
   const sizeResult = enforceSizeLimit(segments, {
     documentTypeSizeLimitWords: sizeLimitWords,
@@ -479,8 +644,6 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       }),
     };
   }
-
-  await assertDocumentUploadAllowed(actor.userId, db);
 
   const insertQuery = `
     INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at)
@@ -498,16 +661,19 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   const document = rows[0] as { id: string };
   const documentId = document.id;
 
+  // Maintain department active-user counter (non-fatal if it fails).
+  await updateDepartmentUserCounter(documentTypeId, actor.userId, documentId, 1, db);
+
   const draftRepo = new DbDraftRepository(db);
   await createDraftRevision(
     {
       documentId,
       segments,
-      wordCount: tipTapContent
-        ? wordCountFromTipTapContent(tipTapContent)
+      wordCount: storedContent
+        ? wordCountFromTipTapContent(storedContent)
         : sizeResult.measuredWords,
       s3Key,
-      ...(tipTapContent ? { content: tipTapContent } : {}),
+      ...(storedContent ? { content: storedContent } : {}),
     },
     draftRepo,
   );
@@ -548,10 +714,22 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
   const db = await getDataAccess();
   const { documentId } = event.pathParameters || {};
 
-  const docQuery = `
-    SELECT owner_user_id FROM document WHERE id = $1
-  `;
-  const docRows = await db.query(docQuery, [documentId]);
+  // REQ-AUDIT-RETENTION-01 criterion 3: require explicit confirmation.
+  const body = event.body ? JSON.parse(event.body) : {};
+  if (body.confirmed !== true) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'CONFIRMATION_REQUIRED',
+        message: 'Set confirmed: true to permanently delete this document and all attached feedback.',
+      }),
+    };
+  }
+
+  const docRows = await db.query<{ owner_user_id: string; document_type_id: string }>(
+    `SELECT owner_user_id, document_type_id FROM document WHERE id = $1`,
+    [documentId],
+  );
 
   if (docRows.length === 0) {
     return {
@@ -567,11 +745,66 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
+  const ownerUserId = docRows[0].owner_user_id;
+  const documentTypeId = docRows[0].document_type_id;
+
+  // Collect all S3 keys BEFORE deleting draft rows (REQ-SEC-PII-01 criterion 3).
+  const draftRows = await db.query<{ s3_key: string }>(
+    `SELECT s3_key FROM draft WHERE document_id = $1`,
+    [documentId],
+  );
+  const s3Keys = draftRows.map((r) => r.s3_key).filter((k) => k && k !== 'inline');
+
+  // Delete Postgres rows in dependency order to satisfy FK constraints.
+  // resolution_status_history and anchor rows are cleaned up by FK CASCADE
+  // when their parent draft/feedback_item rows are deleted.
+  await db.query(
+    `DELETE FROM resolution_status_history
+     WHERE feedback_item_id IN (SELECT id FROM feedback_item WHERE document_id = $1)`,
+    [documentId],
+  );
+  await db.query(
+    `DELETE FROM anchor
+     WHERE draft_id IN (SELECT id FROM draft WHERE document_id = $1)`,
+    [documentId],
+  );
   const [draftResult, feedbackResult] = await Promise.all([
     db.query<{ id: string }>('DELETE FROM draft WHERE document_id = $1 RETURNING id', [documentId]),
     db.query<{ id: string }>('DELETE FROM feedback_item WHERE document_id = $1 RETURNING id', [documentId]),
   ]);
   await db.query('DELETE FROM document WHERE id = $1', [documentId]);
+
+  // Maintain department active-user counter — decrement if this was the user's
+  // last document in the department (non-fatal if it fails).
+  await updateDepartmentUserCounter(documentTypeId, ownerUserId, null, -1, db);
+
+  // Delete S3 objects for all file-upload drafts (REQ-SEC-PII-01 criterion 3).
+  if (s3Keys.length > 0) {
+    const s3 = new S3Client({ region: process.env.AWS_REGION || 'ca-central-1' });
+    const bucketName = process.env.DOCUMENTS_BUCKET_NAME!;
+    // DeleteObjects accepts up to 1000 keys per call.
+    for (let i = 0; i < s3Keys.length; i += 1000) {
+      const batch = s3Keys.slice(i, i + 1000);
+      await s3.send(new DeleteObjectsCommand({
+        Bucket: bucketName,
+        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+      }));
+    }
+  }
+
+  // Delete the DynamoDB conversation session for this document
+  // (REQ-AUDIT-RETENTION-01 criterion 1 / REQ-AUDIT-OPSTATE-01 criterion 4).
+  const conversationTableName = process.env.CONVERSATION_TABLE_NAME;
+  if (conversationTableName) {
+    const dynamo = DynamoDBDocumentClient.from(
+      new DynamoDBClient({ region: process.env.AWS_REGION || 'ca-central-1' }),
+      { marshallOptions: { removeUndefinedValues: true } },
+    );
+    await dynamo.send(new DeleteCommand({
+      TableName: conversationTableName,
+      Key: { sessionId: `${actor.userId}#${documentId}` },
+    }));
+  }
 
   return {
     statusCode: 200,
@@ -622,6 +855,72 @@ async function handleGetLatestDraft(event: any): Promise<APIGatewayProxyResult> 
   };
 }
 
+/**
+ * Autosave: update TipTap content (+ optional header/footer) on the current
+ * draft without a new version.
+ */
+async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const tipTapContent = parseRequestTipTapContent(body.content);
+
+  if (!tipTapContent) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'Provide TipTap content for autosave',
+      }),
+    };
+  }
+
+  const docRows = await db.query(
+    `SELECT owner_user_id FROM document WHERE id = $1`,
+    [documentId],
+  );
+
+  if (docRows.length === 0) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  if (docRows[0].owner_user_id !== actor.userId) {
+    return {
+      statusCode: 403,
+      body: JSON.stringify({ code: 'PERMISSION_DENIED', message: 'Not authorized' }),
+    };
+  }
+
+  const cleaned = stripAiMarksFromTipTapContent(tipTapContent) as TipTapDoc;
+  const wordCount = wordCountFromTipTapContent(cleaned);
+  const header = isTipTapDoc(body.header) ? (body.header as TipTapDoc) : undefined;
+  const footer = isTipTapDoc(body.footer) ? (body.footer as TipTapDoc) : undefined;
+  const repo = new DbDraftRepository(db);
+  const draft = await repo.updateCurrentDraftContent(
+    documentId,
+    cleaned,
+    wordCount,
+    header ?? null,
+    footer ?? null,
+  );
+
+  if (!draft) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'No draft found' }),
+    };
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify(draft),
+  };
+}
+
 async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
@@ -632,6 +931,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     | undefined;
   const { segments } = body;
   const tipTapContent = parseRequestTipTapContent(body.content);
+  const ocrEngine = parseOcrEngineFromBody(body);
   const hasSource = source?.kind === 'file' || source?.kind === 'paste';
   const hasSegments = Array.isArray(segments);
   const hasContent = !!tipTapContent;
@@ -685,8 +985,8 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       | { kind: 'paste'; pastedText: string }
       | { kind: 'file'; fileName: string; bytes: Buffer };
 
-    if (source.kind === 'paste') {
-      const text = typeof source.text === 'string' ? source.text : '';
+    if (source!.kind === 'paste') {
+      const text = typeof source!.text === 'string' ? source!.text : '';
       if (!text.trim()) {
         return {
           statusCode: 400,
@@ -698,7 +998,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       }
       ingestSource = { kind: 'paste', pastedText: text };
     } else {
-      const key = typeof source.key === 'string' ? source.key : '';
+      const key = typeof source!.key === 'string' ? source!.key : '';
       if (!key) {
         return {
           statusCode: 400,
@@ -718,15 +1018,50 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
           }),
         };
       }
-      const bytes = await readS3ObjectBytes(key);
       const fileName = key.split('/').pop() || 'upload.docx';
-      ingestSource = { kind: 'file', fileName, bytes };
       s3Key = key;
+
+      if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
+        const job = await insertQueuedIngestJob(db, {
+          documentId: documentId as string,
+          s3Key: key,
+          fileName,
+          ocrEngine,
+        });
+        await enqueueIngestJob({
+          jobId: job.id,
+          documentId: documentId as string,
+          s3Key: key,
+          fileName,
+          userId: actor.userId,
+          sizeLimitWords,
+          ocrEngine,
+        });
+        return {
+          statusCode: 202,
+          body: JSON.stringify({
+            ingestStatus: 'queued',
+            jobId: job.id,
+            documentId,
+          }),
+        };
+      }
+
+      const bytes = await readS3ObjectBytes(key);
+      ingestSource = { kind: 'file', fileName, bytes };
     }
 
     let ingestResult;
     try {
-      ingestResult = await ingestUpload(ingestSource, { docxExtractor, pdfExtractor });
+      const { extractor } = createPdfExtractor({
+        engine: ocrEngine,
+        s3Bucket: process.env.DOCUMENTS_BUCKET_NAME,
+        s3Key: typeof s3Key === 'string' && s3Key !== 'inline' ? s3Key : undefined,
+      });
+      ingestResult = await ingestUpload(ingestSource, {
+        docxExtractor,
+        pdfExtractor: extractor,
+      });
     } catch (error) {
       if (error instanceof UnsupportedFileFormatError) {
         return {
@@ -747,8 +1082,10 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       };
     }
 
-    normalizedSegments = tipTapContent
-      ? tipTapContentToSegments(tipTapContent)
+    // Client TipTap wins; else server PDF TipTap from ingest.
+    storedContent = tipTapContent ?? ingestResult.content;
+    normalizedSegments = storedContent
+      ? tipTapContentToSegments(storedContent)
       : normalizeSegments(ingestResult.segments);
     const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
@@ -764,8 +1101,8 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
         }),
       };
     }
-    wordCount = tipTapContent
-      ? wordCountFromTipTapContent(tipTapContent)
+    wordCount = storedContent
+      ? wordCountFromTipTapContent(storedContent)
       : sizeResult.measuredWords;
   } else if (tipTapContent) {
     normalizedSegments = tipTapContentToSegments(tipTapContent);
@@ -849,5 +1186,28 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
   return {
     statusCode: 200,
     body: JSON.stringify({ uploadUrl, key }),
+  };
+}
+
+async function handleGetIngestStatus(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentId } = event.pathParameters || {};
+
+  const docRows = await db.query(
+    `SELECT owner_user_id FROM document WHERE id = $1`,
+    [documentId],
+  );
+  if (docRows.length === 0 || docRows[0].owner_user_id !== actor.userId) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+
+  const status = await getLatestIngestStatus(db, documentId as string);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(status),
   };
 }

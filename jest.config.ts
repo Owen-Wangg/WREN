@@ -18,13 +18,14 @@ const config: Config = {
     '/cdk.out/',
     '/dist/',
     '/cdk/',
-    // pdfExtractor uses a dynamic import that requires --experimental-vm-modules;
-    // excluded from the Jest run until the Jest config is updated to pass that flag.
-    'backend/document/src/pdfExtractor.test.ts',
     // Frontend tests use Vitest (not Jest) — they are run separately via `vite test`.
     'frontend/src/',
   ],
   modulePathIgnorePatterns: ['/node_modules/', '/cdk.out/', '/dist/'],
+  // Map NodeNext-style ".js" relative imports onto their ".ts" sources.
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+  },
   clearMocks: true,
 };
 

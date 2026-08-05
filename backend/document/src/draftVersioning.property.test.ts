@@ -35,7 +35,7 @@
  */
 import fc from 'fast-check';
 
-import type { Draft, FeedbackItem, Segment } from '@wren/types';
+import type { Draft, FeedbackItem, Segment, TipTapDoc } from '@wren/types';
 
 import type { DraftRepository, NewDraftInput } from './draftRepository';
 import {
@@ -100,6 +100,19 @@ class FakeDraftRepository implements DraftRepository {
 
   public async getCurrentDraft(documentId: string): Promise<Draft | null> {
     return selectCurrentDraft(this.drafts.filter((d) => d.documentId === documentId));
+  }
+
+  public async updateCurrentDraftContent(
+    documentId: string,
+    content: TipTapDoc,
+    wordCount: number,
+  ): Promise<Draft | null> {
+    const current = await this.getCurrentDraft(documentId);
+    if (!current) return null;
+    const updated: Draft = { ...current, content, wordCount };
+    const idx = this.drafts.findIndex((d) => d.id === current.id);
+    this.drafts[idx] = updated;
+    return updated;
   }
 
   public async listFeedbackItems(documentId: string): Promise<FeedbackItem[]> {

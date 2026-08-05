@@ -35,6 +35,7 @@ export function DepartmentAdminLayout() {
               <NavLink
                 key={item.to}
                 to={item.to}
+                end={item.to === '/dept-admin'}
                 className={({ isActive }) =>
                   [
                     'flex flex-col items-center gap-xs text-caption font-sans',

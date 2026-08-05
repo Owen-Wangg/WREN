@@ -8,21 +8,47 @@
  *  - Draft-anchored to specific draftId
  *  - Inline vs. structural feedback separated (Requirement 14.2)
  */
-import { ArrowUp, ChevronDown, Minus, Star, TrendingUp } from 'lucide-react';
+import { ArrowUp, CheckCircle2, ChevronDown, Minus, Star, TrendingUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
+import { useDocuments, useOrganizations, useWritingTypes } from '@/features/dashboard/useDashboard';
 
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
+import { SectionApplicabilityToggle } from './SectionApplicabilityToggle';
 
-import { useAiDebrief, useDebriefHistory, useRegenerateDebrief } from '../useDebrief';
+import { useAiDebrief, useDebriefHistory, useRegenerateDebrief, useSectionApplicability } from '../useDebrief';
+import { useDebriefSubscription } from '../useDebriefSubscription';
 
 import type { ProgressPattern } from '../debriefTypes';
 import type { FeedbackItem } from '@wren/types';
 
-const DEBRIEF_DISCLAIMER_MESSAGE =
-  'The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user.';
+function buildDebriefDisclaimer(departmentName?: string): string {
+  const expert = departmentName
+    ? `an expert in ${departmentName}`
+    : 'an expert in your department';
+  return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert}.`;
+}
+
+const GENERATING_STEPS: Array<{ message: string; detail: string }> = [
+  {
+    message: 'Reading your draft…',
+    detail: 'Scanning your submission for patterns and structure.',
+  },
+  {
+    message: 'Analysing your writing…',
+    detail: 'Identifying areas of strength and opportunities to improve.',
+  },
+  {
+    message: 'Building your feedback…',
+    detail: 'Crafting specific, Socratic questions for each finding.',
+  },
+  {
+    message: 'Finalising your debrief…',
+    detail: 'Almost ready — this usually takes 20–40 seconds in total.',
+  },
+];
 
 function formatDebriefTimestamp(iso: string): string {
   const date = new Date(iso);
@@ -47,11 +73,54 @@ function formatCompactGeneratedAt(iso: string): string {
   });
 }
 
+function useGeneratingStep(active: boolean): { message: string; detail: string; stepIndex: number } {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    setIndex(0);
+    const id = setInterval(() => {
+      setIndex((i) => Math.min(i + 1, GENERATING_STEPS.length - 1));
+    }, 8000);
+    return () => clearInterval(id);
+  }, [active]);
+  return { ...(GENERATING_STEPS[index] ?? GENERATING_STEPS[0]!), stepIndex: index };
+}
+
+function DebriefSkeleton() {
+  return (
+    <div className="flex flex-col gap-lg animate-pulse" aria-hidden="true">
+      {/* Progress card placeholder */}
+      <div className="rounded-lg border border-border-subtle bg-surface-muted/40 p-md">
+        <div className="mb-md h-4 w-40 rounded bg-border-subtle" />
+        <div className="flex gap-md">
+          <div className="h-3 w-20 rounded bg-border-subtle" />
+          <div className="h-3 w-20 rounded bg-border-subtle" />
+          <div className="h-3 w-20 rounded bg-border-subtle" />
+        </div>
+      </div>
+      {/* Category section placeholders */}
+      {[1, 2, 3].map((n) => (
+        <div key={n} className="flex flex-col gap-sm">
+          <div className="h-4 w-32 rounded bg-border-subtle" />
+          <div className="h-3 w-full rounded bg-border-subtle/60" />
+          <div className="h-3 w-5/6 rounded bg-border-subtle/60" />
+          <div className="h-3 w-4/6 rounded bg-border-subtle/60" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export interface SidebarDebriefPanelProps {
   readonly environmentId: string;
   readonly autoRegenerate?: boolean;
   /** True while DocumentEditorPage is polling for feedback generation. */
   readonly isGenerating?: boolean;
+  /**
+   * False while the document/draft is still loading or being ingested.
+   * Prevents premature fetches and disables Regenerate until ready.
+   */
+  readonly isDocumentReady?: boolean;
   /**
    * Persist in-editor edits as a new draft before feedback runs.
    * TipTap content stays the source of truth in DocumentEditorPage.
@@ -71,19 +140,49 @@ export function SidebarDebriefPanel({
   environmentId,
   autoRegenerate = false,
   isGenerating = false,
+  isDocumentReady = true,
   onBeforeRegenerate,
   activeQuoteId,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
+  const { data: documents } = useDocuments();
+  const { data: writingTypes } = useWritingTypes();
+  const { data: organizations } = useOrganizations();
+
+  const currentDoc = documents?.find((d) => d.id === environmentId);
+  const writingType = writingTypes?.find((wt) => wt.id === currentDoc?.documentTypeId);
+  const organization = organizations?.find((org) => org.id === writingType?.organizationId);
+  const departmentName = organization?.name;
+
   /** null = latest generation; otherwise a historical draft's debrief */
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyMenuRef = useRef<HTMLDivElement>(null);
 
-  const debriefQuery = useAiDebrief(environmentId, selectedDraftId);
   const historyQuery = useDebriefHistory(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
   const [isSavingThenRegen, setIsSavingThenRegen] = useState(false);
+  // True from when the 202 lands until the AppSync onDebriefReady event fires.
+  const [isAwaitingDebrief, setIsAwaitingDebrief] = useState(false);
+
+  // Use history's most recent draftId as the source of truth when no explicit
+  // selection has been made. This bypasses the backend's "latest by
+  // version_number" resolution which may point to an autosaved draft with 0
+  // items. Wait for history to settle before enabling the debrief query so we
+  // don't fire with draftId=null and get a stale error that persists.
+  const historySettled = historyQuery.isSuccess || historyQuery.isError;
+  const effectiveDraftId =
+    selectedDraftId ?? (historyQuery.data?.[0]?.draftId || null);
+  const debriefEnabled = isDocumentReady && (historySettled || !!selectedDraftId);
+  const debriefQuery = useAiDebrief(environmentId, effectiveDraftId, debriefEnabled);
+  const activeDraftId = debriefQuery.data?.draftId ?? effectiveDraftId;
+  const applicabilityQuery = useSectionApplicability(environmentId, activeDraftId);
+
+  useDebriefSubscription(
+    environmentId,
+    isAwaitingDebrief,
+    () => setIsAwaitingDebrief(false),
+  );
 
   const didAutoRegenerate = useRef(false);
   const regenerateRef = useRef(regenerate);
@@ -93,12 +192,14 @@ export function SidebarDebriefPanel({
 
   const runRegenerate = async () => {
     setIsSavingThenRegen(true);
+    setIsAwaitingDebrief(false);
     setHistoryOpen(false);
     try {
       await onBeforeRegenerateRef.current?.();
       await regenerateRef.current.mutateAsync();
-      // Always show the newly generated (latest) debrief after regenerate.
+      // POST returned 202 — hand off the "waiting" flag to the subscription.
       setSelectedDraftId(null);
+      setIsAwaitingDebrief(true);
     } catch {
       // Error surfaces via regenerate.isError; keep panel usable.
     } finally {
@@ -139,7 +240,9 @@ export function SidebarDebriefPanel({
   }, [historyOpen]);
 
   const debrief = debriefQuery.data;
-  const regenerating = isSavingThenRegen || regenerate.isPending;
+  const regenerating = isSavingThenRegen || regenerate.isPending || isAwaitingDebrief;
+
+  const generatingStep = useGeneratingStep(regenerating);
   const hasFeedback = (debrief?.items.length ?? 0) > 0;
   const viewingHistorical = selectedDraftId != null;
   const lastGeneratedCompact =
@@ -164,15 +267,22 @@ export function SidebarDebriefPanel({
         : [];
   const canOpenHistory = hasFeedback || historyVersions.length > 0;
 
-  const groupedByCategory = (debrief?.items ?? []).reduce<
-    Record<string, FeedbackItem[]>
-  >((acc, item) => {
-    const key = item.errorCategoryId;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(item);
-    return acc;
-  }, {});
-  const categoryKeys = Object.keys(groupedByCategory);
+  // Group all items by category; within each category separate strengths from questions.
+  const allItems = debrief?.items ?? [];
+  const categoryOrder: string[] = [];
+  const strengthsByCategory: Record<string, FeedbackItem[]> = {};
+  const improvementsByCategory: Record<string, FeedbackItem[]> = {};
+  for (const item of allItems) {
+    const cat = item.errorCategoryId;
+    if (!categoryOrder.includes(cat)) categoryOrder.push(cat);
+    if (item.kind === 'strength') {
+      if (!strengthsByCategory[cat]) strengthsByCategory[cat] = [];
+      strengthsByCategory[cat].push(item);
+    } else {
+      if (!improvementsByCategory[cat]) improvementsByCategory[cat] = [];
+      improvementsByCategory[cat].push(item);
+    }
+  }
 
   const selectHistoryVersion = (draftId: string, isLatest: boolean) => {
     setSelectedDraftId(isLatest ? null : draftId);
@@ -282,15 +392,11 @@ export function SidebarDebriefPanel({
           <button
             type="button"
             onClick={() => void runRegenerate()}
-            disabled={regenerating || debriefQuery.isLoading}
+            disabled={regenerating || debriefQuery.isLoading || !isDocumentReady}
             className="rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             aria-label="Regenerate AI Debrief"
           >
-            {regenerating ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-            ) : (
-              '↻ Regenerate'
-            )}
+            ↻ Regenerate
           </button>
           {!regenerating && (
             <span className="px-sm text-caption text-text-muted whitespace-nowrap text-right leading-tight">
@@ -318,23 +424,51 @@ export function SidebarDebriefPanel({
           dismissible
           dismissStorageKey="ai-debrief-disclaimer-dismissed"
           dismissScopeId={environmentId}
-          message={DEBRIEF_DISCLAIMER_MESSAGE}
+          message={buildDebriefDisclaimer(departmentName)}
           className="mb-lg text-caption leading-relaxed"
         />
 
-        {(debriefQuery.isLoading || (isGenerating && !debrief)) && (
+        {!isDocumentReady && (
           <div className="flex flex-col items-center gap-md py-xl text-center">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-            <p role="status" className="text-body text-text-secondary">
-              {isGenerating ? 'Generating feedback…' : 'Loading AI Debrief…'}
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
+            <p className="text-bodySmall text-text-secondary">
+              Preparing your document… feedback will be available once it's ready.
             </p>
-            {isGenerating && (
-              <p className="text-bodySmall text-text-muted">This usually takes 20–40 seconds.</p>
-            )}
           </div>
         )}
 
-        {debriefQuery.isError && (
+        {isDocumentReady && debriefQuery.isLoading && !isGenerating && !regenerating && <DebriefSkeleton />}
+
+        {isDocumentReady && isGenerating && !debrief && (
+          <div className="flex flex-col gap-lg py-xl">
+            {/* Step indicator */}
+            <div className="flex items-center gap-xs">
+              {GENERATING_STEPS.map((_, i) => (
+                <div
+                  key={i}
+                  className={`h-2 flex-1 rounded-full transition-colors duration-500 ${
+                    i <= generatingStep.stepIndex
+                      ? 'bg-accent-primary animate-pulse'
+                      : 'bg-border-subtle'
+                  }`}
+                />
+              ))}
+            </div>
+            <div className="flex flex-col gap-sm rounded-lg border border-accent-primary/20 bg-accent-primary/5 p-md">
+              <p role="status" className="text-body font-semibold text-text-primary">
+                {generatingStep.message}
+              </p>
+              <p className="text-bodySmall text-text-secondary leading-relaxed">
+                {generatingStep.detail}
+              </p>
+              <p className="text-caption text-text-muted">
+                Please don&apos;t close or refresh this page.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {isDocumentReady && debriefQuery.isError && !regenerating && !isGenerating && (
           <div role="alert" className="flex flex-col gap-sm">
             <p className="text-body text-signal-critical">
               Something went wrong loading the AI Debrief.
@@ -355,16 +489,33 @@ export function SidebarDebriefPanel({
           </p>
         )}
 
-        {debrief && !debriefQuery.isLoading && !debriefQuery.isError && (
+        {isDocumentReady && debrief && !debriefQuery.isLoading && !debriefQuery.isError && (
           <>
             {debrief.items.length === 0 ? (
               <div className="flex flex-col items-center gap-md py-xl text-center">
                 {isGenerating || regenerating ? (
-                  <>
-                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-strong border-t-accent-primary" />
-                    <p className="text-body text-text-secondary">Generating feedback…</p>
-                    <p className="text-bodySmall text-text-muted">This usually takes 20–40 seconds.</p>
-                  </>
+                  <div className="flex w-full flex-col gap-lg py-xl">
+                    <div className="flex items-center gap-xs">
+                      {GENERATING_STEPS.map((_, i) => (
+                        <div
+                          key={i}
+                          className={`h-1.5 flex-1 rounded-full transition-colors duration-500 ${
+                            i <= generatingStep.stepIndex
+                              ? 'bg-accent-primary'
+                              : 'bg-border-subtle'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex flex-col gap-sm">
+                      <p role="status" className="text-body font-medium text-text-primary">
+                        {generatingStep.message}
+                      </p>
+                      <p className="text-bodySmall text-text-secondary leading-relaxed">
+                        {generatingStep.detail}
+                      </p>
+                    </div>
+                  </div>
                 ) : (
                   <p className="text-body text-text-secondary">
                     No feedback yet. Click <strong>Regenerate</strong> to save your draft and generate feedback.
@@ -385,26 +536,46 @@ export function SidebarDebriefPanel({
                         {(() => {
                           const improving = debrief.progressSummary.filter(p => p.tendency === 'improving').length;
                           const persistent = debrief.progressSummary.filter(p => p.tendency === 'persistent').length;
+                          const nearlyResolved = debrief.progressSummary.filter(p => p.tendency === 'nearly_resolved').length;
                           const emerging = debrief.progressSummary.filter(p => p.tendency === 'emerging').length;
                           const topImprovement = debrief.progressSummary.find(p => p.tendency === 'improving');
 
                           return (
                             <>
-                              <div className="flex items-center gap-md text-bodySmall">
-                                <div className="flex items-center gap-xs">
-                                  <ArrowUp size={14} className="text-signal-positive" aria-hidden="true" />
-                                  <span className="font-semibold text-text-primary">{improving} Improving</span>
-                                </div>
-                                <span className="text-text-muted">|</span>
-                                <div className="flex items-center gap-xs">
-                                  <Minus size={14} className="text-signal-caution" aria-hidden="true" />
-                                  <span className="font-semibold text-text-primary">{persistent} Persistent</span>
-                                </div>
-                                <span className="text-text-muted">|</span>
-                                <div className="flex items-center gap-xs">
-                                  <Star size={14} className="text-accent-primary" aria-hidden="true" />
-                                  <span className="font-semibold text-text-primary">{emerging} Emerging</span>
-                                </div>
+                              <div className="flex flex-wrap items-center gap-x-md gap-y-xs text-bodySmall">
+                                {improving > 0 && (
+                                  <>
+                                    <div className="flex items-center gap-xs whitespace-nowrap">
+                                      <ArrowUp size={14} className="shrink-0 text-signal-positive" aria-hidden="true" />
+                                      <span className="font-semibold text-text-primary">{improving} Improving</span>
+                                    </div>
+                                    <span className="text-text-muted" aria-hidden="true">|</span>
+                                  </>
+                                )}
+                                {persistent > 0 && (
+                                  <>
+                                    <div className="flex items-center gap-xs whitespace-nowrap">
+                                      <Minus size={14} className="shrink-0 text-signal-caution" aria-hidden="true" />
+                                      <span className="font-semibold text-text-primary">{persistent} Persistent</span>
+                                    </div>
+                                    <span className="text-text-muted" aria-hidden="true">|</span>
+                                  </>
+                                )}
+                                {nearlyResolved > 0 && (
+                                  <>
+                                    <div className="flex items-center gap-xs whitespace-nowrap">
+                                      <CheckCircle2 size={14} className="shrink-0 text-signal-positive" aria-hidden="true" />
+                                      <span className="font-semibold text-text-primary">{nearlyResolved} Nearly there</span>
+                                    </div>
+                                    <span className="text-text-muted" aria-hidden="true">|</span>
+                                  </>
+                                )}
+                                {emerging > 0 && (
+                                  <div className="flex items-center gap-xs whitespace-nowrap">
+                                    <Star size={14} className="shrink-0 text-accent-primary" aria-hidden="true" />
+                                    <span className="font-semibold text-text-primary">{emerging} Emerging</span>
+                                  </div>
+                                )}
                               </div>
                               {topImprovement && (
                                 <p className="text-bodySmall font-medium text-signal-positive">
@@ -430,26 +601,31 @@ export function SidebarDebriefPanel({
                             {pattern.tendency === 'persistent' && (
                               <Minus size={14} className="text-signal-caution" aria-hidden="true" />
                             )}
+                            {pattern.tendency === 'nearly_resolved' && (
+                              <CheckCircle2 size={14} className="text-signal-positive" aria-hidden="true" />
+                            )}
                             {pattern.tendency === 'emerging' && (
                               <Star size={14} className="text-accent-primary" aria-hidden="true" />
                             )}
                           </div>
-                          <div className="flex flex-col gap-xs">
-                            <div className="flex items-center gap-sm">
-                              <span className="text-bodySmall font-semibold text-text-primary">
+                          <div className="min-w-0 flex-1 flex flex-col gap-xs">
+                            <div className="flex flex-wrap items-center gap-sm">
+                              <span className="text-bodySmall font-semibold text-text-primary break-words">
                                 {pattern.category}
                               </span>
-                              <span className={`rounded-full px-xs py-[1px] text-bodySmall font-sans font-medium ${
+                              <span className={`shrink-0 rounded-full px-xs py-[1px] text-bodySmall font-sans font-medium ${
                                 pattern.tendency === 'improving'
                                   ? 'bg-signal-positive/10 text-signal-positive'
                                   : pattern.tendency === 'persistent'
                                     ? 'bg-signal-caution/10 text-signal-caution'
-                                    : 'bg-accent-primary/10 text-accent-primary'
+                                    : pattern.tendency === 'nearly_resolved'
+                                      ? 'bg-signal-positive/10 text-signal-positive'
+                                      : 'bg-accent-primary/10 text-accent-primary'
                               }`}>
-                                {pattern.tendency}
+                                {pattern.tendency === 'nearly_resolved' ? 'nearly there' : pattern.tendency}
                               </span>
                             </div>
-                            <p className="text-bodySmall leading-relaxed text-text-secondary">
+                            <p className="text-bodySmall leading-relaxed text-text-secondary break-words">
                               {pattern.description}
                             </p>
                           </div>
@@ -459,124 +635,144 @@ export function SidebarDebriefPanel({
                   </section>
                 )}
 
-                {/* Category sections */}
-                {categoryKeys.map((category) => {
-                  const items = groupedByCategory[category];
-                  const doneWell = items.filter((i) => i.kind === 'structural');
-                  const improvements = items.filter((i) => i.kind === 'inline');
+                {/* ── Per-category sections ── */}
+                {categoryOrder.map((category) => {
+                  const strengths = strengthsByCategory[category] ?? [];
+                  const improvements = improvementsByCategory[category] ?? [];
+                  if (strengths.length === 0 && improvements.length === 0) return null;
                   const categoryLabel = debrief.categoryNames?.[category] ?? category;
 
                   return (
                     <section
                       key={category}
-                      aria-labelledby={`ai-debrief-category-${category}`}
+                      aria-labelledby={`debrief-cat-${category}`}
+                      className="flex flex-col gap-md"
                     >
+                      {/* Category heading */}
                       <h4
-                        id={`ai-debrief-category-${category}`}
-                        className="mb-md flex items-center gap-xs text-heading4 font-sans font-bold text-text-primary"
+                        id={`debrief-cat-${category}`}
+                        className="flex items-center justify-between gap-xs text-heading4 font-sans font-bold text-text-primary border-b border-border-subtle pb-xs"
                       >
-                        <Star size={16} className="text-text-muted" aria-hidden="true" />
-                        {categoryLabel}
+                        <span>{categoryLabel}</span>
+                        {activeDraftId && (
+                          <SectionApplicabilityToggle
+                            environmentId={environmentId}
+                            draftId={activeDraftId}
+                            errorCategoryId={category}
+                            initialVote={applicabilityQuery.data?.votes[category]}
+                          />
+                        )}
                       </h4>
 
-                      {doneWell.length > 0 && (
-                        <div className="mb-md">
-                          <h5 className="mb-xs text-bodySmall font-semibold text-text-primary">
+                      {/* What's Done Well — affirmations only, zero questions */}
+                      {strengths.length > 0 && (
+                        <div>
+                          <h5 className="mb-sm text-caption font-semibold uppercase tracking-wide text-signal-positive">
                             What&apos;s Done Well
                           </h5>
-                          <ul className="flex flex-col gap-xs pl-md">
-                            {doneWell.map((item) => (
+                          <ul className="flex flex-col gap-sm">
+                            {strengths.filter((item) => item.positiveNote).map((item) => (
                               <li
                                 key={item.id}
-                                className="flex flex-col gap-xs text-bodySmall text-text-primary"
+                                className="flex flex-col gap-xs rounded-md bg-signal-positive/5 px-sm py-xs"
                               >
                                 <div className="flex items-start gap-sm">
-                                  <span className="mt-[2px] text-signal-positive">✓</span>
-                                  <span>{item.questionText}</span>
+                                  <span className="mt-[2px] shrink-0 text-signal-positive">✓</span>
+                                  <span className="text-bodySmall text-text-primary">
+                                    {item.positiveNote}
+                                  </span>
                                 </div>
                                 {item.quotedText && (
-                                  <blockquote
-                                    className={`ml-sm border-l-2 pl-md italic text-bodySmall cursor-pointer rounded px-sm transition-colors break-words ${
-                                      activeQuoteId === item.id
-                                        ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
-                                        : 'border-signal-positive/30 text-text-secondary hover:bg-signal-positive/5 hover:border-signal-positive/60'
-                                    }`}
-                                    onClick={() =>
-                                      onQuoteClick?.({
-                                        feedbackItemId: item.id,
-                                        anchorId: item.currentAnchorId,
-                                        quotedText: item.quotedText,
-                                      })
-                                    }
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-pressed={activeQuoteId === item.id}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
+                                  <div className="flex flex-col gap-[2px] pl-[20px]">
+                                    <span className="text-caption text-signal-positive/70 uppercase tracking-wide font-medium">
+                                      Where you did this well
+                                    </span>
+                                    <blockquote
+                                      className={`border-l-2 pl-md text-bodySmall italic cursor-pointer rounded-r-sm px-sm py-xs transition-colors break-words ${
+                                        activeQuoteId === item.id
+                                          ? 'border-signal-positive bg-signal-positive/10 text-text-primary'
+                                          : 'border-signal-positive/50 text-text-secondary hover:bg-signal-positive/10 hover:border-signal-positive'
+                                      }`}
+                                      onClick={() =>
                                         onQuoteClick?.({
                                           feedbackItemId: item.id,
                                           anchorId: item.currentAnchorId,
                                           quotedText: item.quotedText,
-                                        });
+                                        })
                                       }
-                                    }}
-                                  >
-                                    &quot;{item.quotedText}&quot;
-                                  </blockquote>
+                                      role="button"
+                                      tabIndex={0}
+                                      aria-pressed={activeQuoteId === item.id}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          onQuoteClick?.({
+                                            feedbackItemId: item.id,
+                                            anchorId: item.currentAnchorId,
+                                            quotedText: item.quotedText,
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      &ldquo;{item.quotedText}&rdquo;
+                                    </blockquote>
+                                  </div>
                                 )}
-                                <CitationDisplay citationReferenceId={item.citationReferenceId} />
                               </li>
                             ))}
                           </ul>
                         </div>
                       )}
 
+                      {/* Areas for Improvement — questions first, quote as supporting evidence */}
                       {improvements.length > 0 && (
                         <div>
-                          <h5 className="mb-xs text-bodySmall font-semibold text-text-primary">
+                          <h5 className="mb-sm text-caption font-semibold uppercase tracking-wide text-signal-caution">
                             Areas for Improvement
                           </h5>
-                          <ul className="flex flex-col gap-xs pl-md">
+                          <ul className="flex flex-col gap-md">
                             {improvements.map((item) => (
-                              <li
-                                key={item.id}
-                                className="flex flex-col gap-xs text-bodySmall text-text-primary"
-                              >
-                                <div className="flex items-start gap-sm">
-                                  <span className="mt-[2px] text-signal-critical">•</span>
-                                  <span>{item.questionText}</span>
-                                </div>
+                              <li key={item.id} className="flex flex-col gap-xs">
+                                {/* Question is the unavoidable headline */}
+                                <p className="text-bodySmall font-medium text-text-primary">
+                                  {item.questionText}
+                                </p>
+                                {/* Quote is one example of the pattern — label makes clear there may be more */}
                                 {item.quotedText && (
-                                  <blockquote
-                                    className={`ml-sm border-l-2 pl-md italic text-bodySmall cursor-pointer rounded px-sm transition-colors break-words ${
-                                      activeQuoteId === item.id
-                                        ? 'border-accent-primary bg-accent-primary/10 text-text-primary'
-                                        : 'border-signal-critical/30 text-text-secondary hover:bg-signal-critical/5 hover:border-signal-critical/60'
-                                    }`}
-                                    onClick={() =>
-                                      onQuoteClick?.({
-                                        feedbackItemId: item.id,
-                                        anchorId: item.currentAnchorId,
-                                        quotedText: item.quotedText,
-                                      })
-                                    }
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-pressed={activeQuoteId === item.id}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
+                                  <div className="flex flex-col gap-[2px]">
+                                    <span className="text-caption text-signal-caution/80 uppercase tracking-wide font-medium">
+                                      One example — check your whole draft for this
+                                    </span>
+                                    <blockquote
+                                      className={`border-l-2 pl-md text-bodySmall italic cursor-pointer rounded-r-sm px-sm py-xs transition-colors break-words ${
+                                        activeQuoteId === item.id
+                                          ? 'border-signal-caution bg-signal-caution/10 text-text-primary'
+                                          : 'border-signal-caution/40 text-text-secondary hover:bg-signal-caution/10 hover:border-signal-caution'
+                                      }`}
+                                      onClick={() =>
                                         onQuoteClick?.({
                                           feedbackItemId: item.id,
                                           anchorId: item.currentAnchorId,
                                           quotedText: item.quotedText,
-                                        });
+                                        })
                                       }
-                                    }}
-                                  >
-                                    &quot;{item.quotedText}&quot;
-                                  </blockquote>
+                                      role="button"
+                                      tabIndex={0}
+                                      aria-pressed={activeQuoteId === item.id}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          onQuoteClick?.({
+                                            feedbackItemId: item.id,
+                                            anchorId: item.currentAnchorId,
+                                            quotedText: item.quotedText,
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      &ldquo;{item.quotedText}&rdquo;
+                                    </blockquote>
+                                  </div>
                                 )}
                                 <CitationDisplay citationReferenceId={item.citationReferenceId} />
                               </li>

@@ -7,6 +7,11 @@ import {
 } from "aws-cdk-lib/aws-dynamodb";
 import { Key } from "aws-cdk-lib/aws-kms";
 import {
+  Effect,
+  PolicyStatement,
+  ServicePrincipal,
+} from "aws-cdk-lib/aws-iam";
+import {
   BlockPublicAccess,
   Bucket,
   BucketEncryption,
@@ -50,6 +55,15 @@ export class StorageResources extends Construct {
 
     this.encryptionKey = this.createEncryptionKey();
     this.documentsBucket = this.createBucket("Documents");
+    this.documentsBucket.addToResourcePolicy(
+      new PolicyStatement({
+        sid: "AllowTextractReadDocuments",
+        effect: Effect.ALLOW,
+        principals: [new ServicePrincipal("textract.amazonaws.com")],
+        actions: ["s3:GetObject", "s3:GetObjectVersion"],
+        resources: [this.documentsBucket.arnForObjects("*")],
+      }),
+    );
     this.referenceBucket = this.createBucket("Reference");
     this.conversationTable = this.createConversationTable();
   }

@@ -21,6 +21,8 @@ export interface ChatFeedbackSidebarProps {
   readonly wordCount?: number;
   readonly askWrenService: AskWrenService;
   readonly isGeneratingFeedback?: boolean;
+  /** False while the document/draft is still loading or being ingested. */
+  readonly isDocumentReady?: boolean;
   /** Persist editor content as a new draft before AI Debrief regenerate. */
   readonly onBeforeRegenerate?: () => Promise<void>;
   readonly onHighlight?: (anchorId: string) => void;
@@ -49,6 +51,7 @@ export function ChatFeedbackSidebar({
   wordCount = 0,
   askWrenService,
   isGeneratingFeedback = false,
+  isDocumentReady = true,
   onBeforeRegenerate,
   onHighlight,
   onChatQuoteClick,
@@ -56,7 +59,7 @@ export function ChatFeedbackSidebar({
   activeQuoteId,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
-  const debriefQuery = useAiDebrief(documentId);
+  const debriefQuery = useAiDebrief(documentId, null, isDocumentReady);
 
   const progressSignals = useMemo(() => {
     const summary = debriefQuery.data?.progressSummary ?? [];
@@ -99,6 +102,7 @@ export function ChatFeedbackSidebar({
           environmentId={documentId}
           autoRegenerate={false}
           isGenerating={isGeneratingFeedback}
+          isDocumentReady={isDocumentReady}
           onBeforeRegenerate={onBeforeRegenerate}
           activeQuoteId={activeQuoteId}
           onQuoteClick={onQuoteClick}

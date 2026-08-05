@@ -5,6 +5,8 @@ export {
   DocumentEditor,
   type DocumentEditorProps,
   type DocumentEditorHandle,
+  type TableOfContentData,
+  type TableOfContentDataItem,
 } from './components/DocumentEditor';
 export {
   AnchoredFeedbackEditor,
@@ -14,6 +16,14 @@ export {
   AnchoredFeedbackEditorContainer,
   type AnchoredFeedbackEditorContainerProps,
 } from './components/AnchoredFeedbackEditorContainer';
+export {
+  DocumentTableOfContents,
+  type DocumentTableOfContentsProps,
+} from './components/DocumentTableOfContents';
+export {
+  HomeSidePanel,
+  type HomeSidePanelProps,
+} from './components/HomeSidePanel';
 
 // Utilities
 export {

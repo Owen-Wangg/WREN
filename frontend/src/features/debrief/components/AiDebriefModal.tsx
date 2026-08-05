@@ -23,10 +23,11 @@
  * `kind === 'structural'` item is never mistaken for an anchored inline item.
  */
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArrowUp, Minus, Star, TrendingUp, X } from 'lucide-react';
+import { ArrowUp, CheckCircle2, Minus, Star, TrendingUp, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
+import { useDocuments, useOrganizations, useWritingTypes } from '@/features/dashboard/useDashboard';
 
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 
@@ -50,6 +51,13 @@ export interface AiDebriefModalProps {
   }) => void;
 }
 
+function buildDebriefDisclaimer(departmentName?: string): string {
+  const expert = departmentName
+    ? `an expert in ${departmentName}`
+    : 'an expert in your department';
+  return `The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to ${expert}.`;
+}
+
 export function AiDebriefModal({
   environmentId,
   open,
@@ -60,6 +68,14 @@ export function AiDebriefModal({
 }: AiDebriefModalProps) {
   const debriefQuery = useAiDebrief(environmentId);
   const regenerate = useRegenerateDebrief(environmentId);
+
+  const { data: documents } = useDocuments();
+  const { data: writingTypes } = useWritingTypes();
+  const { data: organizations } = useOrganizations();
+  const currentDoc = documents?.find((d) => d.id === environmentId);
+  const writingType = writingTypes?.find((wt) => wt.id === currentDoc?.documentTypeId);
+  const organization = organizations?.find((org) => org.id === writingType?.organizationId);
+  const departmentName = organization?.name;
 
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const didAutoRegenerate = useRef(false);
@@ -189,7 +205,7 @@ export function AiDebriefModal({
               dismissible
               dismissStorageKey="ai-debrief-disclaimer-dismissed"
               dismissScopeId={environmentId}
-              message="The following content is AI generated and should be considered as suggestions. This system will always provide feedback, and it may not always be applicable, so please use your judgement when considering this feedback. If you have questions about the feedback provided to you in this debrief, please reach out to a field expert or admin user."
+              message={buildDebriefDisclaimer(departmentName)}
               className="mb-xl leading-relaxed"
             />
 
@@ -287,6 +303,9 @@ export function AiDebriefModal({
                                 {pattern.tendency === 'persistent' && (
                                   <Minus size={16} className="text-signal-caution" aria-hidden="true" />
                                 )}
+                                {pattern.tendency === 'nearly_resolved' && (
+                                  <CheckCircle2 size={16} className="text-signal-positive" aria-hidden="true" />
+                                )}
                                 {pattern.tendency === 'emerging' && (
                                   <Star size={16} className="text-accent-primary" aria-hidden="true" />
                                 )}
@@ -301,9 +320,11 @@ export function AiDebriefModal({
                                       ? 'bg-signal-positive/10 text-signal-positive'
                                       : pattern.tendency === 'persistent'
                                         ? 'bg-signal-caution/10 text-signal-caution'
-                                        : 'bg-accent-primary/10 text-accent-primary'
+                                        : pattern.tendency === 'nearly_resolved'
+                                          ? 'bg-signal-positive/10 text-signal-positive'
+                                          : 'bg-accent-primary/10 text-accent-primary'
                                   }`}>
-                                    {pattern.tendency}
+                                    {pattern.tendency === 'nearly_resolved' ? 'nearly there' : pattern.tendency}
                                   </span>
                                 </div>
                                 <p className="text-bodySmall leading-relaxed text-text-secondary">

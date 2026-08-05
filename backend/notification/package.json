@@ -1,0 +1,23 @@
+{
+  "name": "@wren/notification",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WREN Writing Coach Notification_Service (Node 22). In-app notification processing: recipient resolution from the application database, deduplication, template rendering with sanitization, lifecycle state machine, and real-time publishing via AppSync. All notifications are in-app only — no email/SMS (REQ-NOTIF-CHANNEL-01).",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@aws-sdk/client-appsync": "^3",
+    "@aws-sdk/client-sns": "^3",
+    "@aws-sdk/client-ssm": "^3",
+    "@wren/auth": "*",
+    "@wren/db-node": "*",
+    "@wren/types": "*"
+  }
+}

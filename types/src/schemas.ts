@@ -79,6 +79,11 @@ export const departmentSchema = z
     accessState: documentTypeAccessStateSchema.optional(),
     /** Count of distinct users who have uploaded at least one document under this department. */
     activeUserCount: z.number().int().nonnegative().optional(),
+    /**
+     * ISO timestamp set when the department is archived (soft-deleted).
+     * NULL means active; non-null means archived and invisible to students.
+     */
+    archivedAt: z.string().nullable().optional(),
   })
   .strict();
 export type Department = z.infer<typeof departmentSchema>;
@@ -334,6 +339,9 @@ export const documentSchema = z
     metadata: z.record(z.string(), z.string()),
     status: documentStatusSchema,
     createdAt: isoDateTimeSchema,
+    /** Present when PDF ingest was enqueued (async Textract OCR). */
+    ingestStatus: z.enum(['queued', 'processing', 'completed', 'failed']).optional(),
+    ingestJobId: z.string().min(1).optional(),
   })
   .strict();
 export type Document = z.infer<typeof documentSchema>;
@@ -396,8 +404,14 @@ export const draftSchema = z
     segments: z.array(segmentSchema),
     wordCount: z.number().int().nonnegative(),
     createdAt: isoDateTimeSchema,
+    /** When the TipTap content was last autosaved; null for legacy drafts. */
+    contentUpdatedAt: isoDateTimeSchema.nullable().optional(),
     /** TipTap JSONContent when rich formatting was persisted; omit for legacy. */
     content: tipTapDocSchema.optional(),
+    /** TipTap JSONContent for the repeating page header; omit when not set. */
+    header: tipTapDocSchema.optional(),
+    /** TipTap JSONContent for the repeating page footer; omit when not set. */
+    footer: tipTapDocSchema.optional(),
   })
   .strict();
 export type Draft = z.infer<typeof draftSchema>;
@@ -441,8 +455,8 @@ export type Anchor = z.infer<typeof anchorSchema>;
 /* FeedbackItem (Requirement 11 — NEVER carries replacement prose)             */
 /* -------------------------------------------------------------------------- */
 
-/** Inline (anchored) vs document-wide structural feedback. */
-export const feedbackKindSchema = z.enum(['inline', 'structural']);
+/** Inline (anchored), document-wide structural, or strength (done-well) feedback. */
+export const feedbackKindSchema = z.enum(['inline', 'structural', 'strength']);
 export type FeedbackKind = z.infer<typeof feedbackKindSchema>;
 
 /**
@@ -457,8 +471,10 @@ export const feedbackItemSchema = z
     documentId: idSchema,
     errorCategoryId: idSchema,
     kind: feedbackKindSchema,
-    /** The Socratic question / error-type flag shown to the writer. */
+    /** The Socratic question shown to the writer. For strength items this is the follow-up question. */
     questionText: z.string().min(1),
+    /** For strength items: the specific affirmation of what was done well. */
+    positiveNote: z.string().optional(),
     /** Exact quote from the document that triggered this feedback (no generation). */
     quotedText: z.string().optional(),
     currentAnchorId: idSchema.optional(),
@@ -530,6 +546,13 @@ export const userSummarySchema = z
     firstName: z.string().min(1),
     lastName: z.string().min(1),
     roles: z.array(roleSchema),
+    /**
+     * Departments this user administers via `DepartmentAdmin` role_assignment
+     * scopes. Empty when the user has no department-admin appointments.
+     * Global role names in `roles` may still include `DepartmentAdmin` if they
+     * administer any department — use this list for per-department UI.
+     */
+    administeredDepartmentIds: z.array(idSchema),
   })
   .strict();
 export type UserSummary = z.infer<typeof userSummarySchema>;
@@ -802,6 +825,24 @@ export type UpdateErrorCategoryInput = z.infer<typeof updateErrorCategoryInputSc
  * any change to this record invalidates previously cached feedback for the
  * Document Type (Requirement 27.3 / REQ-NFR-COST-01).
  */
+/**
+ * Department-scoped citation style + required-field configuration for a
+ * Document Type (footnote-citation-support spec, Requirement 4.3). Reuses
+ * `documentTypeConfigService`'s existing authorization/upsert boundary — no
+ * new service, no new capability.
+ */
+export const citationConfigSchema = z
+  .object({
+    /** Citation style identifier, e.g. "Bluebook" (Requirement 4.3, 4.7). */
+    citationStyle: z.string().min(1).max(50),
+    /** Required citation field identifiers, e.g. ["author", "title", "year"]. */
+    requiredFields: z.array(z.string().min(1).max(50)).max(20),
+    /** Optional formatting template string, e.g. "{author}, {title} ({year})". */
+    formattingTemplate: z.string().max(1000).nullable().optional(),
+  })
+  .strict();
+export type CitationConfig = z.infer<typeof citationConfigSchema>;
+
 export const documentTypeConfigSchema = z
   .object({
     documentTypeId: idSchema,
@@ -823,6 +864,8 @@ export const documentTypeConfigSchema = z
     restrictionsDescription: z.string().nullable().optional(),
     /** Additional notes / miscellaneous guidance. */
     notesDescription: z.string().nullable().optional(),
+    /** Citation style + required-field config for footnotes (Requirement 4). */
+    citationConfig: citationConfigSchema.nullable().optional(),
     updatedAt: isoDateTimeSchema,
   })
   .strict();
@@ -840,6 +883,7 @@ export const updateDocumentTypeConfigInputSchema = z
     structureDescription: z.string().nullable().optional(),
     restrictionsDescription: z.string().nullable().optional(),
     notesDescription: z.string().nullable().optional(),
+    citationConfig: citationConfigSchema.nullable().optional(),
   })
   .strict();
 export type UpdateDocumentTypeConfigInput = z.infer<

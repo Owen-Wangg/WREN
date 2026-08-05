@@ -183,6 +183,8 @@ export function createDocument(
     source: { kind: 'file'; key: string } | { kind: 'paste'; text: string };
     /** Optional TipTap JSON so rich formatting survives reload. */
     content?: TipTapDoc;
+    /** OCR engine for PDF ingest. */
+    ocrEngine?: OcrEngineChoice;
   },
 ): Promise<Document> {
   return client.request(DOCUMENTS_PATH, {
@@ -217,6 +219,40 @@ export function fetchLatestDraft(client: HttpClient, documentId: string): Promis
   });
 }
 
+const ocrEngineResultSchema = z.object({
+  text: z.string(),
+  durationMs: z.number(),
+  textLength: z.number(),
+});
+
+const ocrComparisonSchema = z.object({
+  textract: ocrEngineResultSchema.optional(),
+  primaryEngine: z.string(),
+});
+
+const ingestStatusSchema = z.object({
+  status: z.enum(['pending', 'queued', 'processing', 'completed', 'failed']),
+  jobId: z.string().optional(),
+  draftId: z.string().optional(),
+  errorMessage: z.string().optional(),
+  ocrEngine: z.string().optional(),
+  comparison: ocrComparisonSchema.optional(),
+});
+
+export type IngestStatus = z.infer<typeof ingestStatusSchema>;
+export type OcrComparison = z.infer<typeof ocrComparisonSchema>;
+export type OcrEngineChoice = 'textract';
+
+/** Polls async PDF ingest status (`queued` → `completed` / `failed`). */
+export function fetchIngestStatus(
+  client: HttpClient,
+  documentId: string,
+): Promise<IngestStatus> {
+  return client.request(`${DOCUMENTS_PATH}/${documentId}/ingest/status`, {
+    schema: ingestStatusSchema,
+  });
+}
+
 /** Submits TipTap content (preferred) and/or segments as a new draft version. */
 export function createDraft(
   client: HttpClient,
@@ -231,16 +267,67 @@ export function createDraft(
   });
 }
 
+/**
+ * Autosave TipTap content (+ optional header/footer) onto the current draft
+ * without creating a new version.
+ * With `keepalive: true` (unload flush), the response body is not validated and
+ * the return value may be undefined.
+ */
+export function patchCurrentDraft(
+  client: HttpClient,
+  documentId: string,
+  content: TipTapDoc,
+  options?: {
+    readonly keepalive?: boolean;
+    readonly header?: TipTapDoc | null;
+    readonly footer?: TipTapDoc | null;
+  },
+): Promise<Draft | undefined> {
+  return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts/current`, {
+    method: 'PATCH',
+    body: {
+      content,
+      ...(options?.header != null ? { header: options.header } : {}),
+      ...(options?.footer != null ? { footer: options.footer } : {}),
+    },
+    ...(options?.keepalive
+      ? { keepalive: true }
+      : { schema: draftSchema }),
+  });
+}
+
+const draftFromSourceResponseSchema = z.union([
+  draftSchema,
+  z.object({
+    ingestStatus: z.literal('queued'),
+    jobId: z.string().min(1),
+    documentId: z.string().min(1),
+  }),
+]);
+
+export type DraftFromSourceResult =
+  | { kind: 'draft'; draft: Draft }
+  | { kind: 'ingestQueued'; jobId: string; documentId: string };
+
 /** Creates a new draft by server-ingesting an uploaded file (or paste). */
-export function createDraftFromSource(
+export async function createDraftFromSource(
   client: HttpClient,
   documentId: string,
   source: { kind: 'file'; key: string } | { kind: 'paste'; text: string },
   content?: TipTapDoc,
-): Promise<Draft> {
-  return client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
+  ocrEngine?: OcrEngineChoice,
+): Promise<DraftFromSourceResult> {
+  const result = await client.request(`${DOCUMENTS_PATH}/${documentId}/drafts`, {
     method: 'POST',
-    body: { source, ...(content ? { content } : {}) },
-    schema: draftSchema,
+    body: {
+      source,
+      ...(content ? { content } : {}),
+      ...(ocrEngine ? { ocrEngine } : {}),
+    },
+    schema: draftFromSourceResponseSchema,
   });
+  if ('ingestStatus' in result && result.ingestStatus === 'queued') {
+    return { kind: 'ingestQueued', jobId: result.jobId, documentId: result.documentId };
+  }
+  return { kind: 'draft', draft: result as Draft };
 }

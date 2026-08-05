@@ -53,9 +53,13 @@ async function findDeptScopedAssignment(
   departmentId: string,
   db: QueryExecutor,
 ): Promise<RoleAssignmentRow | null> {
+  // Match current singular `{ departmentId }` and legacy `{ departmentIds: [...] }`.
   const rows = await db.query<RoleAssignmentRow>(
     `SELECT id, user_id, role, scope FROM role_assignment
-     WHERE user_id = $1 AND role = $2 AND scope ->> 'departmentId' = $3`,
+     WHERE user_id = $1 AND role = $2 AND (
+       scope ->> 'departmentId' = $3
+       OR scope -> 'departmentIds' ? $3
+     )`,
     [userId, role, departmentId],
   );
   return rows[0] ?? null;

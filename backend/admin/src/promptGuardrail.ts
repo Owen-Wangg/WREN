@@ -29,7 +29,9 @@
  *   - requirements.md Requirement 32 (REQ-PROMPT-EDIT-01) criteria 32.5,
  *     32.8; Requirement 11 (REQ-CORE-NOGHOST-01) criterion 6.
  */
+import { BedrockRuntimeClient, ApplyGuardrailCommand } from '@aws-sdk/client-bedrock-runtime';
 import { promptGuardrailViolationSchema, type PromptGuardrailViolation } from '@wren/types';
+import { PromptInjectionError } from './errors';
 
 /**
  * Case-insensitive phrase patterns that identify an instruction to produce
@@ -132,4 +134,45 @@ export function assertGhostwritingFree(promptText: string): string {
     throw new PromptGuardrailError(violation);
   }
   return promptText;
+}
+
+// Lazy-initialised Bedrock Runtime client — reused across warm invocations.
+let _bedrockRuntime: BedrockRuntimeClient | undefined;
+function getBedrockRuntime(): BedrockRuntimeClient {
+  if (!_bedrockRuntime) {
+    _bedrockRuntime = new BedrockRuntimeClient({
+      region: process.env.AWS_REGION ?? 'ca-central-1',
+    });
+  }
+  return _bedrockRuntime;
+}
+
+/**
+ * Run admin-submitted prompt text through AWS Bedrock Guardrails to detect
+ * prompt injection attempts (MEDIUM sensitivity).
+ *
+ * Skips gracefully when `PROMPT_GUARDRAIL_ID` is not configured (local dev,
+ * unit tests) — no network call is made. Throws {@link PromptInjectionError}
+ * when the guardrail intervenes; lets Bedrock service errors propagate so the
+ * caller maps them to 500 (no mutation occurs either way).
+ */
+export async function assertPromptInjectionFree(text: string): Promise<void> {
+  const guardrailId = process.env.PROMPT_GUARDRAIL_ID;
+  if (!guardrailId || !text.trim()) return;
+
+  const guardrailVersion = process.env.PROMPT_GUARDRAIL_VERSION ?? 'DRAFT';
+  const result = await getBedrockRuntime().send(
+    new ApplyGuardrailCommand({
+      guardrailIdentifier: guardrailId,
+      guardrailVersion,
+      source: 'INPUT',
+      content: [{ text: { text } }],
+    }),
+  );
+
+  if (result.action === 'GUARDRAIL_INTERVENED') {
+    throw new PromptInjectionError(
+      'This prompt contains content that may attempt to override AI instructions. Please revise and try again.',
+    );
+  }
 }

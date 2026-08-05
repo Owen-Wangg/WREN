@@ -29,9 +29,18 @@ export {
   getDepartment,
   listDepartments,
   renameDepartment,
-  deleteDepartment,
+  archiveDepartment,
   setDepartmentAccessState,
 } from './departmentService';
+export {
+  isTechnicalAdmin,
+  isDepartmentAdmin,
+  mustScopeDepartmentCatalog,
+  canViewDepartment,
+  assertCanViewDepartment,
+  filterDepartmentsForActor,
+  filterDocumentTypesForActor,
+} from './departmentScope';
 export {
   createDocumentType,
   getDocumentType,

@@ -1,6 +1,7 @@
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import type { AuthContext } from '@wren/types';
-import { AuthorizationError, NotFoundError, UsageLimitReachedError } from './errors';
+import { AuthorizationError, NotFoundError, PromptInjectionError, UsageLimitReachedError } from './errors';
+import { PromptGuardrailError } from './promptGuardrail';
 
 /** CORS headers required on aws_proxy Lambda responses (API Gateway does not add them). */
 export const CORS_HEADERS: Record<string, string> = {
@@ -57,13 +58,25 @@ export async function wrapHandler(
         body: JSON.stringify({ code: e.code, message: e.message }),
       });
     }
+    if (e instanceof PromptInjectionError) {
+      return withCors({
+        statusCode: 400,
+        body: JSON.stringify({ code: e.code, message: e.message }),
+      });
+    }
+    if (e instanceof PromptGuardrailError) {
+      return withCors({
+        statusCode: 400,
+        body: JSON.stringify({ code: 'GHOSTWRITING_DETECTED', message: e.message }),
+      });
+    }
     if (e instanceof SyntaxError || (e as any)?.statusCode === 400) {
       return withCors({
         statusCode: 400,
         body: JSON.stringify({ code: 'BAD_REQUEST', message: (e as Error).message }),
       });
     }
-    // Plain errors thrown with a numeric statusCode (e.g. Object.assign(new Error(...), { statusCode: 404 }))
+    // Plain errors thrown with a numeric statusCode (e.g. Object.assign(new Error(...), { statusCode: 409 }))
     const statusCode = typeof (e as any)?.statusCode === 'number' ? (e as any).statusCode : null;
     if (statusCode === 403) {
       return withCors({
@@ -75,6 +88,12 @@ export async function wrapHandler(
       return withCors({
         statusCode: 404,
         body: JSON.stringify({ code: 'NOT_FOUND', message: (e as Error).message }),
+      });
+    }
+    if (statusCode === 409) {
+      return withCors({
+        statusCode: 409,
+        body: JSON.stringify({ code: 'CONFLICT', message: (e as Error).message }),
       });
     }
     console.error('Unhandled error:', e);

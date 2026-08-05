@@ -9,7 +9,7 @@
  * and `getHighestVersionNumber` / `getCurrentDraft` derive from the stored
  * Drafts via the same pure selectors under test.
  */
-import type { Draft, FeedbackItem, Segment } from '@wren/types';
+import type { Draft, FeedbackItem, Segment, TipTapDoc } from '@wren/types';
 
 import type {
   DraftRepository,
@@ -95,6 +95,7 @@ class FakeDraftRepository implements DraftRepository {
       segments: input.segments.map((s) => ({ ...s })),
       wordCount: input.wordCount,
       createdAt: new Date(Date.UTC(2025, 0, this.nextId)).toISOString(),
+      ...(input.content ? { content: input.content } : {}),
     };
     this.nextId += 1;
     this.drafts.push(draft);
@@ -103,6 +104,19 @@ class FakeDraftRepository implements DraftRepository {
 
   public async getCurrentDraft(documentId: string): Promise<Draft | null> {
     return selectCurrentDraft(this.drafts.filter((d) => d.documentId === documentId));
+  }
+
+  public async updateCurrentDraftContent(
+    documentId: string,
+    content: TipTapDoc,
+    wordCount: number,
+  ): Promise<Draft | null> {
+    const current = await this.getCurrentDraft(documentId);
+    if (!current) return null;
+    const updated: Draft = { ...current, content, wordCount };
+    const idx = this.drafts.findIndex((d) => d.id === current.id);
+    this.drafts[idx] = updated;
+    return updated;
   }
 
   public async listFeedbackItems(documentId: string): Promise<FeedbackItem[]> {
@@ -239,5 +253,154 @@ describe('createDraftRevision — resubmission (Requirement 8.1, 8.2, 8.3)', () 
     // Every prior Draft is retained (no update path).
     expect(repo.stored).toHaveLength(5);
     expect((await repo.getCurrentDraft('doc_1'))?.versionNumber).toBe(5);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Footnote content round-trip fixtures (footnote-citation-support spec,      */
+/* Task 8.1; Requirements 2.2, 2.3)                                           */
+/*                                                                             */
+/* `content` is opaque JSONB end-to-end (`draftRepository.ts`'s DB layer never */
+/* inspects footnote node shape) — these tests validate the EXISTING          */
+/* pass-through behavior for content containing `footnote` nodes, not new     */
+/* logic. A real DB round trip is exercised by `updateCurrentDraftContent`    */
+/* here via the same `FakeDraftRepository` used by the rest of this file.     */
+/* -------------------------------------------------------------------------- */
+
+function footnoteBearingContent(): TipTapDoc {
+  return {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'See the holding below.' },
+          {
+            type: 'footnote',
+            attrs: {
+              footnoteNumber: 1,
+              content: {
+                type: 'doc',
+                content: [
+                  { type: 'paragraph', content: [{ type: 'text', text: 'See discussion below.' }] },
+                ],
+              },
+              author: 'R. Smith',
+              title: 'Contract Interpretation',
+              source: 'Canadian Bar Review',
+              pinpoint: '¶ 42',
+              year: '2019',
+            },
+          },
+        ],
+      },
+    ],
+  } as unknown as TipTapDoc;
+}
+
+describe('footnote-bearing content round-trips through insertDraft/updateCurrentDraftContent/getCurrentDraft', () => {
+  it('insertDraft persists footnote node data unchanged (Requirement 2.2)', async () => {
+    const repo = new FakeDraftRepository();
+    const content = footnoteBearingContent();
+
+    const result = await createDraftRevision(submission({ content }), repo);
+
+    expect(result.draft.content).toEqual(content);
+  });
+
+  it('getCurrentDraft restores footnoteNumber, content text, and citation fields exactly (Requirement 2.3)', async () => {
+    const repo = new FakeDraftRepository();
+    const content = footnoteBearingContent();
+    await createDraftRevision(submission({ content }), repo);
+
+    const current = await repo.getCurrentDraft('doc_1');
+
+    expect(current?.content).toEqual(content);
+    const footnoteNode = (current?.content as unknown as { content: Array<{ content: unknown[] }> })
+      .content[0]!.content[1] as {
+      attrs: {
+        footnoteNumber: number;
+        author: string;
+        title: string;
+        source: string;
+        pinpoint: string;
+        year: string;
+      };
+    };
+    expect(footnoteNode.attrs.footnoteNumber).toBe(1);
+    expect(footnoteNode.attrs.author).toBe('R. Smith');
+    expect(footnoteNode.attrs.title).toBe('Contract Interpretation');
+    expect(footnoteNode.attrs.source).toBe('Canadian Bar Review');
+    expect(footnoteNode.attrs.pinpoint).toBe('¶ 42');
+    expect(footnoteNode.attrs.year).toBe('2019');
+  });
+
+  it('updateCurrentDraftContent (autosave) persists footnote node data unchanged', async () => {
+    const repo = new FakeDraftRepository();
+    await createDraftRevision(submission(), repo);
+    const content = footnoteBearingContent();
+
+    const updated = await repo.updateCurrentDraftContent('doc_1', content, 5);
+
+    expect(updated?.content).toEqual(content);
+    const current = await repo.getCurrentDraft('doc_1');
+    expect(current?.content).toEqual(content);
+  });
+
+  it('a Draft with no content (legacy, NULL content) round-trips as undefined — zero footnotes', async () => {
+    const repo = new FakeDraftRepository();
+    const result = await createDraftRevision(submission(), repo); // no `content` field
+
+    expect(result.draft.content).toBeUndefined();
+    const current = await repo.getCurrentDraft('doc_1');
+    expect(current?.content).toBeUndefined();
+  });
+
+  it('multiple footnotes at different document-order positions all persist independently', async () => {
+    const repo = new FakeDraftRepository();
+    const content: TipTapDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'footnote',
+              attrs: {
+                footnoteNumber: 1,
+                content: { type: 'doc', content: [{ type: 'paragraph' }] },
+                author: 'A',
+                title: '',
+                source: '',
+                pinpoint: '',
+                year: '',
+              },
+            },
+          ],
+        },
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'footnote',
+              attrs: {
+                footnoteNumber: 2,
+                content: { type: 'doc', content: [{ type: 'paragraph' }] },
+                author: 'B',
+                title: '',
+                source: '',
+                pinpoint: '',
+                year: '',
+              },
+            },
+          ],
+        },
+      ],
+    } as unknown as TipTapDoc;
+
+    await createDraftRevision(submission({ content }), repo);
+    const current = await repo.getCurrentDraft('doc_1');
+
+    expect(current?.content).toEqual(content);
   });
 });

@@ -22,6 +22,7 @@ interface DepartmentRow {
   name: string;
   prompt: string | null;
   access_state: 'OPEN' | 'LOCKED';
+  archived_at: string | null;
 }
 
 interface DocumentTypeRow {
@@ -69,6 +70,7 @@ interface DocumentTypeConfigRow {
   structure_description: string | null;
   restrictions_description: string | null;
   notes_description: string | null;
+  citation_config: Record<string, unknown> | null;
   updated_at: Date;
 }
 
@@ -188,7 +190,7 @@ interface RoleAssignmentRow {
   id: string;
   user_id: string;
   role: string;
-  scope: { departmentId?: string } | null;
+  scope: { departmentId?: string; departmentIds?: string[] } | null;
   granted_by: string | null;
 }
 
@@ -266,6 +268,7 @@ export class FakeDb implements QueryExecutor {
       name: row.name ?? 'Seed Dept',
       prompt: row.prompt ?? null,
       access_state: row.access_state ?? 'OPEN',
+      archived_at: row.archived_at ?? null,
     };
     this.departments.set(full.id, full);
     return full;
@@ -393,7 +396,7 @@ export class FakeDb implements QueryExecutor {
   public seedRoleAssignment(row: {
     id: string;
     role: string;
-    scope: { departmentId?: string } | null;
+    scope: { departmentId?: string; departmentIds?: string[] } | null;
     user_id?: string;
     granted_by?: string | null;
   }): RoleAssignmentRow {
@@ -465,6 +468,7 @@ export class FakeDb implements QueryExecutor {
       structure_description: row.structure_description ?? null,
       restrictions_description: row.restrictions_description ?? null,
       notes_description: row.notes_description ?? null,
+      citation_config: row.citation_config ?? null,
       updated_at: row.updated_at ?? new Date(),
     };
     this.documentTypeConfigs.set(full.document_type_id, full);
@@ -627,6 +631,7 @@ export class FakeDb implements QueryExecutor {
         name: params[1] as string,
         prompt: null,
         access_state: 'OPEN',
+        archived_at: null,
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -639,6 +644,7 @@ export class FakeDb implements QueryExecutor {
         name: params[1] as string,
         prompt: null,
         access_state: 'OPEN',
+        archived_at: null,
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -651,6 +657,7 @@ export class FakeDb implements QueryExecutor {
         name: params[0] as string,
         prompt: null,
         access_state: 'OPEN',
+        archived_at: null,
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
@@ -662,6 +669,7 @@ export class FakeDb implements QueryExecutor {
     }
 
     if (
+      sql.startsWith('SELECT id, name, prompt, access_state, archived_at FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt, access_state FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt FROM department WHERE id = $1')
     ) {
@@ -674,19 +682,36 @@ export class FakeDb implements QueryExecutor {
       sql.startsWith('SELECT id, name, prompt FROM department ORDER BY name ASC')
     ) {
       const rows = [...this.departments.values()]
+        .filter((r) => r.archived_at === null)
         .map((r) => ({ ...r }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state, d.archived_at,')) {
+      const rows = [...this.departments.values()]
+        .filter((r) => r.archived_at === null)
+        .map((r) => ({ ...r, active_user_count: 0 }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
     }
 
     if (sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state,')) {
       const rows = [...this.departments.values()]
-        .map((r) => ({
-          ...r,
-          active_user_count: 0,
-        }))
+        .filter((r) => r.archived_at === null)
+        .map((r) => ({ ...r, active_user_count: 0 }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
+    }
+
+    // Archive: UPDATE department SET archived_at = now() WHERE id = $1 AND archived_at IS NULL
+    if (sql.startsWith('UPDATE department SET archived_at = now()')) {
+      const id = params[0] as string;
+      const row = this.departments.get(id);
+      if (!row || row.archived_at !== null) return [] as unknown as Row[];
+      this.mutationCount += 1;
+      row.archived_at = new Date().toISOString();
+      return [{ ...row }] as unknown as Row[];
     }
 
     if (sql.startsWith('UPDATE department SET')) {
@@ -1012,23 +1037,43 @@ export class FakeDb implements QueryExecutor {
 
     /* ---------------------------- role_assignment -------------------------- */
 
-    if (sql.startsWith('SELECT user_id, role FROM role_assignment WHERE user_id = ANY($1)')) {
+    if (
+      sql.startsWith('SELECT user_id, role, scope FROM role_assignment WHERE user_id = ANY($1)') ||
+      sql.startsWith('SELECT user_id, role FROM role_assignment WHERE user_id = ANY($1)')
+    ) {
       const userIds = new Set(params[0] as string[]);
       const rows = [...this.roleAssignments.values()]
         .filter((r) => userIds.has(r.user_id))
-        .map((r) => ({ user_id: r.user_id, role: r.role }));
+        .map((r) => ({ user_id: r.user_id, role: r.role, scope: r.scope }));
       return rows as unknown as Row[];
     }
 
     if (
       sql.startsWith(
+        "SELECT id, user_id, role, scope FROM role_assignment WHERE user_id = $1 AND role = $2 AND (",
+      ) ||
+      sql.startsWith(
         "SELECT id, user_id, role, scope FROM role_assignment WHERE user_id = $1 AND role = $2 AND scope ->> 'departmentId' = $3",
       )
     ) {
       const [userId, role, departmentId] = params as [string, string, string];
+      const row = [...this.roleAssignments.values()].find((r) => {
+        if (r.user_id !== userId || r.role !== role || !r.scope) return false;
+        if (r.scope.departmentId === departmentId) return true;
+        const ids = (r.scope as { departmentIds?: unknown }).departmentIds;
+        return Array.isArray(ids) && ids.includes(departmentId);
+      });
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, user_id, role, scope FROM role_assignment WHERE user_id = $1 AND role = $2 AND scope IS NULL',
+      )
+    ) {
+      const [userId, role] = params as [string, string];
       const row = [...this.roleAssignments.values()].find(
-        (r) =>
-          r.user_id === userId && r.role === role && r.scope?.departmentId === departmentId,
+        (r) => r.user_id === userId && r.role === role && r.scope === null,
       );
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
@@ -1198,6 +1243,7 @@ export class FakeDb implements QueryExecutor {
             structure_description: null,
             restrictions_description: null,
             notes_description: null,
+            citation_config: null,
             updated_at: new Date(),
           };
       this.documentTypeConfigs.set(documentTypeId, row);
@@ -1206,21 +1252,26 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        'SELECT document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at FROM document_type_config WHERE document_type_id = $1',
+        'SELECT document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, citation_config, updated_at FROM document_type_config WHERE document_type_id = $1',
       )
     ) {
       const row = this.documentTypeConfigs.get(params[0] as string);
       return (row ? [{ ...row }] : []) as unknown as Row[];
     }
 
-    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, updated_at)')) {
+    if (sql.startsWith('INSERT INTO document_type_config (document_type_id, tone, density, category_priority, type_prompt_text, tone_description, density_description, structure_description, restrictions_description, notes_description, citation_config, updated_at)')) {
       this.mutationCount += 1;
-      const [documentTypeId, tone, density, categoryPriorityJson, typePromptText, toneDescription, densityDescription, shouldSetPrompt, structureDescription, restrictionsDescription, notesDescription] =
-        params as [string, string | null, string | null, string | null, string | null, string | null, string | null, boolean, string | null, string | null, string | null];
+      const [documentTypeId, tone, density, categoryPriorityJson, typePromptText, toneDescription, densityDescription, shouldSetPrompt, structureDescription, restrictionsDescription, notesDescription, citationConfigJson, shouldSetCitationConfig] =
+        params as [string, string | null, string | null, string | null, string | null, string | null, string | null, boolean, string | null, string | null, string | null, string | null, boolean];
       const existing = this.documentTypeConfigs.get(documentTypeId);
       const categoryPriority = categoryPriorityJson
         ? (JSON.parse(categoryPriorityJson) as string[])
         : existing?.category_priority ?? [];
+      const citationConfig = shouldSetCitationConfig
+        ? citationConfigJson
+          ? (JSON.parse(citationConfigJson) as Record<string, unknown>)
+          : null
+        : existing?.citation_config ?? null;
       const row: DocumentTypeConfigRow = {
         document_type_id: documentTypeId,
         tone: tone ?? existing?.tone ?? null,
@@ -1232,6 +1283,7 @@ export class FakeDb implements QueryExecutor {
         structure_description: structureDescription ?? existing?.structure_description ?? null,
         restrictions_description: restrictionsDescription ?? existing?.restrictions_description ?? null,
         notes_description: notesDescription ?? existing?.notes_description ?? null,
+        citation_config: citationConfig,
         updated_at: new Date(),
       };
       this.documentTypeConfigs.set(documentTypeId, row);

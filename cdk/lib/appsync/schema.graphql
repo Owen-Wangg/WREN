@@ -1,0 +1,66 @@
+type DebriefReady {
+  documentId: ID! @aws_iam @aws_lambda
+  draftId: String! @aws_iam @aws_lambda
+  itemCount: Int! @aws_iam @aws_lambda
+}
+
+# --- Notification types ---
+
+type NotificationPayload {
+  id: ID! @aws_iam @aws_lambda
+  typeSlug: String! @aws_iam @aws_lambda
+  typeLabel: String! @aws_iam @aws_lambda
+  renderedContent: String! @aws_iam @aws_lambda
+  actionUrl: String @aws_iam @aws_lambda
+  createdAt: String! @aws_iam @aws_lambda
+}
+
+type NotificationStateChange {
+  notificationId: ID! @aws_iam @aws_lambda
+  newState: String! @aws_iam @aws_lambda
+}
+
+type Mutation {
+  # Internal-only: invoked by the Feedback Engine Lambda via IAM auth.
+  publishDebriefReady(documentId: ID!, draftId: String!, itemCount: Int!): DebriefReady
+    @aws_iam
+
+  # Notification Lambda publishes via IAM auth (one per recipient).
+  publishNotification(
+    recipientUserId: ID!
+    id: ID!
+    typeSlug: String!
+    typeLabel: String!
+    renderedContent: String!
+    actionUrl: String
+    createdAt: String!
+  ): NotificationPayload @aws_iam
+
+  # Multi-session state-change broadcast.
+  publishNotificationStateChange(
+    recipientUserId: ID!
+    notificationId: ID!
+    newState: String!
+  ): NotificationStateChange @aws_iam
+}
+
+type Subscription {
+  onDebriefReady(documentId: ID!): DebriefReady
+    @aws_subscribe(mutations: ["publishDebriefReady"])
+    @aws_lambda
+
+  # Per-user notification stream (filtered by recipientUserId via Lambda auth).
+  onNotification(recipientUserId: ID!): NotificationPayload
+    @aws_subscribe(mutations: ["publishNotification"])
+    @aws_lambda
+
+  # Per-user state-change stream for multi-session sync.
+  onNotificationStateChange(recipientUserId: ID!): NotificationStateChange
+    @aws_subscribe(mutations: ["publishNotificationStateChange"])
+    @aws_lambda
+}
+
+type Query {
+  # AppSync requires at least one Query field.
+  _health: String
+}

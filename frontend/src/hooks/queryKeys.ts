@@ -52,6 +52,10 @@ export const queryKeys = {
   debriefHistory: (environmentId: string) =>
     [ns, 'documents', environmentId, 'debrief-history'] as const,
 
+  /** Per-section applicable/not-applicable votes for a specific debrief. */
+  sectionApplicability: (environmentId: string, draftId: string) =>
+    [ns, 'documents', environmentId, 'section-applicability', draftId] as const,
+
   /**
    * The writer-facing qualitative progress summary for a writing environment's
    * current draft (task 18.4). Keyed per environment so it invalidates/refetches
@@ -136,6 +140,10 @@ export const queryKeys = {
   /** Per-category improvement trends for a specific document type. */
   improvementTrends: (documentTypeId: string) =>
     [ns, 'department-admin', 'improvement-trends', documentTypeId] as const,
+
+  /** Per-section not-applicable vote aggregates for a specific document type. */
+  sectionApplicabilityAnalytics: (documentTypeId: string) =>
+    [ns, 'department-admin', 'section-applicability-analytics', documentTypeId] as const,
 
   /** Department-wide (tier 1) reference materials. */
   departmentReferenceMaterial: (departmentId: string) =>

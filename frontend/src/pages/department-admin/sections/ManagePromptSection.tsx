@@ -3,6 +3,18 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Clock, RotateCcw } from 'lucide-react';
 import { getDocumentTypeConfig, updateDocumentTypeConfig } from '@/features/department-admin/departmentAdminApi';
 
+/** Extracts a user-facing message from an API error response when available. */
+function getServerErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object' && 'details' in error) {
+    const details = (error as { details?: unknown }).details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+  }
+  return fallback;
+}
+
 interface PromptVersion {
   id: string;
   createdAt: string;
@@ -208,7 +220,12 @@ export function ManagePromptSection({
           <span className="text-green-600 font-semibold">Saved successfully!</span>
         )}
         {saveMutation.isError && (
-          <span className="text-red-600 font-semibold">Error saving prompt</span>
+          <p role="alert" className="text-sm font-medium text-red-600">
+            {getServerErrorMessage(
+              saveMutation.error,
+              'Error saving prompt — please try again.',
+            )}
+          </p>
         )}
       </div>
     </div>

@@ -4,12 +4,13 @@
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState } from './departmentService';
+import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState, listDepartmentUsers, archiveDepartment } from './departmentService';
 import {
   listDocumentTypes,
   listAllDocumentTypes,
   createDocumentType,
   setDocumentTypeAccessState,
+  getDocumentType,
 } from './documentTypeService';
 import { listErrorCategories, createErrorCategory, updateErrorCategory, deleteErrorCategory } from './errorCategoryService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
@@ -22,13 +23,19 @@ import { listMyAccessGrants } from './accessGrantService';
 import { getAnalytics, getImprovementTrends } from './analyticsService';
 import { BedrockClient, ListInferenceProfilesCommand } from '@aws-sdk/client-bedrock';
 import { getHelpfulnessAnalytics } from './helpfulnessAnalyticsService';
+import { getSectionApplicabilityAnalytics } from './sectionApplicabilityAnalyticsService';
 import {
   getPlatformUsagePolicyForAdmin,
   updatePlatformUsagePolicy,
 } from './lifetimeUsagePolicy';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
-import { AuthorizationError } from './errors';
+import { AuthorizationError, NotFoundError } from './errors';
 import { requireCapability } from './capabilityGuard';
+import {
+  assertCanViewDepartment,
+  filterDocumentTypesForActor,
+  mustScopeDepartmentCatalog,
+} from './departmentScope';
 import { handler as syncCognitoAdminsHandler } from './scripts/sync-cognito-admins';
 import type { AuthContext } from '@wren/types';
 
@@ -37,6 +44,25 @@ function requireTechnicalAdmin(actor: AuthContext): void {
   if (!actor.roles.includes('TechnicalAdmin')) {
     throw new AuthorizationError('TechnicalAdmin role required');
   }
+}
+
+/**
+ * Resolve a document type and enforce department catalog isolation for
+ * DepartmentAdmins (Students / TechnicalAdmins unrestricted for writer flows).
+ */
+async function assertDocumentTypeReadableByActor(
+  actor: AuthContext,
+  documentTypeId: string,
+  db: Awaited<ReturnType<typeof getDataAccess>>,
+): Promise<{ departmentId: string }> {
+  const documentType = await getDocumentType(documentTypeId, db);
+  if (!documentType) {
+    throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
+  }
+  if (mustScopeDepartmentCatalog(actor)) {
+    assertCanViewDepartment(actor, documentType.departmentId);
+  }
+  return { departmentId: documentType.departmentId };
 }
 
 /** UTC start of the current calendar month — matches how usage counters are keyed. */
@@ -58,13 +84,20 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
       return await wrapHandler(() => handleGetMe(event));
     }
     if (resource === '/v1/departments' && httpMethod === 'GET') {
-      return await wrapHandler(() => handleListDepartments());
+      return await wrapHandler(() => handleListDepartments(event));
+      return await wrapHandler(() => handleListDepartments(event));
     }
     if (resource === '/v1/departments' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDepartment(event));
     }
     if (resource === '/v1/departments/{departmentId}' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetDepartment(event));
+    }
+    if (resource === '/v1/departments/{departmentId}' && httpMethod === 'DELETE') {
+      return await wrapHandler(() => handleDeleteDepartment(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/users' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListDepartmentUsers(event));
     }
     if (resource === '/v1/departments/{departmentId}/prompt' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateDepartmentPrompt(event));
@@ -126,6 +159,9 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
     if (resource === '/v1/analytics/feedback-helpfulness' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetHelpfulnessAnalytics(event));
     }
+    if (resource === '/v1/analytics/section-applicability' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetSectionApplicabilityAnalytics(event));
+    }
     if (resource === '/v1/analytics/improvement-trends' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetImprovementTrends(event));
     }
@@ -173,34 +209,53 @@ async function handleGetMe(event: any): Promise<APIGatewayProxyResult> {
   };
 }
 
-async function handleListDepartments(): Promise<APIGatewayProxyResult> {
+async function handleListDepartments(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const departments = await listDepartments(db);
+  // The department `prompt` field is a TechnicalAdmin-authored system instruction
+  // injected into Bedrock prompts. Strip it for non-TechnicalAdmin callers so that
+  // DeptAdmins and Students cannot enumerate another department's prompt content.
+  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
+  const sanitized = departments.map((d: any) =>
+    isTechAdmin ? d : { ...d, prompt: undefined },
+  );
   return {
     statusCode: 200,
-    body: JSON.stringify(departments),
+    body: JSON.stringify(sanitized),
   };
 }
 
 async function handleGetDepartment(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
+  assertCanViewDepartment(actor, departmentId);
   const department = await getDepartment(departmentId, db);
   if (!department) {
-    throw Object.assign(new Error('Department not found'), { statusCode: 404 });
+    throw new NotFoundError(`Department '${departmentId}' not found`);
   }
+  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
+  const response = isTechAdmin ? department : { ...department, prompt: undefined };
   return {
     statusCode: 200,
-    body: JSON.stringify(department),
+    body: JSON.stringify(response),
   };
 }
 
 async function handleListDocumentTypes(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { departmentId } = event.queryStringParameters || {};
-  const types = departmentId
-    ? await listDocumentTypes(departmentId, db)
-    : await listAllDocumentTypes(db);
+  if (departmentId) {
+    assertCanViewDepartment(actor, departmentId);
+    const types = await listDocumentTypes(departmentId, db);
+    return {
+      statusCode: 200,
+      body: JSON.stringify(types),
+    };
+  }
+  const types = filterDocumentTypesForActor(actor, await listAllDocumentTypes(db));
   return {
     statusCode: 200,
     body: JSON.stringify(types),
@@ -218,8 +273,12 @@ async function handleListMyAccessGrants(event: any): Promise<APIGatewayProxyResu
 }
 
 async function handleListContentTypes(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { documentTypeId } = event.pathParameters || {};
+  // Writers (Students) may list content types for any writing type they can
+  // select; DepartmentAdmins may only list types in departments they administer.
+  await assertDocumentTypeReadableByActor(actor, documentTypeId, db);
   const contentTypes = await listContentTypes(documentTypeId, db);
   return {
     statusCode: 200,
@@ -518,6 +577,27 @@ async function handleCreateDocumentType(event: any): Promise<APIGatewayProxyResu
   };
 }
 
+async function handleDeleteDepartment(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const department = await archiveDepartment(actor, departmentId, db);
+  return withCors({ statusCode: 200, body: JSON.stringify(department) });
+}
+
+async function handleListDepartmentUsers(event: any): Promise<APIGatewayProxyResult> {
+  parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const qs = event.queryStringParameters || {};
+  const result = await listDepartmentUsers(departmentId, db, {
+    q: qs.q,
+    limit: qs.limit ? parseInt(qs.limit, 10) : undefined,
+    offset: qs.offset ? parseInt(qs.offset, 10) : undefined,
+  });
+  return { statusCode: 200, body: JSON.stringify(result) };
+}
+
 async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
@@ -531,12 +611,51 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
 }
 
 async function handleListErrorCategories(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { documentTypeId } = event.pathParameters || {};
+  const documentType = await getDocumentType(documentTypeId, db);
+  if (!documentType) {
+    throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
+  }
+  // Admin-only: includes internalGuidance. Cross-dept DeptAdmins are denied.
+  requireCapability(actor, {
+    capability: 'documentType.readConfig',
+    scope: {
+      kind: 'documentType',
+      documentTypeId,
+      departmentId: documentType.departmentId,
+    },
+  });
   const categories = await listErrorCategories(documentTypeId, db);
+  // internalGuidance is a Feedback Engine prompt-assembly detection aid that
+  // MUST NEVER be surfaced to Students (REQ-TAXONOMY-01 / Requirement 15.4).
+  // Only TechnicalAdmins and DeptAdmins who administer this document type's
+  // department receive the full DTO; all other callers get name+id only.
+  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
+  const isDeptAdminForType =
+    !isTechAdmin &&
+    actor.administeredDepartmentIds?.length > 0 &&
+    categories.length > 0;
+
+  let canSeeGuidance = isTechAdmin;
+  if (!canSeeGuidance && isDeptAdminForType) {
+    // Verify this actor administers the department that owns this document type.
+    const deptRows = await db.query<{ department_id: string }>(
+      'SELECT department_id FROM document_type WHERE id = $1',
+      [documentTypeId],
+    );
+    const owningDeptId = deptRows[0]?.department_id;
+    canSeeGuidance = !!owningDeptId && (actor.administeredDepartmentIds ?? []).includes(owningDeptId);
+  }
+
+  const response = canSeeGuidance
+    ? categories
+    : categories.map(({ internalGuidance: _stripped, ...safe }: any) => safe);
+
   return {
     statusCode: 200,
-    body: JSON.stringify(categories),
+    body: JSON.stringify(response),
   };
 }
 
@@ -611,10 +730,10 @@ async function fetchAllowedModels(): Promise<{ id: string; label: string }[]> {
 
 // Fallback in case Bedrock ListFoundationModels is unavailable or returns nothing.
 const FALLBACK_MODELS = [
-  { id: 'us.anthropic.claude-sonnet-4-6',         label: 'Claude Sonnet 4.6 — Anthropic' },
-  { id: 'us.anthropic.claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5 — Anthropic' },
-  { id: 'us.anthropic.claude-opus-4-8',            label: 'Claude Opus 4.8 — Anthropic' },
-  { id: 'us.anthropic.claude-sonnet-5',            label: 'Claude Sonnet 5 — Anthropic' },
+  { id: 'us.anthropic.claude-sonnet-4-6', label: 'US Anthropic Claude Sonnet 4.6' },
+  { id: 'us.anthropic.claude-haiku-4-5-20251001', label: 'US Anthropic Claude Haiku 4.5' },
+  { id: 'us.anthropic.claude-opus-4-8', label: 'US Anthropic Claude Opus 4.8' },
+  { id: 'us.anthropic.claude-sonnet-5', label: 'US Anthropic Claude Sonnet 5' },
 ];
 
 async function handleGetModelConfig(event: any): Promise<APIGatewayProxyResult> {
@@ -652,6 +771,20 @@ async function handleGetHelpfulnessAnalytics(event: any): Promise<APIGatewayProx
     });
   }
   const result = await getHelpfulnessAnalytics(actor, documentTypeId, db);
+  return withCors({ statusCode: 200, body: JSON.stringify(result) });
+}
+
+async function handleGetSectionApplicabilityAnalytics(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.queryStringParameters || {};
+  if (!documentTypeId) {
+    return withCors({
+      statusCode: 400,
+      body: JSON.stringify({ code: 'BAD_REQUEST', message: 'documentTypeId query parameter is required' }),
+    });
+  }
+  const result = await getSectionApplicabilityAnalytics(actor, documentTypeId, db);
   return withCors({ statusCode: 200, body: JSON.stringify(result) });
 }
 

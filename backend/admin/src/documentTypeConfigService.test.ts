@@ -250,3 +250,141 @@ describe('upsertDocumentTypeConfig — save-time no-ghostwriting guardrail (Requ
     expect(cleared.typePromptText).toBeNull();
   });
 });
+
+describe('upsertDocumentTypeConfig — citationConfig reuse (footnote-citation-support, Requirements 4.1, 4.2)', () => {
+  it('citationConfig round-trips through upsert/get unchanged for other fields (Requirement 4.1)', async () => {
+    const db = new FakeDb();
+    seed(db);
+    await upsertDocumentTypeConfig(deptAdminContext([DEPT]), DT, { tone: 'formal', density: 'low' }, db);
+
+    const updated = await upsertDocumentTypeConfig(
+      deptAdminContext([DEPT]),
+      DT,
+      {
+        citationConfig: {
+          citationStyle: 'Bluebook',
+          requiredFields: ['author', 'title', 'year'],
+          formattingTemplate: '{author}, {title} ({year})',
+        },
+      },
+      db,
+    );
+
+    expect(updated.citationConfig).toEqual({
+      citationStyle: 'Bluebook',
+      requiredFields: ['author', 'title', 'year'],
+      formattingTemplate: '{author}, {title} ({year})',
+    });
+    // Other fields untouched by the citationConfig-only patch.
+    expect(updated.tone).toBe('formal');
+    expect(updated.density).toBe('low');
+
+    const fetched = await getDocumentTypeConfig(deptAdminContext([DEPT]), DT, db);
+    expect(fetched?.citationConfig).toEqual(updated.citationConfig);
+  });
+
+  it('citationConfig is null when never configured (vacuous-truth default, Requirement 4.5)', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    const config = await upsertDocumentTypeConfig(deptAdminContext([DEPT]), DT, { tone: 'formal' }, db);
+
+    expect(config.citationConfig ?? null).toBeNull();
+  });
+
+  it('setting citationConfig to null explicitly clears it (distinguished from "not provided")', async () => {
+    const db = new FakeDb();
+    seed(db);
+    await upsertDocumentTypeConfig(
+      deptAdminContext([DEPT]),
+      DT,
+      { citationConfig: { citationStyle: 'APA', requiredFields: [] } },
+      db,
+    );
+
+    const cleared = await upsertDocumentTypeConfig(
+      deptAdminContext([DEPT]),
+      DT,
+      { citationConfig: null },
+      db,
+    );
+
+    expect(cleared.citationConfig).toBeNull();
+  });
+
+  it('leaves citationConfig untouched when the patch omits it entirely', async () => {
+    const db = new FakeDb();
+    seed(db);
+    await upsertDocumentTypeConfig(
+      deptAdminContext([DEPT]),
+      DT,
+      { citationConfig: { citationStyle: 'MLA', requiredFields: ['author'] } },
+      db,
+    );
+
+    const updated = await upsertDocumentTypeConfig(deptAdminContext([DEPT]), DT, { tone: 'casual' }, db);
+
+    expect(updated.citationConfig).toEqual({ citationStyle: 'MLA', requiredFields: ['author'] });
+    expect(updated.tone).toBe('casual');
+  });
+
+  it('rejects an out-of-bounds citationConfig with no partial write (Requirement 4.7)', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      upsertDocumentTypeConfig(
+        deptAdminContext([DEPT]),
+        DT,
+        // citationStyle exceeds 50 chars.
+        { citationConfig: { citationStyle: 'x'.repeat(51), requiredFields: [] } },
+        db,
+      ),
+    ).rejects.toThrow();
+    expect(db.documentTypeConfigs.has(DT)).toBe(false);
+  });
+
+  it('reuses the existing documentType.modifyConfig capability guard — denies cross-Department writes (Requirement 4.2)', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      upsertDocumentTypeConfig(
+        deptAdminContext(['other-dept']),
+        DT,
+        { citationConfig: { citationStyle: 'Bluebook', requiredFields: [] } },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.documentTypeConfigs.has(DT)).toBe(false);
+  });
+
+  it('reuses the existing documentType.readConfig capability guard on read (Requirement 4.1)', async () => {
+    const db = new FakeDb();
+    seed(db);
+    await upsertDocumentTypeConfig(
+      deptAdminContext([DEPT]),
+      DT,
+      { citationConfig: { citationStyle: 'Bluebook', requiredFields: [] } },
+      db,
+    );
+
+    await expect(getDocumentTypeConfig(studentContext(), DT, db)).rejects.toBeInstanceOf(
+      AuthorizationError,
+    );
+  });
+
+  it('a Student CANNOT write citationConfig', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      upsertDocumentTypeConfig(
+        studentContext(),
+        DT,
+        { citationConfig: { citationStyle: 'Bluebook', requiredFields: [] } },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+  });
+});

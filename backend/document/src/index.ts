@@ -19,7 +19,8 @@ export {
 } from './ingestion';
 export { UnsupportedFileFormatError } from './errors';
 export { MammothDocxExtractor, type DocxExtractor } from './docxExtractor';
-export { LiteParsePdfExtractor, type PdfExtractor } from './pdfExtractor';
+export { type PdfExtractor, type RichPdfExtractor } from './pdfExtractor';
+export { TextractPdfExtractor } from './textractPdfExtractor';
 export {
   createDraftRevision,
   selectCurrentDraft,

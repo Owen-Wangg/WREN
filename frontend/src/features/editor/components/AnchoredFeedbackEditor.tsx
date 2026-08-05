@@ -41,7 +41,18 @@ import {
 import type { Anchor, FeedbackItem } from '@wren/types';
 
 export interface AnchoredFeedbackEditorProps
-  extends Pick<DocumentEditorProps, 'initialContent' | 'ariaLabel' | 'onContentChange' | 'className'> {
+  extends Pick<
+    DocumentEditorProps,
+    | 'initialContent'
+    | 'initialHeaderContent'
+    | 'initialFooterContent'
+    | 'ariaLabel'
+    | 'onContentChange'
+    | 'onHeaderChange'
+    | 'onFooterChange'
+    | 'onTocUpdate'
+    | 'className'
+  > {
   /** Inline + structural Feedback Items for the current draft; only `kind === 'inline'` items render here. */
   readonly feedbackItems: readonly FeedbackItem[];
   /** Anchors for the current draft, referenced by `FeedbackItem.currentAnchorId`. */
@@ -83,8 +94,13 @@ export function AnchoredFeedbackEditor({
   feedbackItems,
   anchors,
   initialContent,
+  initialHeaderContent,
+  initialFooterContent,
   ariaLabel,
   onContentChange,
+  onHeaderChange,
+  onFooterChange,
+  onTocUpdate,
   className,
   highlightedAnchorId,
   highlightedQuotedText,
@@ -206,14 +222,19 @@ export function AnchoredFeedbackEditor({
   }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, anchors]);
 
   return (
-    <div className={['flex min-h-full flex-1 flex-col gap-0', className].filter(Boolean).join(' ')}>
+    <div className={['flex h-full min-h-0 flex-1 flex-col gap-0', className].filter(Boolean).join(' ')}>
       <DocumentEditor
         ref={editorRef}
         initialContent={initialContent}
+        initialHeaderContent={initialHeaderContent}
+        initialFooterContent={initialFooterContent}
         ariaLabel={ariaLabel}
         onContentChange={onContentChange}
+        onHeaderChange={onHeaderChange}
+        onFooterChange={onFooterChange}
+        onTocUpdate={onTocUpdate}
         onCommentActivated={handleCommentActivated}
-        className="min-h-full flex-1"
+        className="min-h-0 flex-1"
       />
     </div>
   );

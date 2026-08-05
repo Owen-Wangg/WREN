@@ -223,6 +223,16 @@ describe('immutable Drafts (Requirement 8.1)', () => {
     const draft = tableBody(schemaSql, 'draft');
     expect(draft).toMatch(/UNIQUE\s*\(\s*document_id\s*,\s*version_number\s*\)/i);
   });
+
+  it('migration 0015 allows content/word_count-only updates for autosave', () => {
+    const autosaveSql = readFileSync(
+      join(MIGRATIONS_DIR, '0015_draft_content_autosave.sql'),
+      'utf8',
+    );
+    expect(autosaveSql).toMatch(/CREATE OR REPLACE FUNCTION reject_draft_update/i);
+    expect(autosaveSql).toMatch(/only content\/word_count may be updated/i);
+    expect(autosaveSql).toMatch(/NEW\.segments IS DISTINCT FROM OLD\.segments/i);
+  });
 });
 
 describe('category linkage by id (Requirement 15.3)', () => {

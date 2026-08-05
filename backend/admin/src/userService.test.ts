@@ -72,6 +72,26 @@ describe('searchUsers (Requirement 29.1) — TechnicalAdmin only', () => {
     const result = await searchUsers(techAdminContext(), { role: 'Student' }, db);
     expect(result.users).toHaveLength(1);
     expect(result.users[0]!.roles).toEqual(['Student']);
+    expect(result.users[0]!.administeredDepartmentIds).toEqual([]);
+  });
+
+  it('includes administeredDepartmentIds for DepartmentAdmin appointments', async () => {
+    const db = new FakeDb();
+    seedUsers(db);
+    db.seedDepartment({ id: 'dept-2', name: 'Test' });
+    db.seedRoleAssignment({
+      id: 'ra-4',
+      user_id: 'u-2',
+      role: 'DepartmentAdmin',
+      scope: { departmentId: 'dept-2' },
+    });
+
+    const result = await searchUsers(techAdminContext(), { email: 'alan@' }, db);
+    expect(result.users).toHaveLength(1);
+    expect(result.users[0]!.roles).toContain('DepartmentAdmin');
+    expect(result.users[0]!.administeredDepartmentIds.sort()).toEqual(
+      [DEPT, 'dept-2'].sort(),
+    );
   });
 
   it('combines filters (AND semantics)', async () => {

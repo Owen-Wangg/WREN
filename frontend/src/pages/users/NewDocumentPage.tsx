@@ -6,13 +6,21 @@ import {
   useDocumentTypes,
   useOrganizations,
 } from '@/features/dashboard/useDashboard';
-import { createDocument, getPresignedUrl } from '@/features/dashboard/dashboardApi';
+import {
+  createDocument,
+  getPresignedUrl,
+} from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
-import { docxBytesToTiptapContent } from '@/features/editor/docxContentMapper';
-import { pdfBytesToTiptapContent } from '@/features/editor/pdfContentMapper';
+import {
+  DocxClientParseError,
+  docxBytesToTiptapContent,
+} from '@/features/editor/docxContentMapper';
 import { apiClient, ApiError } from '@/services';
 import { stripAiMarksFromTipTapContent, asTipTapDoc } from '@wren/types';
 import type { JSONContent } from '@tiptap/react';
+
+const DOCX_PARSE_FALLBACK_MESSAGE =
+  'Couldn’t preserve Word formatting for this file. Plain text from the server will be used — fonts, colors, alignment, and images may be missing. Prefer a simpler .docx or re-upload.';
 
 function contentTypeForFile(file: File): string {
   if (file.type) return file.type;
@@ -43,7 +51,6 @@ export function NewDocumentPage() {
   const [selectedDocumentType, setSelectedDocumentType] = useState('');
   const [documentName, setDocumentName] = useState('');
   const [referenceFile, setReferenceFile] = useState<File | undefined>(undefined);
-
   const documentTypesQuery = useDocumentTypes(selectedDepartment);
   const documentTypes = documentTypesQuery.data ?? [];
 
@@ -81,18 +88,21 @@ export function NewDocumentPage() {
         throw new Error('File upload to storage failed');
       }
 
-      // Parse client-side so rich TipTap content is persisted on the initial draft.
+      // Parse DOCX client-side for rich TipTap. PDFs use server Textract OCR.
       let initialContent: JSONContent | undefined;
-      try {
-        const bytes = new Uint8Array(await referenceFile.arrayBuffer());
-        const name = referenceFile.name.toLowerCase();
-        if (name.endsWith('.docx')) {
+      let docxParseWarning: string | undefined;
+      const name = referenceFile.name.toLowerCase();
+      if (name.endsWith('.docx')) {
+        try {
+          const bytes = new Uint8Array(await referenceFile.arrayBuffer());
           initialContent = await docxBytesToTiptapContent(bytes);
-        } else if (name.endsWith('.pdf')) {
-          initialContent = await pdfBytesToTiptapContent(bytes);
+        } catch (error) {
+          // Non-fatal: server plain-text ingest remains the fallback — surface clearly.
+          docxParseWarning =
+            error instanceof DocxClientParseError
+              ? error.message
+              : DOCX_PARSE_FALLBACK_MESSAGE;
         }
-      } catch {
-        // Non-fatal: editor will fall back to plain-text segments from the API.
       }
 
       const cleaned = initialContent
@@ -104,28 +114,38 @@ export function NewDocumentPage() {
         name: documentName.trim(),
         source: { kind: 'file', key },
         ...(cleaned ? { content: cleaned } : {}),
+        ...(referenceFile.name.toLowerCase().endsWith('.pdf')
+          ? { ocrEngine: 'textract' as const }
+          : {}),
       });
 
-      // Auto-trigger feedback — fire and forget; editor polls status.
-      void generateFeedback(apiClient, doc.id).catch(() => {
-        // Non-fatal: student can manually trigger from the editor if this fails.
-      });
+      const ingestQueued = doc.ingestStatus === 'queued';
+      // Feedback needs draft text — wait until PDF ingest completes in the editor.
+      if (!ingestQueued) {
+        void generateFeedback(apiClient, doc.id).catch(() => {
+          // Non-fatal: student can manually trigger from the editor if this fails.
+        });
+      }
 
       return {
         doc,
         org,
         docType,
         initialContent: cleaned as JSONContent | undefined,
+        docxParseWarning,
+        ingestQueued,
       };
     },
-    onSuccess: ({ doc, org, docType, initialContent }) => {
+    onSuccess: ({ doc, org, docType, initialContent, docxParseWarning, ingestQueued }) => {
       navigate(`/dashboard/document/${doc.id}`, {
         state: {
           organizationName: org?.name,
           contentType: docType?.name,
           documentName: doc.name,
-          feedbackQueued: true,
+          feedbackQueued: !ingestQueued,
+          ingestQueued,
           ...(initialContent ? { initialContent } : {}),
+          ...(docxParseWarning ? { docxParseWarning } : {}),
         },
       });
     },
@@ -263,6 +283,19 @@ export function NewDocumentPage() {
               className="rounded-md border border-border-subtle bg-surface-muted px-lg py-sm text-bodySmall text-text-primary file:mr-md file:rounded-md file:border-0 file:bg-surface-primary file:px-md file:py-xs file:text-bodySmall file:font-sans file:text-text-secondary"
               onChange={(e) => setReferenceFile(e.target.files?.[0])}
             />
+            <p className="text-caption text-text-muted leading-relaxed">
+              <strong>Prefer .docx</strong> when formatting matters — fonts, colors,
+              highlights, alignment, images, headings, lists, and tables survive
+              import/export far better than PDF spatial guesswork. PDF is supported
+              for convenience (including many scanned files via OCR), but layout is
+              best-effort.
+            </p>
+            {referenceFile?.name.toLowerCase().endsWith('.pdf') && (
+              <p className="text-caption text-signal-caution leading-relaxed" role="status">
+                PDF selected — expect approximate formatting. For a closer match to
+                the original layout, upload the Word (.docx) source instead.
+              </p>
+            )}
             {referenceFile && (
               <p className="text-bodySmall text-accent-primary">
                 Selected: {referenceFile.name}

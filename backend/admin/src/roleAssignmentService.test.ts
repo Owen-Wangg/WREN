@@ -237,6 +237,30 @@ describe('revokeRole', () => {
     expect(db.roleAssignments.has('ra-1')).toBe(false);
   });
 
+  it('revokes a legacy DepartmentAdmin scope that used departmentIds[]', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Dept' });
+    db.seedRoleAssignment({
+      id: 'ra-legacy',
+      user_id: USER,
+      role: 'DepartmentAdmin',
+      scope: { departmentIds: [DEPT] },
+    });
+
+    await revokeRole(
+      techAdminContext(),
+      {
+        userId: USER,
+        role: 'DepartmentAdmin',
+        scope: { kind: 'department', departmentId: DEPT },
+        departmentId: DEPT,
+      },
+      db,
+    );
+
+    expect(db.roleAssignments.has('ra-legacy')).toBe(false);
+  });
+
   it('revokes a global Student assignment (TechnicalAdmin actor)', async () => {
     const db = new FakeDb();
     db.seedRoleAssignment({ id: 'ra-1', user_id: USER, role: 'Student', scope: null });

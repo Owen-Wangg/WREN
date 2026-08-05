@@ -49,7 +49,12 @@ export function WritingEnvironmentCard({
     .filter(Boolean)
     .join(' > ');
 
-  const handleDeleteClick = () => {
+  const handleCardClick = () => {
+    onOpen?.(document);
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     setShowDeleteDialog(true);
     dialogRef.current?.showModal();
   };
@@ -67,26 +72,23 @@ export function WritingEnvironmentCard({
 
   return (
     <>
-      <article className="relative flex h-[200px] w-[380px] flex-col justify-between rounded-md border border-text-muted/25 bg-surface-primary p-lg transition-all duration-200 hover:border-accent-primary/60 hover:shadow-lg hover:shadow-accent-primary/20 cursor-pointer">
+      <article
+        className="relative flex h-[200px] w-[380px] flex-col justify-between rounded-md border border-text-muted/25 bg-surface-primary p-lg transition-all duration-200 hover:border-accent-primary/60 hover:shadow-lg hover:shadow-accent-primary/20 cursor-pointer"
+        onClick={handleCardClick}
+        role={onOpen ? 'button' : undefined}
+        tabIndex={onOpen ? 0 : undefined}
+        onKeyDown={onOpen ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleCardClick(); } : undefined}
+        aria-label={onOpen ? `Open ${document.name}` : undefined}
+      >
         <div className="flex flex-col gap-xs">
           {breadcrumb && (
             <span className="text-bodySmall font-sans text-text-primary/45">
               {breadcrumb}
             </span>
           )}
-          {onOpen ? (
-            <button
-              type="button"
-              onClick={() => onOpen(document)}
-              className="self-start text-left text-heading2 font-sans font-semibold text-text-primary hover:underline"
-            >
-              {document.name}
-            </button>
-          ) : (
-            <h3 className="text-heading2 font-sans font-semibold text-text-primary">
-              {document.name}
-            </h3>
-          )}
+          <h3 className="text-heading2 font-sans font-semibold text-text-primary">
+            {document.name}
+          </h3>
           <StatusBadge status={document.status} />
         </div>
 
@@ -112,7 +114,7 @@ export function WritingEnvironmentCard({
             type="button"
             aria-label={`Delete ${document.name}`}
             className="rounded-md p-xs text-text-muted hover:text-signal-critical"
-            onClick={handleDeleteClick}
+            onClick={(e) => handleDeleteClick(e)}
           >
             <Trash2 size={18} aria-hidden="true" />
           </button>

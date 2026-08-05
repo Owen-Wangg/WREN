@@ -61,38 +61,67 @@ const SELECT_SQL = `
 `;
 
 const ROLES_FOR_USERS_SQL =
-  'SELECT user_id, role FROM role_assignment WHERE user_id = ANY($1)';
+  'SELECT user_id, role, scope FROM role_assignment WHERE user_id = ANY($1)';
 
 /** Wrap a substring filter as an ILIKE pattern, or `null` when not supplied. */
 function likePattern(value: string | undefined): string | null {
   return value === undefined ? null : `%${value}%`;
 }
 
-/** Fetch the distinct held roles for each of `userIds`, keyed by user id. */
+function departmentIdsFromScope(scope: unknown): string[] {
+  if (!scope || typeof scope !== 'object') return [];
+  const record = scope as Record<string, unknown>;
+  const ids: string[] = [];
+  if (typeof record.departmentId === 'string' && record.departmentId.length > 0) {
+    ids.push(record.departmentId);
+  }
+  if (Array.isArray(record.departmentIds)) {
+    for (const id of record.departmentIds) {
+      if (typeof id === 'string' && id.length > 0) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+type UserRoleProjection = {
+  roles: Role[];
+  administeredDepartmentIds: string[];
+};
+
+/** Fetch distinct roles + administered department ids for each of `userIds`. */
 async function fetchRolesByUser(
   userIds: readonly string[],
   db: QueryExecutor,
-): Promise<Map<string, Role[]>> {
-  const rolesByUser = new Map<string, Role[]>();
+): Promise<Map<string, UserRoleProjection>> {
+  const byUser = new Map<string, UserRoleProjection>();
   if (userIds.length === 0) {
-    return rolesByUser;
+    return byUser;
   }
 
-  const rows = await db.query<{ user_id: string; role: Role }>(ROLES_FOR_USERS_SQL, [
-    userIds,
-  ]);
+  const rows = await db.query<{
+    user_id: string;
+    role: Role;
+    scope: unknown;
+  }>(ROLES_FOR_USERS_SQL, [userIds]);
 
   for (const row of rows) {
-    const existing = rolesByUser.get(row.user_id);
-    if (existing) {
-      if (!existing.includes(row.role)) {
-        existing.push(row.role);
-      }
-    } else {
-      rolesByUser.set(row.user_id, [row.role]);
+    const existing = byUser.get(row.user_id) ?? {
+      roles: [],
+      administeredDepartmentIds: [],
+    };
+    if (!existing.roles.includes(row.role)) {
+      existing.roles.push(row.role);
     }
+    if (row.role === 'DepartmentAdmin') {
+      for (const departmentId of departmentIdsFromScope(row.scope)) {
+        if (!existing.administeredDepartmentIds.includes(departmentId)) {
+          existing.administeredDepartmentIds.push(departmentId);
+        }
+      }
+    }
+    byUser.set(row.user_id, existing);
   }
-  return rolesByUser;
+  return byUser;
 }
 
 /**
@@ -129,15 +158,17 @@ export async function searchUsers(
 
   const rolesByUser = await fetchRolesByUser(rows.map((row) => row.id), db);
 
-  const users = rows.map((row) =>
-    userSummarySchema.parse({
+  const users = rows.map((row) => {
+    const projection = rolesByUser.get(row.id);
+    return userSummarySchema.parse({
       id: row.id,
       email: row.email,
       firstName: row.first_name,
       lastName: row.last_name,
-      roles: rolesByUser.get(row.id) ?? [],
-    }),
-  );
+      roles: projection?.roles ?? [],
+      administeredDepartmentIds: projection?.administeredDepartmentIds ?? [],
+    });
+  });
 
   return userSearchResultSchema.parse({
     users,

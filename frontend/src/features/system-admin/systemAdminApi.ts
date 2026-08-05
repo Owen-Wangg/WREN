@@ -83,6 +83,13 @@ export async function updateDepartmentPrompt(departmentId: string, prompt: strin
   });
 }
 
+export async function deleteDepartment(departmentId: string) {
+  return apiClient.request(`/v1/departments/${departmentId}`, {
+    method: 'DELETE',
+    schema: departmentSchema,
+  });
+}
+
 export async function setDepartmentAccessState(
   departmentId: string,
   accessState: 'OPEN' | 'LOCKED',
@@ -122,6 +129,31 @@ export async function searchAllUsers(options?: {
 
   const result = await apiClient.request(path, { schema: usersSearchSchema });
   // Normalize to a consistent shape for consumers
+  return { items: result.users, total: result.total };
+}
+
+const departmentUsersSchema = z.object({
+  users: z.array(z.object({
+    id: z.string(),
+    firstName: z.string(),
+    lastName: z.string(),
+    email: z.string(),
+  })),
+  total: z.number().int().nonnegative(),
+});
+
+/** Fetch users who have submitted at least one document in a specific department. */
+export async function getDepartmentUsers(
+  departmentId: string,
+  options?: { q?: string; limit?: number; offset?: number },
+) {
+  const params = new URLSearchParams();
+  if (options?.q) params.append('q', options.q);
+  if (options?.limit) params.append('limit', String(options.limit));
+  if (options?.offset) params.append('offset', String(options.offset));
+  const qs = params.toString();
+  const path = `/v1/departments/${departmentId}/users${qs ? `?${qs}` : ''}`;
+  const result = await apiClient.request(path, { schema: departmentUsersSchema });
   return { items: result.users, total: result.total };
 }
 
@@ -268,6 +300,7 @@ export const systemAdminApi = {
   getAnalytics,
   listDepartments,
   getDepartment,
+  deleteDepartment,
   updateDepartmentPrompt,
   setDepartmentAccessState,
   searchAllUsers,

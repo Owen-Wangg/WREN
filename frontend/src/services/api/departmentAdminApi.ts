@@ -26,6 +26,7 @@ const DOCUMENT_TYPES_PATH = '/v1/document-types';
 const USERS_PATH = '/v1/users';
 const ANALYTICS_PATH = '/v1/analytics';
 const HELPFULNESS_ANALYTICS_PATH = '/v1/analytics/feedback-helpfulness';
+const SECTION_APPLICABILITY_ANALYTICS_PATH = '/v1/analytics/section-applicability';
 
 /* -------------------------------------------------------------------------- */
 /* Reusable Response Schemas */
@@ -253,6 +254,49 @@ export async function getHelpfulnessAnalytics(
   return client.request(`${HELPFULNESS_ANALYTICS_PATH}?documentTypeId=${documentTypeId}`, {
     schema: helpfulnessAnalyticsSchema,
   });
+}
+
+export interface SectionApplicabilityAnalyticsRow {
+  categoryId: string;
+  categoryName: string;
+  applicableCount: number;
+  notApplicableCount: number;
+  total: number;
+  notApplicablePct: number | null;
+}
+
+export interface SectionApplicabilityAnalyticsResult {
+  sections: SectionApplicabilityAnalyticsRow[];
+  asOf: string | null;
+}
+
+const sectionApplicabilityRowSchema = z.object({
+  categoryId: z.string(),
+  categoryName: z.string(),
+  applicableCount: z.number().int().nonnegative(),
+  notApplicableCount: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  notApplicablePct: z.number().nullable(),
+});
+
+const sectionApplicabilityAnalyticsSchema = z.object({
+  sections: z.array(sectionApplicabilityRowSchema),
+  asOf: z.string().nullable(),
+});
+
+/**
+ * Get per-section not-applicable vote aggregates for a document type.
+ * Sorted descending by not-applicable percentage (most-flagged sections first).
+ * Sections with zero votes are excluded.
+ */
+export async function getSectionApplicabilityAnalytics(
+  client: HttpClient,
+  documentTypeId: string,
+): Promise<SectionApplicabilityAnalyticsResult> {
+  return client.request(
+    `${SECTION_APPLICABILITY_ANALYTICS_PATH}?documentTypeId=${encodeURIComponent(documentTypeId)}`,
+    { schema: sectionApplicabilityAnalyticsSchema },
+  );
 }
 
 /**

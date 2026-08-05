@@ -1,8 +1,19 @@
 import { z } from 'zod';
 
-import { feedbackHelpfulnessInputSchema, helpfulnessAckSchema } from './debriefTypes';
+import {
+  feedbackHelpfulnessInputSchema,
+  helpfulnessAckSchema,
+  sectionApplicabilityInputSchema,
+  sectionApplicabilityVotesSchema,
+} from './debriefTypes';
 
-import type { Debrief, FeedbackHelpfulnessInput, HelpfulnessAck } from './debriefTypes';
+import type {
+  Debrief,
+  FeedbackHelpfulnessInput,
+  HelpfulnessAck,
+  SectionApplicabilityInput,
+  SectionApplicabilityVotes,
+} from './debriefTypes';
 import type { HttpClient } from '@/services';
 
 // Paths — all real /v1 routes
@@ -25,30 +36,32 @@ export function regenerateDebriefPath(environmentId: string): string {
 }
 
 export const FEEDBACK_HELPFULNESS_PATH = '/v1/feedback-helpfulness';
+export const FEEDBACK_SECTION_APPLICABILITY_PATH = '/v1/feedback-section-applicability';
 
 const feedbackResponseSchema = z.object({
   items: z.array(z.object({
     id: z.string(),
-    documentId: z.string().optional(),
+    documentId: z.string().nullable().optional(),
     errorCategoryId: z.string(),
     kind: z.string(),
     questionText: z.string(),
-    quotedText: z.string().optional(),
-    currentAnchorId: z.string().optional(),
-    citationReferenceId: z.string().optional(),
-    sourceDraftId: z.string().optional(),
-    createdAt: z.string().optional(),
+    positiveNote: z.string().nullable().optional(),
+    quotedText: z.string().nullable().optional(),
+    currentAnchorId: z.string().nullable().optional(),
+    citationReferenceId: z.string().nullable().optional(),
+    sourceDraftId: z.string().nullable().optional(),
+    createdAt: z.string().nullable().optional(),
   }).passthrough()),
-  anchors: z.array(z.object({}).passthrough()).optional(),
-  categoryNames: z.record(z.string(), z.string()).optional(),
+  anchors: z.array(z.object({}).passthrough()).nullable().optional(),
+  categoryNames: z.record(z.string(), z.string()).nullable().optional(),
   progressSummary: z.array(
     z.object({
       category: z.string(),
       tendency: z.enum(['improving', 'persistent', 'emerging']),
       description: z.string(),
     }),
-  ).optional(),
-  draftId: z.string().optional(),
+  ).nullable().optional(),
+  draftId: z.string().nullable().optional(),
 });
 
 const feedbackHistorySchema = z.object({
@@ -111,34 +124,42 @@ export async function fetchDebriefHistory(
 }
 
 /**
- * Triggers a new feedback generation job, waits briefly, then re-fetches.
- * The caller (useRegenerateDebrief) invalidates the cache on success.
+ * Enqueues a new feedback generation job and returns immediately.
+ * Completion is signaled via the AppSync subscription in useDebriefSubscription;
+ * DocumentEditorPage's polling fallback handles the case where AppSync is
+ * unavailable during the transition period.
  */
 export async function regenerateDebrief(
   client: HttpClient,
   environmentId: string,
-): Promise<Debrief> {
-  // Enqueue a new generation job
+): Promise<void> {
   await client.request(feedbackPath(environmentId), {
     method: 'POST',
     schema: z.object({ jobId: z.string().optional(), status: z.string().optional() }).passthrough(),
   });
+}
 
-  // Poll until completed (max 60s)
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 60_000) {
-    await new Promise((r) => setTimeout(r, 2500));
-    const status = await client.request(`/v1/documents/${environmentId}/feedback/status`, {
-      schema: z.object({
-        status: z.string(),
-        itemCount: z.number().optional(),
-      }).passthrough(),
-    });
-    if (status.status === 'completed' || (status.itemCount ?? 0) > 0) break;
-    if (status.status === 'failed') throw new Error('Feedback generation failed');
-  }
+/** Records an applicable/not-applicable vote for one debrief section (upsert). */
+export function recordSectionApplicability(
+  client: HttpClient,
+  input: SectionApplicabilityInput,
+): Promise<HelpfulnessAck> {
+  const body = sectionApplicabilityInputSchema.parse(input);
+  return client.request(FEEDBACK_SECTION_APPLICABILITY_PATH, {
+    method: 'POST',
+    body,
+    schema: helpfulnessAckSchema,
+  });
+}
 
-  return fetchDebrief(client, environmentId);
+/** Fetches all applicability votes for the given document + draft. */
+export function fetchSectionApplicability(
+  client: HttpClient,
+  environmentId: string,
+  draftId: string,
+): Promise<SectionApplicabilityVotes> {
+  const path = `${FEEDBACK_SECTION_APPLICABILITY_PATH}?environmentId=${encodeURIComponent(environmentId)}&draftId=${encodeURIComponent(draftId)}`;
+  return client.request(path, { schema: sectionApplicabilityVotesSchema });
 }
 
 /**
