@@ -10,7 +10,6 @@ import type { RecipientResolverDeps } from './recipientResolver.js';
 import { lifecycleStateMachine, isTerminalState } from './lifecycle.js';
 import { buildDedupKey } from './dedup.js';
 import { renderTemplate, sanitizeValue } from './templateRenderer.js';
-import { validateNoLeakConstraint } from './noLeakValidation.js';
 import type { NotificationEvent, NotificationState, TargetRole, DedupStrategy } from './types.js';
 
 /* -------------------------------------------------------------------------- */
@@ -149,7 +148,6 @@ describe('Feature: in-app-notifications, Property 6: Recipient resolution correc
 /* -------------------------------------------------------------------------- */
 
 describe('Feature: in-app-notifications, Property 5: Lifecycle state machine validity', () => {
-  const ALL_STATES: NotificationState[] = ['unread', 'read', 'dismissed'];
   const VALID_FORWARD: Set<string> = new Set(['unread:read', 'unread:dismissed', 'read:dismissed']);
 
   it('valid forward transitions succeed with alreadyInState=false', () => {

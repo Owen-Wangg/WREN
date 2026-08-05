@@ -30,3 +30,5 @@ export { lifecycleStateMachine, isTerminalState, type TransitionResult } from '.
 export { buildDedupKey } from './dedup.js';
 export { renderTemplate, renderActionUrl, sanitizeValue } from './templateRenderer.js';
 export { validateNoLeakConstraint, type NoLeakValidationResult } from './noLeakValidation.js';
+export { NotificationServiceImpl } from './notificationService.js';
+export { NotificationTypeCatalogServiceImpl } from './catalogService.js';
