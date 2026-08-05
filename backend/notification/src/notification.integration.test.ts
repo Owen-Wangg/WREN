@@ -6,7 +6,6 @@
  * with mocked DB/AppSync boundaries.
  */
 import { NotificationServiceImpl, type NotificationServiceDeps } from './notificationService.js';
-import { NotificationTypeCatalogServiceImpl } from './catalogService.js';
 import { checkOverrideExpiry } from './overrideExpiryHandler.js';
 import type { NotificationEvent } from './types.js';
 
