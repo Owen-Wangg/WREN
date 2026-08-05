@@ -10,7 +10,8 @@
     "backend/auth",
     "backend/admin",
     "backend/document",
-    "backend/feedback"
+    "backend/feedback",
+    "backend/notification"
   ],
   "scripts": {
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
