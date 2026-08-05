@@ -7,7 +7,6 @@
 import { z } from 'zod';
 import type { HttpClient } from '@/services/apiClient';
 import type {
-  NotificationView,
   PaginatedInbox,
   InboxQueryOptions,
   BulkAction,
