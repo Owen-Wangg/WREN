@@ -3,7 +3,7 @@
  *
  * Phase 1 (this implementation):
  *   • syncPageContainers(pageCount) — creates/removes `.pagination-page` DOM elements
- *   • positionBlocks(assignments) — no-op; content overflows naturally
+ *   • positionBlocks(assignments) — injects visual page breaks via CSS gaps
  *   • destroy() — removes pagination DOM and restores continuous-scroll layout
  *
  * Phase 3 stubs:
@@ -158,12 +158,115 @@ export class PageRenderer {
   }
 
   /**
-   * Positions block elements within their assigned page containers.
-   * Phase 1: no-op — content overflows naturally beyond the visible page
-   * boundary without distribution.
+   * Positions block elements to show visual page boundaries.
+   *
+   * Phase 2 approach: Content remains in the ProseMirror DOM tree (cannot be
+   * moved without breaking the editor). Instead, visual page separation is
+   * achieved by injecting margin gaps at page boundary points. The page
+   * containers from `syncPageContainers` are hidden — the visual page effect
+   * comes from the gaps + the workspace background showing through.
+   *
+   * The result: blocks flow naturally in the editor, but between pages there
+   * is a visible gap (margin area + page gap) with the workspace muted
+   * background showing through, creating the appearance of separate pages.
    */
-  positionBlocks(_assignments: PageAssignment[]): void {
-    // Phase 1: content overflows naturally; no positioning needed.
+  positionBlocks(assignments: PageAssignment[]): void {
+    if (!this.workspace || this.pages.length === 0) return;
+
+    const page0 = this.pages[0];
+    if (!page0) return;
+
+    // Find the ProseMirror editor element
+    const proseMirrorEl = page0.querySelector<HTMLElement>('.ProseMirror');
+    if (!proseMirrorEl) return;
+
+    const blocks = Array.from(proseMirrorEl.children) as HTMLElement[];
+
+    // Single page — no gaps needed, just reset previous pagination styling
+    if (assignments.length <= 1) {
+      this.clearPositioning(blocks);
+      // Keep page 0 as the natural container
+      page0.style.height = '';
+      page0.style.overflow = '';
+      // Hide any extra page containers (they're empty)
+      for (let i = 1; i < this.pages.length; i++) {
+        this.pages[i].style.display = 'none';
+      }
+      return;
+    }
+
+    // Multi-page: hide page containers 1+ (we use gap injection instead)
+    for (let i = 1; i < this.pages.length; i++) {
+      this.pages[i].style.display = 'none';
+    }
+
+    // Page 0 holds all content — let it expand naturally
+    page0.style.height = '';
+    page0.style.overflow = '';
+
+    // Build block → page lookup
+    const blockToPage = new Map<number, number>();
+    for (const pageAssignment of assignments) {
+      for (const blockAssignment of pageAssignment.blocks) {
+        blockToPage.set(blockAssignment.blockIndex, pageAssignment.pageIndex);
+      }
+    }
+
+    // Find the first block index on each page > 0
+    const pageStartBlocks = new Map<number, number>(); // blockIndex → pageIndex
+    for (const pageAssignment of assignments) {
+      if (pageAssignment.pageIndex > 0 && pageAssignment.blocks.length > 0) {
+        pageStartBlocks.set(pageAssignment.blocks[0].blockIndex, pageAssignment.pageIndex);
+      }
+    }
+
+    // The page gap visual height: bottom margin + gap + top margin
+    const pageBoundaryGap =
+      PAGE_CONFIG.MARGIN_PX + PAGE_CONFIG.PAGE_GAP_PX + PAGE_CONFIG.MARGIN_PX;
+
+    // Apply margins to create visual page boundaries
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+
+      if (pageStartBlocks.has(i)) {
+        const pageIdx = pageStartBlocks.get(i)!;
+        // Get remaining space from the previous page assignment
+        const prevAssignment = assignments[pageIdx - 1];
+        const remainingSpace = prevAssignment ? prevAssignment.availableHeight : 0;
+
+        // Total gap = remaining space on prev page + margin-bottom + page gap + margin-top
+        // Using margin only (not padding/border) to avoid affecting getBoundingClientRect
+        // measurements during the next recalculation cycle.
+        const totalGap = remainingSpace + pageBoundaryGap;
+
+        block.style.setProperty('margin-top', `${totalGap}px`, 'important');
+        // Visual separator: inset box-shadow doesn't affect layout/measurement
+        block.style.setProperty(
+          'box-shadow',
+          `inset 0 0 0 0 transparent, 0 -${PAGE_CONFIG.PAGE_GAP_PX / 2}px 0 0 var(--surface-muted, #f1f5f9)`,
+          'important',
+        );
+        block.setAttribute('data-pagination-break', String(pageIdx));
+      } else if (block.hasAttribute('data-pagination-break')) {
+        // Remove previously applied pagination styling
+        block.style.removeProperty('margin-top');
+        block.style.removeProperty('box-shadow');
+        block.removeAttribute('data-pagination-break');
+      }
+    }
+  }
+
+  /**
+   * Clears all pagination positioning styles from block elements.
+   */
+  private clearPositioning(blocks: HTMLElement[]): void {
+    for (const block of blocks) {
+      if (block.hasAttribute('data-pagination-break')) {
+        block.style.removeProperty('margin-top');
+        block.style.removeProperty('box-shadow');
+        block.removeAttribute('data-pagination-break');
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -389,6 +492,14 @@ export class PageRenderer {
     // Clean up header/footer clones and observers
     this.clearHeaderFooter();
     this.disconnectHeaderFooterObservers();
+
+    // Clean up pagination-break styling from blocks before restoring
+    const paginatedBlocks = this.workspace.querySelectorAll<HTMLElement>('[data-pagination-break]');
+    for (const block of paginatedBlocks) {
+      block.style.removeProperty('margin-top');
+      block.style.removeProperty('box-shadow');
+      block.removeAttribute('data-pagination-break');
+    }
 
     // Remove workspace from scroll container
     this.workspace.remove();

@@ -57,11 +57,15 @@ export class ObservabilityStack extends Stack {
 
     // -------------------------------------------------------------------
     // CloudWatch Log Groups (deliberate retention)
+    // Use LogRetention instead of LogGroup to handle the case where Lambda
+    // auto-created the log group before CDK took ownership. LogRetention uses
+    // a custom resource with create-or-update (upsert) semantics — it sets
+    // retention on existing log groups rather than failing with "already exists".
     // -------------------------------------------------------------------
     const functionNames = props.functionNames || [];
     for (let i = 0; i < functionNames.length; i++) {
       const functionName = functionNames[i]!;
-      new logs.LogGroup(this, `LogGroup${i}`, {
+      new logs.LogRetention(this, `LogRetention${i}`, {
         logGroupName: `/aws/lambda/${functionName}`,
         retention: retentionDays,
         removalPolicy: RemovalPolicy.RETAIN,
