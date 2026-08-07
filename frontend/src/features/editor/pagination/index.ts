@@ -19,3 +19,4 @@ export {
 export { PaginationExtension } from './PaginationExtension';
 export { PageRenderer } from './PageRenderer';
 export { BlockMeasurer, type IBlockMeasurer } from './BlockMeasurer';
+export { ContentDistributor, type IContentDistributor } from './ContentDistributor';
