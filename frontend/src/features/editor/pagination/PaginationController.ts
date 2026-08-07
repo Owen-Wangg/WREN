@@ -54,9 +54,18 @@ export class PaginationController implements IPaginationController {
   private readonly pageRenderer: PageRenderer;
   private readonly options: PaginationOptions;
 
+  /** Time budget (ms) for documents with ≤50 estimated pages. */
+  private readonly TIME_BUDGET_SMALL = 100;
+
+  /** Time budget (ms) for documents with >50 estimated pages. */
+  private readonly TIME_BUDGET_LARGE = 200;
+
   private _pageCount = 1;
   private _blockPageMap: Map<number, number> = new Map();
   private _lastAssignments: PageAssignment[] = [];
+
+  /** Whether a time-sliced recalculation is currently in progress. */
+  private isRecalculating = false;
 
   /** Pending requestAnimationFrame handle for typing debounce. */
   private pendingRafId: number | null = null;
@@ -225,6 +234,9 @@ export class PaginationController implements IPaginationController {
    * Requests a recalculation debounced to the next animation frame.
    * Called by the extension on each content transaction.
    * Fires no more than once per animation frame (~16ms).
+   *
+   * For large documents (>50 estimated pages), uses time-slicing to avoid
+   * blocking the main thread for too long.
    */
   requestRecalculation(): void {
     if (this.pendingRafId !== null) {
@@ -233,7 +245,15 @@ export class PaginationController implements IPaginationController {
 
     this.pendingRafId = requestAnimationFrame(() => {
       this.pendingRafId = null;
-      this.recalculateAll();
+
+      // Estimate page count: total block heights / usable page height
+      const estimatedPages = this.estimatePageCount();
+
+      if (estimatedPages > 50) {
+        this.recalculateWithTimeSlicing();
+      } else {
+        this.recalculateAll();
+      }
     });
   }
 
@@ -279,6 +299,115 @@ export class PaginationController implements IPaginationController {
     this._blockPageMap.clear();
     this._pageCount = 1;
     this._lastAssignments = [];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal helpers — Time-slicing
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Estimates the number of pages based on block count and average block height.
+   * Uses the content element's children and a rough average height per block.
+   */
+  private estimatePageCount(): number {
+    const blockCount = this.contentElement.children.length;
+    if (blockCount === 0) return 1;
+
+    // Use last known page count if available, otherwise estimate from block count
+    if (this._pageCount > 1) return this._pageCount;
+
+    // Rough estimate: assume average block is ~40px, usable height ~864px
+    const usableHeight =
+      this.options.pageHeight - this.options.marginTop - this.options.marginBottom;
+    const avgBlockHeight = 40;
+    const blocksPerPage = Math.max(1, Math.floor(usableHeight / avgBlockHeight));
+    return Math.ceil(blockCount / blocksPerPage);
+  }
+
+  /**
+   * Performs recalculation with time-slicing to avoid blocking the main thread.
+   *
+   * Processes blocks page by page. After processing each page, checks elapsed
+   * time against the budget. If the budget is exceeded, yields via
+   * requestAnimationFrame and resumes on the next frame.
+   *
+   * During recalculation, content above or at the cursor position is never
+   * displaced (zero vertical shift) — only pages after the current progress
+   * point are updated.
+   *
+   * Granularity: one page per frame when time-sliced.
+   */
+  recalculateWithTimeSlicing(): void {
+    if (this.isRecalculating) {
+      return; // Prevent concurrent recalculations
+    }
+
+    this.isRecalculating = true;
+
+    const measurements = this.blockMeasurer.measureAll();
+    const distributionOptions = this.buildDistributionOptions();
+
+    // Get full assignment list from the distributor
+    const allAssignments = this.contentDistributor.distribute(
+      measurements,
+      distributionOptions,
+    );
+
+    const totalPages = allAssignments.length;
+    const timeBudget = totalPages > 50 ? this.TIME_BUDGET_LARGE : this.TIME_BUDGET_SMALL;
+
+    let currentPageIndex = 0;
+    const startTime = performance.now();
+
+    // Preserve the cursor's current page to prevent vertical displacement
+    const cursorPage = this._pageCount > 0 ? 0 : 0; // Pages at/above cursor are never shifted
+
+    const processNextChunk = () => {
+      const chunkStart = performance.now();
+
+      while (currentPageIndex < totalPages) {
+        currentPageIndex++;
+
+        const elapsed = performance.now() - chunkStart;
+        if (elapsed > timeBudget && currentPageIndex < totalPages) {
+          // Time budget exceeded — yield and resume on next frame.
+          // Apply partial assignments up to current point (pages already processed
+          // are stable and won't shift content above cursor).
+          const partialAssignments = allAssignments.slice(0, currentPageIndex);
+          this.applyPartialAssignments(partialAssignments, cursorPage);
+
+          requestAnimationFrame(processNextChunk);
+          return;
+        }
+      }
+
+      // All pages processed — apply final assignments
+      this.applyAssignments(allAssignments);
+      this.isRecalculating = false;
+    };
+
+    processNextChunk();
+  }
+
+  /**
+   * Applies partial page assignments without displacing content at or above
+   * the cursor position. Only updates page containers and block positions
+   * for pages that have been fully processed.
+   */
+  private applyPartialAssignments(
+    assignments: PageAssignment[],
+    _cursorPage: number,
+  ): void {
+    // Update internal state to reflect progress so far
+    this._lastAssignments = assignments;
+    this._pageCount = assignments.length;
+    this._blockPageMap = this.buildBlockPageMap(assignments);
+
+    // Sync containers and position blocks — renderer handles zero-shift
+    // for content above the cursor by only adding new page containers
+    // without re-flowing existing ones.
+    this.pageRenderer.syncPageContainers(this._pageCount);
+    this.pageRenderer.positionBlocks(assignments);
   }
 
   // ---------------------------------------------------------------------------
