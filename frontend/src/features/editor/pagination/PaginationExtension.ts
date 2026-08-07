@@ -2,20 +2,21 @@
  * PaginationExtension — Tiptap Extension for the LEON pagination system.
  *
  * This extension observes editor transactions (read-only) and manages page
- * container rendering. It NEVER intercepts, modifies, or rejects ProseMirror
- * transactions — it is purely observational.
+ * container rendering via PaginationController. It NEVER intercepts, modifies,
+ * or rejects ProseMirror transactions — it is purely observational.
  *
- * Phase 1: Renders a single page container on mount. No content distribution.
- * Phase 2+: Will trigger recalculation and content redistribution on changes.
+ * Phase 2: Creates a PaginationController on mount, triggers recalculation on
+ * content changes (via requestAnimationFrame debounce) and window resize
+ * (via 150ms debounce).
  *
- * @see Requirements 1.7, 14.3, 14.5, 15.1, 15.2, 15.4
+ * @see Requirements 1.7, 2.4, 2.5, 14.3, 14.5, 15.1, 15.3, 15.4
  */
 
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import type { PaginationOptions } from './types';
 import { PAGE_CONFIG } from './types';
-import { PageRenderer } from './PageRenderer';
+import { PaginationController } from './PaginationController';
 
 /**
  * PluginKey for the pagination ProseMirror plugin.
@@ -59,41 +60,58 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
       return [];
     }
 
-    let renderer: PageRenderer | null = null;
+    let controller: PaginationController | null = null;
+    let resizeHandler: (() => void) | null = null;
 
     return [
       new Plugin({
         key: paginationPluginKey,
 
         view() {
-          // On mount: find scroll container and render initial single page.
+          // On mount: find ProseMirror content element and scroll container,
+          // then create the PaginationController and run initial layout.
           const editorElement = editor.view.dom as HTMLElement;
+          const contentElement = editorElement;
           const scrollContainer =
             editorElement.closest('.document-editor-scroll') as HTMLElement | null;
 
           if (scrollContainer) {
-            renderer = new PageRenderer(scrollContainer);
-            // syncPageContainers(1) is implicitly called by PageRenderer's
-            // constructor (initialize() creates the first page), but we call
-            // it explicitly to be clear about the Phase 1 intent.
-            renderer.syncPageContainers(1);
+            controller = new PaginationController(
+              contentElement,
+              scrollContainer,
+              extensionOptions,
+            );
+
+            // Initial full recalculation on mount
+            controller.recalculateAll();
+
+            // Window resize listener: triggers recalculation with 150ms debounce
+            resizeHandler = () => {
+              controller?.requestResizeRecalculation();
+            };
+            window.addEventListener('resize', resizeHandler);
           }
 
           return {
             /**
              * Called after every transaction is applied.
-             * Phase 1: read-only observation, no content redistribution yet.
-             * Phase 2+: will trigger recalculation here.
+             * Phase 2: triggers debounced recalculation via requestAnimationFrame.
              */
             update() {
-              // Phase 1: observe transactions (read-only, no filtering).
-              // Future phases will call PaginationController.recalculate() here.
+              controller?.requestRecalculation();
             },
 
             destroy() {
-              if (renderer) {
-                renderer.destroy();
-                renderer = null;
+              // Remove window resize listener
+              if (resizeHandler) {
+                window.removeEventListener('resize', resizeHandler);
+                resizeHandler = null;
+              }
+
+              // Clean up controller (cancels timers, removes DOM)
+              if (controller) {
+                controller.destroy();
+                controller = null;
               }
             },
           };
