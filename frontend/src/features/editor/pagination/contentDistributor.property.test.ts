@@ -3,7 +3,7 @@
  *
  * Uses fast-check to verify universal properties of block-to-page distribution.
  *
- * @see Design Document: Properties 2, 3, 4, 15
+ * @see Design Document: Properties 2, 3, 4, 6, 15
  */
 
 import { describe, it, expect } from 'vitest';
@@ -255,6 +255,121 @@ describe('ContentDistributor — Property-Based Tests', () => {
                 expect(incrementalResult[i].blocks[j].startOnPage).toBe(
                   fullResult[i].blocks[j].startOnPage,
                 );
+              }
+            }
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+  });
+
+  // Feature: leon-pagination-system, Property 6: Page Break Forces New Page
+  describe('Property 6: Page Break Forces New Page', () => {
+    /**
+     * Generator: Array of BlockMeasurement where some have `isPageBreak: true`
+     * at random positions among regular blocks.
+     */
+    const blockMeasurementsWithPageBreaksArb: fc.Arbitrary<BlockMeasurement[]> = fc
+      .integer({ min: 2, max: 30 })
+      .chain((count) => {
+        // Generate an array of blocks where each block is either a regular block
+        // or a pageBreak, with at least one pageBreak guaranteed
+        return fc
+          .tuple(
+            // Generate the blocks (regular or pageBreak)
+            fc.array(
+              fc.oneof(
+                // Regular block (weighted more heavily)
+                { weight: 3, arbitrary: fc.integer({ min: 1, max: 500 }).map((height) => ({ height, isBreak: false })) },
+                // Page break
+                { weight: 1, arbitrary: fc.constant({ height: 0, isBreak: true }) },
+              ),
+              { minLength: count, maxLength: count },
+            ),
+            // Guarantee at least one pageBreak position (insert one if needed)
+            fc.integer({ min: 0, max: count - 1 }),
+          )
+          .map(([blocks, guaranteedBreakPos]) => {
+            // Ensure at least one pageBreak exists
+            const hasBreak = blocks.some((b) => b.isBreak);
+            if (!hasBreak) {
+              blocks[guaranteedBreakPos] = { height: 0, isBreak: true };
+            }
+            return blocks.map((b, i) => ({
+              blockIndex: i,
+              node: document.createElement('div'),
+              height: b.isBreak ? 0 : b.height,
+              isPageBreak: b.isBreak,
+              blockType: b.isBreak ? 'pageBreak' as const : 'paragraph' as const,
+            }));
+          });
+      });
+
+    it('for every pageBreak, all subsequent content blocks are on a page with index > the pageBreak page', () => {
+      // **Validates: Requirements 4.2**
+      fc.assert(
+        fc.property(
+          blockMeasurementsWithPageBreaksArb,
+          pageConfigArb,
+          (measurements, options) => {
+            const pages = distributor.distribute(measurements, options);
+
+            // Build a map: blockIndex → pageIndex
+            const blockPageMap = new Map<number, number>();
+            for (const page of pages) {
+              for (const block of page.blocks) {
+                blockPageMap.set(block.blockIndex, page.pageIndex);
+              }
+            }
+
+            // For every pageBreak at position i, all blocks AFTER the pageBreak
+            // must be on a page with index > the pageBreak's page
+            for (let i = 0; i < measurements.length; i++) {
+              if (measurements[i].isPageBreak) {
+                const pageBreakPage = blockPageMap.get(i);
+                expect(pageBreakPage).toBeDefined();
+
+                // All subsequent non-break blocks must be on a later page
+                for (let j = i + 1; j < measurements.length; j++) {
+                  const subsequentPage = blockPageMap.get(j);
+                  expect(subsequentPage).toBeDefined();
+
+                  if (pageBreakPage !== undefined && subsequentPage !== undefined) {
+                    // The subsequent block is on a strictly greater page index
+                    // (or is itself a pageBreak that also finalizes a page)
+                    expect(subsequentPage).toBeGreaterThan(pageBreakPage);
+                  }
+                }
+              }
+            }
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('the page containing a pageBreak is finalized at that point (no more content blocks on same page after it)', () => {
+      // **Validates: Requirements 4.2**
+      fc.assert(
+        fc.property(
+          blockMeasurementsWithPageBreaksArb,
+          pageConfigArb,
+          (measurements, options) => {
+            const pages = distributor.distribute(measurements, options);
+
+            // For each page, if a pageBreak block exists on it,
+            // no regular (non-pageBreak) blocks should follow it on the same page
+            for (const page of pages) {
+              let seenPageBreak = false;
+              for (const block of page.blocks) {
+                const measurement = measurements[block.blockIndex];
+                if (measurement.isPageBreak) {
+                  seenPageBreak = true;
+                } else if (seenPageBreak) {
+                  // A regular block appears after a pageBreak on the same page — violation
+                  expect(seenPageBreak).toBe(false);
+                }
               }
             }
           },

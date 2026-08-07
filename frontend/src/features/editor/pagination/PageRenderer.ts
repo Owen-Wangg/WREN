@@ -161,9 +161,109 @@ export class PageRenderer {
     // Phase 3: will update PageNumberNode display values.
   }
 
-  /** Applies paragraph split clipping. (Phase 3 stub) */
-  applySplitClipping(_splits: SplitInfo[]): void {
-    // Phase 3: will apply CSS clip-path for split paragraphs.
+  /**
+   * Applies visual clipping to paragraph blocks that are split across page
+   * boundaries.
+   *
+   * For each split:
+   * - On the current page: clips the paragraph to `clipHeightPx` so only
+   *   lines 0..splitAtLine are visible.
+   * - On the continuation page: applies a negative `margin-top` (or
+   *   `clip-path: inset(...)`) so only the remaining lines are visible.
+   *
+   * Because this is purely visual clipping (the DOM tree is not split), any
+   * comment marks (`data-ai-feedback`) spanning the split point will render
+   * their highlight styling contiguously on both page portions.
+   *
+   * @see Requirements 3.1, 11.5
+   */
+  applySplitClipping(splits: SplitInfo[]): void {
+    // First, clear any previously-applied split clipping styles
+    this.clearSplitClipping();
+
+    for (const split of splits) {
+      if (split.type !== 'paragraph' || split.clipHeightPx == null) continue;
+      if (split.blockIndex == null) continue;
+
+      const { blockIndex, clipHeightPx, continuationPageIndex } = split;
+
+      // --- Current page: clip the paragraph to show only the top portion ---
+      // The block lives on the page just before the continuation page
+      const currentPageIndex = continuationPageIndex - 1;
+      if (currentPageIndex < 0 || currentPageIndex >= this.pages.length) continue;
+
+      const currentPage = this.pages[currentPageIndex];
+      const currentBlock = this.getBlockElement(currentPage, blockIndex);
+
+      if (currentBlock) {
+        // Use max-height + overflow:hidden to clip the bottom portion
+        currentBlock.style.maxHeight = `${clipHeightPx}px`;
+        currentBlock.style.overflow = 'hidden';
+        currentBlock.setAttribute('data-split-clipped', 'current');
+      }
+
+      // --- Continuation page: show only the bottom portion ---
+      if (continuationPageIndex >= this.pages.length) continue;
+
+      const continuationPage = this.pages[continuationPageIndex];
+
+      // Clone the paragraph element for the continuation page if it doesn't
+      // already have a continuation clone. We clone (rather than move) so the
+      // ProseMirror document node is not disrupted.
+      if (currentBlock) {
+        const clone = currentBlock.cloneNode(true) as HTMLElement;
+
+        // Remove the current-page clipping from the clone
+        clone.style.maxHeight = '';
+        clone.style.overflow = '';
+
+        // Apply clip-path to hide the top portion that was shown on the
+        // previous page. This preserves inline highlight/comment-mark styling
+        // contiguously across both portions.
+        clone.style.clipPath = `inset(${clipHeightPx}px 0 0 0)`;
+
+        // Use negative margin-top to pull the content up so the visible
+        // continuation portion starts at the top of its container area
+        clone.style.marginTop = `-${clipHeightPx}px`;
+
+        clone.setAttribute('data-split-clipped', 'continuation');
+        clone.removeAttribute('data-page-index');
+
+        // Insert the continuation clone at the beginning of the continuation page
+        if (continuationPage.firstChild) {
+          continuationPage.insertBefore(clone, continuationPage.firstChild);
+        } else {
+          continuationPage.appendChild(clone);
+        }
+      }
+    }
+  }
+
+  /**
+   * Removes all split-clipping styles and cloned continuation elements that
+   * were previously applied by `applySplitClipping()`. Called at the start of
+   * each new clipping pass to avoid stale artifacts.
+   */
+  clearSplitClipping(): void {
+    for (const page of this.pages) {
+      // Remove continuation clones
+      const continuationClones = page.querySelectorAll<HTMLElement>(
+        '[data-split-clipped="continuation"]',
+      );
+      for (const clone of continuationClones) {
+        clone.remove();
+      }
+
+      // Reset clipping styles on current-page clipped elements
+      const clippedElements = page.querySelectorAll<HTMLElement>(
+        '[data-split-clipped="current"]',
+      );
+      for (const el of clippedElements) {
+        el.style.maxHeight = '';
+        el.style.overflow = '';
+        el.removeAttribute('data-split-clipped');
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -192,6 +292,19 @@ export class PageRenderer {
   // -------------------------------------------------------------------------
   // Internal helpers
   // -------------------------------------------------------------------------
+
+  /**
+   * Locates a block element within a page container by its block index.
+   * Block elements are the direct children of the page container that are
+   * not pagination infrastructure (not split-clipped continuations).
+   */
+  private getBlockElement(page: HTMLElement, blockIndex: number): HTMLElement | null {
+    // Get direct children that are content blocks (excluding continuation clones)
+    const children = Array.from(page.children).filter(
+      (child) => child.getAttribute('data-split-clipped') !== 'continuation',
+    ) as HTMLElement[];
+    return children[blockIndex] ?? null;
+  }
 
   /**
    * Wraps existing editor content inside the workspace/page structure on

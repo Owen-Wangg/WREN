@@ -147,6 +147,19 @@ export interface SplitInfo {
   splitAtItem?: number;
   /** The page index where the continuation appears. */
   continuationPageIndex: number;
+  /**
+   * The block index of the element being split (used to locate it in the
+   * page container's children).
+   */
+  blockIndex?: number;
+  /**
+   * Pre-computed pixel height at which to clip the paragraph on the current
+   * page. Set by PaginationController based on line measurements so that
+   * PageRenderer does not need access to LineMeasurement data at render time.
+   *
+   * @see Requirements 3.1, 11.5
+   */
+  clipHeightPx?: number;
 }
 
 // ---------------------------------------------------------------------------
