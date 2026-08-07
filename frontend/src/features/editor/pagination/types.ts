@@ -101,6 +101,13 @@ export interface BlockMeasurement {
     | 'other';
   /** Heading level (1–6) when blockType is 'heading'. */
   headingLevel?: number;
+  /**
+   * Pre-measured line data for paragraph blocks. Populated by
+   * PaginationController via ParagraphSplitter.measureLines() before
+   * distribution. Used by ContentDistributor when enableParagraphSplitting
+   * is true to find optimal split points.
+   */
+  lines?: LineMeasurement[];
 }
 
 // ---------------------------------------------------------------------------

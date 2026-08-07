@@ -35,6 +35,36 @@ export const PageBreakNode = Node.create({
   addKeyboardShortcuts() {
     return {
       'Mod-Enter': () => this.editor.commands.insertPageBreak(),
+
+      /**
+       * Backspace — remove a pageBreak node immediately before the cursor.
+       * @see Requirement 4.4
+       */
+      'Backspace': ({ editor }) => {
+        const { $from } = editor.state.selection;
+        const nodeBefore = $from.nodeBefore;
+        if (nodeBefore?.type.name === 'pageBreak') {
+          const pos = $from.pos - nodeBefore.nodeSize;
+          editor.chain().deleteRange({ from: pos, to: $from.pos }).run();
+          return true;
+        }
+        return false;
+      },
+
+      /**
+       * Delete — remove a pageBreak node immediately after the cursor.
+       * @see Requirement 4.4
+       */
+      'Delete': ({ editor }) => {
+        const { $from } = editor.state.selection;
+        const nodeAfter = $from.nodeAfter;
+        if (nodeAfter?.type.name === 'pageBreak') {
+          const pos = $from.pos;
+          editor.chain().deleteRange({ from: pos, to: pos + nodeAfter.nodeSize }).run();
+          return true;
+        }
+        return false;
+      },
     };
   },
 

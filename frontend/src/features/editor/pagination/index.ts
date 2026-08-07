@@ -3,6 +3,8 @@
  *
  * Re-exports all core types and constants from this feature module.
  */
+import './pageBreak.css';
+
 export {
   PAGE_CONFIG,
   type PaginationOptions,
