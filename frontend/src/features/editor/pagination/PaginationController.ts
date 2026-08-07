@@ -357,7 +357,6 @@ export class PaginationController implements IPaginationController {
     const timeBudget = totalPages > 50 ? this.TIME_BUDGET_LARGE : this.TIME_BUDGET_SMALL;
 
     let currentPageIndex = 0;
-    const startTime = performance.now();
 
     // Preserve the cursor's current page to prevent vertical displacement
     const cursorPage = this._pageCount > 0 ? 0 : 0; // Pages at/above cursor are never shifted

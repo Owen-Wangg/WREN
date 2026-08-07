@@ -13,7 +13,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PaginationController } from './PaginationController';
-import { PaginationExtension } from './PaginationExtension';
 import { PAGE_CONFIG } from './types';
 
 /**

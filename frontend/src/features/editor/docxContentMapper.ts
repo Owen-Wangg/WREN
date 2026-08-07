@@ -706,8 +706,8 @@ function officeNodesToTiptapBlocks(
       i += 1;
       continue;
     }
-    if (node.type === 'pageBreak' || node.type === 'page-break') {
-      // Import DOCX page break as a TipTap pageBreak node
+    if (node.type === 'break' || node.type === 'page') {
+      // Import DOCX page/section break as a TipTap pageBreak node
       blocks.push({ type: 'pageBreak' });
       i += 1;
       continue;

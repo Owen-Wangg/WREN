@@ -33,11 +33,6 @@ const paragraphNodeArb: fc.Arbitrary<JSONContent> = fc
     content,
   }));
 
-/** Generates a pageBreak node — atomic, no content, no attrs. */
-const pageBreakNodeArb: fc.Arbitrary<JSONContent> = fc.constant({
-  type: 'pageBreak',
-});
-
 /**
  * Generates a random Tiptap document with paragraphs and 0-5 pageBreak nodes
  * interspersed throughout the content.

@@ -19,12 +19,14 @@ import type { PaginationOptions } from './types';
 // ---------------------------------------------------------------------------
 
 const DEFAULT_OPTIONS: PaginationOptions = {
+  enabled: true,
   pageHeight: 1056,
   pageWidth: 816,
   marginTop: 96,
   marginBottom: 96,
   marginLeft: 96,
   marginRight: 96,
+  pageGap: 32,
   orphanLines: 2,
   widowLines: 2,
 };
