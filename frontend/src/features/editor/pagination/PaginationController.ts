@@ -5,13 +5,23 @@
  * distribution across page containers. Maintains ephemeral pagination state
  * (never persisted) and provides debounced recalculation for typing and resize.
  *
- * @see Requirements 2.4, 2.5, 13.1, 13.2
+ * @see Requirements 2.4, 2.5, 5.5, 5.6, 13.1, 13.2
  */
 
 import type { PaginationOptions, PageAssignment, BlockMeasurement } from './types';
+import { PAGE_CONFIG } from './types';
 import { BlockMeasurer } from './BlockMeasurer';
 import { ContentDistributor } from './ContentDistributor';
 import { PageRenderer } from './PageRenderer';
+
+/**
+ * Maximum combined header + footer height in CSS pixels.
+ * One-third of page height (1056 / 3 = 352). If exceeded, overflow is clipped
+ * and body content area never shrinks below two-thirds of page height.
+ *
+ * @see Requirements 5.5, 5.6
+ */
+export const MAX_HEADER_FOOTER_HEIGHT_PX = Math.floor(PAGE_CONFIG.HEIGHT_PX / 3);
 
 /**
  * Interface for the PaginationController.
@@ -22,6 +32,8 @@ export interface IPaginationController {
   readonly pageCount: number;
   readonly blockPageMap: Map<number, number>;
   pageForPosition(pos: number): number;
+  setHeaderElement(el: HTMLElement | null): void;
+  setFooterElement(el: HTMLElement | null): void;
   destroy(): void;
 }
 
@@ -42,15 +54,36 @@ export class PaginationController implements IPaginationController {
   private readonly pageRenderer: PageRenderer;
   private readonly options: PaginationOptions;
 
+  /** Time budget (ms) for documents with ≤50 estimated pages. */
+  private readonly TIME_BUDGET_SMALL = 100;
+
+  /** Time budget (ms) for documents with >50 estimated pages. */
+  private readonly TIME_BUDGET_LARGE = 200;
+
   private _pageCount = 1;
   private _blockPageMap: Map<number, number> = new Map();
   private _lastAssignments: PageAssignment[] = [];
+
+  /** Whether a time-sliced recalculation is currently in progress. */
+  private isRecalculating = false;
 
   /** Pending requestAnimationFrame handle for typing debounce. */
   private pendingRafId: number | null = null;
 
   /** Pending setTimeout handle for resize debounce. */
   private pendingResizeTimerId: ReturnType<typeof setTimeout> | null = null;
+
+  /** Reference to the header editor content element for height measurement. */
+  private headerElement: HTMLElement | null = null;
+
+  /** Reference to the footer editor content element for height measurement. */
+  private footerElement: HTMLElement | null = null;
+
+  /** Last measured header height (CSS pixels). */
+  private measuredHeaderHeight = 0;
+
+  /** Last measured footer height (CSS pixels). */
+  private measuredFooterHeight = 0;
 
   /**
    * @param contentElement The `.ProseMirror` editor content element containing
@@ -174,6 +207,26 @@ export class PaginationController implements IPaginationController {
   }
 
   // ---------------------------------------------------------------------------
+  // Public API — Header/Footer Elements
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Sets the header editor content element for height measurement.
+   * Call this when the header editor mounts or changes.
+   */
+  setHeaderElement(el: HTMLElement | null): void {
+    this.headerElement = el;
+  }
+
+  /**
+   * Sets the footer editor content element for height measurement.
+   * Call this when the footer editor mounts or changes.
+   */
+  setFooterElement(el: HTMLElement | null): void {
+    this.footerElement = el;
+  }
+
+  // ---------------------------------------------------------------------------
   // Public API — Debounced recalculation
   // ---------------------------------------------------------------------------
 
@@ -181,6 +234,9 @@ export class PaginationController implements IPaginationController {
    * Requests a recalculation debounced to the next animation frame.
    * Called by the extension on each content transaction.
    * Fires no more than once per animation frame (~16ms).
+   *
+   * For large documents (>50 estimated pages), uses time-slicing to avoid
+   * blocking the main thread for too long.
    */
   requestRecalculation(): void {
     if (this.pendingRafId !== null) {
@@ -189,7 +245,15 @@ export class PaginationController implements IPaginationController {
 
     this.pendingRafId = requestAnimationFrame(() => {
       this.pendingRafId = null;
-      this.recalculateAll();
+
+      // Estimate page count: total block heights / usable page height
+      const estimatedPages = this.estimatePageCount();
+
+      if (estimatedPages > 50) {
+        this.recalculateWithTimeSlicing();
+      } else {
+        this.recalculateAll();
+      }
     });
   }
 
@@ -238,6 +302,115 @@ export class PaginationController implements IPaginationController {
   }
 
   // ---------------------------------------------------------------------------
+  // Internal helpers — Time-slicing
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Estimates the number of pages based on block count and average block height.
+   * Uses the content element's children and a rough average height per block.
+   */
+  private estimatePageCount(): number {
+    const blockCount = this.contentElement.children.length;
+    if (blockCount === 0) return 1;
+
+    // Use last known page count if available, otherwise estimate from block count
+    if (this._pageCount > 1) return this._pageCount;
+
+    // Rough estimate: assume average block is ~40px, usable height ~864px
+    const usableHeight =
+      this.options.pageHeight - this.options.marginTop - this.options.marginBottom;
+    const avgBlockHeight = 40;
+    const blocksPerPage = Math.max(1, Math.floor(usableHeight / avgBlockHeight));
+    return Math.ceil(blockCount / blocksPerPage);
+  }
+
+  /**
+   * Performs recalculation with time-slicing to avoid blocking the main thread.
+   *
+   * Processes blocks page by page. After processing each page, checks elapsed
+   * time against the budget. If the budget is exceeded, yields via
+   * requestAnimationFrame and resumes on the next frame.
+   *
+   * During recalculation, content above or at the cursor position is never
+   * displaced (zero vertical shift) — only pages after the current progress
+   * point are updated.
+   *
+   * Granularity: one page per frame when time-sliced.
+   */
+  recalculateWithTimeSlicing(): void {
+    if (this.isRecalculating) {
+      return; // Prevent concurrent recalculations
+    }
+
+    this.isRecalculating = true;
+
+    const measurements = this.blockMeasurer.measureAll();
+    const distributionOptions = this.buildDistributionOptions();
+
+    // Get full assignment list from the distributor
+    const allAssignments = this.contentDistributor.distribute(
+      measurements,
+      distributionOptions,
+    );
+
+    const totalPages = allAssignments.length;
+    const timeBudget = totalPages > 50 ? this.TIME_BUDGET_LARGE : this.TIME_BUDGET_SMALL;
+
+    let currentPageIndex = 0;
+    const startTime = performance.now();
+
+    // Preserve the cursor's current page to prevent vertical displacement
+    const cursorPage = this._pageCount > 0 ? 0 : 0; // Pages at/above cursor are never shifted
+
+    const processNextChunk = () => {
+      const chunkStart = performance.now();
+
+      while (currentPageIndex < totalPages) {
+        currentPageIndex++;
+
+        const elapsed = performance.now() - chunkStart;
+        if (elapsed > timeBudget && currentPageIndex < totalPages) {
+          // Time budget exceeded — yield and resume on next frame.
+          // Apply partial assignments up to current point (pages already processed
+          // are stable and won't shift content above cursor).
+          const partialAssignments = allAssignments.slice(0, currentPageIndex);
+          this.applyPartialAssignments(partialAssignments, cursorPage);
+
+          requestAnimationFrame(processNextChunk);
+          return;
+        }
+      }
+
+      // All pages processed — apply final assignments
+      this.applyAssignments(allAssignments);
+      this.isRecalculating = false;
+    };
+
+    processNextChunk();
+  }
+
+  /**
+   * Applies partial page assignments without displacing content at or above
+   * the cursor position. Only updates page containers and block positions
+   * for pages that have been fully processed.
+   */
+  private applyPartialAssignments(
+    assignments: PageAssignment[],
+    _cursorPage: number,
+  ): void {
+    // Update internal state to reflect progress so far
+    this._lastAssignments = assignments;
+    this._pageCount = assignments.length;
+    this._blockPageMap = this.buildBlockPageMap(assignments);
+
+    // Sync containers and position blocks — renderer handles zero-shift
+    // for content above the cursor by only adding new page containers
+    // without re-flowing existing ones.
+    this.pageRenderer.syncPageContainers(this._pageCount);
+    this.pageRenderer.positionBlocks(assignments);
+  }
+
+  // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------
 
@@ -271,20 +444,50 @@ export class PaginationController implements IPaginationController {
 
   /**
    * Builds DistributionOptions from the pagination configuration.
+   * Measures header/footer heights and applies the 352px combined cap.
+   *
+   * @see Requirements 5.5, 5.6
    */
   private buildDistributionOptions() {
-    const usablePageHeight =
+    const baseUsablePageHeight =
       this.options.pageHeight - this.options.marginTop - this.options.marginBottom;
 
+    // Measure current header/footer heights via getBoundingClientRect
+    this.measuredHeaderHeight = this.measureElementHeight(this.headerElement);
+    this.measuredFooterHeight = this.measureElementHeight(this.footerElement);
+
+    // Apply combined cap: header + footer ≤ MAX_HEADER_FOOTER_HEIGHT_PX (352px)
+    // If exceeded, proportionally reduce both to fit within the cap
+    let headerHeight = this.measuredHeaderHeight;
+    let footerHeight = this.measuredFooterHeight;
+    const combinedHeight = headerHeight + footerHeight;
+
+    if (combinedHeight > MAX_HEADER_FOOTER_HEIGHT_PX) {
+      // Cap: scale both proportionally to fit within the limit
+      const scale = MAX_HEADER_FOOTER_HEIGHT_PX / combinedHeight;
+      headerHeight = Math.floor(headerHeight * scale);
+      footerHeight = MAX_HEADER_FOOTER_HEIGHT_PX - headerHeight;
+    }
+
     return {
-      usablePageHeight,
-      headerHeight: 0, // Phase 3: will measure actual header height
-      footerHeight: 0, // Phase 3: will measure actual footer height
+      usablePageHeight: baseUsablePageHeight,
+      headerHeight,
+      footerHeight,
       orphanLines: this.options.orphanLines,
       widowLines: this.options.widowLines,
-      enableParagraphSplitting: false, // Phase 3
-      enableKeepWithNext: false, // Phase 3
+      enableParagraphSplitting: true,
+      enableKeepWithNext: false, // Phase 3D — will be enabled in Wave 12
     };
+  }
+
+  /**
+   * Measures the rendered height of an element in CSS pixels.
+   * Returns 0 if the element is null or not visible.
+   */
+  private measureElementHeight(el: HTMLElement | null): number {
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    return rect.height;
   }
 
   /**

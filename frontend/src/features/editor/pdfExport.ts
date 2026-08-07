@@ -21,6 +21,19 @@ export interface PdfExportOptions {
    * Never use new Date() here — the timestamp must come from the stored draft.
    */
   readonly lastEditedAt?: string | null;
+  /**
+   * Optional array of document positions where explicit page breaks exist.
+   * When provided, these positions indicate where the pagination system's
+   * PageBreakNode elements force a new PDF page during export.
+   *
+   * Integration point: during the image-slicing loop below, if the current
+   * cumulative content height crosses one of these positions, a new PDF page
+   * should be started regardless of remaining space. This ensures DOCX page
+   * breaks and PDF page breaks are consistent.
+   *
+   * @see Requirements 4.1, 12.2
+   */
+  readonly pageBreakPositions?: number[];
 }
 
 function escapeHtml(text: string): string {
@@ -279,6 +292,12 @@ export async function tiptapContentToPdfBlob(
     pageIndex += 1;
 
     while (heightLeft > 0) {
+      // PAGE BREAK INTEGRATION POINT (Requirement 12.2):
+      // When options.pageBreakPositions is provided, check if the current
+      // cumulative height corresponds to an explicit page break position.
+      // If so, force a new page at that exact position rather than waiting
+      // for the natural usableHeight overflow. This would require mapping
+      // document positions to rendered pixel heights in the canvas.
       imgPosition = SIDE_MARGIN - (imgHeight - heightLeft);
       pdf.addPage();
       pdf.addImage(imgData, 'JPEG', SIDE_MARGIN, imgPosition, imgWidth, imgHeight);

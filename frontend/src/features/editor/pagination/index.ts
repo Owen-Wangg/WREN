@@ -14,6 +14,8 @@ export {
   type BlockAssignment,
   type SplitInfo,
   type LineMeasurement,
+  type RowMeasurement,
+  type ItemMeasurement,
   type SplitResult,
   type DistributionOptions,
 } from './types';
@@ -24,5 +26,5 @@ export { PageNumberNode } from './PageNumberNode';
 export { PageRenderer } from './PageRenderer';
 export { BlockMeasurer, type IBlockMeasurer } from './BlockMeasurer';
 export { ContentDistributor, type IContentDistributor } from './ContentDistributor';
-export { PaginationController, type IPaginationController } from './PaginationController';
+export { PaginationController, MAX_HEADER_FOOTER_HEIGHT_PX, type IPaginationController } from './PaginationController';
 export { ParagraphSplitter, type IParagraphSplitter } from './ParagraphSplitter';
