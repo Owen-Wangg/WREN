@@ -15,3 +15,6 @@ export {
   type SplitResult,
   type DistributionOptions,
 } from './types';
+
+export { PaginationExtension } from './PaginationExtension';
+export { PageRenderer } from './PageRenderer';
