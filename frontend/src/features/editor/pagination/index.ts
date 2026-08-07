@@ -17,7 +17,9 @@ export {
 } from './types';
 
 export { PaginationExtension } from './PaginationExtension';
+export { PageBreakNode } from './PageBreakNode';
 export { PageRenderer } from './PageRenderer';
 export { BlockMeasurer, type IBlockMeasurer } from './BlockMeasurer';
 export { ContentDistributor, type IContentDistributor } from './ContentDistributor';
 export { PaginationController, type IPaginationController } from './PaginationController';
+export { ParagraphSplitter, type IParagraphSplitter } from './ParagraphSplitter';
