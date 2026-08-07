@@ -45,6 +45,7 @@ import { FontSize } from '../tiptapFontSize';
 import { FootnoteNode, type CitationConfigLike, type FootnoteAttrs } from '../tiptapFootnote';
 import { BlockLayoutCommands, IndentableHeading, IndentableParagraph } from '../tiptapIndent';
 import { PageNumberNode, DateNode } from '../tiptapHeaderFooterNodes';
+import { PageBreakNode, PaginationExtension } from '../pagination';
 
 import { EditorToolbar } from './toolbar/EditorToolbar';
 import { FootnoteList } from './FootnoteList';
@@ -197,6 +198,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           onCommentActivated: (commentId) => onCommentActivatedRef.current?.(commentId),
         }),
         FootnoteNode,
+        PageBreakNode,
+        PaginationExtension,
       ],
       content: initialContent ?? EMPTY_DOC,
       editorProps: {
