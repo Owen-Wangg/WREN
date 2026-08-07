@@ -19,6 +19,13 @@ import { PAGE_CONFIG } from './types';
 import type { PageAssignment, SplitInfo } from './types';
 
 // ---------------------------------------------------------------------------
+// Header/Footer clone CSS class names
+// ---------------------------------------------------------------------------
+
+const HEADER_CLONE_CLASS = 'pagination-header-clone';
+const FOOTER_CLONE_CLASS = 'pagination-footer-clone';
+
+// ---------------------------------------------------------------------------
 // CSS class names
 // ---------------------------------------------------------------------------
 
@@ -39,6 +46,7 @@ function applyWorkspaceStyles(el: HTMLElement): void {
 
 /** Page_Container: US Letter at 96 DPI with margins, shadow, overflow visible */
 function applyPageStyles(el: HTMLElement): void {
+  el.style.position = 'relative';
   el.style.width = `${PAGE_CONFIG.WIDTH_PX}px`;
   el.style.minHeight = `${PAGE_CONFIG.HEIGHT_PX}px`;
   el.style.backgroundColor = 'var(--surface-primary, #ffffff)';
@@ -66,6 +74,21 @@ export class PageRenderer {
 
   /** Original children of the scroll container (saved for restore on destroy). */
   private originalChildren: Node[] = [];
+
+  /** MutationObserver watching header content for changes. */
+  private headerObserver: MutationObserver | null = null;
+
+  /** MutationObserver watching footer content for changes. */
+  private footerObserver: MutationObserver | null = null;
+
+  /** Debounce timer ID for header/footer update propagation. */
+  private headerFooterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Cached reference to the header content element. */
+  private currentHeaderContent: HTMLElement | null = null;
+
+  /** Cached reference to the footer content element. */
+  private currentFooterContent: HTMLElement | null = null;
 
   /**
    * Creates a new PageRenderer.
@@ -147,18 +170,104 @@ export class PageRenderer {
   // Public API — Phase 3 stubs
   // -------------------------------------------------------------------------
 
-  /** Renders cloned header/footer content on all pages. (Phase 3 stub) */
+  /** Renders cloned header/footer content on all pages.
+   *
+   * - Page 1: header/footer remain as the editable Tiptap editor instances
+   *   (not cloned — they stay editable).
+   * - Pages 2+: header/footer DOM content is cloned and inserted as read-only,
+   *   non-focusable, non-selectable regions within the top/bottom margin areas.
+   * - A MutationObserver watches for changes on the source elements and
+   *   propagates updates to all clones within 500ms (debounced).
+   *
+   * @see Requirements 5.1, 5.2, 5.3, 5.4, 5.7
+   */
   renderHeaderFooter(
-    _headerContent: HTMLElement | null,
-    _footerContent: HTMLElement | null,
+    headerContent: HTMLElement | null,
+    footerContent: HTMLElement | null,
     _pageCount: number,
   ): void {
-    // Phase 3: will clone header/footer into each page container.
+    // Clear any existing clones before re-rendering
+    this.clearHeaderFooter();
+
+    // Cache content references for observer-driven updates
+    this.currentHeaderContent = headerContent;
+    this.currentFooterContent = footerContent;
+
+    // Clone header/footer into pages 2+ (index >= 1)
+    for (let i = 1; i < this.pages.length; i++) {
+      const page = this.pages[i];
+
+      if (headerContent) {
+        const headerClone = this.createReadOnlyClone(headerContent, HEADER_CLONE_CLASS);
+        this.applyHeaderCloneStyles(headerClone);
+        // Insert header clone at the beginning of the page container
+        if (page.firstChild) {
+          page.insertBefore(headerClone, page.firstChild);
+        } else {
+          page.appendChild(headerClone);
+        }
+      }
+
+      if (footerContent) {
+        const footerClone = this.createReadOnlyClone(footerContent, FOOTER_CLONE_CLASS);
+        this.applyFooterCloneStyles(footerClone);
+        // Append footer clone at the end of the page container
+        page.appendChild(footerClone);
+      }
+    }
+
+    // Set up MutationObservers on source elements for change propagation
+    this.setupHeaderFooterObservers(headerContent, footerContent);
   }
 
-  /** Resolves page number nodes to their correct ordinal. (Phase 3 stub) */
-  resolvePageNumbers(_pageCount: number): void {
-    // Phase 3: will update PageNumberNode display values.
+  /**
+   * Resolves all PageNumberNode elements to display their page's 1-based
+   * ordinal position. Iterates over every page container and sets the
+   * textContent of each `[data-page-number]` span to the page number.
+   *
+   * This handles both the editable header/footer on page 1 and all cloned
+   * (read-only) headers/footers on subsequent pages.
+   *
+   * Called after every repagination that may change the page count.
+   *
+   * @see Requirements 6.1, 6.2, 6.3, 6.4
+   */
+  resolvePageNumbers(pageCount: number): void {
+    const count = Math.max(1, pageCount);
+
+    for (let i = 0; i < this.pages.length && i < count; i++) {
+      const page = this.pages[i];
+      const pageNumber = String(i + 1);
+
+      // Find all page number nodes within this page container (including
+      // those inside cloned header/footer regions)
+      const pageNumberNodes = page.querySelectorAll<HTMLElement>(
+        '[data-page-number]',
+      );
+      for (const node of pageNumberNodes) {
+        node.textContent = pageNumber;
+      }
+    }
+
+    // Also resolve any page number nodes in the workspace that live outside
+    // page containers (e.g. in the editable header/footer editors that are
+    // siblings of the page stack). Search the workspace root level.
+    if (this.workspace) {
+      const workspacePageNumbers = this.workspace.querySelectorAll<HTMLElement>(
+        `:scope > [data-page-number], .${HEADER_CLONE_CLASS} [data-page-number], .${FOOTER_CLONE_CLASS} [data-page-number]`,
+      );
+      for (const node of workspacePageNumbers) {
+        // Determine which page this node belongs to by finding its ancestor page
+        const parentPage = node.closest(`.${PAGE_CLASS}`);
+        if (parentPage) {
+          const pageIndex = parseInt(
+            parentPage.getAttribute('data-page-index') ?? '0',
+            10,
+          );
+          node.textContent = String(pageIndex + 1);
+        }
+      }
+    }
   }
 
   /**
@@ -277,6 +386,10 @@ export class PageRenderer {
   destroy(): void {
     if (!this.workspace || !this.scrollContainer) return;
 
+    // Clean up header/footer clones and observers
+    this.clearHeaderFooter();
+    this.disconnectHeaderFooterObservers();
+
     // Remove workspace from scroll container
     this.workspace.remove();
     this.workspace = null;
@@ -292,6 +405,128 @@ export class PageRenderer {
   // -------------------------------------------------------------------------
   // Internal helpers
   // -------------------------------------------------------------------------
+
+  /**
+   * Removes all cloned header/footer elements from pages 2+.
+   * Targets elements with the `pagination-header-clone` or
+   * `pagination-footer-clone` CSS class.
+   */
+  private clearHeaderFooter(): void {
+    for (const page of this.pages) {
+      const headerClones = page.querySelectorAll<HTMLElement>(`.${HEADER_CLONE_CLASS}`);
+      for (const clone of headerClones) {
+        clone.remove();
+      }
+      const footerClones = page.querySelectorAll<HTMLElement>(`.${FOOTER_CLONE_CLASS}`);
+      for (const clone of footerClones) {
+        clone.remove();
+      }
+    }
+  }
+
+  /**
+   * Deep-clones a source element and makes the clone non-interactive:
+   * contenteditable="false", tabindex="-1", aria-hidden="true",
+   * user-select: none, pointer-events: none.
+   */
+  private createReadOnlyClone(sourceElement: HTMLElement, className: string): HTMLElement {
+    const clone = sourceElement.cloneNode(true) as HTMLElement;
+    clone.classList.add(className);
+    clone.setAttribute('contenteditable', 'false');
+    clone.setAttribute('tabindex', '-1');
+    clone.setAttribute('aria-hidden', 'true');
+    clone.style.userSelect = 'none';
+    clone.style.pointerEvents = 'none';
+    return clone;
+  }
+
+  /**
+   * Styles a header clone for the top margin region of its page container.
+   * Positioned absolutely at top-left within the page's padding area.
+   */
+  private applyHeaderCloneStyles(el: HTMLElement): void {
+    el.style.position = 'absolute';
+    el.style.top = '0';
+    el.style.left = `${PAGE_CONFIG.MARGIN_PX}px`;
+    el.style.right = `${PAGE_CONFIG.MARGIN_PX}px`;
+    el.style.zIndex = '1';
+  }
+
+  /**
+   * Styles a footer clone for the bottom margin region of its page container.
+   * Positioned absolutely at bottom-left within the page's padding area.
+   */
+  private applyFooterCloneStyles(el: HTMLElement): void {
+    el.style.position = 'absolute';
+    el.style.bottom = '0';
+    el.style.left = `${PAGE_CONFIG.MARGIN_PX}px`;
+    el.style.right = `${PAGE_CONFIG.MARGIN_PX}px`;
+    el.style.zIndex = '1';
+  }
+
+  /**
+   * Sets up MutationObservers on the source header/footer elements.
+   * When changes are detected, triggers a debounced re-render of cloned
+   * header/footer content across all pages (500ms debounce).
+   *
+   * @see Requirements 5.4
+   */
+  private setupHeaderFooterObservers(
+    headerContent: HTMLElement | null,
+    footerContent: HTMLElement | null,
+  ): void {
+    // Disconnect any existing observers first
+    this.disconnectHeaderFooterObservers();
+
+    const observerOptions: MutationObserverInit = {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    };
+
+    const debouncedRender = () => {
+      if (this.headerFooterDebounceTimer !== null) {
+        clearTimeout(this.headerFooterDebounceTimer);
+      }
+      this.headerFooterDebounceTimer = setTimeout(() => {
+        this.headerFooterDebounceTimer = null;
+        this.renderHeaderFooter(
+          this.currentHeaderContent,
+          this.currentFooterContent,
+          this.pages.length,
+        );
+      }, 500);
+    };
+
+    if (headerContent) {
+      this.headerObserver = new MutationObserver(debouncedRender);
+      this.headerObserver.observe(headerContent, observerOptions);
+    }
+
+    if (footerContent) {
+      this.footerObserver = new MutationObserver(debouncedRender);
+      this.footerObserver.observe(footerContent, observerOptions);
+    }
+  }
+
+  /**
+   * Disconnects any active MutationObservers watching header/footer content
+   * and clears the debounce timer.
+   */
+  private disconnectHeaderFooterObservers(): void {
+    if (this.headerObserver) {
+      this.headerObserver.disconnect();
+      this.headerObserver = null;
+    }
+    if (this.footerObserver) {
+      this.footerObserver.disconnect();
+      this.footerObserver = null;
+    }
+    if (this.headerFooterDebounceTimer !== null) {
+      clearTimeout(this.headerFooterDebounceTimer);
+      this.headerFooterDebounceTimer = null;
+    }
+  }
 
   /**
    * Locates a block element within a page container by its block index.

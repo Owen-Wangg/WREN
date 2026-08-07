@@ -15,7 +15,6 @@ import type {
   PageAssignment,
   BlockAssignment,
   LineMeasurement,
-  SplitInfo,
 } from './types';
 import { ParagraphSplitter } from './ParagraphSplitter';
 

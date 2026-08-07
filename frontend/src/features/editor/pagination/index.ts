@@ -20,6 +20,7 @@ export {
 
 export { PaginationExtension } from './PaginationExtension';
 export { PageBreakNode } from './PageBreakNode';
+export { PageNumberNode } from './PageNumberNode';
 export { PageRenderer } from './PageRenderer';
 export { BlockMeasurer, type IBlockMeasurer } from './BlockMeasurer';
 export { ContentDistributor, type IContentDistributor } from './ContentDistributor';

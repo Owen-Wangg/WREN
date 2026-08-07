@@ -226,7 +226,7 @@ describe('ContentDistributor — Property-Based Tests', () => {
           blockMeasurementsArb,
           pageConfigArb,
           fc.integer({ min: 0, max: 49 }),
-          (measurements, options, editPageSeed) => {
+          (measurements, options, _editPageSeed) => {
             // Full recalculation
             const fullResult = distributor.distribute(measurements, options);
 
