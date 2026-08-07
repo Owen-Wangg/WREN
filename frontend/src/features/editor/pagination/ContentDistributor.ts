@@ -256,8 +256,9 @@ export class ContentDistributor implements IContentDistributor {
         }
 
         // Table is taller than one full usable page — split at row boundaries
-        // Only split if we have actual row data (lines used as row proxy)
-        if (measurement.lines && measurement.lines.length > 1) {
+        // Only split if we have actual row data (rows or lines used as row proxy)
+        if ((measurement.rows && measurement.rows.length > 1) ||
+            (measurement.lines && measurement.lines.length > 1)) {
           this.splitTableAcrossPages(
             measurement,
             effectiveHeight,
@@ -316,8 +317,9 @@ export class ContentDistributor implements IContentDistributor {
         }
 
         // List is taller than one full usable page — split between items
-        // Only split if we have actual item data (lines used as item proxy)
-        if (measurement.lines && measurement.lines.length > 1) {
+        // Only split if we have actual item data (items or lines used as item proxy)
+        if ((measurement.items && measurement.items.length > 1) ||
+            (measurement.lines && measurement.lines.length > 1)) {
           this.splitListAcrossPages(
             measurement,
             effectiveHeight,
