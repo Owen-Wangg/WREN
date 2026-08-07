@@ -23,10 +23,8 @@ import type {
   PageAssignment,
   BlockAssignment,
   LineMeasurement,
-  SplitInfo,
 } from './types';
 import { ParagraphSplitter } from './ParagraphSplitter';
-import { PAGE_CONFIG } from './types';
 
 /**
  * Interface for the ContentDistributor.
@@ -508,6 +506,8 @@ export class ContentDistributor implements IContentDistributor {
    * If the table has a header row, it's repeated on each continuation page.
    * If a single row exceeds one full usable height, it's placed on its own
    * page with overflow clipped.
+   *
+   * Uses actual RowMeasurement data (measurement.rows) for precise splitting.
    */
   private splitTableAcrossPages(
     measurement: BlockMeasurement,
@@ -517,17 +517,21 @@ export class ContentDistributor implements IContentDistributor {
     pages: PageAssignment[],
     startPageIndex: number,
   ): void {
-    const { blockIndex, height } = measurement;
-    const remainingHeight = effectiveHeight - currentUsedHeight;
+    const { blockIndex } = measurement;
+    const rows = measurement.rows ?? measurement.lines?.map((l, i) => ({
+      rowIndex: i,
+      top: l.top,
+      height: l.height,
+      bottom: l.bottom,
+      isHeader: i === 0,
+    })) ?? [];
 
-    // Estimate rows — use lines if available, otherwise estimate
-    const rowCount = measurement.lines?.length ??
-      Math.max(1, Math.ceil(height / 40)); // rough estimate: 40px per row
-    const avgRowHeight = height / rowCount;
+    if (rows.length === 0) return;
 
-    // Estimate header row height (first row)
-    const headerRowHeight = avgRowHeight;
-    const hasHeaderRow = rowCount > 1; // assume header if multi-row
+    // Find header row(s)
+    const headerRows = rows.filter(r => r.isHeader);
+    const headerHeight = headerRows.reduce((sum, r) => sum + r.height, 0);
+    const dataRows = rows.filter(r => !r.isHeader);
 
     // Finalize current page if it has content
     if (currentBlocks.length > 0 || currentUsedHeight > 0) {
@@ -540,22 +544,56 @@ export class ContentDistributor implements IContentDistributor {
       startPageIndex++;
     }
 
-    // Split rows across pages
-    let currentRowStart = 0;
-    let currentPageUsed = 0;
+    // Split data rows across pages (header repeated on each)
     let pageIdx = startPageIndex;
-    const pageBlocks: BlockAssignment[][] = [[]];
+    let currentPageUsed = headerHeight; // first page includes header
+    let splitStartRow = 0;
 
-    for (let row = 0; row < rowCount; row++) {
-      const rowHeight = avgRowHeight;
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i];
 
-      // Account for header row repetition on continuation pages
-      const effectiveOnPage = pageIdx > startPageIndex && hasHeaderRow
-        ? currentPageUsed + rowHeight + headerRowHeight
-        : currentPageUsed + rowHeight;
+      // If a single row exceeds effective height, give it its own page
+      if (row.height > effectiveHeight) {
+        // Finalize current page if it has rows
+        if (i > splitStartRow) {
+          pages.push({
+            pageIndex: pageIdx,
+            blocks: [{
+              blockIndex,
+              startOnPage: pageIdx,
+              split: {
+                type: 'table',
+                splitAtRow: dataRows[splitStartRow].rowIndex + (i - splitStartRow),
+                continuationPageIndex: pageIdx + 1,
+              },
+            }],
+            usedHeight: currentPageUsed,
+            availableHeight: effectiveHeight - currentPageUsed,
+          });
+          pageIdx++;
+        }
+        // Place oversized row on its own page (clipped)
+        pages.push({
+          pageIndex: pageIdx,
+          blocks: [{
+            blockIndex,
+            startOnPage: pageIdx,
+            split: i < dataRows.length - 1
+              ? { type: 'table', splitAtRow: rows.indexOf(row) + 1, continuationPageIndex: pageIdx + 1 }
+              : undefined,
+          }],
+          usedHeight: effectiveHeight,
+          availableHeight: 0,
+        });
+        pageIdx++;
+        currentPageUsed = headerHeight;
+        splitStartRow = i + 1;
+        continue;
+      }
 
-      if (effectiveOnPage > effectiveHeight && currentPageUsed > 0) {
-        // Start new page
+      // Check if row fits on current page
+      if (currentPageUsed + row.height > effectiveHeight && i > splitStartRow) {
+        // Finalize current page and start new one
         pages.push({
           pageIndex: pageIdx,
           blocks: [{
@@ -563,7 +601,7 @@ export class ContentDistributor implements IContentDistributor {
             startOnPage: pageIdx,
             split: {
               type: 'table',
-              splitAtRow: row,
+              splitAtRow: rows.indexOf(dataRows[i]),
               continuationPageIndex: pageIdx + 1,
             },
           }],
@@ -571,11 +609,11 @@ export class ContentDistributor implements IContentDistributor {
           availableHeight: effectiveHeight - currentPageUsed,
         });
         pageIdx++;
-        currentPageUsed = hasHeaderRow ? headerRowHeight : 0;
-        currentRowStart = row;
+        currentPageUsed = headerHeight; // header repeated on new page
+        splitStartRow = i;
       }
 
-      currentPageUsed += rowHeight;
+      currentPageUsed += row.height;
     }
 
     // Finalize last table page
@@ -598,6 +636,8 @@ export class ContentDistributor implements IContentDistributor {
    * Splits a list across multiple pages between list items.
    * Leaves minimum 1 item on current page and carries minimum 1 to next.
    * For ordered lists, numbering continues sequentially.
+   *
+   * Uses actual ItemMeasurement data (measurement.items) for precise splitting.
    */
   private splitListAcrossPages(
     measurement: BlockMeasurement,
@@ -607,12 +647,15 @@ export class ContentDistributor implements IContentDistributor {
     pages: PageAssignment[],
     startPageIndex: number,
   ): void {
-    const { blockIndex, height } = measurement;
+    const { blockIndex } = measurement;
+    const items = measurement.items ?? measurement.lines?.map((l, i) => ({
+      itemIndex: i,
+      top: l.top,
+      height: l.height,
+      bottom: l.bottom,
+    })) ?? [];
 
-    // Estimate items — use lines if available, otherwise estimate
-    const itemCount = measurement.lines?.length ??
-      Math.max(2, Math.ceil(height / 30)); // rough: 30px per item
-    const avgItemHeight = height / itemCount;
+    if (items.length === 0) return;
 
     // Finalize current page if it has content
     if (currentBlocks.length > 0 || currentUsedHeight > 0) {
@@ -626,16 +669,17 @@ export class ContentDistributor implements IContentDistributor {
     }
 
     // Split items across pages
-    let currentPageUsed = 0;
     let pageIdx = startPageIndex;
+    let currentPageUsed = 0;
     let itemsOnPage = 0;
 
-    for (let item = 0; item < itemCount; item++) {
-      const itemHeight = avgItemHeight;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
 
-      if (currentPageUsed + itemHeight > effectiveHeight && itemsOnPage >= 1) {
-        // Start new page — ensure at least 1 item remains on next page
-        const remainingItems = itemCount - item;
+      // Check if item fits on current page
+      if (currentPageUsed + item.height > effectiveHeight && itemsOnPage >= 1) {
+        // Ensure at least 1 item remains for next page
+        const remainingItems = items.length - i;
         if (remainingItems >= 1) {
           pages.push({
             pageIndex: pageIdx,
@@ -644,7 +688,7 @@ export class ContentDistributor implements IContentDistributor {
               startOnPage: pageIdx,
               split: {
                 type: 'list',
-                splitAtItem: item,
+                splitAtItem: i,
                 continuationPageIndex: pageIdx + 1,
               },
             }],
@@ -657,7 +701,7 @@ export class ContentDistributor implements IContentDistributor {
         }
       }
 
-      currentPageUsed += itemHeight;
+      currentPageUsed += item.height;
       itemsOnPage++;
     }
 

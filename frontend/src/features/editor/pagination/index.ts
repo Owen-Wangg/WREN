@@ -14,6 +14,8 @@ export {
   type BlockAssignment,
   type SplitInfo,
   type LineMeasurement,
+  type RowMeasurement,
+  type ItemMeasurement,
   type SplitResult,
   type DistributionOptions,
 } from './types';

@@ -108,6 +108,18 @@ export interface BlockMeasurement {
    * is true to find optimal split points.
    */
   lines?: LineMeasurement[];
+  /**
+   * Pre-measured row data for table blocks. Each entry represents a table row
+   * with its measured height. Used by ContentDistributor for row-boundary
+   * splitting. The first row may be marked as a header row for repetition.
+   */
+  rows?: RowMeasurement[];
+  /**
+   * Pre-measured item data for list blocks. Each entry represents a list item
+   * with its measured height. Used by ContentDistributor for item-boundary
+   * splitting.
+   */
+  items?: ItemMeasurement[];
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +184,38 @@ export interface SplitInfo {
 export interface LineMeasurement {
   lineIndex: number;
   /** Top offset relative to the paragraph element's top. */
+  top: number;
+  height: number;
+  bottom: number;
+}
+
+// ---------------------------------------------------------------------------
+// Table Row Measurement
+// ---------------------------------------------------------------------------
+
+/**
+ * Measurement of a single table row for row-boundary splitting.
+ */
+export interface RowMeasurement {
+  rowIndex: number;
+  /** Top offset relative to the table element's top. */
+  top: number;
+  height: number;
+  bottom: number;
+  /** Whether this row is a header row (should be repeated on continuation pages). */
+  isHeader: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// List Item Measurement
+// ---------------------------------------------------------------------------
+
+/**
+ * Measurement of a single list item for item-boundary splitting.
+ */
+export interface ItemMeasurement {
+  itemIndex: number;
+  /** Top offset relative to the list element's top. */
   top: number;
   height: number;
   bottom: number;
