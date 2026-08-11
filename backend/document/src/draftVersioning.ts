@@ -82,6 +82,12 @@ export interface DraftSubmission {
   readonly s3Key: string;
   /** Optional TipTap JSON for rich editor reload. */
   readonly content?: TipTapDoc;
+  /** Repeating page header from PDF reconstruction; omitted for DOCX/paste. */
+  readonly header?: TipTapDoc | null;
+  /** Repeating page footer from PDF reconstruction; omitted for DOCX/paste. */
+  readonly footer?: TipTapDoc | null;
+  /** Document-level OCR confidence (0–100) from scanned-PDF ingest. */
+  readonly ocrConfidence?: number;
 }
 
 /** The outcome of recording a submission as a new Draft. */
@@ -126,6 +132,11 @@ export async function createDraftRevision(
     segments: submission.segments,
     wordCount: submission.wordCount,
     ...(submission.content ? { content: submission.content } : {}),
+    ...(submission.header ? { header: submission.header } : {}),
+    ...(submission.footer ? { footer: submission.footer } : {}),
+    ...(typeof submission.ocrConfidence === 'number'
+      ? { ocrConfidence: submission.ocrConfidence }
+      : {}),
   });
 
   // Association for re-evaluation (Requirement 8.3): only the FIRST Draft has no

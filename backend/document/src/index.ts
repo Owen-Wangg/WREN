@@ -19,10 +19,11 @@ export {
 } from './ingestion';
 export { UnsupportedFileFormatError } from './errors';
 export { MammothDocxExtractor, type DocxExtractor } from './docxExtractor';
-export { type PdfExtractor, type RichPdfExtractor } from './pdfExtractor';
+export { type PdfExtractor, type RichPdfExtractor, type RichPdfExtraction } from './pdfExtractor';
 export { TextractPdfExtractor } from './textractPdfExtractor';
 export {
   textractLayoutBlocksToTipTap,
+  convertTextractBlocks,
   convertTextractToTipTap,
   tipTapDocToPlainText,
   type TextractConversionResult,

@@ -23,6 +23,7 @@ import type { TipTapDoc, TipTapNode } from '@wren/types';
 import {
   mergeTextractLinesIntoParagraphs,
   mergeOcrLines,
+  joinLineTexts,
   type TextractLine,
   type PageMetrics,
   type MergedParagraph,
@@ -182,6 +183,7 @@ function lineFromBlock(block: Block): TextractLine | null {
     ...(typeof block.Confidence === 'number' ? { confidence: block.Confidence } : {}),
     ...(typeof box?.Top === 'number' ? { top: box.Top } : {}),
     ...(typeof box?.Height === 'number' ? { height: box.Height } : {}),
+    ...(typeof box?.Left === 'number' ? { left: box.Left } : {}),
     ...(typeof block.Page === 'number' ? { page: block.Page } : {}),
   };
 }
@@ -827,23 +829,23 @@ function buildEnrichedParagraph(
         if (wordBlocks.length > 0) {
           hasAnyWordBlocks = true;
           const runs = inferInlineFormatting(lineBlock, wordBlocks, metrics);
-          if (runs.length > 0) {
-            // Apply lowConfidence mark if needed
-            if (confResult.applyLowConfidenceMark) {
-              for (const run of runs) {
-                run.marks.push({ type: 'lowConfidence' as 'bold' | 'italic' | 'textStyle' });
+          const lineRuns: FormattedRun[] =
+            runs.length > 0
+              ? runs
+              : [
+                  {
+                    text: line.text,
+                    marks: [],
+                  },
+                ];
+          if (confResult.applyLowConfidenceMark) {
+            for (const run of lineRuns) {
+              if (!run.marks.some((m) => m.type === 'lowConfidence')) {
+                run.marks.push({ type: 'lowConfidence' });
               }
             }
-            formattedRuns.push(...runs);
-          } else {
-            // No formatting detected: plain text with optional lowConfidence
-            formattedRuns.push({
-              text: line.text,
-              marks: confResult.applyLowConfidenceMark
-                ? [{ type: 'lowConfidence' as 'bold' | 'italic' | 'textStyle' }]
-                : [],
-            });
           }
+          appendJoinedLineRuns(formattedRuns, lineRuns);
         }
       }
     }
@@ -884,6 +886,27 @@ function buildEnrichedParagraph(
   };
 
   return paraNode;
+}
+
+/**
+ * Concatenate WORD runs from consecutive wrapped lines using the same
+ * hyphen / space rules as `joinLineTexts` so merged paragraph text is not lost.
+ */
+function appendJoinedLineRuns(target: FormattedRun[], nextLineRuns: FormattedRun[]): void {
+  if (nextLineRuns.length === 0) return;
+  if (target.length === 0) {
+    target.push(...nextLineRuns);
+    return;
+  }
+  const last = target[target.length - 1]!;
+  const firstNext = nextLineRuns[0]!;
+  const joined = joinLineTexts(last.text, firstNext.text);
+  if (joined === `${last.text.slice(0, -1)}${firstNext.text}`) {
+    last.text = last.text.slice(0, -1);
+    target.push(...nextLineRuns);
+    return;
+  }
+  target.push({ text: ' ', marks: [] }, ...nextLineRuns);
 }
 
 /**
@@ -1390,21 +1413,16 @@ function textToTipTapDoc(text: string): TipTapDoc {
  * @param _s3Client - S3 client instance (reserved for future figure upload)
  * @param _bucketName - S3 bucket name (reserved for future figure upload)
  */
-export async function convertTextractToTipTap(
-  blocks: readonly Block[],
-  _pdfBuffer: Buffer,
-  _documentId: string,
-  _s3Client: S3Client,
-  _bucketName: string,
-): Promise<TextractConversionResult> {
-  // Step 1: Produce the main TipTap document
+/**
+ * Sync ingest entry: body TipTap plus header/footer/confidence for draft persistence.
+ * Live OCR calls this instead of `textractLayoutBlocksToTipTap` alone.
+ */
+export function convertTextractBlocks(blocks: readonly Block[]): TextractConversionResult {
   const document = textractLayoutBlocksToTipTap(blocks);
 
-  // Step 2: Extract headers/footers for metadata
   const pageCount = computePageCount(blocks);
   const headerFooterResult = extractHeadersFooters([...blocks], pageCount);
 
-  // Step 3: Convert deduplicated header/footer to TipTap docs
   const header: TipTapDoc | null = headerFooterResult.deduplicatedHeader
     ? validateTipTapOutput(textToTipTapDoc(headerFooterResult.deduplicatedHeader))
     : null;
@@ -1413,11 +1431,20 @@ export async function convertTextractToTipTap(
     ? validateTipTapOutput(textToTipTapDoc(headerFooterResult.deduplicatedFooter))
     : null;
 
-  // Step 4: Compute document-level confidence from all LINE → WORD blocks
   const allLineConfidences = computeAllLineConfidences(blocks);
   const documentConfidence = computeDocumentConfidence(allLineConfidences);
 
   return { document, header, footer, documentConfidence };
+}
+
+export async function convertTextractToTipTap(
+  blocks: readonly Block[],
+  _pdfBuffer: Buffer,
+  _documentId: string,
+  _s3Client: S3Client,
+  _bucketName: string,
+): Promise<TextractConversionResult> {
+  return convertTextractBlocks(blocks);
 }
 
 /**

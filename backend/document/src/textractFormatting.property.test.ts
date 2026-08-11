@@ -420,9 +420,11 @@ describe('Property 3: Font size mark application', () => {
             const textStyleMark = run.marks.find((m) => m.type === 'textStyle');
             expect(textStyleMark).toBeDefined();
             expect(textStyleMark!.attrs).toBeDefined();
-            expect(typeof textStyleMark!.attrs!.fontSize).toBe('number');
-            // Allow floating point tolerance
-            expect(Math.abs((textStyleMark!.attrs!.fontSize as number) - expectedFontSize)).toBeLessThan(1e-10);
+            expect(typeof textStyleMark!.attrs!.fontSize).toBe('string');
+            expect(String(textStyleMark!.attrs!.fontSize)).toMatch(/pt$/);
+            expect(
+              Math.abs(parseFloat(String(textStyleMark!.attrs!.fontSize)) - expectedFontSize),
+            ).toBeLessThan(0.05);
           }
         } else {
           // No run should have a textStyle mark with fontSize
@@ -512,8 +514,9 @@ describe('Property 3: Font size mark application', () => {
             const textStyleMark = run.marks.find((m) => m.type === 'textStyle');
             expect(textStyleMark).toBeDefined();
             expect(textStyleMark!.attrs).toBeDefined();
-            const actualFontSize = textStyleMark!.attrs!.fontSize as number;
-            expect(Math.abs(actualFontSize - expectedFontSize)).toBeLessThan(1e-10);
+            const actualFontSize = parseFloat(String(textStyleMark!.attrs!.fontSize));
+            expect(String(textStyleMark!.attrs!.fontSize)).toMatch(/pt$/);
+            expect(Math.abs(actualFontSize - expectedFontSize)).toBeLessThan(0.05);
           }
         },
       ),

@@ -13,7 +13,11 @@ import type { Block, BlockType } from '@aws-sdk/client-textract';
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { TipTapNode } from '@wren/types';
 
-import { convertTextractToTipTap, type TextractConversionResult } from './textractLayoutToTipTap.js';
+import {
+  convertTextractBlocks,
+  convertTextractToTipTap,
+  type TextractConversionResult,
+} from './textractLayoutToTipTap.js';
 
 // Minimal stub for S3Client (not used in current implementation)
 const mockS3Client = {} as S3Client;
@@ -83,6 +87,23 @@ function makeLayoutBlock(
       : undefined,
   };
 }
+
+describe('convertTextractBlocks', () => {
+  it('is the sync ingest entry used by live OCR', () => {
+    const blocks: Block[] = [
+      makeLayoutBlock('layout1', 'LAYOUT_TEXT', 1, ['line1']),
+      makeLineBlock('line1', 'Hello world', 1, ['word1', 'word2']),
+      makeWordBlock('word1', 'Hello', 1, 95),
+      makeWordBlock('word2', 'world', 1, 90),
+    ];
+
+    const result = convertTextractBlocks(blocks);
+    expect(result.document.type).toBe('doc');
+    expect(result.documentConfidence).toBeCloseTo(92.5, 1);
+    expect(result.header).toBeNull();
+    expect(result.footer).toBeNull();
+  });
+});
 
 describe('convertTextractToTipTap', () => {
   it('returns a valid TextractConversionResult with document, header, footer, and confidence', async () => {

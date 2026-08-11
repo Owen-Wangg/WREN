@@ -154,7 +154,7 @@ function computeMedianLineHeightFromLines(
  *
  * Validates: Requirement 8.2
  */
-function joinLineTexts(prevText: string, nextText: string): string {
+export function joinLineTexts(prevText: string, nextText: string): string {
   if (prevText.endsWith('-') && nextText.length > 0 && /^\w/.test(nextText)) {
     return prevText.slice(0, -1) + nextText;
   }

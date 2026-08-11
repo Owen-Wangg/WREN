@@ -43,6 +43,11 @@ class FakeDraftRepository implements DraftRepository {
       wordCount: input.wordCount,
       createdAt: new Date(Date.UTC(2025, 0, this.nextId)).toISOString(),
       ...(input.content ? { content: input.content } : {}),
+      ...(input.header ? { header: input.header } : {}),
+      ...(input.footer ? { footer: input.footer } : {}),
+      ...(typeof input.ocrConfidence === 'number'
+        ? { ocrConfidence: input.ocrConfidence }
+        : {}),
     };
     this.nextId += 1;
     this.drafts.push(draft);

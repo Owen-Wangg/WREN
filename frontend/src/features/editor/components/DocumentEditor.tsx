@@ -42,6 +42,7 @@ import StarterKit from '@tiptap/starter-kit';
 
 import { docxBytesToTiptapContent, tiptapContentToDocxBlob } from '../docxContentMapper';
 import { FontSize } from '../tiptapFontSize';
+import { LowConfidence } from '../tiptapLowConfidence';
 import { FootnoteNode, type CitationConfigLike, type FootnoteAttrs } from '../tiptapFootnote';
 import { BlockLayoutCommands, IndentableHeading, IndentableParagraph } from '../tiptapIndent';
 import { PageNumberNode, DateNode } from '../tiptapHeaderFooterNodes';
@@ -161,6 +162,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         BlockLayoutCommands,
         TextStyle,
         FontSize,
+        LowConfidence,
         FontFamily,
         Color,
         BackgroundColor,

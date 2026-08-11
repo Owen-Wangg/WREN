@@ -196,6 +196,7 @@ export function DocumentEditorPage() {
     () => state?.docxParseWarning,
   );
   const [isPollingIngest, setIsPollingIngest] = useState(() => !!state?.ingestQueued);
+  const [ocrBannerDismissed, setOcrBannerDismissed] = useState(false);
   const [ingestError, setIngestError] = useState<string | undefined>(undefined);
 
   // Strip transient upload flags from history state immediately after mount so
@@ -342,12 +343,15 @@ export function DocumentEditorPage() {
     if (draftContent && identity && identity !== syncedDraftIdentityRef.current) {
       syncedDraftIdentityRef.current = identity;
       setCurrentContent(draftContent);
+      setCurrentHeader(draftHeader);
+      setCurrentFooter(draftFooter);
+      setOcrBannerDismissed(false);
       return;
     }
     if (!draftContent && routerInitialContent && !syncedDraftIdentityRef.current) {
       setCurrentContent(routerInitialContent);
     }
-  }, [draftContent, draftQuery.data, routerInitialContent]);
+  }, [draftContent, draftHeader, draftFooter, draftQuery.data, routerInitialContent]);
 
   // Seed once per visit after the enter-page draft fetch — covers content-only
   // autosave where draft id/version are unchanged.
@@ -477,6 +481,24 @@ export function DocumentEditorPage() {
   };
 
   useEffect(() => {
+    if (!documentId || state?.ingestQueued) return;
+    let cancelled = false;
+    void fetchIngestStatus(apiClient, envId)
+      .then((status) => {
+        if (cancelled) return;
+        if (status.status === 'queued' || status.status === 'processing') {
+          setIsPollingIngest(true);
+        }
+      })
+      .catch(() => {
+        // No job or transient error — draft fetch will surface a missing draft.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, envId, state?.ingestQueued]);
+
+  useEffect(() => {
     if (!isPollingIngest) return;
 
     let cancelled = false;
@@ -494,6 +516,12 @@ export function DocumentEditorPage() {
             if (cancelled) return;
             if (isTipTapDoc(draft.content)) {
               setCurrentContent(draft.content as JSONContent);
+            }
+            if (isTipTapDoc(draft.header)) {
+              setCurrentHeader(draft.header as JSONContent);
+            }
+            if (isTipTapDoc(draft.footer)) {
+              setCurrentFooter(draft.footer as JSONContent);
             }
           } catch {
             // Draft query invalidate will still refresh when available.
@@ -1005,6 +1033,32 @@ export function DocumentEditorPage() {
               <p className="text-bodySmall text-text-secondary">
                 Extracting PDF… this can take a minute for scanned pages.
               </p>
+            </div>
+          )}
+          {typeof draftQuery.data?.ocrConfidence === 'number' &&
+            !isPollingIngest &&
+            !ocrBannerDismissed && (
+            <div
+              role="status"
+              className={`flex items-start justify-between gap-md border-b px-lg py-sm ${
+                draftQuery.data.ocrConfidence < 70
+                  ? 'border-signal-caution/40 bg-signal-caution/10'
+                  : 'border-border-subtle bg-surface-primary'
+              }`}
+            >
+              <p className="text-bodySmall text-text-primary leading-relaxed">
+                OCR confidence {draftQuery.data.ocrConfidence.toFixed(0)}%
+                {draftQuery.data.ocrConfidence < 70
+                  ? ' — some text may need a manual check. Low-confidence words are highlighted in the draft.'
+                  : '.'}
+              </p>
+              <button
+                type="button"
+                className="shrink-0 text-caption font-sans font-medium text-text-secondary underline-offset-2 hover:underline"
+                onClick={() => setOcrBannerDismissed(true)}
+              >
+                Dismiss
+              </button>
             </div>
           )}
           {ingestError && !isPollingIngest && (

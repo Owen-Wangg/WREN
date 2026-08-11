@@ -163,37 +163,6 @@ function toDocumentDto(row: any) {
   };
 }
 
-/** Map a `draft` row to the shared camelCase Draft DTO. */
-function toDraftDto(row: any) {
-  const segmentsRaw =
-    typeof row.segments === 'string' ? JSON.parse(row.segments) : (row.segments ?? []);
-  const segments = normalizeSegments(segmentsRaw);
-  const s3Key =
-    typeof row.s3_key === 'string' && row.s3_key.length > 0 ? row.s3_key : 'inline';
-  const contentRaw =
-    typeof row.content === 'string'
-      ? (() => {
-          try {
-            return JSON.parse(row.content);
-          } catch {
-            return null;
-          }
-        })()
-      : row.content;
-  const content = isTipTapDoc(contentRaw) ? (contentRaw as TipTapDoc) : undefined;
-  return {
-    id: row.id,
-    documentId: row.document_id,
-    versionNumber: row.version_number,
-    s3Key,
-    segments,
-    wordCount:
-      typeof row.word_count === 'number' ? row.word_count : wordCountFromSegments(segments),
-    createdAt: toIsoDateTime(row.created_at),
-    ...(content ? { content } : {}),
-  };
-}
-
 /**
  * Maintain the department `active_users` counter in `aggregate_counter`.
  * Called after document INSERT (delta=+1) and after document DELETE (delta=-1).
@@ -674,6 +643,11 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
         : sizeResult.measuredWords,
       s3Key,
       ...(storedContent ? { content: storedContent } : {}),
+      ...(ingestResult.header ? { header: ingestResult.header } : {}),
+      ...(ingestResult.footer ? { footer: ingestResult.footer } : {}),
+      ...(typeof ingestResult.ocrConfidence === 'number'
+        ? { ocrConfidence: ingestResult.ocrConfidence }
+        : {}),
     },
     draftRepo,
   );
@@ -833,16 +807,10 @@ async function handleGetLatestDraft(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  const draftQuery = `
-    SELECT id, document_id, version_number, s3_key, segments, word_count, created_at, content
-    FROM draft
-    WHERE document_id = $1
-    ORDER BY version_number DESC
-    LIMIT 1
-  `;
-  const draftRows = await db.query(draftQuery, [documentId]);
+  const repo = new DbDraftRepository(db);
+  const draft = await repo.getCurrentDraft(documentId as string);
 
-  if (draftRows.length === 0) {
+  if (!draft) {
     return {
       statusCode: 404,
       body: JSON.stringify({ code: 'NOT_FOUND', message: 'No draft found' }),
@@ -851,7 +819,7 @@ async function handleGetLatestDraft(event: any): Promise<APIGatewayProxyResult> 
 
   return {
     statusCode: 200,
-    body: JSON.stringify(toDraftDto(draftRows[0])),
+    body: JSON.stringify(draft),
   };
 }
 
@@ -979,6 +947,9 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   let normalizedSegments: Array<{ index: number; text: string }>;
   let wordCount: number;
   let storedContent: TipTapDoc | undefined = tipTapContent;
+  let storedHeader: TipTapDoc | undefined;
+  let storedFooter: TipTapDoc | undefined;
+  let storedOcrConfidence: number | undefined;
 
   if (hasSource) {
     let ingestSource:
@@ -1084,6 +1055,9 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
 
     // Client TipTap wins; else server PDF TipTap from ingest.
     storedContent = tipTapContent ?? ingestResult.content;
+    storedHeader = ingestResult.header ?? undefined;
+    storedFooter = ingestResult.footer ?? undefined;
+    storedOcrConfidence = ingestResult.ocrConfidence;
     normalizedSegments = storedContent
       ? tipTapContentToSegments(storedContent)
       : normalizeSegments(ingestResult.segments);
@@ -1149,6 +1123,11 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       wordCount,
       s3Key,
       ...(storedContent ? { content: storedContent } : {}),
+      ...(storedHeader ? { header: storedHeader } : {}),
+      ...(storedFooter ? { footer: storedFooter } : {}),
+      ...(typeof storedOcrConfidence === 'number'
+        ? { ocrConfidence: storedOcrConfidence }
+        : {}),
     },
     draftRepo,
   );

@@ -83,6 +83,11 @@ body {
   line-height: 1.45;
 }
 
+.document-editor-surface .ocr-low-confidence {
+  background-color: color-mix(in srgb, var(--color-signal-caution) 16%, transparent);
+  border-bottom: 1px dotted var(--color-signal-caution);
+}
+
 .document-editor-surface h1 {
   font-family: var(--font-sans);
   font-size: var(--text-heading2);

@@ -27,7 +27,10 @@ export interface PageMetrics {
  */
 export interface FormattedRun {
   text: string;
-  marks: Array<{ type: 'bold' | 'italic' | 'textStyle'; attrs?: Record<string, unknown> }>;
+  marks: Array<{
+    type: 'bold' | 'italic' | 'textStyle' | 'lowConfidence';
+    attrs?: Record<string, unknown>;
+  }>;
 }
 
 /** Threshold: run average height must exceed this multiple of median to be bold. */
@@ -204,7 +207,10 @@ export function inferInlineFormatting(
     lineHeight > FONT_SIZE_LINE_HEIGHT_RATIO * pageMetrics.medianLineHeight
   ) {
     const fontSize = (lineHeight / pageMetrics.medianLineHeight) * BASE_FONT_SIZE;
-    fontSizeMark = { type: 'textStyle', attrs: { fontSize } };
+    fontSizeMark = {
+      type: 'textStyle',
+      attrs: { fontSize: `${Number(fontSize.toFixed(1))}pt` },
+    };
   }
 
   // Group words into runs for bold detection (Requirement 1.2)

@@ -55,6 +55,12 @@ export interface NewDraftInput {
   readonly wordCount: number;
   /** Optional TipTap JSONContent for rich editor reload. */
   readonly content?: TipTapDoc;
+  /** Repeating page header extracted during PDF ingest. */
+  readonly header?: TipTapDoc | null;
+  /** Repeating page footer extracted during PDF ingest. */
+  readonly footer?: TipTapDoc | null;
+  /** Document-level OCR confidence (0–100) from scanned-PDF ingest. */
+  readonly ocrConfidence?: number;
 }
 
 /**
@@ -237,8 +243,11 @@ export class DbDraftRepository implements DraftRepository {
 
   public async insertDraft(input: NewDraftInput): Promise<Draft> {
     const rows = await this.db.query<DraftRow>(
-      `INSERT INTO draft (document_id, version_number, s3_key, segments, word_count, content)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb)
+      `INSERT INTO draft (
+         document_id, version_number, s3_key, segments, word_count,
+         content, header, footer, ocr_confidence
+       )
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9)
        RETURNING ${DRAFT_COLUMNS}`,
       [
         input.documentId,
@@ -247,6 +256,9 @@ export class DbDraftRepository implements DraftRepository {
         JSON.stringify(input.segments),
         input.wordCount,
         input.content ? JSON.stringify(input.content) : null,
+        input.header ? JSON.stringify(input.header) : null,
+        input.footer ? JSON.stringify(input.footer) : null,
+        typeof input.ocrConfidence === 'number' ? input.ocrConfidence : null,
       ],
     );
     return toDraft(rows[0]!);

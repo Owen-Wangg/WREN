@@ -18,7 +18,7 @@ import {
 import type { TipTapDoc } from '@wren/types';
 
 import {
-  textractLayoutBlocksToTipTap,
+  convertTextractBlocks,
   tipTapDocToPlainText,
 } from './textractLayoutToTipTap.js';
 import {
@@ -40,6 +40,9 @@ export interface TextractOcrResult {
   readonly text: string;
   readonly lines: readonly TextractLine[];
   readonly content: TipTapDoc;
+  readonly header: TipTapDoc | null;
+  readonly footer: TipTapDoc | null;
+  readonly ocrConfidence: number;
   readonly engine: 'textract';
   readonly durationMs: number;
 }
@@ -60,7 +63,8 @@ export class TextractOcrError extends Error {
 }
 
 const POLL_INTERVAL_MS = 1500;
-const MAX_POLL_ATTEMPTS = 120;
+/** ~120s of Textract wait, leaving headroom before the 3-minute Lambda timeout. */
+const MAX_POLL_ATTEMPTS = 80;
 
 const ANALYSIS_FEATURES = ['LAYOUT', 'TABLES'] as const;
 
@@ -82,6 +86,7 @@ function blocksToLines(blocks: readonly Block[] | undefined): TextractLine[] {
       ...(typeof block.Confidence === 'number' ? { confidence: block.Confidence } : {}),
       ...(typeof box?.Top === 'number' ? { top: box.Top } : {}),
       ...(typeof box?.Height === 'number' ? { height: box.Height } : {}),
+      ...(typeof box?.Left === 'number' ? { left: box.Left } : {}),
       ...(typeof block.Page === 'number' ? { page: block.Page } : {}),
     });
   }
@@ -171,12 +176,17 @@ function resultFromBlocks(
 ): TextractOcrResult {
   const safeBlocks = blocks ?? [];
   const lines = blocksToLines(safeBlocks);
-  const content = textractLayoutBlocksToTipTap(safeBlocks);
-  const text = tipTapDocToPlainText(content) || mergeTextractLinesIntoParagraphs(lines).join('\n\n');
+  const converted = convertTextractBlocks(safeBlocks);
+  const text =
+    tipTapDocToPlainText(converted.document) ||
+    mergeTextractLinesIntoParagraphs(lines).join('\n\n');
   return {
     text,
     lines,
-    content,
+    content: converted.document,
+    header: converted.header,
+    footer: converted.footer,
+    ocrConfidence: converted.documentConfidence,
     engine: 'textract',
     durationMs: Date.now() - started,
   };

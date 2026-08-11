@@ -162,7 +162,7 @@ describe('inferInlineFormatting', () => {
       );
       expect(fontSizeRuns.length).toBeGreaterThan(0);
       const fontSizeAttr = fontSizeRuns[0].marks.find((m) => m.type === 'textStyle');
-      expect((fontSizeAttr?.attrs as Record<string, unknown>)?.fontSize).toBeCloseTo(25.6, 1);
+      expect((fontSizeAttr?.attrs as Record<string, unknown>)?.fontSize).toBe('25.6pt');
     });
 
     it('does not apply fontSize when line height is at or below threshold', () => {

@@ -12,7 +12,8 @@ import {
   type IngestionDeps,
 } from './ingestion';
 import { UnsupportedFileFormatError } from './errors';
-import type { PdfExtractor } from './pdfExtractor';
+import type { PdfExtractor, RichPdfExtractor } from './pdfExtractor';
+import type { TipTapDoc } from '@wren/types';
 import { segmentParagraphs } from './segmentation';
 
 class FakeDocxExtractor implements DocxExtractor {
@@ -123,6 +124,37 @@ describe('ingestUpload — PDF best-effort extraction and fallback (Requirement 
       deps({ pdfExtractor: new FakePdfExtractor({ throws: new Error('parse error') }) }),
     );
     expect(result.status).toBe('fallback');
+  });
+
+  it('forwards header, footer, and ocrConfidence from rich PDF extraction', async () => {
+    const content: TipTapDoc = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Body paragraph.' }] }],
+    };
+    const header: TipTapDoc = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Memo header' }] }],
+    };
+    const richExtractor: RichPdfExtractor = {
+      extract: async () => 'Body paragraph.',
+      extractRich: async () => ({
+        text: 'Body paragraph.',
+        content,
+        header,
+        footer: null,
+        ocrConfidence: 91.25,
+      }),
+    };
+    const result = await ingestUpload(
+      { kind: 'file', fileName: 'scan.pdf', bytes: Buffer.from('x') },
+      deps({ pdfExtractor: richExtractor }),
+    );
+    expect(result.status).toBe('success');
+    if (result.status === 'success') {
+      expect(result.content).toEqual(content);
+      expect(result.header).toEqual(header);
+      expect(result.ocrConfidence).toBe(91.25);
+    }
   });
 });
 
