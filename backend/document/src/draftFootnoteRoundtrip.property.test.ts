@@ -69,6 +69,18 @@ class FakeDraftRepository implements DraftRepository {
   public async listFeedbackItems(_documentId: string): Promise<FeedbackItem[]> {
     return [];
   }
+
+  public async updateOcrConfidence(
+    documentId: string,
+    confidence: number,
+  ): Promise<Draft | null> {
+    const current = await this.getCurrentDraft(documentId);
+    if (!current) return null;
+    const updated: Draft = { ...current, ocrConfidence: confidence };
+    const idx = this.drafts.findIndex((d) => d.id === current.id);
+    this.drafts[idx] = updated;
+    return updated;
+  }
 }
 
 const citationFieldArb = fc.string({ minLength: 0, maxLength: 50 });

@@ -412,6 +412,8 @@ export const draftSchema = z
     header: tipTapDocSchema.optional(),
     /** TipTap JSONContent for the repeating page footer; omit when not set. */
     footer: tipTapDocSchema.optional(),
+    /** Overall OCR confidence score (0.00–100.00) for scanned PDF drafts; omit when not applicable. */
+    ocrConfidence: z.number().min(0).max(100).optional(),
   })
   .strict();
 export type Draft = z.infer<typeof draftSchema>;

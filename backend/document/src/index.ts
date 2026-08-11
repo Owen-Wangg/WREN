@@ -22,6 +22,12 @@ export { MammothDocxExtractor, type DocxExtractor } from './docxExtractor';
 export { type PdfExtractor, type RichPdfExtractor } from './pdfExtractor';
 export { TextractPdfExtractor } from './textractPdfExtractor';
 export {
+  textractLayoutBlocksToTipTap,
+  convertTextractToTipTap,
+  tipTapDocToPlainText,
+  type TextractConversionResult,
+} from './textractLayoutToTipTap';
+export {
   createDraftRevision,
   selectCurrentDraft,
   highestVersionNumber,

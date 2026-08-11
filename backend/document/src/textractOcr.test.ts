@@ -193,8 +193,14 @@ describe('textractLayoutBlocksToTipTap', () => {
     ];
     const doc = textractLayoutBlocksToTipTap(blocks);
     const content = (doc.content ?? []) as TipTapNode[];
-    expect(content).toHaveLength(1);
+    // Non-repeating header (appears on <3 pages) is included as h2 per Requirement 6.5
+    expect(content).toHaveLength(2);
     expect(content[0]).toMatchObject({
+      type: 'heading',
+      attrs: { level: 2 },
+      content: [{ type: 'text', text: 'Confidential' }],
+    });
+    expect(content[1]).toMatchObject({
       type: 'paragraph',
       content: [{ type: 'text', text: 'Real content' }],
     });
