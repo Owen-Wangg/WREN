@@ -1,10 +1,10 @@
 /**
  * Combined document + AI Debrief PDF export.
  *
- * Download PDF (`tiptapContentToPdfBlob`) still exports the editor only.
- * This module builds a two-column letter PDF: document on the left, debrief
- * on the right — matching the editor UI — and paginates by capturing
- * page-sized windows so long content is not clipped and canvas size stays safe.
+ * Editor-only PDF uses `tiptapContentToPdfBlob`. This module builds a
+ * two-column letter PDF: document on the left, debrief on the right —
+ * matching the editor UI — and paginates by capturing page-sized windows
+ * so long content is not clipped and canvas size stays safe.
  */
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
