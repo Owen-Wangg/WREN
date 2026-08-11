@@ -4,6 +4,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   ChevronUp,
   Download,
+  FileDown,
   GripVertical,
   ListTree,
   MessageSquare,
@@ -29,7 +30,13 @@ import {
   getPresignedUrl,
   fetchIngestStatus,
 } from '@/features/dashboard/dashboardApi';
+import { fetchDebrief, fetchDebriefHistory } from '@/features/debrief';
+import type { Debrief } from '@/features/debrief';
 import { generateFeedback, fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
+import {
+  combinedDocumentAndDebriefToPdfBlob,
+  isEditorContentEmpty,
+} from '@/features/editor/combinedPdfExport';
 import { queryKeys } from '@/hooks';
 import {
   segmentsToTiptapContent,
@@ -205,6 +212,9 @@ export function DocumentEditorPage() {
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
   const downloadMenuRef = useRef<HTMLDivElement | null>(null);
+  const [exportPdfBusy, setExportPdfBusy] = useState(false);
+  const [exportPdfError, setExportPdfError] = useState<string | undefined>(undefined);
+  const [exportPdfNotice, setExportPdfNotice] = useState<string | undefined>(undefined);
 
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const panelDivRef = useRef<HTMLDivElement | null>(null);
@@ -599,6 +609,64 @@ export function DocumentEditorPage() {
     }
   };
 
+  const handleExportPdf = async () => {
+    setExportPdfError(undefined);
+    setExportPdfNotice(undefined);
+    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
+    if (isEditorContentEmpty(cleaned)) {
+      setExportPdfError('The document is empty. Add content before exporting a PDF.');
+      return;
+    }
+
+    setExportPdfBusy(true);
+    try {
+      let debrief: Debrief | null = null;
+      let debriefStatus: 'ready' | 'empty' | 'unavailable' = 'empty';
+      try {
+        const history = await fetchDebriefHistory(apiClient, envId);
+        const latestDraftId = history[0]?.draftId;
+        const loaded = await fetchDebrief(apiClient, envId, latestDraftId);
+        if (loaded.items.length > 0) {
+          debrief = loaded;
+          debriefStatus = 'ready';
+        } else {
+          debriefStatus = 'empty';
+          setExportPdfNotice(
+            isPollingFeedback
+              ? 'Exported the document. AI Debrief is still generating — export again once feedback is ready to include it.'
+              : 'Exported the document. AI Debrief has not been generated yet — use Regenerate in the debrief panel, then export again.',
+          );
+        }
+      } catch {
+        debriefStatus = 'unavailable';
+        setExportPdfNotice(
+          'Exported the document. AI Debrief could not be loaded — generate feedback and try again to include it.',
+        );
+      }
+
+      const blob = await combinedDocumentAndDebriefToPdfBlob({
+        content: cleaned,
+        documentTitle: documentName,
+        exportDate: new Date(),
+        debrief,
+        debriefStatus,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${documentName} (with AI Debrief).pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setExportPdfNotice(undefined);
+      setExportPdfError(
+        error instanceof Error ? error.message : 'Couldn’t export PDF. Please try again.',
+      );
+    } finally {
+      setExportPdfBusy(false);
+    }
+  };
+
   const wordCount = wordCountFromEditorContent(currentContent);
   const documentMeta = [
     breadcrumb !== 'Document' ? breadcrumb : null,
@@ -712,6 +780,33 @@ export function DocumentEditorPage() {
               <Upload size={20} strokeWidth={1.75} aria-hidden="true" />
               <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
                 {resubmitDraftMutation.isPending ? 'Uploading' : 'Upload'}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleExportPdf()}
+              disabled={exportPdfBusy}
+              title={
+                exportPdfError ??
+                (exportPdfBusy
+                  ? 'Preparing combined PDF…'
+                  : 'Export document and AI Debrief as one PDF')
+              }
+              aria-label={
+                exportPdfBusy ? 'Preparing combined PDF' : 'Export PDF with AI Debrief'
+              }
+              className={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
+            >
+              {exportPdfBusy ? (
+                <span
+                  className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-accent-primary border-t-transparent"
+                  aria-hidden="true"
+                />
+              ) : (
+                <FileDown size={20} strokeWidth={1.75} aria-hidden="true" />
+              )}
+              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
+                {exportPdfBusy ? 'Exporting' : 'Export PDF'}
               </span>
             </button>
             <div ref={downloadMenuRef} className="relative">
@@ -922,6 +1017,36 @@ export function DocumentEditorPage() {
                 type="button"
                 className="shrink-0 text-caption font-sans font-medium text-text-secondary underline-offset-2 hover:underline"
                 onClick={() => setIngestError(undefined)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          {exportPdfError && (
+            <div
+              role="alert"
+              className="flex items-start justify-between gap-md border-b border-signal-critical/30 bg-signal-critical/10 px-lg py-sm"
+            >
+              <p className="text-bodySmall text-text-primary leading-relaxed">{exportPdfError}</p>
+              <button
+                type="button"
+                className="shrink-0 text-caption font-sans font-medium text-text-secondary underline-offset-2 hover:underline"
+                onClick={() => setExportPdfError(undefined)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          {exportPdfNotice && !exportPdfError && (
+            <div
+              role="status"
+              className="flex items-start justify-between gap-md border-b border-signal-caution/40 bg-signal-caution/10 px-lg py-sm"
+            >
+              <p className="text-bodySmall text-text-primary leading-relaxed">{exportPdfNotice}</p>
+              <button
+                type="button"
+                className="shrink-0 text-caption font-sans font-medium text-text-secondary underline-offset-2 hover:underline"
+                onClick={() => setExportPdfNotice(undefined)}
               >
                 Dismiss
               </button>

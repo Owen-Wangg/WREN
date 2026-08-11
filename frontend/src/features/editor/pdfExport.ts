@@ -113,6 +113,11 @@ function alignStyle(attrs?: Record<string, unknown> | null): string {
   return `text-align:${align};${indent}`;
 }
 
+/** Render TipTap JSON to an HTML fragment (headings, marks, lists, tables). */
+export function tiptapContentToHtml(content: JSONContent): string {
+  return renderNode(content);
+}
+
 function renderNode(node: JSONContent): string {
   switch (node.type) {
     case 'doc':
@@ -237,7 +242,7 @@ export async function tiptapContentToPdfBlob(
     'line-height:1.5',
     'box-sizing:border-box',
   ].join(';');
-  host.innerHTML = renderNode(content);
+  host.innerHTML = tiptapContentToHtml(content);
   document.body.appendChild(host);
 
   try {
