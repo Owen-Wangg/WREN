@@ -282,6 +282,25 @@ body {
 .document-body-region {
   box-sizing: border-box;
   padding: var(--pagination-page-margin, 96px);
+  /* Only the letter content well is visible; margins + 32px gutters are punched out. */
+  -webkit-mask-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent var(--pagination-page-margin, 96px),
+    #000 var(--pagination-page-margin, 96px),
+    #000 calc(var(--pagination-page-height, 1056px) - var(--pagination-page-margin, 96px)),
+    transparent calc(var(--pagination-page-height, 1056px) - var(--pagination-page-margin, 96px)),
+    transparent calc(var(--pagination-page-height, 1056px) + var(--pagination-page-gap, 32px))
+  );
+  mask-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent var(--pagination-page-margin, 96px),
+    #000 var(--pagination-page-margin, 96px),
+    #000 calc(var(--pagination-page-height, 1056px) - var(--pagination-page-margin, 96px)),
+    transparent calc(var(--pagination-page-height, 1056px) - var(--pagination-page-margin, 96px)),
+    transparent calc(var(--pagination-page-height, 1056px) + var(--pagination-page-gap, 32px))
+  );
 }
 
 /* Fixed toolbar chrome — elevated above the scrolling document page. */

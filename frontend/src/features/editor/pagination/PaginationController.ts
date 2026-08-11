@@ -102,6 +102,7 @@ export class PaginationController implements IPaginationController {
     this.blockMeasurer = new BlockMeasurer(contentElement);
     this.contentDistributor = new ContentDistributor();
     this.pageRenderer = new PageRenderer(scrollContainer);
+    this.pageRenderer.setContentElement(contentElement);
   }
 
   // ---------------------------------------------------------------------------
@@ -478,7 +479,8 @@ export class PaginationController implements IPaginationController {
       footerHeight,
       orphanLines: this.options.orphanLines,
       widowLines: this.options.widowLines,
-      enableParagraphSplitting: true,
+      // Keep whole blocks on one page so lines are never hidden in the gutter.
+      enableParagraphSplitting: false,
       enableKeepWithNext: false, // Phase 3D — will be enabled in Wave 12
     };
   }

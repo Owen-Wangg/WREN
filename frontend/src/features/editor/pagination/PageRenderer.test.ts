@@ -200,6 +200,25 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
         expect(page.style.display).not.toBe('none');
       }
       expect(second.getAttribute('data-pagination-break')).toBe('1');
+      expect(parseFloat(second.style.marginTop)).toBeGreaterThan(PAGE_CONFIG.PAGE_GAP_PX);
+    });
+
+    it('clips body ink to each letter content well', () => {
+      const body = document.createElement('div');
+      body.className = 'document-body-region';
+      scrollContainer.querySelector('.pagination-content')?.appendChild(body);
+
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 100,
+          availableHeight: 764,
+        },
+      ]);
+
+      expect(body.style.maskImage).toContain('repeating-linear-gradient');
+      expect(body.style.maskImage).toContain(`${PAGE_CONFIG.MARGIN_PX}px`);
     });
 
     it('does not remove a React-owned workspace on destroy', () => {

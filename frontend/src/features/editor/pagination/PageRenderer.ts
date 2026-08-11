@@ -118,6 +118,9 @@ export class PageRenderer {
   /** Cached reference to the footer content element. */
   private currentFooterContent: HTMLElement | null = null;
 
+  /** Live ProseMirror root — preferred over querySelector for positioning. */
+  private contentElement: HTMLElement | null = null;
+
   /**
    * Creates a new PageRenderer.
    * @param scrollContainer — optional; the editor's scroll container element.
@@ -156,6 +159,14 @@ export class PageRenderer {
     this.initialize();
   }
 
+  /**
+   * Records the live ProseMirror element so page gaps can be applied even
+   * when it has not been found via querySelector yet.
+   */
+  setContentElement(el: HTMLElement | null): void {
+    this.contentElement = el;
+  }
+
   // -------------------------------------------------------------------------
   // Public API — Phase 1
   // -------------------------------------------------------------------------
@@ -187,9 +198,10 @@ export class PageRenderer {
   /**
    * Positions block elements to show visual page boundaries.
    *
-   * Content stays in the ProseMirror tree. Letter frames remain visible in the
-   * backdrop layer; gap injection at page starts lines body blocks up with
-   * each frame's content area (remaining space + 96 + 32 + 96).
+   * Each page-start block is pushed so its border box lands at the top of that
+   * letter page's content well (`pageIndex * (height + gap)` inside ProseMirror).
+   * A repeating mask then hides anything that still falls in the margins or
+   * the 32px gutter — so words only paint on the white page.
    */
   positionBlocks(assignments: PageAssignment[]): void {
     if (!this.workspace || this.pages.length === 0) return;
@@ -199,42 +211,68 @@ export class PageRenderer {
       applyPageStyles(page);
     }
 
-    const proseMirrorEl = this.findProseMirror();
+    this.applyBodyClipMask();
+
+    const proseMirrorEl = this.contentElement ?? this.findProseMirror();
     if (!proseMirrorEl) return;
 
     const blocks = Array.from(proseMirrorEl.children) as HTMLElement[];
+    this.clearPositioning(blocks);
 
     if (assignments.length <= 1) {
-      this.clearPositioning(blocks);
       return;
     }
 
-    const pageStartBlocks = new Map<number, number>();
+    const pageStride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+    const seen = new Set<number>();
+
     for (const pageAssignment of assignments) {
-      if (pageAssignment.pageIndex > 0 && pageAssignment.blocks.length > 0) {
-        pageStartBlocks.set(pageAssignment.blocks[0].blockIndex, pageAssignment.pageIndex);
+      if (pageAssignment.pageIndex <= 0 || pageAssignment.blocks.length === 0) {
+        continue;
       }
-    }
 
-    const pageBoundaryGap =
-      PAGE_CONFIG.MARGIN_PX + PAGE_CONFIG.PAGE_GAP_PX + PAGE_CONFIG.MARGIN_PX;
-
-    for (let i = 0; i < blocks.length; i++) {
-      const block = blocks[i];
-
-      if (pageStartBlocks.has(i)) {
-        const pageIdx = pageStartBlocks.get(i)!;
-        const prevAssignment = assignments[pageIdx - 1];
-        const remainingSpace = prevAssignment ? prevAssignment.availableHeight : 0;
-        const totalGap = remainingSpace + pageBoundaryGap;
-
-        block.style.setProperty('margin-top', `${totalGap}px`, 'important');
-        block.setAttribute('data-pagination-break', String(pageIdx));
-      } else if (block.hasAttribute('data-pagination-break')) {
-        block.style.removeProperty('margin-top');
-        block.removeAttribute('data-pagination-break');
+      const start = pageAssignment.blocks[0];
+      // Continuations of a split block already live on the previous page.
+      if (start.split && start.split.continuationPageIndex === pageAssignment.pageIndex) {
+        continue;
       }
+      if (seen.has(start.blockIndex)) continue;
+      seen.add(start.blockIndex);
+
+      const block = blocks[start.blockIndex];
+      if (!block) continue;
+
+      const currentTop =
+        block.getBoundingClientRect().top - proseMirrorEl.getBoundingClientRect().top;
+      const extra = pageAssignment.pageIndex * pageStride - currentTop;
+      if (extra <= 1) continue;
+
+      const existingMargin = parseFloat(getComputedStyle(block).marginTop) || 0;
+      block.style.setProperty('margin-top', `${existingMargin + extra}px`, 'important');
+      block.setAttribute('data-pagination-break', String(pageAssignment.pageIndex));
     }
+  }
+
+  /** Hide body ink in page margins and the inter-page gutter. */
+  private applyBodyClipMask(): void {
+    const body =
+      this.workspace?.querySelector<HTMLElement>('.document-body-region') ?? null;
+    if (!body) return;
+
+    const margin = PAGE_CONFIG.MARGIN_PX;
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+    const gradient = `repeating-linear-gradient(to bottom, transparent 0, transparent ${margin}px, #000 ${margin}px, #000 ${margin + well}px, transparent ${margin + well}px, transparent ${stride}px)`;
+    body.style.maskImage = gradient;
+    body.style.webkitMaskImage = gradient;
+  }
+
+  private clearBodyClipMask(): void {
+    const body =
+      this.workspace?.querySelector<HTMLElement>('.document-body-region') ?? null;
+    if (!body) return;
+    body.style.removeProperty('mask-image');
+    body.style.removeProperty('-webkit-mask-image');
   }
 
   /**
@@ -482,6 +520,7 @@ export class PageRenderer {
 
     this.clearHeaderFooter();
     this.disconnectHeaderFooterObservers();
+    this.clearBodyClipMask();
 
     const paginatedBlocks = this.workspace.querySelectorAll<HTMLElement>('[data-pagination-break]');
     for (const block of paginatedBlocks) {
