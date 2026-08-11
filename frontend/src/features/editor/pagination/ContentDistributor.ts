@@ -292,9 +292,11 @@ export class ContentDistributor implements IContentDistributor {
       // -----------------------------------------------------------------------
       if (measurement.blockType === 'list') {
         const remainingHeight = effectiveHeight - usedHeight;
+        const hasItems =
+          (measurement.items && measurement.items.length > 1) ||
+          (measurement.lines && measurement.lines.length > 1);
 
         if (height <= remainingHeight) {
-          // List fits on current page
           currentBlocks.push({
             blockIndex,
             startOnPage: pageIndex,
@@ -303,23 +305,10 @@ export class ContentDistributor implements IContentDistributor {
           continue;
         }
 
-        if (height <= effectiveHeight) {
-          // List doesn't fit remaining but fits one full page — move to next
-          if (currentBlocks.length > 0) {
-            finalizePage();
-          }
-          currentBlocks.push({
-            blockIndex,
-            startOnPage: pageIndex,
-          });
-          usedHeight = height;
-          continue;
-        }
-
-        // List is taller than one full usable page — split between items
-        // Only split if we have actual item data (items or lines used as item proxy)
-        if ((measurement.items && measurement.items.length > 1) ||
-            (measurement.lines && measurement.lines.length > 1)) {
+        // Overflowing lists split between items so a trailing item is not
+        // painted through the page margin. This includes lists that would
+        // fit on an empty page but not in the remaining well.
+        if (hasItems) {
           this.splitListAcrossPages(
             measurement,
             effectiveHeight,
@@ -335,7 +324,18 @@ export class ContentDistributor implements IContentDistributor {
           continue;
         }
 
-        // No item data: treat as generic oversized block
+        if (height <= effectiveHeight) {
+          if (currentBlocks.length > 0) {
+            finalizePage();
+          }
+          currentBlocks.push({
+            blockIndex,
+            startOnPage: pageIndex,
+          });
+          usedHeight = height;
+          continue;
+        }
+
         if (currentBlocks.length > 0) {
           finalizePage();
         }
@@ -661,64 +661,59 @@ export class ContentDistributor implements IContentDistributor {
 
     if (items.length === 0) return;
 
-    // Finalize current page if it has content
-    if (currentBlocks.length > 0 || currentUsedHeight > 0) {
-      pages.push({
-        pageIndex: startPageIndex,
-        blocks: [...currentBlocks],
-        usedHeight: currentUsedHeight,
-        availableHeight: effectiveHeight - currentUsedHeight,
-      });
-      startPageIndex++;
-    }
-
-    // Split items across pages
+    const listPaddingTop = items[0]?.top ?? 0;
     let pageIdx = startPageIndex;
-    let currentPageUsed = 0;
+    let pageBlocks: BlockAssignment[] = [...currentBlocks];
+    let currentPageUsed = currentUsedHeight + listPaddingTop;
     let itemsOnPage = 0;
+
+    const flush = (splitAtItem: number | null): void => {
+      const assignment: BlockAssignment = {
+        blockIndex,
+        startOnPage: pageIdx,
+      };
+      if (splitAtItem != null) {
+        assignment.split = {
+          type: 'list',
+          splitAtItem,
+          continuationPageIndex: pageIdx + 1,
+        };
+      }
+      pages.push({
+        pageIndex: pageIdx,
+        blocks: [...pageBlocks, assignment],
+        usedHeight: currentPageUsed,
+        availableHeight: effectiveHeight - currentPageUsed,
+      });
+      pageIdx += 1;
+      pageBlocks = [];
+      currentPageUsed = 0;
+      itemsOnPage = 0;
+    };
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      const overflows = currentPageUsed + item.height > effectiveHeight;
 
-      // Check if item fits on current page
-      if (currentPageUsed + item.height > effectiveHeight && itemsOnPage >= 1) {
-        // Ensure at least 1 item remains for next page
-        const remainingItems = items.length - i;
-        if (remainingItems >= 1) {
-          pages.push({
-            pageIndex: pageIdx,
-            blocks: [{
-              blockIndex,
-              startOnPage: pageIdx,
-              split: {
-                type: 'list',
-                splitAtItem: i,
-                continuationPageIndex: pageIdx + 1,
-              },
-            }],
-            usedHeight: currentPageUsed,
-            availableHeight: effectiveHeight - currentPageUsed,
-          });
-          pageIdx++;
-          currentPageUsed = 0;
-          itemsOnPage = 0;
-        }
+      if (overflows && itemsOnPage >= 1) {
+        flush(i);
+      } else if (overflows && itemsOnPage === 0 && pageBlocks.length > 0) {
+        pages.push({
+          pageIndex: pageIdx,
+          blocks: [...pageBlocks],
+          usedHeight: currentUsedHeight,
+          availableHeight: effectiveHeight - currentUsedHeight,
+        });
+        pageIdx += 1;
+        pageBlocks = [];
+        currentPageUsed = 0;
       }
 
       currentPageUsed += item.height;
-      itemsOnPage++;
+      itemsOnPage += 1;
     }
 
-    // Finalize last list page
-    pages.push({
-      pageIndex: pageIdx,
-      blocks: [{
-        blockIndex,
-        startOnPage: pageIdx,
-      }],
-      usedHeight: currentPageUsed,
-      availableHeight: effectiveHeight - currentPageUsed,
-    });
+    flush(null);
   }
 
   // ---------------------------------------------------------------------------

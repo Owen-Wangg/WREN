@@ -78,55 +78,110 @@ function detectBlockType(
   return { blockType: 'other', isPageBreak: false };
 }
 
+function readMargin(el: HTMLElement, side: 'top' | 'bottom'): number {
+  const value = parseFloat(getComputedStyle(el).getPropertyValue(`margin-${side}`));
+  return Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Temporarily drop pagination clip/gap styles so measurement sees the
+ * natural document flow instead of last frame's injected margins.
+ */
+function suspendPaginationStyles(node: HTMLElement): () => void {
+  const saved: Array<{
+    el: HTMLElement;
+    maxHeight: string;
+    overflow: string;
+    marginTop: string;
+    marginTopPriority: string;
+    marginBottom: string;
+    marginBottomPriority: string;
+  }> = [];
+
+  const track = (el: HTMLElement): void => {
+    saved.push({
+      el,
+      maxHeight: el.style.maxHeight,
+      overflow: el.style.overflow,
+      marginTop: el.style.getPropertyValue('margin-top'),
+      marginTopPriority: el.style.getPropertyPriority('margin-top'),
+      marginBottom: el.style.getPropertyValue('margin-bottom'),
+      marginBottomPriority: el.style.getPropertyPriority('margin-bottom'),
+    });
+    if (el.style.maxHeight) el.style.maxHeight = '';
+    if (el.getAttribute('data-split-clipped')) el.style.overflow = '';
+    if (el.hasAttribute('data-pagination-break')) el.style.removeProperty('margin-top');
+    if (el.getAttribute('data-split-clipped') === 'current') {
+      el.style.removeProperty('margin-bottom');
+    }
+  };
+
+  track(node);
+  for (const item of node.querySelectorAll<HTMLElement>(':scope > li')) {
+    track(item);
+  }
+
+  return () => {
+    for (const entry of saved) {
+      entry.el.style.maxHeight = entry.maxHeight;
+      entry.el.style.overflow = entry.overflow;
+      entry.el.style.setProperty('margin-top', entry.marginTop, entry.marginTopPriority);
+      entry.el.style.setProperty('margin-bottom', entry.marginBottom, entry.marginBottomPriority);
+    }
+  };
+}
+
+/**
+ * Occupied vertical stride of a block, including collapsed margins to the
+ * next sibling. Page-break margins on the next sibling are ignored.
+ */
+function occupyHeight(node: HTMLElement): number {
+  const rect = node.getBoundingClientRect();
+  const next = node.nextElementSibling as HTMLElement | null;
+  if (next) {
+    const saved = next.style.getPropertyValue('margin-top');
+    const priority = next.style.getPropertyPriority('margin-top');
+    const hadBreak = next.hasAttribute('data-pagination-break');
+    if (hadBreak) next.style.removeProperty('margin-top');
+    const stride = next.getBoundingClientRect().top - rect.top;
+    if (hadBreak) next.style.setProperty('margin-top', saved, priority);
+    if (stride > 0) return Math.ceil(stride);
+  }
+  return Math.ceil(rect.height + readMargin(node, 'bottom'));
+}
+
 /**
  * Measures a single block element and returns its BlockMeasurement.
  */
 function measureBlock(node: HTMLElement, blockIndex: number): BlockMeasurement {
-  const rect = node.getBoundingClientRect();
-  const { blockType, headingLevel, isPageBreak } = detectBlockType(node);
+  const restore = suspendPaginationStyles(node);
+  try {
+    const { blockType, headingLevel, isPageBreak } = detectBlockType(node);
 
-  const measurement: BlockMeasurement = {
-    blockIndex,
-    node,
-    height: rect.height,
-    isPageBreak,
-    blockType,
-  };
+    const measurement: BlockMeasurement = {
+      blockIndex,
+      node,
+      height: occupyHeight(node),
+      isPageBreak,
+      blockType,
+    };
 
-  if (headingLevel !== undefined) {
-    measurement.headingLevel = headingLevel;
-  }
-
-  if (blockType === 'list') {
-    measurement.items = measureListItems(node);
-    if (measurement.items.length > 0) {
-      // Sum item boxes so injected page-break margins do not inflate height.
-      measurement.height = measurement.items.reduce((sum, item) => sum + item.height, 0);
+    if (headingLevel !== undefined) {
+      measurement.headingLevel = headingLevel;
     }
-  }
 
-  if (blockType === 'paragraph') {
-    measurement.lines = measureParagraphLines(node);
-    if (measurement.lines.length > 0) {
-      measurement.height = measurement.lines[measurement.lines.length - 1].bottom;
+    if (blockType === 'list') {
+      measurement.items = measureListItems(node);
     }
+
+    if (blockType === 'paragraph') {
+      measurement.lines = paragraphSplitter.measureLines(node);
+    }
+
+    return measurement;
+  } finally {
+    restore();
   }
-
-  return measurement;
-}
-
-function measureParagraphLines(paragraph: HTMLElement) {
-  const maxHeight = paragraph.style.maxHeight;
-  const overflow = paragraph.style.overflow;
-  const marginBottom = paragraph.style.marginBottom;
-  paragraph.style.maxHeight = '';
-  paragraph.style.overflow = '';
-  paragraph.style.marginBottom = '';
-  const lines = paragraphSplitter.measureLines(paragraph);
-  paragraph.style.maxHeight = maxHeight;
-  paragraph.style.overflow = overflow;
-  paragraph.style.marginBottom = marginBottom;
-  return lines;
 }
 
 function measureListItems(list: HTMLElement): ItemMeasurement[] {
@@ -135,11 +190,15 @@ function measureListItems(list: HTMLElement): ItemMeasurement[] {
   return items.map((item, itemIndex) => {
     const rect = item.getBoundingClientRect();
     const top = rect.top - listTop;
+    const next = items[itemIndex + 1];
+    const bottom = next
+      ? next.getBoundingClientRect().top - listTop
+      : top + rect.height + readMargin(item, 'bottom');
     return {
       itemIndex,
       top,
-      height: rect.height,
-      bottom: top + rect.height,
+      height: Math.max(0, Math.ceil(bottom - top)),
+      bottom: Math.ceil(bottom),
     };
   });
 }

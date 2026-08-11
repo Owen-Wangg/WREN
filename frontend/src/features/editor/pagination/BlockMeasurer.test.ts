@@ -102,6 +102,22 @@ describe('BlockMeasurer', () => {
       expect(paragraph.style.overflow).toBe('hidden');
     });
 
+    it('includes the gap between stacked paragraphs in occupied height', () => {
+      const first = createMockElement('p', 24);
+      first.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 24, top: 0, right: 624, bottom: 24, left: 0, toJSON: () => ({}),
+      });
+      const second = createMockElement('p', 24);
+      second.getBoundingClientRect = () => ({
+        x: 0, y: 40, width: 624, height: 24, top: 40, right: 624, bottom: 64, left: 0, toJSON: () => ({}),
+      });
+      contentElement.append(first, second);
+
+      const results = new BlockMeasurer(contentElement).measureAll();
+
+      expect(results[0].height).toBe(40);
+    });
+
     it('measures each direct list item so tall lists can split between items', () => {
       const list = document.createElement('ul');
       const first = document.createElement('li');
@@ -124,6 +140,28 @@ describe('BlockMeasurer', () => {
       expect(results[0].items?.[0]).toMatchObject({ itemIndex: 0, height: 40 });
       expect(results[0].items?.[1]).toMatchObject({ itemIndex: 1, height: 50 });
       expect(results[0].height).toBe(90);
+    });
+
+    it('counts the space between list items as part of the previous item', () => {
+      const list = document.createElement('ul');
+      const first = document.createElement('li');
+      first.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 40, top: 0, right: 624, bottom: 40, left: 0, toJSON: () => ({}),
+      });
+      const second = document.createElement('li');
+      second.getBoundingClientRect = () => ({
+        x: 0, y: 56, width: 624, height: 40, top: 56, right: 624, bottom: 96, left: 0, toJSON: () => ({}),
+      });
+      list.append(first, second);
+      list.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 96, top: 0, right: 624, bottom: 96, left: 0, toJSON: () => ({}),
+      });
+      contentElement.appendChild(list);
+
+      const results = new BlockMeasurer(contentElement).measureAll();
+
+      expect(results[0].items?.[0]).toMatchObject({ itemIndex: 0, height: 56 });
+      expect(results[0].items?.[1]).toMatchObject({ itemIndex: 1, height: 40 });
     });
 
     it('returns correct block type for table elements', () => {

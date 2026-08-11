@@ -185,6 +185,36 @@ describe('Property 13: List Splitting Constraints', () => {
     );
   });
 
+  it('keeps fitting items after earlier blocks and moves the overflowing item', () => {
+    const heading: BlockMeasurement = {
+      blockIndex: 0,
+      node: document.createElement('h2'),
+      height: 700,
+      isPageBreak: false,
+      blockType: 'heading',
+      headingLevel: 2,
+    };
+    const items: ItemMeasurement[] = [
+      { itemIndex: 0, top: 0, height: 80, bottom: 80 },
+      { itemIndex: 1, top: 80, height: 80, bottom: 160 },
+      { itemIndex: 2, top: 160, height: 80, bottom: 240 },
+    ];
+    const pages = distributor.distribute(
+      [heading, makeListWithItems(1, items)],
+      DEFAULT_OPTIONS,
+    );
+
+    expect(pages.length).toBe(2);
+    expect(pages[0].blocks.map((block) => block.blockIndex)).toEqual([0, 1]);
+    expect(pages[0].blocks[1].split).toMatchObject({
+      type: 'list',
+      splitAtItem: 2,
+      continuationPageIndex: 1,
+    });
+    expect(pages[1].blocks[0].blockIndex).toBe(1);
+    expect(pages[1].blocks[0].split).toBeUndefined();
+  });
+
   it('list that fits on one page does not split', () => {
     fc.assert(
       fc.property(
