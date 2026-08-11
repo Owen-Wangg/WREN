@@ -10,6 +10,7 @@ import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
 import { wordCountFromTipTapContent } from '@wren/types';
+import { isStrengthItem, strengthDisplayText } from '@/features/debrief/debriefItems';
 import { tiptapContentToHtml } from './pdfExport';
 
 import type { JSONContent } from '@tiptap/react';
@@ -93,7 +94,8 @@ function renderProgressHtml(patterns: readonly ProgressPattern[]): string {
 }
 
 function renderStrengthItem(item: FeedbackItem): string {
-  if (!item.positiveNote) return '';
+  const note = strengthDisplayText(item);
+  if (!note) return '';
   const quote = item.quotedText
     ? `<div style="margin:6px 0 0 16px;">
         <div style="font-size:9px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#2f6f4e;">Where you did this well</div>
@@ -101,7 +103,7 @@ function renderStrengthItem(item: FeedbackItem): string {
       </div>`
     : '';
   return `<li style="margin:0 0 8px;padding:8px;border-radius:6px;background:#f3faf6;list-style:none;">
-    <div>✓ ${escapeHtml(item.positiveNote)}</div>
+    <div>✓ ${escapeHtml(note)}</div>
     ${quote}
   </li>`;
 }
@@ -144,7 +146,7 @@ export function renderDebriefColumnHtml(
   for (const item of debrief.items) {
     const cat = item.errorCategoryId;
     if (!categoryOrder.includes(cat)) categoryOrder.push(cat);
-    if (item.kind === 'strength') {
+    if (isStrengthItem(item)) {
       (strengthsByCategory[cat] ??= []).push(item);
     } else {
       (improvementsByCategory[cat] ??= []).push(item);

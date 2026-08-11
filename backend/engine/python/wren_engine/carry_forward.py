@@ -111,6 +111,8 @@ class CachedFeedbackItem:
     cache_key: CacheKey
     generated_at: datetime
     config_snapshot: ConfigSnapshot
+    # Persisted feedback_item.kind. Defaults keep existing test fixtures valid.
+    kind: str = "inline"
 
 
 @dataclass(frozen=True, slots=True)

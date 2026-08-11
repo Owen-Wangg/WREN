@@ -18,6 +18,7 @@ import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
 import { SectionApplicabilityToggle } from './SectionApplicabilityToggle';
 
+import { isStrengthItem, strengthDisplayText } from '../debriefItems';
 import { useAiDebrief, useDebriefHistory, useRegenerateDebrief, useSectionApplicability } from '../useDebrief';
 import { useDebriefSubscription } from '../useDebriefSubscription';
 
@@ -275,7 +276,7 @@ export function SidebarDebriefPanel({
   for (const item of allItems) {
     const cat = item.errorCategoryId;
     if (!categoryOrder.includes(cat)) categoryOrder.push(cat);
-    if (item.kind === 'strength') {
+    if (isStrengthItem(item)) {
       if (!strengthsByCategory[cat]) strengthsByCategory[cat] = [];
       strengthsByCategory[cat].push(item);
     } else {
@@ -671,7 +672,7 @@ export function SidebarDebriefPanel({
                             What&apos;s Done Well
                           </h5>
                           <ul className="flex flex-col gap-sm">
-                            {strengths.filter((item) => item.positiveNote).map((item) => (
+                            {strengths.map((item) => (
                               <li
                                 key={item.id}
                                 className="flex flex-col gap-xs rounded-md bg-signal-positive/5 px-sm py-xs"
@@ -679,7 +680,7 @@ export function SidebarDebriefPanel({
                                 <div className="flex items-start gap-sm">
                                   <span className="mt-[2px] shrink-0 text-signal-positive">✓</span>
                                   <span className="text-bodySmall text-text-primary">
-                                    {item.positiveNote}
+                                    {strengthDisplayText(item)}
                                   </span>
                                 </div>
                                 {item.quotedText && (
