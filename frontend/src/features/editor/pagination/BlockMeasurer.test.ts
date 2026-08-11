@@ -87,6 +87,30 @@ describe('BlockMeasurer', () => {
       expect(results[1].blockType).toBe('list');
     });
 
+    it('measures each direct list item so tall lists can split between items', () => {
+      const list = document.createElement('ul');
+      const first = document.createElement('li');
+      first.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 40, top: 0, right: 624, bottom: 40, left: 0, toJSON: () => ({}),
+      });
+      const second = document.createElement('li');
+      second.getBoundingClientRect = () => ({
+        x: 0, y: 40, width: 624, height: 50, top: 40, right: 624, bottom: 90, left: 0, toJSON: () => ({}),
+      });
+      list.append(first, second);
+      list.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 90, top: 0, right: 624, bottom: 90, left: 0, toJSON: () => ({}),
+      });
+      contentElement.appendChild(list);
+
+      const results = new BlockMeasurer(contentElement).measureAll();
+
+      expect(results[0].items).toHaveLength(2);
+      expect(results[0].items?.[0]).toMatchObject({ itemIndex: 0, height: 40 });
+      expect(results[0].items?.[1]).toMatchObject({ itemIndex: 1, height: 50 });
+      expect(results[0].height).toBe(90);
+    });
+
     it('returns correct block type for table elements', () => {
       contentElement.appendChild(createMockElement('table', 200));
 

@@ -198,10 +198,9 @@ export class PageRenderer {
   /**
    * Positions block elements to show visual page boundaries.
    *
-   * Each page-start block is pushed so its border box lands at the top of that
-   * letter page's content well (`pageIndex * (height + gap)` inside ProseMirror).
-   * A repeating mask then hides anything that still falls in the margins or
-   * the 32px gutter — so words only paint on the white page.
+   * Page-start blocks (and list items at a split) are pushed so they land at
+   * the top of the next letter content well. Nothing is clipped — a line that
+   * does not fit moves entirely to the next page.
    */
   positionBlocks(assignments: PageAssignment[]): void {
     if (!this.workspace || this.pages.length === 0) return;
@@ -210,8 +209,6 @@ export class PageRenderer {
       page.style.display = '';
       applyPageStyles(page);
     }
-
-    this.applyBodyClipMask();
 
     const proseMirrorEl = this.contentElement ?? this.findProseMirror();
     if (!proseMirrorEl) return;
@@ -242,37 +239,47 @@ export class PageRenderer {
       const block = blocks[start.blockIndex];
       if (!block) continue;
 
-      const currentTop =
-        block.getBoundingClientRect().top - proseMirrorEl.getBoundingClientRect().top;
-      const extra = pageAssignment.pageIndex * pageStride - currentTop;
-      if (extra <= 1) continue;
-
-      const existingMargin = parseFloat(getComputedStyle(block).marginTop) || 0;
-      block.style.setProperty('margin-top', `${existingMargin + extra}px`, 'important');
-      block.setAttribute('data-pagination-break', String(pageAssignment.pageIndex));
+      this.pushToPageWell(block, proseMirrorEl, pageAssignment.pageIndex, pageStride);
     }
+
+    this.applyListItemSplits(assignments, blocks, proseMirrorEl, pageStride);
   }
 
-  /** Hide body ink in page margins and the inter-page gutter. */
-  private applyBodyClipMask(): void {
-    const body =
-      this.workspace?.querySelector<HTMLElement>('.document-body-region') ?? null;
-    if (!body) return;
+  private pushToPageWell(
+    el: HTMLElement,
+    proseMirrorEl: HTMLElement,
+    pageIndex: number,
+    pageStride: number,
+  ): void {
+    const currentTop =
+      el.getBoundingClientRect().top - proseMirrorEl.getBoundingClientRect().top;
+    const extra = pageIndex * pageStride - currentTop;
+    if (extra <= 1) return;
 
-    const margin = PAGE_CONFIG.MARGIN_PX;
-    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
-    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
-    const gradient = `repeating-linear-gradient(to bottom, transparent 0, transparent ${margin}px, #000 ${margin}px, #000 ${margin + well}px, transparent ${margin + well}px, transparent ${stride}px)`;
-    body.style.maskImage = gradient;
-    body.style.webkitMaskImage = gradient;
+    const existingMargin = parseFloat(getComputedStyle(el).marginTop) || 0;
+    el.style.setProperty('margin-top', `${existingMargin + extra}px`, 'important');
+    el.setAttribute('data-pagination-break', String(pageIndex));
   }
 
-  private clearBodyClipMask(): void {
-    const body =
-      this.workspace?.querySelector<HTMLElement>('.document-body-region') ?? null;
-    if (!body) return;
-    body.style.removeProperty('mask-image');
-    body.style.removeProperty('-webkit-mask-image');
+  private applyListItemSplits(
+    assignments: PageAssignment[],
+    blocks: HTMLElement[],
+    proseMirrorEl: HTMLElement,
+    pageStride: number,
+  ): void {
+    for (const pageAssignment of assignments) {
+      for (const blockAssignment of pageAssignment.blocks) {
+        const split = blockAssignment.split;
+        if (split?.type !== 'list' || split.splitAtItem == null) continue;
+
+        const list = blocks[blockAssignment.blockIndex];
+        if (!list) continue;
+        const item = list.querySelectorAll<HTMLElement>(':scope > li')[split.splitAtItem];
+        if (!item) continue;
+
+        this.pushToPageWell(item, proseMirrorEl, split.continuationPageIndex, pageStride);
+      }
+    }
   }
 
   /**
@@ -289,11 +296,17 @@ export class PageRenderer {
    * Clears all pagination positioning styles from block elements.
    */
   private clearPositioning(blocks: HTMLElement[]): void {
+    const clear = (el: HTMLElement): void => {
+      if (!el.hasAttribute('data-pagination-break')) return;
+      el.style.removeProperty('margin-top');
+      el.style.removeProperty('box-shadow');
+      el.removeAttribute('data-pagination-break');
+    };
+
     for (const block of blocks) {
-      if (block.hasAttribute('data-pagination-break')) {
-        block.style.removeProperty('margin-top');
-        block.style.removeProperty('box-shadow');
-        block.removeAttribute('data-pagination-break');
+      clear(block);
+      for (const item of block.querySelectorAll<HTMLElement>(':scope > li')) {
+        clear(item);
       }
     }
   }
@@ -520,7 +533,6 @@ export class PageRenderer {
 
     this.clearHeaderFooter();
     this.disconnectHeaderFooterObservers();
-    this.clearBodyClipMask();
 
     const paginatedBlocks = this.workspace.querySelectorAll<HTMLElement>('[data-pagination-break]');
     for (const block of paginatedBlocks) {
@@ -583,6 +595,7 @@ export class PageRenderer {
    */
   private createReadOnlyClone(sourceElement: HTMLElement, className: string): HTMLElement {
     const clone = sourceElement.cloneNode(true) as HTMLElement;
+    clone.classList.remove('document-header-region', 'document-footer-region');
     clone.classList.add(className);
     clone.setAttribute('contenteditable', 'false');
     clone.setAttribute('tabindex', '-1');
@@ -615,6 +628,11 @@ export class PageRenderer {
     el.style.left = `${PAGE_CONFIG.MARGIN_PX}px`;
     el.style.right = `${PAGE_CONFIG.MARGIN_PX}px`;
     el.style.zIndex = '1';
+    el.style.height = 'auto';
+    el.style.maxHeight = `${PAGE_CONFIG.MARGIN_PX}px`;
+    el.style.overflow = 'visible';
+    el.style.paddingBottom = '16px';
+    el.style.boxSizing = 'border-box';
   }
 
   /**

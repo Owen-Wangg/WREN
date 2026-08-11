@@ -8,7 +8,7 @@
  * @see Requirements 2.1, 2.4, 13.2
  */
 
-import type { BlockMeasurement } from './types';
+import type { BlockMeasurement, ItemMeasurement } from './types';
 
 /**
  * Interface for the BlockMeasurer component.
@@ -94,7 +94,30 @@ function measureBlock(node: HTMLElement, blockIndex: number): BlockMeasurement {
     measurement.headingLevel = headingLevel;
   }
 
+  if (blockType === 'list') {
+    measurement.items = measureListItems(node);
+    if (measurement.items.length > 0) {
+      // Sum item boxes so injected page-break margins do not inflate height.
+      measurement.height = measurement.items.reduce((sum, item) => sum + item.height, 0);
+    }
+  }
+
   return measurement;
+}
+
+function measureListItems(list: HTMLElement): ItemMeasurement[] {
+  const listTop = list.getBoundingClientRect().top;
+  const items = Array.from(list.querySelectorAll<HTMLElement>(':scope > li'));
+  return items.map((item, itemIndex) => {
+    const rect = item.getBoundingClientRect();
+    const top = rect.top - listTop;
+    return {
+      itemIndex,
+      top,
+      height: rect.height,
+      bottom: top + rect.height,
+    };
+  });
 }
 
 /**

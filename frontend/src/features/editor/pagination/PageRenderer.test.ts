@@ -203,22 +203,43 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       expect(parseFloat(second.style.marginTop)).toBeGreaterThan(PAGE_CONFIG.PAGE_GAP_PX);
     });
 
-    it('clips body ink to each letter content well', () => {
-      const body = document.createElement('div');
-      body.className = 'document-body-region';
-      scrollContainer.querySelector('.pagination-content')?.appendChild(body);
+    it('pushes the overflowing list item onto the next page instead of clipping it', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const list = document.createElement('ul');
+      const first = document.createElement('li');
+      first.textContent = 'stays on page one';
+      const second = document.createElement('li');
+      second.textContent = 'moves to page two';
+      list.append(first, second);
+      prose.appendChild(list);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
 
+      renderer.syncPageContainers(2);
       renderer.positionBlocks([
         {
           pageIndex: 0,
-          blocks: [{ blockIndex: 0, startOnPage: 0 }],
-          usedHeight: 100,
-          availableHeight: 764,
+          blocks: [
+            {
+              blockIndex: 0,
+              startOnPage: 0,
+              split: { type: 'list', splitAtItem: 1, continuationPageIndex: 1 },
+            },
+          ],
+          usedHeight: 400,
+          availableHeight: 464,
+        },
+        {
+          pageIndex: 1,
+          blocks: [{ blockIndex: 0, startOnPage: 1 }],
+          usedHeight: 40,
+          availableHeight: 824,
         },
       ]);
 
-      expect(body.style.maskImage).toContain('repeating-linear-gradient');
-      expect(body.style.maskImage).toContain(`${PAGE_CONFIG.MARGIN_PX}px`);
+      expect(second.getAttribute('data-pagination-break')).toBe('1');
+      expect(parseFloat(second.style.marginTop)).toBeGreaterThan(PAGE_CONFIG.PAGE_GAP_PX);
+      expect(first.getAttribute('data-pagination-break')).toBeNull();
     });
 
     it('does not remove a React-owned workspace on destroy', () => {
