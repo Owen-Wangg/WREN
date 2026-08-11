@@ -80,11 +80,13 @@ describe('Task 11.1 — Document Model Isolation', () => {
     it('only uses Plugin view.update for read-only observation', () => {
       // The extension source should define a view() function with an update() method
       expect(extensionSource).toContain('view()');
-      expect(extensionSource).toContain('update()');
+      expect(extensionSource).toContain('update(view, prevState)');
 
       // It should NOT use appendTransaction or filterTransaction (already checked)
       // Verify it uses requestRecalculation in the update method
       expect(extensionSource).toContain('controller?.requestRecalculation()');
+      // Selection/click transactions must not relayout pages
+      expect(extensionSource).toContain('view.state.doc.eq(prevState.doc)');
     });
 
     it('uses onTransaction-equivalent pattern (Plugin view.update) not transaction interceptors', () => {

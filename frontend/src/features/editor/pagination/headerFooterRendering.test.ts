@@ -239,4 +239,24 @@ describe('PageRenderer — Header/Footer Rendering', () => {
       expect(footerClones.length).toBe(0);
     });
   });
+
+  describe('syncHeaderFooterClones skips unchanged page count', () => {
+    it('does not replace clones when called again with the same page count', () => {
+      const workspace = scrollContainer.querySelector('.pagination-workspace') as HTMLElement;
+      const header = document.createElement('div');
+      header.className = 'document-header-region';
+      header.textContent = 'Header';
+      workspace.querySelector('.pagination-content')?.appendChild(header);
+
+      renderer.syncPageContainers(3);
+      renderer.syncHeaderFooterClones();
+
+      const firstClone = scrollContainer.querySelector('.pagination-header-clone');
+      expect(firstClone).not.toBeNull();
+
+      renderer.syncHeaderFooterClones();
+
+      expect(scrollContainer.querySelector('.pagination-header-clone')).toBe(firstClone);
+    });
+  });
 });

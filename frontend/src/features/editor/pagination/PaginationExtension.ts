@@ -111,11 +111,15 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
           return {
             /**
              * Called after every transaction is applied.
-             * Phase 2: triggers debounced recalculation via requestAnimationFrame.
+             * Relayout only when the document changed — selection/clicks must
+             * not remeasure pages or the caret target jumps under the pointer.
              */
-            update() {
+            update(view, prevState) {
               if (!controller) {
                 attach();
+              }
+              if (prevState && view.state.doc.eq(prevState.doc)) {
+                return;
               }
               controller?.requestRecalculation();
             },

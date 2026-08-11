@@ -121,6 +121,9 @@ export class PageRenderer {
   /** Live ProseMirror root — preferred over querySelector for positioning. */
   private contentElement: HTMLElement | null = null;
 
+  /** Page count last time header/footer clones were built. */
+  private headerFooterSyncedForPageCount = -1;
+
   /**
    * Creates a new PageRenderer.
    * @param scrollContainer — optional; the editor's scroll container element.
@@ -198,16 +201,14 @@ export class PageRenderer {
   /**
    * Positions block elements to show visual page boundaries.
    *
-   * Page-start blocks (and list items at a split) are pushed so they land at
-   * the top of the next letter content well. Nothing is clipped — a line that
-   * does not fit moves entirely to the next page.
+   * Gaps are derived from assignment used/available height so they stay
+   * stable across frames and do not chase getBoundingClientRect.
    */
   positionBlocks(assignments: PageAssignment[]): void {
     if (!this.workspace || this.pages.length === 0) return;
 
     for (const page of this.pages) {
       page.style.display = '';
-      applyPageStyles(page);
     }
 
     const proseMirrorEl = this.contentElement ?? this.findProseMirror();
@@ -220,7 +221,6 @@ export class PageRenderer {
       return;
     }
 
-    const pageStride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
     const seen = new Set<number>();
 
     for (const pageAssignment of assignments) {
@@ -237,36 +237,37 @@ export class PageRenderer {
       seen.add(start.blockIndex);
 
       const block = blocks[start.blockIndex];
-      if (!block) continue;
+      const prev = assignments[pageAssignment.pageIndex - 1];
+      if (!block || !prev) continue;
 
-      this.pushToPageWell(block, proseMirrorEl, pageAssignment.pageIndex, pageStride);
+      this.applyPageBreakGap(block, pageAssignment.pageIndex, prev.availableHeight);
     }
 
-    this.applyListItemSplits(assignments, blocks, proseMirrorEl, pageStride);
+    this.applyListItemSplits(assignments, blocks);
   }
 
-  private pushToPageWell(
-    el: HTMLElement,
-    proseMirrorEl: HTMLElement,
-    pageIndex: number,
-    pageStride: number,
-  ): void {
-    const currentTop =
-      el.getBoundingClientRect().top - proseMirrorEl.getBoundingClientRect().top;
-    const extra = pageIndex * pageStride - currentTop;
-    if (extra <= 1) return;
+  /** Remaining space on the previous page + bottom margin + gutter + top margin. */
+  private pageBreakGap(previousAvailableHeight: number): number {
+    return (
+      previousAvailableHeight +
+      PAGE_CONFIG.MARGIN_PX +
+      PAGE_CONFIG.PAGE_GAP_PX +
+      PAGE_CONFIG.MARGIN_PX
+    );
+  }
 
-    const existingMargin = parseFloat(getComputedStyle(el).marginTop) || 0;
-    el.style.setProperty('margin-top', `${existingMargin + extra}px`, 'important');
+  private applyPageBreakGap(
+    el: HTMLElement,
+    pageIndex: number,
+    previousAvailableHeight: number,
+  ): void {
+    const gap = this.pageBreakGap(previousAvailableHeight);
+    if (gap <= 0) return;
+    el.style.setProperty('margin-top', `${gap}px`, 'important');
     el.setAttribute('data-pagination-break', String(pageIndex));
   }
 
-  private applyListItemSplits(
-    assignments: PageAssignment[],
-    blocks: HTMLElement[],
-    proseMirrorEl: HTMLElement,
-    pageStride: number,
-  ): void {
+  private applyListItemSplits(assignments: PageAssignment[], blocks: HTMLElement[]): void {
     for (const pageAssignment of assignments) {
       for (const blockAssignment of pageAssignment.blocks) {
         const split = blockAssignment.split;
@@ -277,16 +278,23 @@ export class PageRenderer {
         const item = list.querySelectorAll<HTMLElement>(':scope > li')[split.splitAtItem];
         if (!item) continue;
 
-        this.pushToPageWell(item, proseMirrorEl, split.continuationPageIndex, pageStride);
+        this.applyPageBreakGap(item, split.continuationPageIndex, pageAssignment.availableHeight);
       }
     }
   }
 
   /**
    * Clones the live header/footer regions onto letter frames after page 1.
+   * Skips work when the page count has not changed — body edits must not
+   * tear down clones. Header/footer text updates still flow through the
+   * MutationObserver inside renderHeaderFooter.
    */
   syncHeaderFooterClones(): void {
     if (!this.workspace) return;
+    if (this.headerFooterSyncedForPageCount === this.pages.length) {
+      return;
+    }
+    this.headerFooterSyncedForPageCount = this.pages.length;
     const header = this.workspace.querySelector<HTMLElement>('.document-header-region');
     const footer = this.workspace.querySelector<HTMLElement>('.document-footer-region');
     this.renderHeaderFooter(header, footer, this.pages.length);
@@ -545,6 +553,7 @@ export class PageRenderer {
       page.remove();
     }
     this.pages = [];
+    this.headerFooterSyncedForPageCount = -1;
 
     if (this.reactOwnedWorkspace) {
       this.workspace = null;

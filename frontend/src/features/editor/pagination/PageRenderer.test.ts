@@ -200,7 +200,9 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
         expect(page.style.display).not.toBe('none');
       }
       expect(second.getAttribute('data-pagination-break')).toBe('1');
-      expect(parseFloat(second.style.marginTop)).toBeGreaterThan(PAGE_CONFIG.PAGE_GAP_PX);
+      expect(second.style.marginTop).toBe(
+        `${764 + PAGE_CONFIG.MARGIN_PX + PAGE_CONFIG.PAGE_GAP_PX + PAGE_CONFIG.MARGIN_PX}px`,
+      );
     });
 
     it('pushes the overflowing list item onto the next page instead of clipping it', () => {

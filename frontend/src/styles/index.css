@@ -259,8 +259,17 @@ body {
   box-sizing: border-box;
   height: var(--pagination-page-margin, 96px);
   max-height: var(--pagination-page-margin, 96px);
-  overflow: visible;
+  overflow: hidden;
+  pointer-events: auto;
   border-radius: 2px;
+}
+
+.document-header-region .tiptap,
+.document-header-region .ProseMirror,
+.document-footer-region .tiptap,
+.document-footer-region .ProseMirror {
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .document-header-region {
