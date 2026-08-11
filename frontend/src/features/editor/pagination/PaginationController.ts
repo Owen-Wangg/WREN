@@ -467,8 +467,7 @@ export class PaginationController implements IPaginationController {
       footerHeight: 0,
       orphanLines: this.options.orphanLines,
       widowLines: this.options.widowLines,
-      // Keep whole blocks on one page so lines are never hidden in the gutter.
-      enableParagraphSplitting: false,
+      enableParagraphSplitting: true,
       enableKeepWithNext: false, // Phase 3D — will be enabled in Wave 12
     };
   }

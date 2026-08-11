@@ -241,6 +241,12 @@ body {
   z-index: 2;
 }
 
+/* Continuation slices of a split paragraph — paint-only, not editable. */
+.pagination-paragraph-continuation {
+  pointer-events: none;
+  user-select: none;
+}
+
 /* Placeholder first page before PageRenderer mounts real frames. */
 .pagination-pages:empty::before {
   content: '';

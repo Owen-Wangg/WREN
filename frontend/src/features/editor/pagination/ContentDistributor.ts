@@ -452,6 +452,8 @@ export class ContentDistributor implements IContentDistributor {
             type: 'paragraph',
             splitAtLine: splitAfterLine,
             continuationPageIndex,
+            blockIndex: measurement.blockIndex,
+            clipHeightPx: heightOnCurrentPage,
           },
         });
         usedHeight += heightOnCurrentPage;
@@ -804,6 +806,8 @@ export class ContentDistributor implements IContentDistributor {
         type: 'paragraph',
         splitAtLine: splitAfterLine,
         continuationPageIndex,
+        blockIndex: measurement.blockIndex,
+        clipHeightPx: heightOnCurrentPage,
       },
     });
 
@@ -917,6 +921,8 @@ export class ContentDistributor implements IContentDistributor {
             type: 'paragraph',
             splitAtLine: splitAfterLine,
             continuationPageIndex,
+            blockIndex,
+            clipHeightPx: heightOnThisPage,
           },
         },
       ],

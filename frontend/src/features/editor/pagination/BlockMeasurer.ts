@@ -9,6 +9,9 @@
  */
 
 import type { BlockMeasurement, ItemMeasurement } from './types';
+import { ParagraphSplitter } from './ParagraphSplitter';
+
+const paragraphSplitter = new ParagraphSplitter();
 
 /**
  * Interface for the BlockMeasurer component.
@@ -102,7 +105,28 @@ function measureBlock(node: HTMLElement, blockIndex: number): BlockMeasurement {
     }
   }
 
+  if (blockType === 'paragraph') {
+    measurement.lines = measureParagraphLines(node);
+    if (measurement.lines.length > 0) {
+      measurement.height = measurement.lines[measurement.lines.length - 1].bottom;
+    }
+  }
+
   return measurement;
+}
+
+function measureParagraphLines(paragraph: HTMLElement) {
+  const maxHeight = paragraph.style.maxHeight;
+  const overflow = paragraph.style.overflow;
+  const marginBottom = paragraph.style.marginBottom;
+  paragraph.style.maxHeight = '';
+  paragraph.style.overflow = '';
+  paragraph.style.marginBottom = '';
+  const lines = paragraphSplitter.measureLines(paragraph);
+  paragraph.style.maxHeight = maxHeight;
+  paragraph.style.overflow = overflow;
+  paragraph.style.marginBottom = marginBottom;
+  return lines;
 }
 
 function measureListItems(list: HTMLElement): ItemMeasurement[] {

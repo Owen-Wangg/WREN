@@ -18,6 +18,30 @@ import type { PageAssignment, SplitInfo } from './types';
 
 const HEADER_CLONE_CLASS = 'pagination-header-clone';
 const FOOTER_CLONE_CLASS = 'pagination-footer-clone';
+const PARAGRAPH_CONTINUATION_CLASS = 'pagination-paragraph-continuation';
+
+function serializeAssignments(assignments: PageAssignment[]): string {
+  return assignments
+    .map((page) => {
+      const blocks = page.blocks
+        .map((block) => {
+          const split = block.split;
+          const splitKey = split
+            ? [
+                split.type,
+                split.splitAtLine ?? '',
+                split.splitAtItem ?? '',
+                split.continuationPageIndex,
+                split.clipHeightPx ?? '',
+              ].join('/')
+            : '';
+          return `${block.blockIndex}:${block.startOnPage}:${splitKey}`;
+        })
+        .join(',');
+      return `${page.pageIndex}:${Math.round(page.usedHeight)}:${Math.round(page.availableHeight)}:${blocks}`;
+    })
+    .join('|');
+}
 
 // ---------------------------------------------------------------------------
 // CSS class names
@@ -153,6 +177,9 @@ export class PageRenderer {
   /** Page count last time header/footer clones were built. */
   private headerFooterSyncedForPageCount = -1;
 
+  /** Skip positionBlocks when assignments have not changed. */
+  private lastLayoutKey = '';
+
   /**
    * Creates a new PageRenderer.
    * @param scrollContainer — optional; the editor's scroll container element.
@@ -238,6 +265,12 @@ export class PageRenderer {
   positionBlocks(assignments: PageAssignment[]): void {
     if (!this.workspace || this.pages.length === 0) return;
 
+    const layoutKey = serializeAssignments(assignments);
+    if (layoutKey === this.lastLayoutKey) {
+      return;
+    }
+    this.lastLayoutKey = layoutKey;
+
     for (const page of this.pages) {
       page.style.display = '';
     }
@@ -251,6 +284,8 @@ export class PageRenderer {
     if (assignments.length <= 1) {
       return;
     }
+
+    this.applyParagraphSplits(assignments, blocks);
 
     const seen = new Set<number>();
 
@@ -270,6 +305,9 @@ export class PageRenderer {
       const block = blocks[start.blockIndex];
       const prev = assignments[pageAssignment.pageIndex - 1];
       if (!block || !prev) continue;
+      if (block.previousElementSibling?.getAttribute('data-split-clipped') === 'current') {
+        continue;
+      }
 
       this.applyPageBreakGap(block, pageAssignment.pageIndex, prev.availableHeight);
     }
@@ -315,6 +353,103 @@ export class PageRenderer {
   }
 
   /**
+   * Clips a live paragraph to the first-page slice and paints continuation
+   * slices in chrome wells. A phantom margin-bottom pushes following blocks
+   * into the correct later well without splitting the ProseMirror node.
+   */
+  private applyParagraphSplits(assignments: PageAssignment[], blocks: HTMLElement[]): void {
+    const clipped = new Set<number>();
+
+    for (const page of assignments) {
+      for (const blockAssignment of page.blocks) {
+        const split = blockAssignment.split;
+        if (split?.type !== 'paragraph' || split.clipHeightPx == null) continue;
+        if (clipped.has(blockAssignment.blockIndex)) continue;
+
+        const el = blocks[blockAssignment.blockIndex];
+        if (!el) continue;
+        clipped.add(blockAssignment.blockIndex);
+
+        const fullHeight = Math.max(el.scrollHeight, el.getBoundingClientRect().height);
+        const clipHeightPx = split.clipHeightPx;
+        const remaining = Math.max(0, fullHeight - clipHeightPx);
+
+        el.style.maxHeight = `${clipHeightPx}px`;
+        el.style.overflow = 'hidden';
+        el.setAttribute('data-split-clipped', 'current');
+        el.style.setProperty(
+          'margin-bottom',
+          `${this.phantomAfterClip(page.availableHeight, remaining)}px`,
+          'important',
+        );
+
+        this.placeParagraphContinuations(el, clipHeightPx, remaining, split.continuationPageIndex);
+      }
+    }
+  }
+
+  private phantomAfterClip(availableHeight: number, remaining: number): number {
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    const boundary = this.pageBreakGap(0);
+    let phantom = availableHeight + boundary;
+    let left = remaining;
+    while (left > 0.5) {
+      const slice = Math.min(left, well);
+      phantom += slice;
+      left -= slice;
+      if (left > 0.5) {
+        phantom += boundary;
+      }
+    }
+    return phantom;
+  }
+
+  private placeParagraphContinuations(
+    source: HTMLElement,
+    clipHeightPx: number,
+    remaining: number,
+    startPageIndex: number,
+  ): void {
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    let offset = clipHeightPx;
+    let left = remaining;
+    let pageIndex = startPageIndex;
+
+    while (left > 0.5 && pageIndex < this.chromePages.length) {
+      const slice = Math.min(left, well);
+      const host = this.chromePages[pageIndex];
+      if (!host) break;
+
+      const wrap = document.createElement('div');
+      wrap.className = `${PARAGRAPH_CONTINUATION_CLASS} document-editor-surface`;
+      wrap.setAttribute('data-split-clipped', 'continuation');
+      wrap.setAttribute('data-page-index', String(pageIndex));
+      wrap.setAttribute('aria-hidden', 'true');
+      wrap.style.position = 'absolute';
+      wrap.style.top = `${PAGE_CONFIG.MARGIN_PX}px`;
+      wrap.style.left = `${PAGE_CONFIG.MARGIN_PX}px`;
+      wrap.style.right = `${PAGE_CONFIG.MARGIN_PX}px`;
+      wrap.style.height = `${slice}px`;
+      wrap.style.overflow = 'hidden';
+      wrap.style.pointerEvents = 'none';
+
+      const clone = source.cloneNode(true) as HTMLElement;
+      clone.style.maxHeight = '';
+      clone.style.overflow = 'visible';
+      clone.style.removeProperty('margin-bottom');
+      clone.style.marginTop = `-${offset}px`;
+      clone.removeAttribute('data-split-clipped');
+      clone.setAttribute('contenteditable', 'false');
+      wrap.appendChild(clone);
+      host.appendChild(wrap);
+
+      offset += slice;
+      left -= slice;
+      pageIndex += 1;
+    }
+  }
+
+  /**
    * Clones the live header/footer regions onto letter frames after page 1.
    * Skips work when the page count has not changed — body edits must not
    * tear down clones. Header/footer text updates still flow through the
@@ -348,10 +483,12 @@ export class PageRenderer {
         clear(item);
       }
     }
+
+    this.clearSplitClipping(blocks);
   }
 
   // -------------------------------------------------------------------------
-  // Public API — Phase 3 stubs
+  // Public API — header/footer, page numbers, split clipping
   // -------------------------------------------------------------------------
 
   /** Renders cloned header/footer content on all pages.
@@ -466,91 +603,52 @@ export class PageRenderer {
    * @see Requirements 3.1, 11.5
    */
   applySplitClipping(splits: SplitInfo[]): void {
-    // First, clear any previously-applied split clipping styles
-    this.clearSplitClipping();
+    const proseMirrorEl = this.contentElement ?? this.findProseMirror();
+    if (!proseMirrorEl) return;
 
-    for (const split of splits) {
-      if (split.type !== 'paragraph' || split.clipHeightPx == null) continue;
-      if (split.blockIndex == null) continue;
+    const blocks = Array.from(proseMirrorEl.children) as HTMLElement[];
+    this.clearSplitClipping(blocks);
 
-      const { blockIndex, clipHeightPx, continuationPageIndex } = split;
+    const assignments: PageAssignment[] = splits
+      .filter((split) => split.type === 'paragraph' && split.blockIndex != null)
+      .map((split) => ({
+        pageIndex: Math.max(0, split.continuationPageIndex - 1),
+        blocks: [{ blockIndex: split.blockIndex!, startOnPage: 0, split }],
+        usedHeight: split.clipHeightPx ?? 0,
+        availableHeight: 0,
+      }));
 
-      // --- Current page: clip the paragraph to show only the top portion ---
-      // The block lives on the page just before the continuation page
-      const currentPageIndex = continuationPageIndex - 1;
-      if (currentPageIndex < 0 || currentPageIndex >= this.pages.length) continue;
-
-      const currentPage = this.pages[currentPageIndex];
-      const currentBlock = this.getBlockElement(currentPage, blockIndex);
-
-      if (currentBlock) {
-        // Use max-height + overflow:hidden to clip the bottom portion
-        currentBlock.style.maxHeight = `${clipHeightPx}px`;
-        currentBlock.style.overflow = 'hidden';
-        currentBlock.setAttribute('data-split-clipped', 'current');
-      }
-
-      // --- Continuation page: show only the bottom portion ---
-      if (continuationPageIndex >= this.pages.length) continue;
-
-      const continuationPage = this.pages[continuationPageIndex];
-
-      // Clone the paragraph element for the continuation page if it doesn't
-      // already have a continuation clone. We clone (rather than move) so the
-      // ProseMirror document node is not disrupted.
-      if (currentBlock) {
-        const clone = currentBlock.cloneNode(true) as HTMLElement;
-
-        // Remove the current-page clipping from the clone
-        clone.style.maxHeight = '';
-        clone.style.overflow = '';
-
-        // Apply clip-path to hide the top portion that was shown on the
-        // previous page. This preserves inline highlight/comment-mark styling
-        // contiguously across both portions.
-        clone.style.clipPath = `inset(${clipHeightPx}px 0 0 0)`;
-
-        // Use negative margin-top to pull the content up so the visible
-        // continuation portion starts at the top of its container area
-        clone.style.marginTop = `-${clipHeightPx}px`;
-
-        clone.setAttribute('data-split-clipped', 'continuation');
-        clone.removeAttribute('data-page-index');
-
-        // Insert the continuation clone at the beginning of the continuation page
-        if (continuationPage.firstChild) {
-          continuationPage.insertBefore(clone, continuationPage.firstChild);
-        } else {
-          continuationPage.appendChild(clone);
-        }
-      }
-    }
+    this.applyParagraphSplits(assignments, blocks);
   }
 
   /**
    * Removes all split-clipping styles and cloned continuation elements that
-   * were previously applied by `applySplitClipping()`. Called at the start of
-   * each new clipping pass to avoid stale artifacts.
+   * were previously applied by paragraph splitting.
    */
-  clearSplitClipping(): void {
-    for (const page of this.pages) {
-      // Remove continuation clones
-      const continuationClones = page.querySelectorAll<HTMLElement>(
-        '[data-split-clipped="continuation"]',
-      );
-      for (const clone of continuationClones) {
+  clearSplitClipping(blocks?: HTMLElement[]): void {
+    const roots: Array<HTMLElement | null> = [this.chromeLayer, this.workspace, ...this.pages];
+    for (const root of roots) {
+      if (!root) continue;
+      for (const clone of root.querySelectorAll<HTMLElement>(
+        `.${PARAGRAPH_CONTINUATION_CLASS}, [data-split-clipped="continuation"]`,
+      )) {
         clone.remove();
       }
+    }
 
-      // Reset clipping styles on current-page clipped elements
-      const clippedElements = page.querySelectorAll<HTMLElement>(
-        '[data-split-clipped="current"]',
-      );
-      for (const el of clippedElements) {
-        el.style.maxHeight = '';
-        el.style.overflow = '';
-        el.removeAttribute('data-split-clipped');
-      }
+    const liveBlocks =
+      blocks ??
+      (() => {
+        const prose = this.contentElement ?? this.findProseMirror();
+        return prose ? (Array.from(prose.children) as HTMLElement[]) : [];
+      })();
+
+    for (const el of liveBlocks) {
+      if (el.getAttribute('data-split-clipped') !== 'current') continue;
+      el.style.maxHeight = '';
+      el.style.overflow = '';
+      el.style.removeProperty('margin-bottom');
+      el.removeAttribute('data-split-clipped');
     }
   }
 
@@ -584,6 +682,7 @@ export class PageRenderer {
     }
     this.chromePages = [];
     this.headerFooterSyncedForPageCount = -1;
+    this.lastLayoutKey = '';
 
     if (this.reactOwnedWorkspace) {
       this.workspace = null;
@@ -737,19 +836,6 @@ export class PageRenderer {
       clearTimeout(this.headerFooterDebounceTimer);
       this.headerFooterDebounceTimer = null;
     }
-  }
-
-  /**
-   * Locates a block element within a page container by its block index.
-   * Block elements are the direct children of the page container that are
-   * not pagination infrastructure (not split-clipped continuations).
-   */
-  private getBlockElement(page: HTMLElement, blockIndex: number): HTMLElement | null {
-    // Get direct children that are content blocks (excluding continuation clones)
-    const children = Array.from(page.children).filter(
-      (child) => child.getAttribute('data-split-clipped') !== 'continuation',
-    ) as HTMLElement[];
-    return children[blockIndex] ?? null;
   }
 
   private createPageElement(index: number): HTMLElement {

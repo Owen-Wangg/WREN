@@ -87,6 +87,21 @@ describe('BlockMeasurer', () => {
       expect(results[1].blockType).toBe('list');
     });
 
+    it('measures paragraph lines and restores any live clip styles', () => {
+      const paragraph = createMockElement('p', 200);
+      paragraph.style.maxHeight = '40px';
+      paragraph.style.overflow = 'hidden';
+      contentElement.appendChild(paragraph);
+
+      const results = new BlockMeasurer(contentElement).measureAll();
+
+      expect(results[0].lines).toBeDefined();
+      expect(results[0].lines!.length).toBeGreaterThan(0);
+      expect(results[0].height).toBe(200);
+      expect(paragraph.style.maxHeight).toBe('40px');
+      expect(paragraph.style.overflow).toBe('hidden');
+    });
+
     it('measures each direct list item so tall lists can split between items', () => {
       const list = document.createElement('ul');
       const first = document.createElement('li');

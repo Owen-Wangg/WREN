@@ -110,7 +110,8 @@ export class ParagraphSplitter implements IParagraphSplitter {
     const range = document.createRange();
     range.selectNodeContents(paragraphElement);
 
-    const rects = range.getClientRects();
+    const rects =
+      typeof range.getClientRects === 'function' ? range.getClientRects() : [];
 
     // If getClientRects returns empty (e.g., empty paragraph), return
     // a single line with the element's full height

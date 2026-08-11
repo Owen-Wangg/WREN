@@ -244,6 +244,112 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       expect(first.getAttribute('data-pagination-break')).toBeNull();
     });
 
+    it('clips a long paragraph and paints continuation ink in chrome wells', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const paragraph = document.createElement('p');
+      paragraph.textContent = 'long paragraph';
+      Object.defineProperty(paragraph, 'scrollHeight', {
+        configurable: true,
+        get: () => 1400,
+      });
+      paragraph.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 1400,
+        top: 0,
+        right: 624,
+        bottom: 1400,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      const following = document.createElement('p');
+      following.textContent = 'after the split';
+      prose.append(paragraph, following);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      const assignments = [
+        {
+          pageIndex: 0,
+          blocks: [
+            {
+              blockIndex: 0,
+              startOnPage: 0,
+              split: {
+                type: 'paragraph' as const,
+                splitAtLine: 20,
+                continuationPageIndex: 1,
+                blockIndex: 0,
+                clipHeightPx: 400,
+              },
+            },
+          ],
+          usedHeight: 400,
+          availableHeight: 464,
+        },
+        {
+          pageIndex: 1,
+          blocks: [
+            {
+              blockIndex: 0,
+              startOnPage: 1,
+              split: {
+                type: 'paragraph' as const,
+                splitAtLine: 10,
+                continuationPageIndex: 2,
+                blockIndex: 0,
+                clipHeightPx: 864,
+              },
+            },
+          ],
+          usedHeight: 864,
+          availableHeight: 0,
+        },
+        {
+          pageIndex: 2,
+          blocks: [
+            { blockIndex: 0, startOnPage: 2 },
+            { blockIndex: 1, startOnPage: 2 },
+          ],
+          usedHeight: 200,
+          availableHeight: 664,
+        },
+      ];
+
+      renderer.syncPageContainers(3);
+      renderer.positionBlocks(assignments);
+
+      expect(paragraph.style.maxHeight).toBe('400px');
+      expect(paragraph.style.overflow).toBe('hidden');
+      expect(paragraph.getAttribute('data-split-clipped')).toBe('current');
+      expect(parseFloat(paragraph.style.marginBottom)).toBe(
+        464 +
+          PAGE_CONFIG.MARGIN_PX +
+          PAGE_CONFIG.PAGE_GAP_PX +
+          PAGE_CONFIG.MARGIN_PX +
+          864 +
+          PAGE_CONFIG.MARGIN_PX +
+          PAGE_CONFIG.PAGE_GAP_PX +
+          PAGE_CONFIG.MARGIN_PX +
+          136,
+      );
+      expect(following.getAttribute('data-pagination-break')).toBeNull();
+
+      const continuations = scrollContainer.querySelectorAll<HTMLElement>(
+        '.pagination-paragraph-continuation',
+      );
+      expect(continuations).toHaveLength(2);
+      expect(continuations[0].parentElement?.getAttribute('data-page-index')).toBe('1');
+      expect(continuations[1].parentElement?.getAttribute('data-page-index')).toBe('2');
+      expect(continuations[0].style.height).toBe('864px');
+      expect(continuations[1].style.height).toBe('136px');
+
+      const firstClone = continuations[0];
+      renderer.positionBlocks(assignments);
+      expect(scrollContainer.querySelector('.pagination-paragraph-continuation')).toBe(firstClone);
+    });
+
     it('does not remove a React-owned workspace on destroy', () => {
       renderer.destroy();
       scrollContainer.replaceChildren();

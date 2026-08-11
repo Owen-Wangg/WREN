@@ -95,6 +95,8 @@ describe('ContentDistributor — Paragraph Splitting Integration', () => {
       expect(pages[0].blocks[1].split!.type).toBe('paragraph');
       expect(pages[0].blocks[1].split!.splitAtLine).toBe(2); // lines 0,1,2 on current page
       expect(pages[0].blocks[1].split!.continuationPageIndex).toBe(1);
+      expect(pages[0].blocks[1].split!.clipHeightPx).toBe(90);
+      expect(pages[0].blocks[1].split!.blockIndex).toBe(1);
 
       // Second page has continuation
       expect(pages[1].blocks.length).toBe(1);
