@@ -37,7 +37,7 @@ const Y_TOLERANCE = 2;
  * @param paragraphTop The top offset of the paragraph element itself
  */
 function mergeRectsIntoLines(
-  rects: DOMRectList,
+  rects: ArrayLike<DOMRect>,
   paragraphTop: number,
 ): LineMeasurement[] {
   if (rects.length === 0) {

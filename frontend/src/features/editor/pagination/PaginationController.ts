@@ -79,12 +79,6 @@ export class PaginationController implements IPaginationController {
   /** Reference to the footer editor content element for height measurement. */
   private footerElement: HTMLElement | null = null;
 
-  /** Last measured header height (CSS pixels). */
-  private measuredHeaderHeight = 0;
-
-  /** Last measured footer height (CSS pixels). */
-  private measuredFooterHeight = 0;
-
   /**
    * @param contentElement The `.ProseMirror` editor content element containing
    *   top-level block elements as direct children.
@@ -216,6 +210,7 @@ export class PaginationController implements IPaginationController {
    * Call this when the header editor mounts or changes.
    */
   setHeaderElement(el: HTMLElement | null): void {
+    if (this.headerElement === el) return;
     this.headerElement = el;
   }
 
@@ -224,6 +219,7 @@ export class PaginationController implements IPaginationController {
    * Call this when the footer editor mounts or changes.
    */
   setFooterElement(el: HTMLElement | null): void {
+    if (this.footerElement === el) return;
     this.footerElement = el;
   }
 
@@ -448,16 +444,14 @@ export class PaginationController implements IPaginationController {
 
   /**
    * Builds DistributionOptions from the pagination configuration.
-   * Measures header/footer heights and applies the 352px combined cap.
+   * Header/footer live in the 96px chrome bands, so the body well is not
+   * shrunk by measured header/footer height.
    *
    * @see Requirements 5.5, 5.6
    */
   private buildDistributionOptions() {
     const baseUsablePageHeight =
       this.options.pageHeight - this.options.marginTop - this.options.marginBottom;
-
-    this.measuredHeaderHeight = this.measureElementHeight(this.headerElement);
-    this.measuredFooterHeight = this.measureElementHeight(this.footerElement);
 
     return {
       // The 96px header/footer bands are page chrome, not extra well shrinkage.
@@ -470,16 +464,6 @@ export class PaginationController implements IPaginationController {
       enableParagraphSplitting: true,
       enableKeepWithNext: false, // Phase 3D — will be enabled in Wave 12
     };
-  }
-
-  /**
-   * Measures the rendered height of an element in CSS pixels.
-   * Returns 0 if the element is null or not visible.
-   */
-  private measureElementHeight(el: HTMLElement | null): number {
-    if (!el) return 0;
-    const rect = el.getBoundingClientRect();
-    return rect.height;
   }
 
   /**
