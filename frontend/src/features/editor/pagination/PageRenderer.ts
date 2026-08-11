@@ -25,6 +25,8 @@ const FOOTER_CLONE_CLASS = 'pagination-footer-clone';
 
 const WORKSPACE_CLASS = 'pagination-workspace';
 const PAGES_LAYER_CLASS = 'pagination-pages';
+const CHROME_LAYER_CLASS = 'pagination-chrome';
+const CHROME_PAGE_CLASS = 'pagination-chrome-page';
 const CONTENT_LAYER_CLASS = 'pagination-content';
 const PAGE_CLASS = 'pagination-page';
 
@@ -49,6 +51,27 @@ function applyPagesLayerStyles(el: HTMLElement): void {
   el.style.width = `${PAGE_CONFIG.WIDTH_PX}px`;
   el.style.pointerEvents = 'none';
   el.style.zIndex = '0';
+}
+
+/** Header/footer repeats above body ink. Clicks pass through to the editors. */
+function applyChromeLayerStyles(el: HTMLElement): void {
+  el.style.position = 'absolute';
+  el.style.left = '50%';
+  el.style.top = `${PAGE_CONFIG.PAGE_GAP_PX}px`;
+  el.style.transform = 'translateX(-50%)';
+  el.style.width = `${PAGE_CONFIG.WIDTH_PX}px`;
+  el.style.pointerEvents = 'none';
+  el.style.zIndex = '2';
+}
+
+function applyChromePageStyles(el: HTMLElement): void {
+  el.style.position = 'relative';
+  el.style.boxSizing = 'border-box';
+  el.style.width = `${PAGE_CONFIG.WIDTH_PX}px`;
+  el.style.height = `${PAGE_CONFIG.HEIGHT_PX}px`;
+  el.style.margin = '0 auto';
+  el.style.marginBottom = `${PAGE_CONFIG.PAGE_GAP_PX}px`;
+  el.style.pointerEvents = 'none';
 }
 
 /** Transparent content column aligned with the page stack. */
@@ -90,6 +113,12 @@ export class PageRenderer {
 
   /** Absolute backdrop that holds letter-sized `.pagination-page` frames. */
   private pagesLayer: HTMLElement | null = null;
+
+  /** Overlay that holds header/footer clones above the body. */
+  private chromeLayer: HTMLElement | null = null;
+
+  /** One chrome slot per page (page 0 stays empty — live editors sit there). */
+  private chromePages: HTMLElement[] = [];
 
   /** Transparent column that holds the live editor (React- or test-owned). */
   private contentLayer: HTMLElement | null = null;
@@ -196,6 +225,8 @@ export class PageRenderer {
       const removed = this.pages.pop()!;
       removed.remove();
     }
+
+    this.syncChromePages(count);
   }
 
   /**
@@ -346,26 +377,22 @@ export class PageRenderer {
     this.currentHeaderContent = headerContent;
     this.currentFooterContent = footerContent;
 
-    // Clone header/footer into pages 2+ (index >= 1)
-    for (let i = 1; i < this.pages.length; i++) {
-      const page = this.pages[i];
+    // Clone into chrome slots for pages 2+ so repeats sit above body ink.
+    for (let i = 1; i < this.chromePages.length; i++) {
+      const chromePage = this.chromePages[i];
 
       if (headerContent) {
         const headerClone = this.createReadOnlyClone(headerContent, HEADER_CLONE_CLASS);
+        headerClone.setAttribute('data-page-index', String(i));
         this.applyHeaderCloneStyles(headerClone);
-        // Insert header clone at the beginning of the page container
-        if (page.firstChild) {
-          page.insertBefore(headerClone, page.firstChild);
-        } else {
-          page.appendChild(headerClone);
-        }
+        chromePage.appendChild(headerClone);
       }
 
       if (footerContent) {
         const footerClone = this.createReadOnlyClone(footerContent, FOOTER_CLONE_CLASS);
+        footerClone.setAttribute('data-page-index', String(i));
         this.applyFooterCloneStyles(footerClone);
-        // Append footer clone at the end of the page container
-        page.appendChild(footerClone);
+        chromePage.appendChild(footerClone);
       }
     }
 
@@ -407,18 +434,17 @@ export class PageRenderer {
     // siblings of the page stack). Search the workspace root level.
     if (this.workspace) {
       const workspacePageNumbers = this.workspace.querySelectorAll<HTMLElement>(
-        `:scope > [data-page-number], .${HEADER_CLONE_CLASS} [data-page-number], .${FOOTER_CLONE_CLASS} [data-page-number]`,
+        `.document-header-region [data-page-number], .document-footer-region [data-page-number], .${HEADER_CLONE_CLASS} [data-page-number], .${FOOTER_CLONE_CLASS} [data-page-number]`,
       );
       for (const node of workspacePageNumbers) {
-        // Determine which page this node belongs to by finding its ancestor page
-        const parentPage = node.closest(`.${PAGE_CLASS}`);
-        if (parentPage) {
-          const pageIndex = parseInt(
-            parentPage.getAttribute('data-page-index') ?? '0',
-            10,
-          );
+        const clone = node.closest<HTMLElement>(`.${HEADER_CLONE_CLASS}, .${FOOTER_CLONE_CLASS}`);
+        if (clone) {
+          const pageIndex = parseInt(clone.getAttribute('data-page-index') ?? '0', 10);
           node.textContent = String(pageIndex + 1);
+          continue;
         }
+        // Live header/footer on page 1
+        node.textContent = '1';
       }
     }
   }
@@ -553,11 +579,16 @@ export class PageRenderer {
       page.remove();
     }
     this.pages = [];
+    for (const chromePage of this.chromePages) {
+      chromePage.remove();
+    }
+    this.chromePages = [];
     this.headerFooterSyncedForPageCount = -1;
 
     if (this.reactOwnedWorkspace) {
       this.workspace = null;
       this.pagesLayer = null;
+      this.chromeLayer = null;
       this.contentLayer = null;
       this.reactOwnedWorkspace = false;
       this.originalChildren = [];
@@ -567,6 +598,7 @@ export class PageRenderer {
     this.workspace.remove();
     this.workspace = null;
     this.pagesLayer = null;
+    this.chromeLayer = null;
     this.contentLayer = null;
 
     for (const child of this.originalChildren) {
@@ -585,13 +617,12 @@ export class PageRenderer {
    * `pagination-footer-clone` CSS class.
    */
   private clearHeaderFooter(): void {
-    for (const page of this.pages) {
-      const headerClones = page.querySelectorAll<HTMLElement>(`.${HEADER_CLONE_CLASS}`);
-      for (const clone of headerClones) {
-        clone.remove();
-      }
-      const footerClones = page.querySelectorAll<HTMLElement>(`.${FOOTER_CLONE_CLASS}`);
-      for (const clone of footerClones) {
+    const roots = [this.chromeLayer, this.workspace, ...this.pages];
+    for (const root of roots) {
+      if (!root) continue;
+      for (const clone of root.querySelectorAll<HTMLElement>(
+        `.${HEADER_CLONE_CLASS}, .${FOOTER_CLONE_CLASS}`,
+      )) {
         clone.remove();
       }
     }
@@ -763,6 +794,11 @@ export class PageRenderer {
         this.createPagesLayer(existingWorkspace);
       applyPagesLayerStyles(this.pagesLayer);
 
+      this.chromeLayer =
+        existingWorkspace.querySelector<HTMLElement>(`:scope > .${CHROME_LAYER_CLASS}`) ??
+        this.createChromeLayer(existingWorkspace);
+      applyChromeLayerStyles(this.chromeLayer);
+
       this.contentLayer =
         existingWorkspace.querySelector<HTMLElement>(`:scope > .${CONTENT_LAYER_CLASS}`);
       if (this.contentLayer) {
@@ -777,6 +813,7 @@ export class PageRenderer {
         this.pagesLayer.appendChild(firstPage);
         this.pages = [firstPage];
       }
+      this.syncChromePages(this.pages.length);
       return;
     }
 
@@ -787,6 +824,7 @@ export class PageRenderer {
     applyWorkspaceStyles(this.workspace);
 
     this.pagesLayer = this.createPagesLayer(this.workspace);
+    this.chromeLayer = this.createChromeLayer(this.workspace);
 
     this.contentLayer = document.createElement('div');
     this.contentLayer.className = CONTENT_LAYER_CLASS;
@@ -799,6 +837,7 @@ export class PageRenderer {
     const firstPage = this.createPageElement(0);
     this.pagesLayer.appendChild(firstPage);
     this.pages = [firstPage];
+    this.syncChromePages(1);
 
     this.scrollContainer.appendChild(this.workspace);
   }
@@ -809,5 +848,43 @@ export class PageRenderer {
     applyPagesLayerStyles(layer);
     workspace.insertBefore(layer, workspace.firstChild);
     return layer;
+  }
+
+  private createChromeLayer(workspace: HTMLElement): HTMLElement {
+    const layer = document.createElement('div');
+    layer.className = CHROME_LAYER_CLASS;
+    applyChromeLayerStyles(layer);
+    const content = workspace.querySelector(`.${CONTENT_LAYER_CLASS}`);
+    if (content) {
+      workspace.insertBefore(layer, content);
+    } else {
+      workspace.appendChild(layer);
+    }
+    return layer;
+  }
+
+  private syncChromePages(count: number): void {
+    if (!this.chromeLayer) {
+      if (!this.workspace) return;
+      this.chromeLayer = this.createChromeLayer(this.workspace);
+    }
+
+    this.chromePages = Array.from(
+      this.chromeLayer.querySelectorAll<HTMLElement>(`:scope > .${CHROME_PAGE_CLASS}`),
+    );
+
+    while (this.chromePages.length < count) {
+      const slot = document.createElement('div');
+      slot.className = CHROME_PAGE_CLASS;
+      slot.setAttribute('data-page-index', String(this.chromePages.length));
+      applyChromePageStyles(slot);
+      this.chromeLayer.appendChild(slot);
+      this.chromePages.push(slot);
+    }
+
+    while (this.chromePages.length > count) {
+      const removed = this.chromePages.pop()!;
+      removed.remove();
+    }
   }
 }

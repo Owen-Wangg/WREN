@@ -311,6 +311,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           >
             {/* Letter-sized page frames are painted here by PageRenderer. */}
             <div className="pagination-pages" aria-hidden="true" />
+            <div className="pagination-chrome" aria-hidden="true" />
             <div className="pagination-content">
               <div className="document-header-region" aria-label="Document header">
                 <EditorContent editor={headerEditor} />

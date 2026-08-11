@@ -13,6 +13,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PageRenderer } from './PageRenderer';
 
+function cloneOnPage(
+  root: ParentNode,
+  kind: 'header' | 'footer',
+  pageIndex: number,
+): HTMLElement | null {
+  return root.querySelector(
+    `.pagination-${kind}-clone[data-page-index="${pageIndex}"]`,
+  );
+}
+
 describe('PageRenderer — Header/Footer Rendering', () => {
   let scrollContainer: HTMLElement;
   let renderer: PageRenderer;
@@ -33,6 +43,19 @@ describe('PageRenderer — Header/Footer Rendering', () => {
     scrollContainer.remove();
   });
 
+  describe('header/footer chrome layer', () => {
+    it('places repeats in .pagination-chrome, not inside the page backdrop', () => {
+      renderer.syncPageContainers(2);
+      const headerContent = document.createElement('div');
+      headerContent.textContent = 'Header';
+      renderer.renderHeaderFooter(headerContent, null, 2);
+
+      const clone = cloneOnPage(scrollContainer, 'header', 1);
+      expect(clone?.closest('.pagination-chrome')).not.toBeNull();
+      expect(clone?.closest('.pagination-page')).toBeNull();
+    });
+  });
+
   describe('header/footer presence on all pages', () => {
     it('renders header clone in top margin on all pages 2+', () => {
       renderer.syncPageContainers(3);
@@ -42,18 +65,11 @@ describe('PageRenderer — Header/Footer Rendering', () => {
 
       renderer.renderHeaderFooter(headerContent, null, 3);
 
-      const pages = scrollContainer.querySelectorAll('.pagination-page');
-      expect(pages.length).toBe(3);
-
-      // Page 1 (index 0): no header clone (editable header lives outside)
-      const page1HeaderClones = pages[0].querySelectorAll('.pagination-header-clone');
-      expect(page1HeaderClones.length).toBe(0);
-
-      // Pages 2+ should have header clones
-      for (let i = 1; i < pages.length; i++) {
-        const headerClones = pages[i].querySelectorAll('.pagination-header-clone');
-        expect(headerClones.length).toBe(1);
-        expect(headerClones[0].textContent).toBe('My Header');
+      expect(cloneOnPage(scrollContainer, 'header', 0)).toBeNull();
+      for (let i = 1; i < 3; i++) {
+        const headerClone = cloneOnPage(scrollContainer, 'header', i);
+        expect(headerClone).not.toBeNull();
+        expect(headerClone!.textContent).toBe('My Header');
       }
     });
 
@@ -65,17 +81,11 @@ describe('PageRenderer — Header/Footer Rendering', () => {
 
       renderer.renderHeaderFooter(null, footerContent, 3);
 
-      const pages = scrollContainer.querySelectorAll('.pagination-page');
-
-      // Page 1 (index 0): no footer clone
-      const page1FooterClones = pages[0].querySelectorAll('.pagination-footer-clone');
-      expect(page1FooterClones.length).toBe(0);
-
-      // Pages 2+ should have footer clones
-      for (let i = 1; i < pages.length; i++) {
-        const footerClones = pages[i].querySelectorAll('.pagination-footer-clone');
-        expect(footerClones.length).toBe(1);
-        expect(footerClones[0].textContent).toBe('My Footer');
+      expect(cloneOnPage(scrollContainer, 'footer', 0)).toBeNull();
+      for (let i = 1; i < 3; i++) {
+        const footerClone = cloneOnPage(scrollContainer, 'footer', i);
+        expect(footerClone).not.toBeNull();
+        expect(footerClone!.textContent).toBe('My Footer');
       }
     });
 
@@ -89,15 +99,11 @@ describe('PageRenderer — Header/Footer Rendering', () => {
 
       renderer.renderHeaderFooter(headerContent, footerContent, 4);
 
-      const pages = scrollContainer.querySelectorAll('.pagination-page');
-
-      for (let i = 1; i < pages.length; i++) {
-        const headerClones = pages[i].querySelectorAll('.pagination-header-clone');
-        const footerClones = pages[i].querySelectorAll('.pagination-footer-clone');
-        expect(headerClones.length).toBe(1);
-        expect(footerClones.length).toBe(1);
-        expect(headerClones[0].textContent).toBe('Header Text');
-        expect(footerClones[0].textContent).toBe('Footer Text');
+      for (let i = 1; i < 4; i++) {
+        const headerClone = cloneOnPage(scrollContainer, 'header', i);
+        const footerClone = cloneOnPage(scrollContainer, 'footer', i);
+        expect(headerClone?.textContent).toBe('Header Text');
+        expect(footerClone?.textContent).toBe('Footer Text');
       }
     });
   });
@@ -111,8 +117,7 @@ describe('PageRenderer — Header/Footer Rendering', () => {
 
       renderer.renderHeaderFooter(headerContent, null, 2);
 
-      const pages = scrollContainer.querySelectorAll('.pagination-page');
-      const headerClone = pages[1].querySelector('.pagination-header-clone') as HTMLElement;
+      const headerClone = cloneOnPage(scrollContainer, 'header', 1) as HTMLElement;
 
       expect(headerClone).not.toBeNull();
       expect(headerClone.getAttribute('contenteditable')).toBe('false');
@@ -130,8 +135,7 @@ describe('PageRenderer — Header/Footer Rendering', () => {
 
       renderer.renderHeaderFooter(null, footerContent, 2);
 
-      const pages = scrollContainer.querySelectorAll('.pagination-page');
-      const footerClone = pages[1].querySelector('.pagination-footer-clone') as HTMLElement;
+      const footerClone = cloneOnPage(scrollContainer, 'footer', 1) as HTMLElement;
 
       expect(footerClone).not.toBeNull();
       expect(footerClone.getAttribute('contenteditable')).toBe('false');
@@ -151,8 +155,7 @@ describe('PageRenderer — Header/Footer Rendering', () => {
 
       renderer.renderHeaderFooter(headerContent, null, 2);
 
-      const pages = scrollContainer.querySelectorAll('.pagination-page');
-      const headerClone = pages[1].querySelector('.pagination-header-clone') as HTMLElement;
+      const headerClone = cloneOnPage(scrollContainer, 'header', 1) as HTMLElement;
 
       expect(headerClone.style.position).toBe('absolute');
       expect(headerClone.style.top).toBe('0px');
@@ -168,8 +171,7 @@ describe('PageRenderer — Header/Footer Rendering', () => {
 
       renderer.renderHeaderFooter(null, footerContent, 2);
 
-      const pages = scrollContainer.querySelectorAll('.pagination-page');
-      const footerClone = pages[1].querySelector('.pagination-footer-clone') as HTMLElement;
+      const footerClone = cloneOnPage(scrollContainer, 'footer', 1) as HTMLElement;
 
       expect(footerClone.style.position).toBe('absolute');
       expect(footerClone.style.bottom).toBe('0px');
@@ -191,8 +193,7 @@ describe('PageRenderer — Header/Footer Rendering', () => {
       renderer.renderHeaderFooter(headerContent, null, 3);
 
       // Verify initial content
-      const pages = scrollContainer.querySelectorAll('.pagination-page');
-      let clone = pages[1].querySelector('.pagination-header-clone');
+      let clone = cloneOnPage(scrollContainer, 'header', 1);
       expect(clone!.textContent).toBe('Original Header');
 
       // Mutate the source header content
@@ -205,7 +206,7 @@ describe('PageRenderer — Header/Footer Rendering', () => {
       await vi.advanceTimersByTimeAsync(500);
 
       // After debounce, clones should be updated
-      const updatedClone = pages[1].querySelector('.pagination-header-clone');
+      const updatedClone = cloneOnPage(scrollContainer, 'header', 1);
       expect(updatedClone!.textContent).toBe('Updated Header');
 
       headerContent.remove();

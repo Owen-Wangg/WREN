@@ -456,27 +456,15 @@ export class PaginationController implements IPaginationController {
     const baseUsablePageHeight =
       this.options.pageHeight - this.options.marginTop - this.options.marginBottom;
 
-    // Measure current header/footer heights via getBoundingClientRect
     this.measuredHeaderHeight = this.measureElementHeight(this.headerElement);
     this.measuredFooterHeight = this.measureElementHeight(this.footerElement);
 
-    // Apply combined cap: header + footer ≤ MAX_HEADER_FOOTER_HEIGHT_PX (352px)
-    // If exceeded, proportionally reduce both to fit within the cap
-    let headerHeight = this.measuredHeaderHeight;
-    let footerHeight = this.measuredFooterHeight;
-    const combinedHeight = headerHeight + footerHeight;
-
-    if (combinedHeight > MAX_HEADER_FOOTER_HEIGHT_PX) {
-      // Cap: scale both proportionally to fit within the limit
-      const scale = MAX_HEADER_FOOTER_HEIGHT_PX / combinedHeight;
-      headerHeight = Math.floor(headerHeight * scale);
-      footerHeight = MAX_HEADER_FOOTER_HEIGHT_PX - headerHeight;
-    }
-
     return {
+      // The 96px header/footer bands are page chrome, not extra well shrinkage.
+      // Body always gets the 864px content well so gaps stay aligned with frames.
       usablePageHeight: baseUsablePageHeight,
-      headerHeight,
-      footerHeight,
+      headerHeight: 0,
+      footerHeight: 0,
       orphanLines: this.options.orphanLines,
       widowLines: this.options.widowLines,
       // Keep whole blocks on one page so lines are never hidden in the gutter.

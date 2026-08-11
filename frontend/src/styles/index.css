@@ -222,14 +222,23 @@ body {
   background-color: var(--color-surface-muted);
 }
 
-.pagination-pages {
+.pagination-pages,
+.pagination-chrome {
   position: absolute;
   left: 50%;
   top: var(--pagination-page-gap, 32px);
-  z-index: 0;
   width: var(--pagination-page-width, 816px);
   transform: translateX(-50%);
   pointer-events: none;
+}
+
+.pagination-pages {
+  z-index: 0;
+}
+
+/* Header/footer repeats sit above body ink so text cannot paint through them. */
+.pagination-chrome {
+  z-index: 2;
 }
 
 /* Placeholder first page before PageRenderer mounts real frames. */
