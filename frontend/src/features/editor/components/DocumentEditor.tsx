@@ -305,7 +305,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
               className="document-header-region border-b border-border-subtle px-2xl py-sm sm:px-3xl"
               aria-label="Document header"
             >
-              <p className="mb-1 text-caption font-sans text-text-muted select-none">Header</p>
               <EditorContent editor={headerEditor} />
             </div>
 
@@ -338,7 +337,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
               className="document-footer-region border-t border-border-subtle px-2xl py-sm sm:px-3xl"
               aria-label="Document footer"
             >
-              <p className="mb-1 text-caption font-sans text-text-muted select-none">Footer</p>
               <EditorContent editor={footerEditor} />
             </div>
           </div>
