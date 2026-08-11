@@ -1,16 +1,10 @@
 /**
  * PageRenderer — manages DOM structure for page containers.
  *
- * Phase 1 (this implementation):
- *   • syncPageContainers(pageCount) — creates/removes `.pagination-page` DOM elements
- *   • positionBlocks(assignments) — injects visual page breaks via CSS gaps
- *   • destroy() — removes pagination DOM and restores continuous-scroll layout
- *
- * Phase 3 stubs:
- *   • renderHeaderFooter / resolvePageNumbers / applySplitClipping
- *
- * The PageRenderer works with raw DOM (not React) for performance — avoids
- * React re-renders on every keystroke.
+ * Letter pages are a backdrop layer (pointer-events: none). ProseMirror stays
+ * in a transparent content column so React/TipTap keep ownership of the editor
+ * tree. Visual page breaks are gap-injected at block boundaries to line up
+ * with the 816×1056 frames.
  *
  * @see Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 15.2
  */
@@ -30,6 +24,8 @@ const FOOTER_CLONE_CLASS = 'pagination-footer-clone';
 // ---------------------------------------------------------------------------
 
 const WORKSPACE_CLASS = 'pagination-workspace';
+const PAGES_LAYER_CLASS = 'pagination-pages';
+const CONTENT_LAYER_CLASS = 'pagination-content';
 const PAGE_CLASS = 'pagination-page';
 
 // ---------------------------------------------------------------------------
@@ -44,10 +40,32 @@ function applyWorkspaceStyles(el: HTMLElement): void {
   el.style.minHeight = '100%';
 }
 
+/** Backdrop stack of letter frames — clicks pass through to the editor. */
+function applyPagesLayerStyles(el: HTMLElement): void {
+  el.style.position = 'absolute';
+  el.style.left = '50%';
+  el.style.top = `${PAGE_CONFIG.PAGE_GAP_PX}px`;
+  el.style.transform = 'translateX(-50%)';
+  el.style.width = `${PAGE_CONFIG.WIDTH_PX}px`;
+  el.style.pointerEvents = 'none';
+  el.style.zIndex = '0';
+}
+
+/** Transparent content column aligned with the page stack. */
+function applyContentLayerStyles(el: HTMLElement): void {
+  el.style.position = 'relative';
+  el.style.zIndex = '1';
+  el.style.width = `${PAGE_CONFIG.WIDTH_PX}px`;
+  el.style.margin = '0 auto';
+  el.style.backgroundColor = 'transparent';
+}
+
 /** Page_Container: US Letter at 96 DPI with margins, shadow, overflow visible */
 function applyPageStyles(el: HTMLElement): void {
   el.style.position = 'relative';
+  el.style.boxSizing = 'border-box';
   el.style.width = `${PAGE_CONFIG.WIDTH_PX}px`;
+  el.style.height = `${PAGE_CONFIG.HEIGHT_PX}px`;
   el.style.minHeight = `${PAGE_CONFIG.HEIGHT_PX}px`;
   el.style.backgroundColor = 'var(--surface-primary, #ffffff)';
   el.style.boxShadow =
@@ -56,6 +74,7 @@ function applyPageStyles(el: HTMLElement): void {
   el.style.margin = '0 auto';
   el.style.marginBottom = `${PAGE_CONFIG.PAGE_GAP_PX}px`;
   el.style.overflow = 'visible';
+  el.style.pointerEvents = 'none';
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +87,15 @@ export class PageRenderer {
 
   /** The workspace wrapper we inject inside the scroll container. */
   private workspace: HTMLElement | null = null;
+
+  /** Absolute backdrop that holds letter-sized `.pagination-page` frames. */
+  private pagesLayer: HTMLElement | null = null;
+
+  /** Transparent column that holds the live editor (React- or test-owned). */
+  private contentLayer: HTMLElement | null = null;
+
+  /** When true, React owns `.pagination-workspace` — do not remove it. */
+  private reactOwnedWorkspace = false;
 
   /** Ordered list of page container elements currently in the DOM. */
   private pages: HTMLElement[] = [];
@@ -140,13 +168,12 @@ export class PageRenderer {
   syncPageContainers(pageCount: number): void {
     const count = Math.max(1, pageCount);
 
+    const host = this.pagesLayer ?? this.workspace!;
+
     // Add pages as needed
     while (this.pages.length < count) {
-      const page = document.createElement('div');
-      page.className = PAGE_CLASS;
-      page.setAttribute('data-page-index', String(this.pages.length));
-      applyPageStyles(page);
-      this.workspace!.appendChild(page);
+      const page = this.createPageElement(this.pages.length);
+      host.appendChild(page);
       this.pages.push(page);
     }
 
@@ -160,100 +187,64 @@ export class PageRenderer {
   /**
    * Positions block elements to show visual page boundaries.
    *
-   * Phase 2 approach: Content remains in the ProseMirror DOM tree (cannot be
-   * moved without breaking the editor). Instead, visual page separation is
-   * achieved by injecting margin gaps at page boundary points. The page
-   * containers from `syncPageContainers` are hidden — the visual page effect
-   * comes from the gaps + the workspace background showing through.
-   *
-   * The result: blocks flow naturally in the editor, but between pages there
-   * is a visible gap (margin area + page gap) with the workspace muted
-   * background showing through, creating the appearance of separate pages.
+   * Content stays in the ProseMirror tree. Letter frames remain visible in the
+   * backdrop layer; gap injection at page starts lines body blocks up with
+   * each frame's content area (remaining space + 96 + 32 + 96).
    */
   positionBlocks(assignments: PageAssignment[]): void {
     if (!this.workspace || this.pages.length === 0) return;
 
-    const page0 = this.pages[0];
-    if (!page0) return;
+    for (const page of this.pages) {
+      page.style.display = '';
+      applyPageStyles(page);
+    }
 
-    // Find the ProseMirror editor element
-    const proseMirrorEl = page0.querySelector<HTMLElement>('.ProseMirror');
+    const proseMirrorEl = this.findProseMirror();
     if (!proseMirrorEl) return;
 
     const blocks = Array.from(proseMirrorEl.children) as HTMLElement[];
 
-    // Single page — no gaps needed, just reset previous pagination styling
     if (assignments.length <= 1) {
       this.clearPositioning(blocks);
-      // Keep page 0 as the natural container
-      page0.style.height = '';
-      page0.style.overflow = '';
-      // Hide any extra page containers (they're empty)
-      for (let i = 1; i < this.pages.length; i++) {
-        this.pages[i].style.display = 'none';
-      }
       return;
     }
 
-    // Multi-page: hide page containers 1+ (we use gap injection instead)
-    for (let i = 1; i < this.pages.length; i++) {
-      this.pages[i].style.display = 'none';
-    }
-
-    // Page 0 holds all content — let it expand naturally
-    page0.style.height = '';
-    page0.style.overflow = '';
-
-    // Build block → page lookup
-    const blockToPage = new Map<number, number>();
-    for (const pageAssignment of assignments) {
-      for (const blockAssignment of pageAssignment.blocks) {
-        blockToPage.set(blockAssignment.blockIndex, pageAssignment.pageIndex);
-      }
-    }
-
-    // Find the first block index on each page > 0
-    const pageStartBlocks = new Map<number, number>(); // blockIndex → pageIndex
+    const pageStartBlocks = new Map<number, number>();
     for (const pageAssignment of assignments) {
       if (pageAssignment.pageIndex > 0 && pageAssignment.blocks.length > 0) {
         pageStartBlocks.set(pageAssignment.blocks[0].blockIndex, pageAssignment.pageIndex);
       }
     }
 
-    // The page gap visual height: bottom margin + gap + top margin
     const pageBoundaryGap =
       PAGE_CONFIG.MARGIN_PX + PAGE_CONFIG.PAGE_GAP_PX + PAGE_CONFIG.MARGIN_PX;
 
-    // Apply margins to create visual page boundaries
     for (let i = 0; i < blocks.length; i++) {
       const block = blocks[i];
 
       if (pageStartBlocks.has(i)) {
         const pageIdx = pageStartBlocks.get(i)!;
-        // Get remaining space from the previous page assignment
         const prevAssignment = assignments[pageIdx - 1];
         const remainingSpace = prevAssignment ? prevAssignment.availableHeight : 0;
-
-        // Total gap = remaining space on prev page + margin-bottom + page gap + margin-top
-        // Using margin only (not padding/border) to avoid affecting getBoundingClientRect
-        // measurements during the next recalculation cycle.
         const totalGap = remainingSpace + pageBoundaryGap;
 
         block.style.setProperty('margin-top', `${totalGap}px`, 'important');
-        // Visual separator: inset box-shadow doesn't affect layout/measurement
-        block.style.setProperty(
-          'box-shadow',
-          `inset 0 0 0 0 transparent, 0 -${PAGE_CONFIG.PAGE_GAP_PX / 2}px 0 0 var(--surface-muted, #f1f5f9)`,
-          'important',
-        );
         block.setAttribute('data-pagination-break', String(pageIdx));
       } else if (block.hasAttribute('data-pagination-break')) {
-        // Remove previously applied pagination styling
         block.style.removeProperty('margin-top');
-        block.style.removeProperty('box-shadow');
         block.removeAttribute('data-pagination-break');
       }
     }
+  }
+
+  /**
+   * Clones the live header/footer regions onto letter frames after page 1.
+   */
+  syncHeaderFooterClones(): void {
+    if (!this.workspace) return;
+    const header = this.workspace.querySelector<HTMLElement>('.document-header-region');
+    const footer = this.workspace.querySelector<HTMLElement>('.document-footer-region');
+    this.renderHeaderFooter(header, footer, this.pages.length);
   }
 
   /**
@@ -489,11 +480,9 @@ export class PageRenderer {
   destroy(): void {
     if (!this.workspace || !this.scrollContainer) return;
 
-    // Clean up header/footer clones and observers
     this.clearHeaderFooter();
     this.disconnectHeaderFooterObservers();
 
-    // Clean up pagination-break styling from blocks before restoring
     const paginatedBlocks = this.workspace.querySelectorAll<HTMLElement>('[data-pagination-break]');
     for (const block of paginatedBlocks) {
       block.style.removeProperty('margin-top');
@@ -501,12 +490,25 @@ export class PageRenderer {
       block.removeAttribute('data-pagination-break');
     }
 
-    // Remove workspace from scroll container
-    this.workspace.remove();
-    this.workspace = null;
+    for (const page of this.pages) {
+      page.remove();
+    }
     this.pages = [];
 
-    // Restore original children
+    if (this.reactOwnedWorkspace) {
+      this.workspace = null;
+      this.pagesLayer = null;
+      this.contentLayer = null;
+      this.reactOwnedWorkspace = false;
+      this.originalChildren = [];
+      return;
+    }
+
+    this.workspace.remove();
+    this.workspace = null;
+    this.pagesLayer = null;
+    this.contentLayer = null;
+
     for (const child of this.originalChildren) {
       this.scrollContainer.appendChild(child);
     }
@@ -569,6 +571,7 @@ export class PageRenderer {
    */
   private applyFooterCloneStyles(el: HTMLElement): void {
     el.style.position = 'absolute';
+    el.style.top = 'auto';
     el.style.bottom = '0';
     el.style.left = `${PAGE_CONFIG.MARGIN_PX}px`;
     el.style.right = `${PAGE_CONFIG.MARGIN_PX}px`;
@@ -652,34 +655,93 @@ export class PageRenderer {
     return children[blockIndex] ?? null;
   }
 
+  private createPageElement(index: number): HTMLElement {
+    const page = document.createElement('div');
+    page.className = PAGE_CLASS;
+    page.setAttribute('data-page-index', String(index));
+    applyPageStyles(page);
+    return page;
+  }
+
+  private findProseMirror(): HTMLElement | null {
+    const roots = [this.contentLayer, this.workspace, this.scrollContainer];
+    for (const root of roots) {
+      const body = root?.querySelector<HTMLElement>('.document-body-region .ProseMirror');
+      if (body) return body;
+      const any = root?.querySelector<HTMLElement>('.ProseMirror');
+      if (any && !any.closest('.document-header-region, .document-footer-region')) {
+        return any;
+      }
+    }
+    return null;
+  }
+
   /**
    * Wraps existing editor content inside the workspace/page structure on
-   * first construction.
+   * first construction. If React already rendered `.pagination-workspace`,
+   * adopt it instead of moving those nodes (which would fight reconciliation).
    */
   private initialize(): void {
-    if (!this.scrollContainer) return;
+    if (!this.scrollContainer || this.workspace) return;
 
-    // Save original children for restore on destroy
+    const existingWorkspace =
+      this.scrollContainer.querySelector<HTMLElement>(':scope > .pagination-workspace');
+
+    if (existingWorkspace) {
+      this.reactOwnedWorkspace = true;
+      this.workspace = existingWorkspace;
+      applyWorkspaceStyles(existingWorkspace);
+
+      this.pagesLayer =
+        existingWorkspace.querySelector<HTMLElement>(`:scope > .${PAGES_LAYER_CLASS}`) ??
+        this.createPagesLayer(existingWorkspace);
+      applyPagesLayerStyles(this.pagesLayer);
+
+      this.contentLayer =
+        existingWorkspace.querySelector<HTMLElement>(`:scope > .${CONTENT_LAYER_CLASS}`);
+      if (this.contentLayer) {
+        applyContentLayerStyles(this.contentLayer);
+      }
+
+      this.pages = Array.from(
+        this.pagesLayer.querySelectorAll<HTMLElement>(`:scope > .${PAGE_CLASS}`),
+      );
+      if (this.pages.length === 0) {
+        const firstPage = this.createPageElement(0);
+        this.pagesLayer.appendChild(firstPage);
+        this.pages = [firstPage];
+      }
+      return;
+    }
+
     this.originalChildren = Array.from(this.scrollContainer.childNodes);
 
-    // Create workspace wrapper
     this.workspace = document.createElement('div');
     this.workspace.className = WORKSPACE_CLASS;
     applyWorkspaceStyles(this.workspace);
 
-    // Create first page and move existing content into it
-    const firstPage = document.createElement('div');
-    firstPage.className = PAGE_CLASS;
-    firstPage.setAttribute('data-page-index', '0');
-    applyPageStyles(firstPage);
+    this.pagesLayer = this.createPagesLayer(this.workspace);
 
-    // Move all original children into the first page
+    this.contentLayer = document.createElement('div');
+    this.contentLayer.className = CONTENT_LAYER_CLASS;
+    applyContentLayerStyles(this.contentLayer);
     for (const child of this.originalChildren) {
-      firstPage.appendChild(child);
+      this.contentLayer.appendChild(child);
     }
+    this.workspace.appendChild(this.contentLayer);
 
-    this.workspace.appendChild(firstPage);
-    this.scrollContainer.appendChild(this.workspace);
+    const firstPage = this.createPageElement(0);
+    this.pagesLayer.appendChild(firstPage);
     this.pages = [firstPage];
+
+    this.scrollContainer.appendChild(this.workspace);
+  }
+
+  private createPagesLayer(workspace: HTMLElement): HTMLElement {
+    const layer = document.createElement('div');
+    layer.className = PAGES_LAYER_CLASS;
+    applyPagesLayerStyles(layer);
+    workspace.insertBefore(layer, workspace.firstChild);
+    return layer;
   }
 }

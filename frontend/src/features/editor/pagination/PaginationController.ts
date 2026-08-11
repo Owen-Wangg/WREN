@@ -407,6 +407,8 @@ export class PaginationController implements IPaginationController {
     // without re-flowing existing ones.
     this.pageRenderer.syncPageContainers(this._pageCount);
     this.pageRenderer.positionBlocks(assignments);
+    this.pageRenderer.syncHeaderFooterClones();
+    this.pageRenderer.resolvePageNumbers(this._pageCount);
   }
 
   // ---------------------------------------------------------------------------
@@ -423,6 +425,8 @@ export class PaginationController implements IPaginationController {
 
     this.pageRenderer.syncPageContainers(this._pageCount);
     this.pageRenderer.positionBlocks(assignments);
+    this.pageRenderer.syncHeaderFooterClones();
+    this.pageRenderer.resolvePageNumbers(this._pageCount);
   }
 
   /**

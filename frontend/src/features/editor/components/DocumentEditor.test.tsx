@@ -53,7 +53,7 @@ describe('DocumentEditor', () => {
       />,
     );
 
-    const editor = screen.getByRole('textbox');
+    const editor = screen.getByRole('textbox', { name: 'Document editor' });
     const paragraphs = editor.querySelectorAll('p');
     expect(paragraphs).toHaveLength(2);
     expect(paragraphs[0]).toHaveTextContent('First paragraph.');
@@ -125,7 +125,7 @@ describe('DocumentEditor — footnote rendering (footnote-citation-support spec)
   it('renders a footnote marker as a superscript element inside the editing surface (Requirement 3.5)', () => {
     render(<DocumentEditor initialContent={footnoteContent(1)} />);
 
-    const editor = screen.getByRole('textbox');
+    const editor = screen.getByRole('textbox', { name: 'Document editor' });
     const marker = editor.querySelector('sup[data-footnote]');
     expect(marker).not.toBeNull();
     expect(marker).toHaveTextContent('1');
@@ -134,7 +134,7 @@ describe('DocumentEditor — footnote rendering (footnote-citation-support spec)
   it('the superscript marker uses the caption-scale design token class, not an inline font-size (Requirement 3.5)', () => {
     render(<DocumentEditor initialContent={footnoteContent(1)} />);
 
-    const marker = screen.getByRole('textbox').querySelector('sup[data-footnote]');
+    const marker = screen.getByRole('textbox', { name: 'Document editor' }).querySelector('sup[data-footnote]');
     // No inline style with a raw font-size — styling is delegated to CSS
     // classes backed by theme.css tokens (frontend steering §9).
     expect(marker?.getAttribute('style') ?? '').not.toMatch(/font-size/);
@@ -199,7 +199,7 @@ describe('DocumentEditor — footnote rendering (footnote-citation-support spec)
     // target to attach to.
     render(<DocumentEditor initialContent={footnoteContent(1)} />);
 
-    const marker = screen.getByRole('textbox').querySelector('sup[data-footnote]') as HTMLElement;
+    const marker = screen.getByRole('textbox', { name: 'Document editor' }).querySelector('sup[data-footnote]') as HTMLElement;
     expect(marker).not.toBeNull();
     expect(getComputedStyle(marker).pointerEvents).not.toBe('none');
   });

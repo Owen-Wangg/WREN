@@ -68,29 +68,45 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
         key: paginationPluginKey,
 
         view() {
-          // On mount: find ProseMirror content element and scroll container,
-          // then create the PaginationController and run initial layout.
+          // Editor.view.dom is often created before EditorContent inserts it
+          // under `.document-editor-scroll`. Retry on animation frames until
+          // the live tree is available (or we give up after a few paints).
           const editorElement = editor.view.dom as HTMLElement;
           const contentElement = editorElement;
-          const scrollContainer =
-            editorElement.closest('.document-editor-scroll') as HTMLElement | null;
+          let attachRafId: number | null = null;
+          let attachAttempts = 0;
+          const MAX_ATTACH_FRAMES = 16;
 
-          if (scrollContainer) {
+          const attach = () => {
+            if (controller) return;
+
+            const scrollContainer =
+              editorElement.closest('.document-editor-scroll') as HTMLElement | null;
+
+            if (!scrollContainer) {
+              if (attachAttempts < MAX_ATTACH_FRAMES) {
+                attachAttempts += 1;
+                attachRafId = requestAnimationFrame(attach);
+              }
+              return;
+            }
+
+            attachRafId = null;
             controller = new PaginationController(
               contentElement,
               scrollContainer,
               extensionOptions,
             );
 
-            // Initial full recalculation on mount
             controller.recalculateAll();
 
-            // Window resize listener: triggers recalculation with 150ms debounce
             resizeHandler = () => {
               controller?.requestResizeRecalculation();
             };
             window.addEventListener('resize', resizeHandler);
-          }
+          };
+
+          attach();
 
           return {
             /**
@@ -98,17 +114,23 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
              * Phase 2: triggers debounced recalculation via requestAnimationFrame.
              */
             update() {
+              if (!controller) {
+                attach();
+              }
               controller?.requestRecalculation();
             },
 
             destroy() {
-              // Remove window resize listener
+              if (attachRafId !== null) {
+                cancelAnimationFrame(attachRafId);
+                attachRafId = null;
+              }
+
               if (resizeHandler) {
                 window.removeEventListener('resize', resizeHandler);
                 resizeHandler = null;
               }
 
-              // Clean up controller (cancels timers, removes DOM)
               if (controller) {
                 controller.destroy();
                 controller = null;

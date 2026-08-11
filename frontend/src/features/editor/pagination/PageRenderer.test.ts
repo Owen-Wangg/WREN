@@ -150,4 +150,84 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       expect(restoredChild!.textContent).toBe('Hello world');
     });
   });
+
+  describe('Google Docs-style backdrop pages', () => {
+    it('keeps live content in .pagination-content, not inside a page frame', () => {
+      const content = scrollContainer.querySelector('.pagination-content');
+      const page = scrollContainer.querySelector('.pagination-page');
+      const paragraph = scrollContainer.querySelector('p');
+
+      expect(content).not.toBeNull();
+      expect(paragraph?.parentElement).toBe(content);
+      expect(page?.contains(paragraph)).toBe(false);
+    });
+
+    it('page element has a fixed letter height of 1056px', () => {
+      renderer.syncPageContainers(1);
+      const page = scrollContainer.querySelector('.pagination-page') as HTMLElement;
+      expect(page.style.height).toBe(`${PAGE_CONFIG.HEIGHT_PX}px`);
+    });
+
+    it('positionBlocks leaves every page frame visible', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const first = document.createElement('p');
+      first.textContent = 'Page one';
+      const second = document.createElement('p');
+      second.textContent = 'Page two';
+      prose.append(first, second);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 100,
+          availableHeight: 764,
+        },
+        {
+          pageIndex: 1,
+          blocks: [{ blockIndex: 1, startOnPage: 0 }],
+          usedHeight: 100,
+          availableHeight: 764,
+        },
+      ]);
+
+      const pages = scrollContainer.querySelectorAll<HTMLElement>('.pagination-page');
+      expect(pages).toHaveLength(2);
+      for (const page of pages) {
+        expect(page.style.display).not.toBe('none');
+      }
+      expect(second.getAttribute('data-pagination-break')).toBe('1');
+    });
+
+    it('does not remove a React-owned workspace on destroy', () => {
+      renderer.destroy();
+      scrollContainer.replaceChildren();
+
+      const workspace = document.createElement('div');
+      workspace.className = 'pagination-workspace';
+      const pagesLayer = document.createElement('div');
+      pagesLayer.className = 'pagination-pages';
+      const contentLayer = document.createElement('div');
+      contentLayer.className = 'pagination-content';
+      const live = document.createElement('p');
+      live.textContent = 'React owned';
+      contentLayer.appendChild(live);
+      workspace.append(pagesLayer, contentLayer);
+      scrollContainer.appendChild(workspace);
+
+      const reactRenderer = new PageRenderer(scrollContainer);
+      reactRenderer.syncPageContainers(2);
+      expect(scrollContainer.querySelectorAll('.pagination-page')).toHaveLength(2);
+
+      reactRenderer.destroy();
+
+      expect(scrollContainer.querySelector('.pagination-workspace')).toBe(workspace);
+      expect(live.isConnected).toBe(true);
+      expect(live.textContent).toBe('React owned');
+      expect(scrollContainer.querySelectorAll('.pagination-page')).toHaveLength(0);
+    });
+  });
 });

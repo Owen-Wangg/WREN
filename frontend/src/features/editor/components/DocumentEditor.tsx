@@ -46,7 +46,7 @@ import { LowConfidence } from '../tiptapLowConfidence';
 import { FootnoteNode, type CitationConfigLike, type FootnoteAttrs } from '../tiptapFootnote';
 import { BlockLayoutCommands, IndentableHeading, IndentableParagraph } from '../tiptapIndent';
 import { PageNumberNode, DateNode } from '../tiptapHeaderFooterNodes';
-import { PageBreakNode, PaginationExtension } from '../pagination';
+import { PAGE_CONFIG, PageBreakNode, PaginationExtension } from '../pagination';
 
 import { EditorToolbar } from './toolbar/EditorToolbar';
 import { FootnoteList } from './FootnoteList';
@@ -298,46 +298,48 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             <EditorToolbar editor={editor} />
           </div>
         </div>
-        <div className="document-editor-scroll min-h-0 flex-1 overflow-y-auto bg-surface-muted/50">
-          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary shadow-sm">
-            {/* Header region */}
-            <div
-              className="document-header-region border-b border-border-subtle px-2xl py-sm sm:px-3xl"
-              aria-label="Document header"
-            >
-              <EditorContent editor={headerEditor} />
-            </div>
+        <div className="document-editor-scroll min-h-0 flex-1 overflow-auto bg-surface-muted">
+          <div
+            className="pagination-workspace"
+            style={{
+              ['--pagination-page-width' as string]: `${PAGE_CONFIG.WIDTH_PX}px`,
+              ['--pagination-page-height' as string]: `${PAGE_CONFIG.HEIGHT_PX}px`,
+              ['--pagination-page-margin' as string]: `${PAGE_CONFIG.MARGIN_PX}px`,
+              ['--pagination-page-gap' as string]: `${PAGE_CONFIG.PAGE_GAP_PX}px`,
+              ['--pagination-usable-height' as string]: `${PAGE_CONFIG.USABLE_HEIGHT_PX}px`,
+            }}
+          >
+            {/* Letter-sized page frames are painted here by PageRenderer. */}
+            <div className="pagination-pages" aria-hidden="true" />
+            <div className="pagination-content">
+              <div className="document-header-region" aria-label="Document header">
+                <EditorContent editor={headerEditor} />
+              </div>
 
-            {/* Body */}
-            <div className="flex-1 px-2xl pb-2xl pt-lg sm:px-3xl sm:pb-3xl">
-              <EditorContent
-                editor={editor}
-                className={['block h-full min-h-full flex-1 px-0', className]
-                  .filter(Boolean)
-                  .join(' ')}
-              />
-              {activeFootnote && (
-                <FootnotePanel
-                  open={true}
-                  onOpenChange={(isOpen) => {
-                    if (!isOpen) setActiveFootnoteNumber(null);
-                  }}
-                  footnote={activeFootnote}
-                  citationConfig={citationConfig}
-                  onSave={handleSaveFootnote}
-                  onDelete={handleDeleteFootnote}
-                  anchor={<span />}
+              <div className="document-body-region">
+                <EditorContent
+                  editor={editor}
+                  className={['block px-0', className].filter(Boolean).join(' ')}
                 />
-              )}
-              <FootnoteList footnotes={footnotes} />
-            </div>
+                {activeFootnote && (
+                  <FootnotePanel
+                    open={true}
+                    onOpenChange={(isOpen) => {
+                      if (!isOpen) setActiveFootnoteNumber(null);
+                    }}
+                    footnote={activeFootnote}
+                    citationConfig={citationConfig}
+                    onSave={handleSaveFootnote}
+                    onDelete={handleDeleteFootnote}
+                    anchor={<span />}
+                  />
+                )}
+                <FootnoteList footnotes={footnotes} />
+              </div>
 
-            {/* Footer region */}
-            <div
-              className="document-footer-region border-t border-border-subtle px-2xl py-sm sm:px-3xl"
-              aria-label="Document footer"
-            >
-              <EditorContent editor={footerEditor} />
+              <div className="document-footer-region" aria-label="Document footer">
+                <EditorContent editor={footerEditor} />
+              </div>
             </div>
           </div>
         </div>
