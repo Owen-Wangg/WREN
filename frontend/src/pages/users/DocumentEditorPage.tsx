@@ -870,7 +870,7 @@ export function DocumentEditorPage() {
                 <div
                   role="menu"
                   aria-label="Download format"
-                  className="absolute bottom-full left-1/2 z-20 mb-xs w-36 -translate-x-1/2 rounded-md border border-border-subtle bg-surface-primary py-xs shadow-md"
+                  className="absolute bottom-full left-0 z-30 mb-xs w-max min-w-36 rounded-md border border-border-subtle bg-surface-primary py-xs shadow-md"
                 >
                   <button
                     type="button"
