@@ -245,6 +245,9 @@ export function SidebarDebriefPanel({
 
   const generatingStep = useGeneratingStep(regenerating);
   const hasFeedback = (debrief?.items.length ?? 0) > 0;
+  // Subsequent regenerates keep existing feedback on screen — show dots on the
+  // button so it's obvious a new debrief is in flight.
+  const showRegenDots = (regenerating || isGenerating) && hasFeedback;
   const viewingHistorical = selectedDraftId != null;
   const lastGeneratedCompact =
     hasFeedback && debrief?.generatedAt
@@ -393,13 +396,30 @@ export function SidebarDebriefPanel({
           <button
             type="button"
             onClick={() => void runRegenerate()}
-            disabled={regenerating || debriefQuery.isLoading || !isDocumentReady}
-            className="rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            aria-label="Regenerate AI Debrief"
+            disabled={regenerating || isGenerating || debriefQuery.isLoading || !isDocumentReady}
+            className={`inline-flex min-w-[7.25rem] items-center justify-center rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:cursor-not-allowed transition-colors ${
+              showRegenDots ? '' : 'disabled:opacity-50'
+            }`}
+            aria-label={
+              showRegenDots ? 'Regenerating AI Debrief' : 'Regenerate AI Debrief'
+            }
+            aria-busy={showRegenDots}
           >
-            ↻ Regenerate
+            {showRegenDots ? (
+              <span className="inline-flex items-center gap-[3px]" aria-hidden="true">
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className="h-[6px] w-[6px] rounded-full bg-accent-primary"
+                    style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
+                  />
+                ))}
+              </span>
+            ) : (
+              '↻ Regenerate'
+            )}
           </button>
-          {!regenerating && (
+          {!regenerating && !showRegenDots && (
             <span className="px-sm text-caption text-text-muted whitespace-nowrap text-right leading-tight">
               Saves inline edits &amp;<br />regenerates feedback
             </span>
