@@ -100,6 +100,13 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
 
             controller.recalculateAll();
 
+            const fonts = document.fonts;
+            if (fonts?.ready) {
+              void fonts.ready.then(() => {
+                controller?.recalculateAll();
+              });
+            }
+
             resizeHandler = () => {
               controller?.requestResizeRecalculation();
             };

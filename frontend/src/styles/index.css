@@ -241,6 +241,17 @@ body {
   z-index: 2;
 }
 
+/* Cover the gray gutter so leftover body ink cannot paint between sheets. */
+.pagination-chrome-page::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: var(--pagination-page-gap, 32px);
+  background-color: var(--color-surface-muted, #f5f5f5);
+}
+
 /* Continuation slices of a split paragraph — paint-only, not editable. */
 .pagination-paragraph-continuation {
   pointer-events: none;

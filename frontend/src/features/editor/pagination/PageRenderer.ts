@@ -20,6 +20,12 @@ const HEADER_CLONE_CLASS = 'pagination-header-clone';
 const FOOTER_CLONE_CLASS = 'pagination-footer-clone';
 const PARAGRAPH_CONTINUATION_CLASS = 'pagination-paragraph-continuation';
 
+function pagesNeededForContent(proseMirrorEl: HTMLElement): number {
+  const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+  const height = Math.max(proseMirrorEl.scrollHeight, proseMirrorEl.getBoundingClientRect().height);
+  return Math.max(1, Math.ceil(height / stride));
+}
+
 function serializeAssignments(assignments: PageAssignment[]): string {
   return assignments
     .map((page) => {
@@ -266,7 +272,12 @@ export class PageRenderer {
     if (!this.workspace || this.pages.length === 0) return;
 
     const layoutKey = serializeAssignments(assignments);
+    const proseMirrorEl = this.contentElement ?? this.findProseMirror();
     if (layoutKey === this.lastLayoutKey) {
+      if (proseMirrorEl) {
+        const blocks = Array.from(proseMirrorEl.children) as HTMLElement[];
+        this.snapBlocksOutOfGutters(blocks, proseMirrorEl);
+      }
       return;
     }
     this.lastLayoutKey = layoutKey;
@@ -275,44 +286,115 @@ export class PageRenderer {
       page.style.display = '';
     }
 
-    const proseMirrorEl = this.contentElement ?? this.findProseMirror();
     if (!proseMirrorEl) return;
 
     const blocks = Array.from(proseMirrorEl.children) as HTMLElement[];
     this.clearPositioning(blocks);
 
-    if (assignments.length <= 1) {
-      return;
+    if (assignments.length > 1) {
+      this.applyParagraphSplits(assignments, blocks);
+
+      const seen = new Set<number>();
+
+      for (const pageAssignment of assignments) {
+        if (pageAssignment.pageIndex <= 0 || pageAssignment.blocks.length === 0) {
+          continue;
+        }
+
+        const start = pageAssignment.blocks[0];
+        // Continuations of a split block already live on the previous page.
+        if (start.split && start.split.continuationPageIndex === pageAssignment.pageIndex) {
+          continue;
+        }
+        if (seen.has(start.blockIndex)) continue;
+        seen.add(start.blockIndex);
+
+        const block = blocks[start.blockIndex];
+        const prev = assignments[pageAssignment.pageIndex - 1];
+        if (!block || !prev) continue;
+        if (block.previousElementSibling?.getAttribute('data-split-clipped') === 'current') {
+          continue;
+        }
+
+        this.applyPageBreakGap(block, pageAssignment.pageIndex, prev.availableHeight);
+      }
+
+      this.applyListItemSplits(assignments, blocks);
     }
 
-    this.applyParagraphSplits(assignments, blocks);
-
-    const seen = new Set<number>();
-
-    for (const pageAssignment of assignments) {
-      if (pageAssignment.pageIndex <= 0 || pageAssignment.blocks.length === 0) {
-        continue;
-      }
-
-      const start = pageAssignment.blocks[0];
-      // Continuations of a split block already live on the previous page.
-      if (start.split && start.split.continuationPageIndex === pageAssignment.pageIndex) {
-        continue;
-      }
-      if (seen.has(start.blockIndex)) continue;
-      seen.add(start.blockIndex);
-
-      const block = blocks[start.blockIndex];
-      const prev = assignments[pageAssignment.pageIndex - 1];
-      if (!block || !prev) continue;
-      if (block.previousElementSibling?.getAttribute('data-split-clipped') === 'current') {
-        continue;
-      }
-
-      this.applyPageBreakGap(block, pageAssignment.pageIndex, prev.availableHeight);
+    this.snapBlocksOutOfGutters(blocks, proseMirrorEl);
+    const needed = pagesNeededForContent(proseMirrorEl);
+    if (needed > this.pages.length) {
+      this.syncPageContainers(needed);
     }
+  }
 
-    this.applyListItemSplits(assignments, blocks);
+  /**
+   * If a block or list item still paints through a page gutter after the
+   * assignment gaps, push it to the next well using its live box.
+   */
+  private snapBlocksOutOfGutters(blocks: HTMLElement[], proseMirrorEl: HTMLElement): void {
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+
+    const relativeBox = (el: HTMLElement) => {
+      const pm = proseMirrorEl.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      return {
+        top: box.top - pm.top,
+        bottom: box.bottom - pm.top,
+        height: box.height,
+      };
+    };
+
+    const snap = (el: HTMLElement): void => {
+      if (el.getAttribute('data-split-clipped') === 'current') {
+        const box = relativeBox(el);
+        const clip = parseFloat(el.style.maxHeight);
+        const height = Number.isFinite(clip) ? Math.min(box.height, clip) : box.height;
+        const pageIndex = Math.max(0, Math.floor(box.top / stride));
+        const wellEnd = pageIndex * stride + well;
+        const maxHeight = wellEnd - box.top;
+        if (maxHeight > 0 && height > maxHeight + 0.5) {
+          el.style.maxHeight = `${maxHeight}px`;
+        }
+        return;
+      }
+
+      const box = relativeBox(el);
+      if (box.height <= 0 || box.height >= well - 1) return;
+
+      const pageIndex = Math.max(0, Math.floor(box.top / stride));
+      const wellEnd = pageIndex * stride + well;
+      const nextWellStart = (pageIndex + 1) * stride;
+      const inGutter = box.top >= wellEnd - 0.5;
+      const overflows = box.bottom > wellEnd + 0.5;
+      if (!inGutter && !overflows) return;
+
+      const extra = nextWellStart - box.top;
+      if (extra <= 0.5) return;
+
+      const current = parseFloat(getComputedStyle(el).marginTop) || 0;
+      el.style.setProperty('margin-top', `${current + extra}px`, 'important');
+      el.setAttribute('data-pagination-break', String(pageIndex + 1));
+    };
+
+    for (const block of blocks) {
+      const tag = block.tagName.toLowerCase();
+      if (tag === 'ul' || tag === 'ol') {
+        for (const item of block.querySelectorAll<HTMLElement>(':scope > li')) {
+          if (item.getBoundingClientRect().height >= well - 1) {
+            for (const child of Array.from(item.children) as HTMLElement[]) {
+              snap(child);
+            }
+          } else {
+            snap(item);
+          }
+        }
+        continue;
+      }
+      snap(block);
+    }
   }
 
   /** Remaining space on the previous page + bottom margin + gutter + top margin. */

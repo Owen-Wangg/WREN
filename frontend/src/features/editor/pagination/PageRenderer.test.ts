@@ -350,6 +350,53 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       expect(scrollContainer.querySelector('.pagination-paragraph-continuation')).toBe(firstClone);
     });
 
+    it('snaps a block that still paints through the page gutter', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const block = document.createElement('p');
+      block.textContent = 'straddles the page edge';
+      prose.appendChild(block);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 2000,
+        top: 0,
+        right: 624,
+        bottom: 2000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      block.getBoundingClientRect = () => ({
+        x: 0,
+        y: 850,
+        width: 624,
+        height: 40,
+        top: 850,
+        right: 624,
+        bottom: 890,
+        left: 0,
+        toJSON: () => ({}),
+      });
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 850,
+          availableHeight: 14,
+        },
+      ]);
+
+      expect(block.getAttribute('data-pagination-break')).toBe('1');
+      expect(parseFloat(block.style.marginTop)).toBe(
+        PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX - 850,
+      );
+    });
+
     it('does not remove a React-owned workspace on destroy', () => {
       renderer.destroy();
       scrollContainer.replaceChildren();
