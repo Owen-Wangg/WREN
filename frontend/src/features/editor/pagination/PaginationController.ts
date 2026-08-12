@@ -462,7 +462,7 @@ export class PaginationController implements IPaginationController {
       orphanLines: this.options.orphanLines,
       widowLines: this.options.widowLines,
       enableParagraphSplitting: true,
-      enableKeepWithNext: false, // Phase 3D — will be enabled in Wave 12
+      enableKeepWithNext: true,
     };
   }
 
