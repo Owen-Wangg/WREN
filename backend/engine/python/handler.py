@@ -40,6 +40,15 @@ from wren_engine.carry_forward import (
 )
 from wren_engine.output_guardrail import ValidatedFeedbackItem
 from wren_engine.structural_feedback import StructuralFeedbackItem
+from wren_engine.strength_coverage import (
+    accept_filled_strengths,
+    build_strength_fill_prompt,
+    document_text_from_segments,
+    missing_strength_categories,
+    normalize_feedback_kinds,
+    required_strength_categories,
+    salvage_strengths_from_positive_notes,
+)
 from wren_engine.progress_tracker import (
     FeedbackItem as TrackerFeedbackItem,
     ProgressTracker,
@@ -73,6 +82,10 @@ Return a JSON array. Each element must have exactly these keys:
   positive_note: string | null  — REQUIRED for kind="strength": a specific, concrete affirmation of what the student did well (e.g. "Your use of R v Smith correctly identifies the ratio decidendi"). null for all other kinds.
   anchor: { paragraphIndex: int, quotedText: string } | null  — required for kind="inline"; OPTIONAL for kind="strength" (include the verbatim sentence or clause that best exemplifies the strength); null for kind="structural"
 Only output valid JSON. No markdown fences, no extra keys, no prose outside the array.
+
+OUTPUT ORDER (CRITICAL): Emit every kind="strength" item FIRST — one for each
+taxonomy category — then emit improvement items (inline / structural). If the
+array is truncated, strengths must still be present.
 
 kind rules:
   "inline"     — anchored to a specific text span; must have a valid anchor; positive_note must be null
@@ -590,7 +603,7 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
 
         body: dict[str, Any] = {
             'anthropic_version': 'bedrock-2023-05-31',
-            'max_tokens': 8192,
+            'max_tokens': 16384,
             'messages': [{'role': 'user', 'content': user_text}],
             'temperature': float(config.get('temperature', 0.4)),
         }
@@ -655,6 +668,76 @@ def parse_feedback_output(model_output: str) -> list[dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error parsing feedback output: {str(e)}")
         return []
+
+
+def _ensure_strength_coverage(
+    feedback_items: list[dict[str, Any]],
+    *,
+    valid_category_ids: set[str],
+    category_priority: list[str],
+    category_ids: list[str],
+    category_names: list[str],
+    segments: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Normalize, salvage, and fill so every required category has a strength."""
+    normalize_feedback_kinds(feedback_items)
+    salvage_strengths_from_positive_notes(feedback_items)
+
+    required = required_strength_categories(
+        feedback_items,
+        valid_category_ids=valid_category_ids,
+        category_priority=category_priority,
+    )
+    missing = missing_strength_categories(feedback_items, required)
+    if not missing:
+        return feedback_items
+
+    id_to_name = {
+        cid: cname
+        for cid, cname in zip(category_ids, category_names)
+    }
+    missing_named = [
+        (cid, id_to_name.get(cid, cid))
+        for cid in sorted(missing)
+    ]
+    logger.warning(
+        "Model omitted strength items for %s categories: %s — running fill-in",
+        len(missing_named),
+        [name for _, name in missing_named],
+    )
+    try:
+        prompt = build_strength_fill_prompt(
+            document_text=document_text_from_segments(segments),
+            missing_categories=missing_named,
+        )
+        raw = invoke_bedrock(prompt, config)
+        filled = parse_feedback_output(raw)
+        normalize_feedback_kinds(filled)
+        accepted = accept_filled_strengths(
+            filled,
+            missing=missing,
+            valid_category_ids=valid_category_ids or None,
+        )
+        if accepted:
+            logger.info("Strength fill-in added %s item(s)", len(accepted))
+            feedback_items.extend(accepted)
+        else:
+            logger.warning("Strength fill-in returned no usable strength items")
+    except Exception as exc:
+        logger.warning("Strength fill-in failed (non-fatal): %s", exc, exc_info=True)
+    return feedback_items
+
+
+def _cached_item_kind(cached: CachedFeedbackItem) -> str:
+    if cached.kind in {'inline', 'structural', 'strength'}:
+        return cached.kind
+    item = cached.item
+    if isinstance(item, ValidatedFeedbackItem) and item.positive_note:
+        return 'strength'
+    if isinstance(item, StructuralFeedbackItem):
+        return 'structural'
+    return 'inline'
 
 
 def compute_content_fingerprint(text: str, start_offset: int, end_offset: int) -> str:
@@ -1202,9 +1285,14 @@ def _persist_carried_forward_items(
         for cached in prior_cached:
             try:
                 item = cached.item
-                kind = 'structural' if isinstance(item, StructuralFeedbackItem) else 'inline'
+                kind = _cached_item_kind(cached)
                 category_id = item.category
                 question_text = item.question
+                positive_note = (
+                    item.positive_note
+                    if isinstance(item, ValidatedFeedbackItem)
+                    else None
+                )
 
                 quoted_text = None
                 anchor_data = None
@@ -1221,15 +1309,15 @@ def _persist_carried_forward_items(
                 feedback_id = str(uuid.uuid4())
                 cur.execute("""
                     INSERT INTO feedback_item
-                    (id, document_id, error_category_id, kind, question_text, quoted_text, source_draft_id, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                    (id, document_id, error_category_id, kind, question_text, quoted_text, positive_note, source_draft_id, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 """, (
                     feedback_id, document_id, category_id, kind,
-                    question_text, quoted_text, new_draft_id,
+                    question_text, quoted_text, positive_note, new_draft_id,
                 ))
 
                 current_anchor_id = None
-                if kind == 'inline' and anchor_data:
+                if kind in {'inline', 'strength'} and anchor_data:
                     para_idx = anchor_data.get('paragraph', 0)
                     start_off = anchor_data.get('start', 0)
                     end_off = anchor_data.get('end', 0)
@@ -1330,7 +1418,7 @@ def _load_prior_cached_items(
         cur.execute("""
             SELECT fi.id, fi.error_category_id, fi.kind, fi.question_text,
                    a.paragraph_index, a.start_offset, a.end_offset,
-                   fi.created_at
+                   fi.created_at, fi.positive_note
             FROM feedback_item fi
             LEFT JOIN anchor a ON a.feedback_item_id = fi.id AND a.draft_id = %s
             WHERE fi.source_draft_id = %s
@@ -1348,8 +1436,37 @@ def _load_prior_cached_items(
         item_id, category_id, kind, question_text = str(row[0]), str(row[1]), row[2], row[3]
         para_idx, start_off, end_off = row[4], row[5], row[6]
         created_at = row[7] or _SENTINEL_DATETIME
+        positive_note = row[8] if len(row) > 8 else None
+        persisted_kind = kind if kind in {'inline', 'structural', 'strength'} else 'inline'
 
-        if kind == 'structural' or para_idx is None:
+        if persisted_kind == 'strength':
+            anchor = None
+            is_structural = para_idx is None
+            span_fp = prior_doc_hash
+            if para_idx is not None:
+                para_text = ''
+                if para_idx < len(prev_segments):
+                    para_text = prev_segments[para_idx].get('text', '')
+                fp = compute_anchor_fingerprint(para_text, 0, len(para_text))
+                span_fp = fp.text_hash
+                anchor = {
+                    'paragraph': para_idx,
+                    'start': start_off or 0,
+                    'end': end_off or 0,
+                }
+            item = ValidatedFeedbackItem(
+                category=category_id,
+                question=question_text or '',
+                anchor=anchor,
+                citation=None,
+                positive_note=positive_note,
+            )
+            cache_key = CacheKey(
+                span_fingerprint=span_fp,
+                config_hash=current_config_snapshot.config_hash,
+                is_structural=is_structural,
+            )
+        elif persisted_kind == 'structural' or para_idx is None:
             item = StructuralFeedbackItem(
                 category=category_id,
                 question=question_text or '',
@@ -1381,6 +1498,7 @@ def _load_prior_cached_items(
             cache_key=cache_key,
             generated_at=created_at,
             config_snapshot=current_config_snapshot,
+            kind=persisted_kind,
         ))
 
     return cached_items, prev_segments
@@ -1432,12 +1550,14 @@ def _remap_carried_forward_indices(
                         question=cached.item.question,
                         anchor={**old_anchor, 'paragraph': new_idx},
                         citation=cached.item.citation,
+                        positive_note=cached.item.positive_note,
                     )
                     cached = CachedFeedbackItem(
                         item=updated_item,
                         cache_key=cached.cache_key,
                         generated_at=cached.generated_at,
                         config_snapshot=cached.config_snapshot,
+                        kind=cached.kind,
                     )
             remapped.append(cached)
         elif len(indices) == 0:
@@ -1526,6 +1646,39 @@ def process_feedback_request(
                             document_id, draft_id, segments, remapped, conn,
                         )
                         logger.info(f"Persisted {cf_count} carried-forward items for draft {draft_id}")
+                        cf_as_items = [
+                            {
+                                'error_category_id': cached.item.category,
+                                'kind': _cached_item_kind(cached),
+                                'question_text': cached.item.question,
+                                **(
+                                    {'positive_note': cached.item.positive_note}
+                                    if isinstance(cached.item, ValidatedFeedbackItem)
+                                    and cached.item.positive_note
+                                    else {}
+                                ),
+                            }
+                            for cached in remapped
+                        ]
+                        before_fill = len(cf_as_items)
+                        _ensure_strength_coverage(
+                            cf_as_items,
+                            valid_category_ids=set(doc_type_meta.get('category_ids', [])),
+                            category_priority=list(config.get('category_priority', [])),
+                            category_ids=list(doc_type_meta.get('category_ids', [])),
+                            category_names=list(doc_type_meta.get('category_names', [])),
+                            segments=segments,
+                            config=config,
+                        )
+                        new_strengths = cf_as_items[before_fill:]
+                        if new_strengths:
+                            extra = insert_feedback_items(
+                                document_id, draft_id, user_id, new_strengths, segments, conn,
+                            )
+                            logger.info(
+                                "Carry-forward fill-in inserted %s missing strength item(s)",
+                                extra,
+                            )
                         persist_resolution_status(document_id, draft_id, segments, config, conn)
                         return
 
@@ -1656,24 +1809,16 @@ def process_feedback_request(
             if filtered_count > 0:
                 logger.info(f"Filtered {filtered_count} feedback items outside dept admin selection (kept {len(feedback_items)})")
 
-        # Step 7c: Validate strength coverage — every category should have at least one.
-        categories_with_strengths = {
-            item['error_category_id'] for item in feedback_items
-            if item.get('kind') == 'strength'
-        }
-        categories_missing_strengths = valid_category_ids - categories_with_strengths
-        if categories_missing_strengths:
-            missing_names = [
-                cname for cid, cname in zip(
-                    doc_type_meta.get('category_ids', []),
-                    doc_type_meta.get('category_names', [])
-                )
-                if cid in categories_missing_strengths
-            ]
-            logger.warning(
-                f"Model omitted strength items for {len(categories_missing_strengths)} "
-                f"categories: {missing_names}"
-            )
+        # Step 7c: Every displayed / priority category must have a strength item.
+        _ensure_strength_coverage(
+            feedback_items,
+            valid_category_ids=valid_category_ids,
+            category_priority=list(category_priority or []),
+            category_ids=list(doc_type_meta.get('category_ids', [])),
+            category_names=list(doc_type_meta.get('category_names', [])),
+            segments=segments,
+            config=config,
+        )
 
         # Warn when inline items lack anchors or strength items lack anchors (anchor encouraged).
         inline_missing_anchor = [

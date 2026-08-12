@@ -55,6 +55,12 @@ export interface NewDraftInput {
   readonly wordCount: number;
   /** Optional TipTap JSONContent for rich editor reload. */
   readonly content?: TipTapDoc;
+  /** Repeating page header extracted during PDF ingest. */
+  readonly header?: TipTapDoc | null;
+  /** Repeating page footer extracted during PDF ingest. */
+  readonly footer?: TipTapDoc | null;
+  /** Document-level OCR confidence (0–100) from scanned-PDF ingest. */
+  readonly ocrConfidence?: number;
 }
 
 /**
@@ -100,6 +106,12 @@ export interface DraftRepository {
    * (Requirement 8.3). Read-only: never mutates or regenerates feedback.
    */
   listFeedbackItems(documentId: string): Promise<FeedbackItem[]>;
+
+  /**
+   * Update the OCR confidence score on the current (highest-version) Draft.
+   * Returns null when the Document has no Draft (Requirement 7.6).
+   */
+  updateOcrConfidence(documentId: string, confidence: number): Promise<Draft | null>;
 }
 
 /** Raw `draft` row (snake_case columns from PostgreSQL). */
@@ -115,6 +127,7 @@ interface DraftRow {
   readonly content?: unknown;
   readonly header?: unknown;
   readonly footer?: unknown;
+  readonly ocr_confidence?: number | string | null;
 }
 
 /** Raw `feedback_item` row (snake_case columns from PostgreSQL). */
@@ -131,7 +144,7 @@ interface FeedbackItemRow {
 }
 
 const DRAFT_COLUMNS =
-  'id, document_id, version_number, s3_key, segments, word_count, created_at, content_updated_at, content, header, footer';
+  'id, document_id, version_number, s3_key, segments, word_count, created_at, content_updated_at, content, header, footer, ocr_confidence';
 
 const FEEDBACK_ITEM_COLUMNS =
   'id, document_id, error_category_id, kind, question_text, ' +
@@ -175,6 +188,8 @@ function toDraft(row: DraftRow): Draft {
   const content = parseOptionalContent(row.content);
   const header = parseOptionalContent(row.header);
   const footer = parseOptionalContent(row.footer);
+  const ocrConfidence =
+    row.ocr_confidence != null ? Number(row.ocr_confidence) : undefined;
   return draftSchema.parse({
     id: row.id,
     documentId: row.document_id,
@@ -187,6 +202,9 @@ function toDraft(row: DraftRow): Draft {
     ...(content ? { content } : {}),
     ...(header ? { header } : {}),
     ...(footer ? { footer } : {}),
+    ...(ocrConfidence != null && !Number.isNaN(ocrConfidence)
+      ? { ocrConfidence }
+      : {}),
   });
 }
 
@@ -225,8 +243,11 @@ export class DbDraftRepository implements DraftRepository {
 
   public async insertDraft(input: NewDraftInput): Promise<Draft> {
     const rows = await this.db.query<DraftRow>(
-      `INSERT INTO draft (document_id, version_number, s3_key, segments, word_count, content)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb)
+      `INSERT INTO draft (
+         document_id, version_number, s3_key, segments, word_count,
+         content, header, footer, ocr_confidence
+       )
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9)
        RETURNING ${DRAFT_COLUMNS}`,
       [
         input.documentId,
@@ -235,6 +256,9 @@ export class DbDraftRepository implements DraftRepository {
         JSON.stringify(input.segments),
         input.wordCount,
         input.content ? JSON.stringify(input.content) : null,
+        input.header ? JSON.stringify(input.header) : null,
+        input.footer ? JSON.stringify(input.footer) : null,
+        typeof input.ocrConfidence === 'number' ? input.ocrConfidence : null,
       ],
     );
     return toDraft(rows[0]!);
@@ -293,5 +317,25 @@ export class DbDraftRepository implements DraftRepository {
       [documentId],
     );
     return rows.map(toFeedbackItem);
+  }
+
+  public async updateOcrConfidence(
+    documentId: string,
+    confidence: number,
+  ): Promise<Draft | null> {
+    const rows = await this.db.query<DraftRow>(
+      `UPDATE draft
+       SET ocr_confidence = $2
+       WHERE id = (
+         SELECT id FROM draft
+         WHERE document_id = $1
+         ORDER BY version_number DESC
+         LIMIT 1
+       )
+       RETURNING ${DRAFT_COLUMNS}`,
+      [documentId, confidence],
+    );
+    const row = rows[0];
+    return row ? toDraft(row) : null;
   }
 }

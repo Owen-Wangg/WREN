@@ -706,6 +706,12 @@ function officeNodesToTiptapBlocks(
       i += 1;
       continue;
     }
+    if (node.type === 'break' || node.type === 'page') {
+      // Import DOCX page/section break as a TipTap pageBreak node
+      blocks.push({ type: 'pageBreak' });
+      i += 1;
+      continue;
+    }
     if (node.children && node.children.length > 0) {
       blocks.push(...officeNodesToTiptapBlocks(node.children, attachments, footnoteIdCounter));
       i += 1;
@@ -1119,6 +1125,10 @@ export function tiptapContentToDocxChildren(
       out.push(...listToDocxParagraphs(node, footnotesById));
     } else if (node.type === 'table') {
       out.push(tableToDocx(node, footnotesById));
+    } else if (node.type === 'pageBreak') {
+      // Insert a DOCX page break: an empty paragraph with pageBreakBefore
+      // so the next content starts on a new page at the equivalent position.
+      out.push(new Paragraph({ pageBreakBefore: true }));
     }
   }
   return out;

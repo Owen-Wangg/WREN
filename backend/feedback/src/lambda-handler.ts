@@ -656,7 +656,7 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
   const { documentId } = event.pathParameters || {};
 
   const docQuery = `
-    SELECT owner_user_id, document_type_id FROM document WHERE id = $1
+    SELECT owner_user_id, document_type_id, name FROM document WHERE id = $1
   `;
   const docRows = await db.query(docQuery, [documentId]);
 
@@ -702,10 +702,11 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
   // fails, a separate mechanism would publish ai-debrief-failed.
   publishNotificationEvent({
     typeSlug: 'ai-debrief-ready',
-    entityId: String(draft.id),
+    entityId: documentId,
     recipientUserId: actor.userId,
     context: {
       documentId,
+      documentName: docRows[0].name || 'Untitled',
       draftId: String(draft.id),
     },
   }).catch((err) => {

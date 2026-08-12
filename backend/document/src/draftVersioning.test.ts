@@ -96,6 +96,11 @@ class FakeDraftRepository implements DraftRepository {
       wordCount: input.wordCount,
       createdAt: new Date(Date.UTC(2025, 0, this.nextId)).toISOString(),
       ...(input.content ? { content: input.content } : {}),
+      ...(input.header ? { header: input.header } : {}),
+      ...(input.footer ? { footer: input.footer } : {}),
+      ...(typeof input.ocrConfidence === 'number'
+        ? { ocrConfidence: input.ocrConfidence }
+        : {}),
     };
     this.nextId += 1;
     this.drafts.push(draft);
@@ -121,6 +126,18 @@ class FakeDraftRepository implements DraftRepository {
 
   public async listFeedbackItems(documentId: string): Promise<FeedbackItem[]> {
     return this.feedbackItems.filter((f) => f.documentId === documentId);
+  }
+
+  public async updateOcrConfidence(
+    documentId: string,
+    confidence: number,
+  ): Promise<Draft | null> {
+    const current = await this.getCurrentDraft(documentId);
+    if (!current) return null;
+    const updated: Draft = { ...current, ocrConfidence: confidence };
+    const idx = this.drafts.findIndex((d) => d.id === current.id);
+    this.drafts[idx] = updated;
+    return updated;
   }
 }
 
@@ -297,6 +314,37 @@ function footnoteBearingContent(): TipTapDoc {
     ],
   } as unknown as TipTapDoc;
 }
+
+describe('PDF reconstruction metadata persists on insertDraft', () => {
+  it('stores header, footer, and ocrConfidence on the new draft', async () => {
+    const repo = new FakeDraftRepository();
+    const header = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Confidential' }] }],
+    } as TipTapDoc;
+    const footer = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Page' }] }],
+    } as TipTapDoc;
+
+    const result = await createDraftRevision(
+      submission({
+        content: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Body' }] }],
+        } as TipTapDoc,
+        header,
+        footer,
+        ocrConfidence: 84.5,
+      }),
+      repo,
+    );
+
+    expect(result.draft.header).toEqual(header);
+    expect(result.draft.footer).toEqual(footer);
+    expect(result.draft.ocrConfidence).toBe(84.5);
+  });
+});
 
 describe('footnote-bearing content round-trips through insertDraft/updateCurrentDraftContent/getCurrentDraft', () => {
   it('insertDraft persists footnote node data unchanged (Requirement 2.2)', async () => {

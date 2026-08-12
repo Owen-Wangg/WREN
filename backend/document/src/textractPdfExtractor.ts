@@ -1,9 +1,7 @@
 /**
  * RichPdfExtractor backed by Amazon Textract (normalized to TipTap).
  */
-import type { TipTapDoc } from '@wren/types';
-
-import type { RichPdfExtractor } from './pdfExtractor.js';
+import type { RichPdfExtraction, RichPdfExtractor } from './pdfExtractor.js';
 import { extractWithTextract } from './textractOcr.js';
 
 export class TextractPdfExtractor implements RichPdfExtractor {
@@ -19,13 +17,19 @@ export class TextractPdfExtractor implements RichPdfExtractor {
     return rich.text;
   }
 
-  public async extractRich(bytes: Buffer): Promise<{ text: string; content: TipTapDoc }> {
+  public async extractRich(bytes: Buffer): Promise<RichPdfExtraction> {
     const result = await extractWithTextract({
       bytes,
       ...(this.options.s3Bucket && this.options.s3Key
         ? { s3Bucket: this.options.s3Bucket, s3Key: this.options.s3Key }
         : {}),
     });
-    return { text: result.text, content: result.content };
+    return {
+      text: result.text,
+      content: result.content,
+      header: result.header,
+      footer: result.footer,
+      ocrConfidence: result.ocrConfidence,
+    };
   }
 }

@@ -5,6 +5,8 @@
  * and returns the list of applied migrations. Idempotent: re-running applies
  * only new migrations not yet recorded in schema_migrations table.
  */
+import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as path from 'path';
 import { Duration, CustomResource } from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -96,9 +98,22 @@ export class MigrationRunner extends CustomResource {
         // Trigger re-run on environment changes
         databaseProxyEndpoint: props.databaseProxyEndpoint,
         databaseSecretArn: props.databaseSecretArn,
+        // Re-invoke when a new *.sql file is added (otherwise CloudFormation
+        // updates the migrate Lambda code but never runs it).
+        migrationsFingerprint: hashMigrationFiles(),
       },
     });
 
     this.migrationFunction = migrationFunction;
   }
+}
+
+/** Stable hash of migration filenames so adding SQL forces a custom-resource update. */
+function hashMigrationFiles(): string {
+  const dir = path.join(__dirname, '../../../backend/database/migrations');
+  const files = fs
+    .readdirSync(dir)
+    .filter((name) => name.endsWith('.sql'))
+    .sort();
+  return crypto.createHash('sha256').update(files.join('\n')).digest('hex').slice(0, 16);
 }

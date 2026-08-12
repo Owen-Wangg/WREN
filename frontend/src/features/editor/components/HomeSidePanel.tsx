@@ -11,7 +11,7 @@ export interface HomeSidePanelProps {
   readonly anchors: TableOfContentData;
   /** Document display name shown above the outline. */
   readonly documentTitle: string;
-  /** Muted line under the title, e.g. "Draft v1 · 246 words". */
+  /** Muted line under the title, e.g. "Draft v1 · 246 words · 3 pages". */
   readonly documentMeta: string;
 }
 

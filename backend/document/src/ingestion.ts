@@ -58,6 +58,9 @@ export interface IngestSuccess {
   readonly segments: Segment[];
   /** TipTap JSON when PDF rich extraction succeeded (server source of truth). */
   readonly content?: TipTapDoc;
+  readonly header?: TipTapDoc | null;
+  readonly footer?: TipTapDoc | null;
+  readonly ocrConfidence?: number;
 }
 
 /**
@@ -74,8 +77,7 @@ export type IngestResult = IngestSuccess | IngestFallback;
 
 const FALLBACK_MESSAGE =
   'We could not extract readable text from this PDF. For best results upload a ' +
-  '.docx file. Scanned PDFs need OCR language data (default English); try a ' +
-  'text-based PDF or paste the text directly.';
+  '.docx file, try a clearer scan, or paste the text directly.';
 
 function acceptedFormatsMessage(fileName: string): string {
   return (
@@ -142,6 +144,9 @@ export async function ingestUpload(
         status: 'success',
         segments: hasContentText ? segmentsFromContent : segmentParagraphs(rich.text),
         content: rich.content,
+        ...(rich.header ? { header: rich.header } : {}),
+        ...(rich.footer ? { footer: rich.footer } : {}),
+        ...(typeof rich.ocrConfidence === 'number' ? { ocrConfidence: rich.ocrConfidence } : {}),
       };
     }
 

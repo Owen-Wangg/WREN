@@ -43,6 +43,11 @@ class FakeDraftRepository implements DraftRepository {
       wordCount: input.wordCount,
       createdAt: new Date(Date.UTC(2025, 0, this.nextId)).toISOString(),
       ...(input.content ? { content: input.content } : {}),
+      ...(input.header ? { header: input.header } : {}),
+      ...(input.footer ? { footer: input.footer } : {}),
+      ...(typeof input.ocrConfidence === 'number'
+        ? { ocrConfidence: input.ocrConfidence }
+        : {}),
     };
     this.nextId += 1;
     this.drafts.push(draft);
@@ -68,6 +73,18 @@ class FakeDraftRepository implements DraftRepository {
 
   public async listFeedbackItems(_documentId: string): Promise<FeedbackItem[]> {
     return [];
+  }
+
+  public async updateOcrConfidence(
+    documentId: string,
+    confidence: number,
+  ): Promise<Draft | null> {
+    const current = await this.getCurrentDraft(documentId);
+    if (!current) return null;
+    const updated: Draft = { ...current, ocrConfidence: confidence };
+    const idx = this.drafts.findIndex((d) => d.id === current.id);
+    this.drafts[idx] = updated;
+    return updated;
   }
 }
 

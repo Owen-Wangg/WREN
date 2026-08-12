@@ -11,7 +11,16 @@ export interface PdfExtractor {
   extract(bytes: Buffer): Promise<string>;
 }
 
+/** Rich extraction: TipTap body plus optional reconstruction metadata. */
+export interface RichPdfExtraction {
+  readonly text: string;
+  readonly content: TipTapDoc;
+  readonly header?: TipTapDoc | null;
+  readonly footer?: TipTapDoc | null;
+  readonly ocrConfidence?: number;
+}
+
 /** Rich extraction: plain text + TipTap JSON for draft.content. */
 export interface RichPdfExtractor extends PdfExtractor {
-  extractRich(bytes: Buffer): Promise<{ text: string; content: TipTapDoc }>;
+  extractRich(bytes: Buffer): Promise<RichPdfExtraction>;
 }

@@ -95,6 +95,11 @@ export async function processIngestQueueMessage(
           : sizeResult.measuredWords,
         s3Key: message.s3Key,
         ...(storedContent ? { content: storedContent } : {}),
+        ...(ingestResult.header ? { header: ingestResult.header } : {}),
+        ...(ingestResult.footer ? { footer: ingestResult.footer } : {}),
+        ...(typeof ingestResult.ocrConfidence === 'number'
+          ? { ocrConfidence: ingestResult.ocrConfidence }
+          : {}),
       },
       draftRepo,
     );
