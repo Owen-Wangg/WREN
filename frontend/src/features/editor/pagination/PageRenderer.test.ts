@@ -836,6 +836,82 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       expect(parseFloat(heading.style.marginTop)).toBe(nextWell - baseTop);
     });
 
+    it('pushes a page-start heading until its glyphs clear the chrome mask', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const heading = document.createElement('h2');
+      heading.textContent = '4. Step-by-step instructions';
+      prose.appendChild(heading);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      // Border box sits on the well start; ascenders paint 6px into the chrome.
+      const baseTop = nextWell;
+
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 2000,
+        top: 0,
+        right: 624,
+        bottom: 2000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      heading.getBoundingClientRect = () => {
+        const margin = parseFloat(heading.style.marginTop) || 0;
+        const top = baseTop + margin;
+        return {
+          x: 0,
+          y: top,
+          width: 624,
+          height: 28,
+          top,
+          right: 624,
+          bottom: top + 28,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
+      const nativeRange = document.createRange.bind(document);
+      vi.spyOn(document, 'createRange').mockImplementation(() => {
+        const range = nativeRange();
+        range.getClientRects = () => {
+          const box = heading.getBoundingClientRect();
+          return [
+            {
+              x: 0,
+              y: box.top - 6,
+              width: 624,
+              height: 28,
+              top: box.top - 6,
+              right: 624,
+              bottom: box.bottom,
+              left: 0,
+              toJSON: () => ({}),
+            },
+          ] as unknown as DOMRectList;
+        };
+        return range;
+      });
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 878,
+          availableHeight: 0,
+        },
+      ]);
+
+      expect(heading.getAttribute('data-split-clipped')).toBeNull();
+      expect(heading.getAttribute('data-pagination-break')).toBe('1');
+      const box = heading.getBoundingClientRect();
+      expect(box.top - 6).toBeGreaterThanOrEqual(nextWell);
+    });
+
     it('keeps a heading after a clipped list fully below the page gutter', () => {
       const prose = document.createElement('div');
       prose.className = 'ProseMirror';

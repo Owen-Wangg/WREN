@@ -373,6 +373,35 @@ export class PageRenderer {
     };
   }
 
+  /**
+   * Highest painted Y (content-Y). Heading glyphs can extend a few pixels
+   * above the border box; aligning only the box tucks those ascenders under
+   * the chrome mask that covers the previous page's gap + next top margin.
+   */
+  private inkTop(el: HTMLElement, proseMirrorEl: HTMLElement): number {
+    return this.paintedTop(el) - this.firstWellStartY(proseMirrorEl);
+  }
+
+  private paintedTop(el: HTMLElement): number {
+    const box = el.getBoundingClientRect();
+    let top = box.top;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const rects = range.getClientRects();
+      for (let i = 0; i < rects.length; i++) {
+        const r = rects[i];
+        if (r.width < 1 || r.height < 1) continue;
+        // Ignore rects that clearly belong to another node (global Range spies).
+        if (r.bottom < box.top - 8 || r.top > box.bottom + 1) continue;
+        top = Math.min(top, r.top);
+      }
+    } catch {
+      // Detached nodes can throw from Range.
+    }
+    return top;
+  }
+
   private firstWellStartY(proseMirrorEl: HTMLElement): number {
     const pmTop = proseMirrorEl.getBoundingClientRect().top;
     const firstPage = this.pages[0];
@@ -419,22 +448,23 @@ export class PageRenderer {
       const box = this.contentY(el, proseMirrorEl);
       if (box.height <= 0) return;
 
-      const pageIndex = Math.max(0, Math.floor(box.top / stride));
+      const top = Math.min(box.top, this.inkTop(el, proseMirrorEl));
+      const pageIndex = Math.max(0, Math.floor(top / stride));
       const wellStart = pageIndex * stride;
       const wellEnd = wellStart + well;
       const nextWellStart = (pageIndex + 1) * stride;
 
       // Fully inside the content well — nothing to do.
-      if (box.bottom <= wellEnd + 0.5 && box.top >= wellStart - 0.5) return;
+      if (box.bottom <= wellEnd + 0.5 && top >= wellStart - 0.5) return;
 
       // Starts in the forbidden band (margin / gap) — shove to next well.
-      if (box.top >= wellEnd - 0.5) {
+      if (top >= wellEnd - 0.5) {
         this.alignToY(el, nextWellStart, pageIndex + 1, proseMirrorEl);
         return;
       }
 
       // Starts in the well but overflows past the well end.
-      const room = wellEnd - box.top;
+      const room = wellEnd - top;
       if (room < 1) {
         this.alignToY(el, nextWellStart, pageIndex + 1, proseMirrorEl);
         return;
@@ -740,11 +770,17 @@ export class PageRenderer {
 
     this.preventMarginCollapse(target);
     for (let i = 0; i < 4; i++) {
-      const actual = this.contentY(target, proseMirrorEl).top;
+      const actual = this.inkTop(target, proseMirrorEl);
       const delta = expectedTop - actual;
-      if (Math.abs(delta) <= 0.5) break;
+      // Never pull a page-start block up into the chrome. Extra space below
+      // the well start is fine; even 1px too high slices heading ascenders.
+      if (delta <= 0.5) break;
       const current = parseFloat(target.style.marginTop) || 0;
-      target.style.setProperty('margin-top', `${Math.max(0, current + delta)}px`, 'important');
+      target.style.setProperty(
+        'margin-top',
+        `${current + Math.ceil(delta)}px`,
+        'important',
+      );
     }
     target.setAttribute('data-pagination-break', String(pageIndex));
   }
