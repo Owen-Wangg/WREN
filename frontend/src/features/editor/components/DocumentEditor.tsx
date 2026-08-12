@@ -307,6 +307,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
               ['--pagination-page-margin' as string]: `${PAGE_CONFIG.MARGIN_PX}px`,
               ['--pagination-page-gap' as string]: `${PAGE_CONFIG.PAGE_GAP_PX}px`,
               ['--pagination-usable-height' as string]: `${PAGE_CONFIG.USABLE_HEIGHT_PX}px`,
+              ['--pagination-well-clearance' as string]: `${PAGE_CONFIG.WELL_START_CLEARANCE_PX}px`,
             }}
           >
             {/* Letter-sized page frames are painted here by PageRenderer. */}

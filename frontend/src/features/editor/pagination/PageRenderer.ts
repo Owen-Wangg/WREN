@@ -30,6 +30,15 @@ function pageStride(): number {
   return PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
 }
 
+/** Content-Y where page-start ink is allowed. Pages 2+ include a keep-out
+ *  strip so glyphs cannot meet the chrome that covers the previous gap. */
+function pageWellStart(pageIndex: number): number {
+  return (
+    pageIndex * pageStride() +
+    (pageIndex > 0 ? PAGE_CONFIG.WELL_START_CLEARANCE_PX : 0)
+  );
+}
+
 function pagesNeededForContent(proseMirrorEl: HTMLElement): number {
   const stride = pageStride();
   const height = Math.max(proseMirrorEl.scrollHeight, proseMirrorEl.getBoundingClientRect().height);
@@ -81,6 +90,10 @@ function applyWorkspaceStyles(el: HTMLElement): void {
   el.style.paddingTop = `${PAGE_CONFIG.PAGE_GAP_PX}px`;
   el.style.paddingBottom = `${PAGE_CONFIG.PAGE_GAP_PX}px`;
   el.style.minHeight = '100%';
+  el.style.setProperty(
+    '--pagination-well-clearance',
+    `${PAGE_CONFIG.WELL_START_CLEARANCE_PX}px`,
+  );
 }
 
 /** Backdrop stack of letter frames — clicks pass through to the editor. */
@@ -427,6 +440,13 @@ export class PageRenderer {
     const stride = pageStride();
 
     const enforce = (el: HTMLElement): void => {
+      if (
+        el.getAttribute('data-split-clipped') === 'current' &&
+        /^h[1-6]$/.test(el.tagName.toLowerCase())
+      ) {
+        this.releaseClip(el);
+      }
+
       if (el.getAttribute('data-split-clipped') === 'current') {
         const box = this.contentY(el, proseMirrorEl);
         const clip = parseFloat(el.style.maxHeight);
@@ -452,7 +472,15 @@ export class PageRenderer {
       const pageIndex = Math.max(0, Math.floor(top / stride));
       const wellStart = pageIndex * stride;
       const wellEnd = wellStart + well;
-      const nextWellStart = (pageIndex + 1) * stride;
+      const inkFloor = pageWellStart(pageIndex);
+      const nextWellStart = pageWellStart(pageIndex + 1);
+
+      // Keep-out strip: any ink above the allowed floor is pushed down.
+      // This is the failure-prevention margin — empty paper, not chrome.
+      if (top < inkFloor - 0.5) {
+        this.alignToY(el, inkFloor, pageIndex, proseMirrorEl);
+        return;
+      }
 
       // Fully inside the content well — nothing to do.
       if (box.bottom <= wellEnd + 0.5 && top >= wellStart - 0.5) return;
@@ -617,7 +645,13 @@ export class PageRenderer {
     const pageIndex = Math.max(0, Math.floor(box.top / stride));
     const wellStart = pageIndex * stride;
     const wellEnd = wellStart + well;
-    const nextWellStart = (pageIndex + 1) * stride;
+    const inkFloor = pageWellStart(pageIndex);
+    const nextWellStart = pageWellStart(pageIndex + 1);
+
+    if (box.top < inkFloor - 0.5) {
+      this.alignToY(table, inkFloor, pageIndex, proseMirrorEl);
+      return;
+    }
 
     if (box.bottom <= wellEnd + 0.5 && box.top >= wellStart - 0.5) return;
 
@@ -769,6 +803,10 @@ export class PageRenderer {
     }
 
     this.preventMarginCollapse(target);
+    if (/^h[1-6]$/.test(target.tagName.toLowerCase()) || /^h[1-6]$/.test(el.tagName.toLowerCase())) {
+      target.style.overflow = 'visible';
+      target.style.removeProperty('max-height');
+    }
     for (let i = 0; i < 4; i++) {
       const actual = this.inkTop(target, proseMirrorEl);
       const delta = expectedTop - actual;
@@ -783,6 +821,23 @@ export class PageRenderer {
       );
     }
     target.setAttribute('data-pagination-break', String(pageIndex));
+  }
+
+  /** Drop a stale emergency clip (headings must never stay max-height sliced). */
+  private releaseClip(el: HTMLElement): void {
+    const splitId = el.getAttribute('data-split-id');
+    el.style.maxHeight = '';
+    el.style.overflow = '';
+    el.style.removeProperty('margin-bottom');
+    el.removeAttribute('data-split-clipped');
+    el.removeAttribute('data-split-id');
+    if (splitId && this.chromeLayer) {
+      for (const wrap of this.chromeLayer.querySelectorAll(
+        `.${PARAGRAPH_CONTINUATION_CLASS}[data-split-source="${splitId}"]`,
+      )) {
+        wrap.remove();
+      }
+    }
   }
 
   private pushToWell(el: HTMLElement, extra: number, pageIndex: number): void {
@@ -921,15 +976,13 @@ export class PageRenderer {
     blocks: HTMLElement[],
     proseMirrorEl: HTMLElement,
   ): void {
-    const stride = pageStride();
-
     for (const pageAssignment of assignments) {
       if (pageAssignment.pageIndex <= 0 || pageAssignment.blocks.length === 0) {
         continue;
       }
 
       const start = pageAssignment.blocks[0];
-      const expectedTop = pageAssignment.pageIndex * stride;
+      const expectedTop = pageWellStart(pageAssignment.pageIndex);
 
       // List continuations are recorded on the *previous* page's split, not
       // as a new top-level block. Align that <li> to this well.

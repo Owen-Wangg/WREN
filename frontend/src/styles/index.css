@@ -116,6 +116,10 @@ body {
   scroll-margin-top: 1rem;
 }
 
+.document-editor-scroll .document-body-region :is(h1, h2, h3, h4, h5, h6) {
+  overflow: visible;
+}
+
 /* Imported / toolbar paragraph/heading indent (data-indent + inline margin-left). */
 .document-editor-surface [data-indent] {
   max-width: 100%;
@@ -256,8 +260,9 @@ body {
 }
 
 /* Cover the gap and the next sheet's top margin so leftover body ink cannot
-   paint through either band. Header clones on the following chrome page
-   still paint above this layer. */
+   paint through either band. This overlay stops at the content-well start.
+   PageRenderer then keeps a keep-out strip *inside* the well (see
+   --pagination-well-clearance) so first-line glyphs cannot meet this edge. */
 .pagination-chrome-page::after {
   content: '';
   position: absolute;

@@ -399,7 +399,10 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
 
       expect(block.getAttribute('data-pagination-break')).toBe('1');
       expect(parseFloat(block.style.marginTop)).toBe(
-        PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX - 850,
+        PAGE_CONFIG.HEIGHT_PX +
+          PAGE_CONFIG.PAGE_GAP_PX +
+          PAGE_CONFIG.WELL_START_CLEARANCE_PX -
+          850,
       );
     });
 
@@ -471,7 +474,9 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       ]);
 
       expect(second.getAttribute('data-pagination-break')).toBe('1');
-      expect(parseFloat(second.style.marginTop)).toBe(stride - 100);
+      expect(parseFloat(second.style.marginTop)).toBe(
+        stride + PAGE_CONFIG.WELL_START_CLEARANCE_PX - 100,
+      );
     });
 
     it('clamps split paragraph clipHeight so ink cannot enter the gutter', () => {
@@ -766,7 +771,8 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       prose.appendChild(heading);
       scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
 
-      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      const nextWell =
+        PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX + PAGE_CONFIG.WELL_START_CLEARANCE_PX;
       const baseTop = 850;
 
       prose.getBoundingClientRect = () => ({
@@ -836,6 +842,58 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       expect(parseFloat(heading.style.marginTop)).toBe(nextWell - baseTop);
     });
 
+    it('keeps a keep-out strip empty at the top of page 2 so headings cannot meet the chrome', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const heading = document.createElement('h2');
+      heading.textContent = '4. Step-by-step instructions';
+      prose.appendChild(heading);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      const geometricWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      const inkFloor = geometricWell + PAGE_CONFIG.WELL_START_CLEARANCE_PX;
+
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 2000,
+        top: 0,
+        right: 624,
+        bottom: 2000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      heading.getBoundingClientRect = () => {
+        const margin = parseFloat(heading.style.marginTop) || 0;
+        const top = geometricWell + margin;
+        return {
+          x: 0,
+          y: top,
+          width: 624,
+          height: 28,
+          top,
+          right: 624,
+          bottom: top + 28,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 878,
+          availableHeight: 0,
+        },
+      ]);
+
+      expect(heading.getAttribute('data-split-clipped')).toBeNull();
+      expect(heading.getBoundingClientRect().top).toBe(inkFloor);
+    });
+
     it('pushes a page-start heading until its glyphs clear the chrome mask', () => {
       const prose = document.createElement('div');
       prose.className = 'ProseMirror';
@@ -844,7 +902,8 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       prose.appendChild(heading);
       scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
 
-      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      const nextWell =
+        PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX + PAGE_CONFIG.WELL_START_CLEARANCE_PX;
       // Border box sits on the well start; ascenders paint 6px into the chrome.
       const baseTop = nextWell;
 
@@ -927,7 +986,8 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       prose.append(list, heading);
       scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
 
-      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      const nextWell =
+        PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX + PAGE_CONFIG.WELL_START_CLEARANCE_PX;
       const headingBase = 868;
 
       prose.getBoundingClientRect = () => ({
@@ -1046,7 +1106,8 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
 
       const gapStart = PAGE_CONFIG.USABLE_HEIGHT_PX + PAGE_CONFIG.MARGIN_PX;
-      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      const nextWell =
+        PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX + PAGE_CONFIG.WELL_START_CLEARANCE_PX;
 
       prose.getBoundingClientRect = () => ({
         x: 0,
@@ -1104,7 +1165,8 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       prose.appendChild(table);
       scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
 
-      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      const nextWell =
+        PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX + PAGE_CONFIG.WELL_START_CLEARANCE_PX;
       prose.getBoundingClientRect = () => ({
         x: 0, y: 0, width: 624, height: 2000, top: 0, right: 624, bottom: 2000, left: 0, toJSON: () => ({}),
       });

@@ -29,6 +29,13 @@ export const PAGE_CONFIG = {
   USABLE_HEIGHT_PX: 864,
   /** Vertical gap between consecutive page containers */
   PAGE_GAP_PX: 32,
+  /**
+   * Keep-out band at the top of page 2+ content wells (px).
+   * First-line ink must sit at or below wellStart + this value. That empty
+   * strip is the failure-prevention margin: measurement drift of several
+   * pixels still cannot tuck glyphs under the page-gap chrome.
+   */
+  WELL_START_CLEARANCE_PX: 24,
 } as const;
 
 // ---------------------------------------------------------------------------
