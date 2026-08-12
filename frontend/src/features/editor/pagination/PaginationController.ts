@@ -402,10 +402,13 @@ export class PaginationController implements IPaginationController {
     // Sync containers and position blocks — renderer handles zero-shift
     // for content above the cursor by only adding new page containers
     // without re-flowing existing ones.
-    this.pageRenderer.syncPageContainers(this._pageCount);
-    this.pageRenderer.positionBlocks(assignments);
-    this.pageRenderer.syncHeaderFooterClones();
-    this.pageRenderer.resolvePageNumbers(this._pageCount);
+    this.pageRenderer.withScrollPreserved('applyPartialAssignments', () => {
+      this.pageRenderer.syncPageContainers(this._pageCount);
+      this.pageRenderer.positionBlocks(assignments);
+      this.pageRenderer.syncHeaderFooterClones();
+      this.pageRenderer.resolvePageNumbers(this._pageCount);
+    });
+
     this.emitPageCount();
   }
 
@@ -421,10 +424,15 @@ export class PaginationController implements IPaginationController {
     this._pageCount = assignments.length;
     this._blockPageMap = this.buildBlockPageMap(assignments);
 
-    this.pageRenderer.syncPageContainers(this._pageCount);
-    this.pageRenderer.positionBlocks(assignments);
-    this.pageRenderer.syncHeaderFooterClones();
-    this.pageRenderer.resolvePageNumbers(this._pageCount);
+    // The renderer collapses and rebuilds document height inside this window;
+    // hold the viewport steady so editing does not throw the reader to the end.
+    this.pageRenderer.withScrollPreserved('applyAssignments', () => {
+      this.pageRenderer.syncPageContainers(this._pageCount);
+      this.pageRenderer.positionBlocks(assignments);
+      this.pageRenderer.syncHeaderFooterClones();
+      this.pageRenderer.resolvePageNumbers(this._pageCount);
+    });
+
     this.emitPageCount();
   }
 
