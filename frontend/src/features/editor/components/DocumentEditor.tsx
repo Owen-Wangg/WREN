@@ -75,6 +75,8 @@ export interface DocumentEditorProps {
   readonly onCommentActivated?: (commentId: string | null) => void;
   /** Fires when the document heading outline changes (Home panel TOC). */
   readonly onTocUpdate?: (anchors: TableOfContentData) => void;
+  /** Fires when letter-page count changes after pagination layout. */
+  readonly onPageCountChange?: (pageCount: number) => void;
   /** Citation configuration for footnote field validation (Requirement 4.4). */
   readonly citationConfig?: CitationConfigLike | null;
 }
@@ -126,6 +128,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       onFooterChange,
       onCommentActivated,
       onTocUpdate,
+      onPageCountChange,
       citationConfig,
     },
     ref,
@@ -135,12 +138,14 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const onFooterChangeRef = useRef(onFooterChange);
     const onCommentActivatedRef = useRef(onCommentActivated);
     const onTocUpdateRef = useRef(onTocUpdate);
+    const onPageCountChangeRef = useRef(onPageCountChange);
     useEffect(() => {
       onContentChangeRef.current = onContentChange;
       onHeaderChangeRef.current = onHeaderChange;
       onFooterChangeRef.current = onFooterChange;
       onCommentActivatedRef.current = onCommentActivated;
       onTocUpdateRef.current = onTocUpdate;
+      onPageCountChangeRef.current = onPageCountChange;
     });
 
     const [activeFootnoteNumber, setActiveFootnoteNumber] = useState<number | null>(null);
@@ -201,7 +206,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         }),
         FootnoteNode,
         PageBreakNode,
-        PaginationExtension,
+        PaginationExtension.configure({
+          onPageCountChange: (pageCount) => {
+            onPageCountChangeRef.current?.(pageCount);
+          },
+        }),
       ],
       content: initialContent ?? EMPTY_DOC,
       editorProps: {

@@ -406,6 +406,7 @@ export class PaginationController implements IPaginationController {
     this.pageRenderer.positionBlocks(assignments);
     this.pageRenderer.syncHeaderFooterClones();
     this.pageRenderer.resolvePageNumbers(this._pageCount);
+    this.emitPageCount();
   }
 
   // ---------------------------------------------------------------------------
@@ -424,6 +425,11 @@ export class PaginationController implements IPaginationController {
     this.pageRenderer.positionBlocks(assignments);
     this.pageRenderer.syncHeaderFooterClones();
     this.pageRenderer.resolvePageNumbers(this._pageCount);
+    this.emitPageCount();
+  }
+
+  private emitPageCount(): void {
+    this.options.onPageCountChange?.(Math.max(1, this._pageCount));
   }
 
   /**

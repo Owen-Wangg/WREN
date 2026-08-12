@@ -265,4 +265,23 @@ describe('Editing Continuity — PaginationController debouncing (Task 11.5)', (
       controller.destroy();
     });
   });
+
+  describe('onPageCountChange', () => {
+    it('reports at least one page after recalculateAll', () => {
+      const onPageCountChange = vi.fn();
+      const content = createMockContentElement();
+      const scroll = createMockScrollContainer();
+      const controller = new PaginationController(content, scroll, {
+        ...DEFAULT_OPTIONS,
+        onPageCountChange,
+      });
+
+      controller.recalculateAll();
+
+      expect(onPageCountChange).toHaveBeenCalled();
+      expect(onPageCountChange.mock.calls.at(-1)?.[0]).toBeGreaterThanOrEqual(1);
+
+      controller.destroy();
+    });
+  });
 });

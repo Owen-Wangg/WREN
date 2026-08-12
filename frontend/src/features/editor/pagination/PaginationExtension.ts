@@ -48,6 +48,7 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
       pageGap: PAGE_CONFIG.PAGE_GAP_PX,
       orphanLines: 2,
       widowLines: 2,
+      onPageCountChange: undefined,
     };
   },
 

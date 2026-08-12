@@ -56,6 +56,8 @@ export interface PaginationOptions {
   pageGap: number;
   orphanLines: number;
   widowLines: number;
+  /** Fires after each layout with the live letter-page count (never persisted). */
+  onPageCountChange?: (pageCount: number) => void;
 }
 
 // ---------------------------------------------------------------------------
