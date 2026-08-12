@@ -265,8 +265,10 @@ export class PageRenderer {
   /**
    * Positions block elements to show visual page boundaries.
    *
-   * Gaps are derived from assignment used/available height so they stay
-   * stable across frames and do not chase getBoundingClientRect.
+   * Gaps are derived from assignment used/available height, then verified
+   * against live layout so page-start blocks land on well starts. Split
+   * paragraphs are clipped to the live well end so lines cannot straddle
+   * the gutter.
    */
   positionBlocks(assignments: PageAssignment[]): void {
     if (!this.workspace || this.pages.length === 0) return;
@@ -276,6 +278,8 @@ export class PageRenderer {
     if (layoutKey === this.lastLayoutKey) {
       if (proseMirrorEl) {
         const blocks = Array.from(proseMirrorEl.children) as HTMLElement[];
+        this.verifyAndCorrectPageStarts(assignments, blocks, proseMirrorEl);
+        this.clampSplitClipsToWell(blocks, proseMirrorEl);
         this.snapBlocksOutOfGutters(blocks, proseMirrorEl);
       }
       return;
@@ -292,8 +296,7 @@ export class PageRenderer {
     this.clearPositioning(blocks);
 
     if (assignments.length > 1) {
-      this.applyParagraphSplits(assignments, blocks);
-
+      // Apply gaps before clipping so live tops reflect page wells.
       const seen = new Set<number>();
 
       for (const pageAssignment of assignments) {
@@ -320,8 +323,11 @@ export class PageRenderer {
       }
 
       this.applyListItemSplits(assignments, blocks);
+      this.verifyAndCorrectPageStarts(assignments, blocks, proseMirrorEl);
+      this.applyParagraphSplits(assignments, blocks, proseMirrorEl);
     }
 
+    this.clampSplitClipsToWell(blocks, proseMirrorEl);
     this.snapBlocksOutOfGutters(blocks, proseMirrorEl);
     const needed = pagesNeededForContent(proseMirrorEl);
     if (needed > this.pages.length) {
@@ -362,14 +368,22 @@ export class PageRenderer {
       }
 
       const box = relativeBox(el);
-      if (box.height <= 0 || box.height >= well - 1) return;
+      if (box.height <= 0) return;
 
       const pageIndex = Math.max(0, Math.floor(box.top / stride));
       const wellEnd = pageIndex * stride + well;
       const nextWellStart = (pageIndex + 1) * stride;
       const inGutter = box.top >= wellEnd - 0.5;
       const overflows = box.bottom > wellEnd + 0.5;
-      if (!inGutter && !overflows) return;
+
+      // Tall blocks that already start inside a well must be clipped (or
+      // split) rather than shoved whole; still rescue ones that begin in
+      // the gutter/margin band.
+      if (box.height >= well - 1) {
+        if (!inGutter) return;
+      } else if (!inGutter && !overflows) {
+        return;
+      }
 
       const extra = nextWellStart - box.top;
       if (extra <= 0.5) return;
@@ -394,6 +408,110 @@ export class PageRenderer {
         continue;
       }
       snap(block);
+    }
+  }
+
+  /**
+   * After assignment gaps are applied, confirm each page-start block's live
+   * top matches the well start (`pageIndex * stride`). Correct margin-top
+   * when measurement drift left content short of — or overlapping — the well.
+   */
+  private verifyAndCorrectPageStarts(
+    assignments: PageAssignment[],
+    blocks: HTMLElement[],
+    proseMirrorEl: HTMLElement,
+  ): void {
+    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+    const pmTop = proseMirrorEl.getBoundingClientRect().top;
+
+    for (const pageAssignment of assignments) {
+      if (pageAssignment.pageIndex <= 0 || pageAssignment.blocks.length === 0) {
+        continue;
+      }
+
+      const start = pageAssignment.blocks[0];
+      if (start.split && start.split.continuationPageIndex === pageAssignment.pageIndex) {
+        continue;
+      }
+
+      let el: HTMLElement | undefined = blocks[start.blockIndex];
+      if (!el) continue;
+
+      if (start.split?.type === 'list' && start.split.splitAtItem != null) {
+        const item = el.querySelectorAll<HTMLElement>(':scope > li')[start.split.splitAtItem];
+        if (item) el = item;
+      }
+
+      if (el.previousElementSibling?.getAttribute('data-split-clipped') === 'current') {
+        continue;
+      }
+
+      const box = el.getBoundingClientRect();
+      // Skip when layout metrics are unavailable (e.g. jsdom zero-rects).
+      if (box.height <= 0) continue;
+
+      const expectedTop = pageAssignment.pageIndex * stride;
+      const actualTop = box.top - pmTop;
+      const delta = expectedTop - actualTop;
+      if (Math.abs(delta) <= 0.5) continue;
+
+      const current = parseFloat(getComputedStyle(el).marginTop) || 0;
+      el.style.setProperty('margin-top', `${Math.max(0, current + delta)}px`, 'important');
+      el.setAttribute('data-pagination-break', String(pageAssignment.pageIndex));
+    }
+  }
+
+  /**
+   * Ensures split-paragraph max-height never extends past the live well end,
+   * so a line cannot paint through the page gutter. Adjusts phantom margin
+   * and continuation offsets when the clip is tightened.
+   */
+  private clampSplitClipsToWell(blocks: HTMLElement[], proseMirrorEl: HTMLElement): void {
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+    const pmTop = proseMirrorEl.getBoundingClientRect().top;
+
+    for (const el of blocks) {
+      if (el.getAttribute('data-split-clipped') !== 'current') continue;
+
+      const box = el.getBoundingClientRect();
+      if (box.height <= 0 && !Number.isFinite(parseFloat(el.style.maxHeight))) continue;
+
+      const top = box.top - pmTop;
+      // Without a real top, fall back to assignment clip already applied.
+      if (box.height <= 0 && top === 0 && pmTop === 0) continue;
+
+      const pageIndex = Math.max(0, Math.floor(top / stride));
+      const wellEnd = pageIndex * stride + well;
+      const maxClip = wellEnd - top;
+      if (maxClip <= 0.5) continue;
+
+      const currentClip = parseFloat(el.style.maxHeight);
+      if (!Number.isFinite(currentClip) || currentClip <= maxClip + 0.5) continue;
+
+      const delta = currentClip - maxClip;
+      el.style.maxHeight = `${maxClip}px`;
+
+      const phantom = parseFloat(el.style.marginBottom) || 0;
+      el.style.setProperty('margin-bottom', `${phantom + delta}px`, 'important');
+
+      const sourceId = el.getAttribute('data-split-id');
+      if (sourceId) {
+        this.shiftContinuationOffsets(sourceId, maxClip - currentClip);
+      }
+    }
+  }
+
+  /** Nudge chrome continuation clones when the live clip height changes. */
+  private shiftContinuationOffsets(sourceId: string, deltaMarginTop: number): void {
+    if (!this.chromeLayer || Math.abs(deltaMarginTop) <= 0.5) return;
+    for (const wrap of this.chromeLayer.querySelectorAll<HTMLElement>(
+      `.${PARAGRAPH_CONTINUATION_CLASS}[data-split-source="${sourceId}"]`,
+    )) {
+      const clone = wrap.firstElementChild as HTMLElement | null;
+      if (!clone) continue;
+      const current = parseFloat(clone.style.marginTop) || 0;
+      clone.style.marginTop = `${current + deltaMarginTop}px`;
     }
   }
 
@@ -438,9 +556,19 @@ export class PageRenderer {
    * Clips a live paragraph to the first-page slice and paints continuation
    * slices in chrome wells. A phantom margin-bottom pushes following blocks
    * into the correct later well without splitting the ProseMirror node.
+   *
+   * `clipHeightPx` is clamped to the live well end so a line cannot straddle
+   * the gutter between sheets.
    */
-  private applyParagraphSplits(assignments: PageAssignment[], blocks: HTMLElement[]): void {
+  private applyParagraphSplits(
+    assignments: PageAssignment[],
+    blocks: HTMLElement[],
+    proseMirrorEl: HTMLElement,
+  ): void {
     const clipped = new Set<number>();
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+    const pmTop = proseMirrorEl.getBoundingClientRect().top;
 
     for (const page of assignments) {
       for (const blockAssignment of page.blocks) {
@@ -453,19 +581,35 @@ export class PageRenderer {
         clipped.add(blockAssignment.blockIndex);
 
         const fullHeight = Math.max(el.scrollHeight, el.getBoundingClientRect().height);
-        const clipHeightPx = split.clipHeightPx;
+        const top = el.getBoundingClientRect().top - pmTop;
+        const wellEnd = page.pageIndex * stride + well;
+        const maxClip = Math.max(0, wellEnd - top);
+        const assignedClip = split.clipHeightPx;
+        // Only clamp against the live well when layout metrics are available.
+        const hasLiveLayout = el.getBoundingClientRect().height > 0 || top !== 0 || pmTop !== 0;
+        const clipHeightPx =
+          hasLiveLayout && maxClip > 0 ? Math.min(assignedClip, maxClip) : assignedClip;
+        const clipDelta = Math.max(0, assignedClip - clipHeightPx);
         const remaining = Math.max(0, fullHeight - clipHeightPx);
+        const splitId = `split-${blockAssignment.blockIndex}`;
 
+        el.setAttribute('data-split-id', splitId);
         el.style.maxHeight = `${clipHeightPx}px`;
         el.style.overflow = 'hidden';
         el.setAttribute('data-split-clipped', 'current');
         el.style.setProperty(
           'margin-bottom',
-          `${this.phantomAfterClip(page.availableHeight, remaining)}px`,
+          `${this.phantomAfterClip(page.availableHeight + clipDelta, remaining)}px`,
           'important',
         );
 
-        this.placeParagraphContinuations(el, clipHeightPx, remaining, split.continuationPageIndex);
+        this.placeParagraphContinuations(
+          el,
+          clipHeightPx,
+          remaining,
+          split.continuationPageIndex,
+          splitId,
+        );
       }
     }
   }
@@ -491,6 +635,7 @@ export class PageRenderer {
     clipHeightPx: number,
     remaining: number,
     startPageIndex: number,
+    splitId: string,
   ): void {
     const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
     let offset = clipHeightPx;
@@ -505,6 +650,7 @@ export class PageRenderer {
       const wrap = document.createElement('div');
       wrap.className = `${PARAGRAPH_CONTINUATION_CLASS} document-editor-surface`;
       wrap.setAttribute('data-split-clipped', 'continuation');
+      wrap.setAttribute('data-split-source', splitId);
       wrap.setAttribute('data-page-index', String(pageIndex));
       wrap.setAttribute('aria-hidden', 'true');
       wrap.style.position = 'absolute';
@@ -521,6 +667,7 @@ export class PageRenderer {
       clone.style.removeProperty('margin-bottom');
       clone.style.marginTop = `-${offset}px`;
       clone.removeAttribute('data-split-clipped');
+      clone.removeAttribute('data-split-id');
       clone.setAttribute('contenteditable', 'false');
       wrap.appendChild(clone);
       host.appendChild(wrap);
@@ -700,7 +847,7 @@ export class PageRenderer {
         availableHeight: 0,
       }));
 
-    this.applyParagraphSplits(assignments, blocks);
+    this.applyParagraphSplits(assignments, blocks, proseMirrorEl);
   }
 
   /**
@@ -731,6 +878,7 @@ export class PageRenderer {
       el.style.overflow = '';
       el.style.removeProperty('margin-bottom');
       el.removeAttribute('data-split-clipped');
+      el.removeAttribute('data-split-id');
     }
   }
 

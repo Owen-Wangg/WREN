@@ -397,6 +397,163 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       );
     });
 
+    it('corrects a page-start gap when live top misses the well start', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const first = document.createElement('p');
+      first.textContent = 'page one';
+      const second = document.createElement('p');
+      second.textContent = 'page two — too high';
+      prose.append(first, second);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 3000,
+        top: 0,
+        right: 624,
+        bottom: 3000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      first.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 40,
+        top: 0,
+        right: 624,
+        bottom: 40,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      // After the assignment gap (availableHeight 100 → margin 324), the block
+      // still sits 40px short of the well start — verify must push it down.
+      second.getBoundingClientRect = () => {
+        const margin = parseFloat(second.style.marginTop) || 0;
+        const top = 100 + margin;
+        return {
+          x: 0,
+          y: top,
+          width: 624,
+          height: 40,
+          top,
+          right: 624,
+          bottom: top + 40,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 764,
+          availableHeight: 100,
+        },
+        {
+          pageIndex: 1,
+          blocks: [{ blockIndex: 1, startOnPage: 0 }],
+          usedHeight: 40,
+          availableHeight: 824,
+        },
+      ]);
+
+      expect(second.getAttribute('data-pagination-break')).toBe('1');
+      expect(parseFloat(second.style.marginTop)).toBe(stride - 100);
+    });
+
+    it('clamps split paragraph clipHeight so ink cannot enter the gutter', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const paragraph = document.createElement('p');
+      paragraph.textContent = 'long paragraph that would straddle the gutter';
+      Object.defineProperty(paragraph, 'scrollHeight', {
+        configurable: true,
+        get: () => 1200,
+      });
+      // Paragraph starts 40px before the well end; assigned clip of 80 would
+      // paint 40px into the gutter — clamp must cut at well end (40px).
+      paragraph.getBoundingClientRect = () => ({
+        x: 0,
+        y: PAGE_CONFIG.USABLE_HEIGHT_PX - 40,
+        width: 624,
+        height: 1200,
+        top: PAGE_CONFIG.USABLE_HEIGHT_PX - 40,
+        right: 624,
+        bottom: PAGE_CONFIG.USABLE_HEIGHT_PX - 40 + 1200,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 2000,
+        top: 0,
+        right: 624,
+        bottom: 2000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      prose.appendChild(paragraph);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [
+            {
+              blockIndex: 0,
+              startOnPage: 0,
+              split: {
+                type: 'paragraph',
+                splitAtLine: 2,
+                continuationPageIndex: 1,
+                blockIndex: 0,
+                clipHeightPx: 80,
+              },
+            },
+          ],
+          usedHeight: PAGE_CONFIG.USABLE_HEIGHT_PX,
+          availableHeight: 0,
+        },
+        {
+          pageIndex: 1,
+          blocks: [
+            {
+              blockIndex: 0,
+              startOnPage: 1,
+              split: {
+                type: 'paragraph',
+                splitAtLine: 2,
+                continuationPageIndex: 1,
+                blockIndex: 0,
+                clipHeightPx: 864,
+              },
+            },
+          ],
+          usedHeight: 200,
+          availableHeight: 664,
+        },
+      ]);
+
+      expect(paragraph.style.maxHeight).toBe('40px');
+      expect(paragraph.getAttribute('data-split-clipped')).toBe('current');
+      const continuation = scrollContainer.querySelector<HTMLElement>(
+        '.pagination-paragraph-continuation',
+      );
+      expect(continuation).not.toBeNull();
+      const clone = continuation!.firstElementChild as HTMLElement;
+      expect(clone.style.marginTop).toBe('-40px');
+    });
+
     it('does not remove a React-owned workspace on destroy', () => {
       renderer.destroy();
       scrollContainer.replaceChildren();
