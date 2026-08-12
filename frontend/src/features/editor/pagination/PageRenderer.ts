@@ -989,8 +989,6 @@ export class PageRenderer {
         `  chromePages available: ${this.chromePages.length}`,
       );
     }
-    const splitId =
-      el.getAttribute('data-split-id') ?? `split-emergency-${pageIndex}-${clipHeight}`;
 
     // Drop any prior emergency continuations for this node before re-placing.
     if (el.getAttribute('data-split-clipped') === 'current') {
