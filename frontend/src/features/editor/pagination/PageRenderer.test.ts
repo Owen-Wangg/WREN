@@ -3,7 +3,7 @@
  *
  * Validates Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 15.2
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PageRenderer } from './PageRenderer';
 import { PAGE_CONFIG } from './types';
@@ -369,17 +369,21 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
         left: 0,
         toJSON: () => ({}),
       });
-      block.getBoundingClientRect = () => ({
-        x: 0,
-        y: 850,
-        width: 624,
-        height: 40,
-        top: 850,
-        right: 624,
-        bottom: 890,
-        left: 0,
-        toJSON: () => ({}),
-      });
+      block.getBoundingClientRect = () => {
+        const margin = parseFloat(block.style.marginTop) || 0;
+        const top = 850 + margin;
+        return {
+          x: 0,
+          y: top,
+          width: 624,
+          height: 40,
+          top,
+          right: 624,
+          bottom: top + 40,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
 
       renderer.syncPageContainers(2);
       renderer.positionBlocks([
@@ -552,6 +556,111 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       expect(continuation).not.toBeNull();
       const clone = continuation!.firstElementChild as HTMLElement;
       expect(clone.style.marginTop).toBe('-40px');
+    });
+
+    it('emergency-clips a paragraph that straddles the well end mid-line', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const heading = document.createElement('h2');
+      heading.textContent = '4.2 Evaluation Categories';
+      const paragraph = document.createElement('p');
+      paragraph.textContent =
+        'The admin selects from existing evaluation categories or creates new ones (e.g., Tone, Structure, Citations).';
+      prose.append(heading, paragraph);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 2000,
+        top: 0,
+        right: 624,
+        bottom: 2000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      heading.getBoundingClientRect = () => ({
+        x: 0,
+        y: 800,
+        width: 624,
+        height: 28,
+        top: 800,
+        right: 624,
+        bottom: 828,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      // Paragraph starts in the well with room for line 1 only (well ends at 864).
+      paragraph.getBoundingClientRect = () => {
+        const clip = parseFloat(paragraph.style.maxHeight);
+        const height = Number.isFinite(clip) ? clip : 48;
+        return {
+          x: 0,
+          y: 828,
+          width: 624,
+          height,
+          top: 828,
+          right: 624,
+          bottom: 828 + height,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
+      Object.defineProperty(paragraph, 'scrollHeight', {
+        configurable: true,
+        get: () => 48,
+      });
+      // Two line boxes: first fits in the 36px of room; second crosses well end.
+      const rangeRects = [
+        {
+          x: 0,
+          y: 828,
+          width: 624,
+          height: 20,
+          top: 828,
+          right: 624,
+          bottom: 848,
+          left: 0,
+          toJSON: () => ({}),
+        },
+        {
+          x: 0,
+          y: 848,
+          width: 400,
+          height: 20,
+          top: 848,
+          right: 400,
+          bottom: 868,
+          left: 0,
+          toJSON: () => ({}),
+        },
+      ];
+      const nativeRange = document.createRange.bind(document);
+      vi.spyOn(document, 'createRange').mockImplementation(() => {
+        const range = nativeRange();
+        range.getClientRects = () => rangeRects as unknown as DOMRectList;
+        return range;
+      });
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [
+            { blockIndex: 0, startOnPage: 0 },
+            { blockIndex: 1, startOnPage: 0 },
+          ],
+          usedHeight: 876,
+          availableHeight: 0,
+        },
+      ]);
+
+      expect(paragraph.getAttribute('data-split-clipped')).toBe('current');
+      expect(parseFloat(paragraph.style.maxHeight)).toBe(20);
+      expect(
+        scrollContainer.querySelector('.pagination-paragraph-continuation'),
+      ).not.toBeNull();
     });
 
     it('does not remove a React-owned workspace on destroy', () => {

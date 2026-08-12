@@ -11,6 +11,7 @@
 
 import { PAGE_CONFIG } from './types';
 import type { PageAssignment, SplitInfo } from './types';
+import { ParagraphSplitter } from './ParagraphSplitter';
 
 // ---------------------------------------------------------------------------
 // Header/Footer clone CSS class names
@@ -20,8 +21,15 @@ const HEADER_CLONE_CLASS = 'pagination-header-clone';
 const FOOTER_CLONE_CLASS = 'pagination-footer-clone';
 const PARAGRAPH_CONTINUATION_CLASS = 'pagination-paragraph-continuation';
 
+const paragraphSplitter = new ParagraphSplitter();
+
+/** Vertical page stride: letter height + gap between sheets. */
+function pageStride(): number {
+  return PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+}
+
 function pagesNeededForContent(proseMirrorEl: HTMLElement): number {
-  const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+  const stride = pageStride();
   const height = Math.max(proseMirrorEl.scrollHeight, proseMirrorEl.getBoundingClientRect().height);
   return Math.max(1, Math.ceil(height / stride));
 }
@@ -280,7 +288,7 @@ export class PageRenderer {
         const blocks = Array.from(proseMirrorEl.children) as HTMLElement[];
         this.verifyAndCorrectPageStarts(assignments, blocks, proseMirrorEl);
         this.clampSplitClipsToWell(blocks, proseMirrorEl);
-        this.snapBlocksOutOfGutters(blocks, proseMirrorEl);
+        this.enforceWellBounds(blocks, proseMirrorEl);
       }
       return;
     }
@@ -328,7 +336,7 @@ export class PageRenderer {
     }
 
     this.clampSplitClipsToWell(blocks, proseMirrorEl);
-    this.snapBlocksOutOfGutters(blocks, proseMirrorEl);
+    this.enforceWellBounds(blocks, proseMirrorEl);
     const needed = pagesNeededForContent(proseMirrorEl);
     if (needed > this.pages.length) {
       this.syncPageContainers(needed);
@@ -336,79 +344,220 @@ export class PageRenderer {
   }
 
   /**
-   * If a block or list item still paints through a page gutter after the
-   * assignment gaps, push it to the next well using its live box.
+   * Content Y relative to the first page's content-well start (not raw
+   * ProseMirror top). Keeps wells locked to the letter frames even when
+   * body padding / chrome drift.
    */
-  private snapBlocksOutOfGutters(blocks: HTMLElement[], proseMirrorEl: HTMLElement): void {
-    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
-    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
-
-    const relativeBox = (el: HTMLElement) => {
-      const pm = proseMirrorEl.getBoundingClientRect();
-      const box = el.getBoundingClientRect();
-      return {
-        top: box.top - pm.top,
-        bottom: box.bottom - pm.top,
-        height: box.height,
-      };
+  private contentY(el: HTMLElement, proseMirrorEl: HTMLElement): {
+    top: number;
+    bottom: number;
+    height: number;
+  } {
+    const box = el.getBoundingClientRect();
+    const wellStartY = this.firstWellStartY(proseMirrorEl);
+    return {
+      top: box.top - wellStartY,
+      bottom: box.bottom - wellStartY,
+      height: box.height,
     };
+  }
 
-    const snap = (el: HTMLElement): void => {
+  private firstWellStartY(proseMirrorEl: HTMLElement): number {
+    const pmTop = proseMirrorEl.getBoundingClientRect().top;
+    const firstPage = this.pages[0];
+    if (firstPage) {
+      const pageBox = firstPage.getBoundingClientRect();
+      // Prefer the letter frame when it has real geometry; jsdom zero-rects
+      // fall back to the ProseMirror top (content well start).
+      if (pageBox.height > 0) {
+        return pageBox.top + PAGE_CONFIG.MARGIN_PX;
+      }
+    }
+    return pmTop;
+  }
+
+  /**
+   * Hard well enforcement: no block ink may occupy the bottom margin, page
+   * gap, or top margin. Overflowing paragraphs are emergency-clipped at the
+   * last full line that fits; other blocks move to the next well.
+   */
+  private enforceWellBounds(blocks: HTMLElement[], proseMirrorEl: HTMLElement): void {
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    const stride = pageStride();
+
+    const enforce = (el: HTMLElement): void => {
       if (el.getAttribute('data-split-clipped') === 'current') {
-        const box = relativeBox(el);
+        const box = this.contentY(el, proseMirrorEl);
         const clip = parseFloat(el.style.maxHeight);
         const height = Number.isFinite(clip) ? Math.min(box.height, clip) : box.height;
         const pageIndex = Math.max(0, Math.floor(box.top / stride));
         const wellEnd = pageIndex * stride + well;
         const maxHeight = wellEnd - box.top;
         if (maxHeight > 0 && height > maxHeight + 0.5) {
+          const delta = height - maxHeight;
           el.style.maxHeight = `${maxHeight}px`;
+          const phantom = parseFloat(el.style.marginBottom) || 0;
+          el.style.setProperty('margin-bottom', `${phantom + delta}px`, 'important');
+          const sourceId = el.getAttribute('data-split-id');
+          if (sourceId) this.shiftContinuationOffsets(sourceId, maxHeight - height);
         }
         return;
       }
 
-      const box = relativeBox(el);
+      const box = this.contentY(el, proseMirrorEl);
       if (box.height <= 0) return;
 
       const pageIndex = Math.max(0, Math.floor(box.top / stride));
-      const wellEnd = pageIndex * stride + well;
+      const wellStart = pageIndex * stride;
+      const wellEnd = wellStart + well;
       const nextWellStart = (pageIndex + 1) * stride;
-      const inGutter = box.top >= wellEnd - 0.5;
-      const overflows = box.bottom > wellEnd + 0.5;
 
-      // Tall blocks that already start inside a well must be clipped (or
-      // split) rather than shoved whole; still rescue ones that begin in
-      // the gutter/margin band.
-      if (box.height >= well - 1) {
-        if (!inGutter) return;
-      } else if (!inGutter && !overflows) {
+      // Fully inside the content well — nothing to do.
+      if (box.bottom <= wellEnd + 0.5 && box.top >= wellStart - 0.5) return;
+
+      // Starts in the forbidden band (margin / gap) — shove to next well.
+      if (box.top >= wellEnd - 0.5) {
+        this.pushToWell(el, nextWellStart - box.top, pageIndex + 1);
         return;
       }
 
-      const extra = nextWellStart - box.top;
-      if (extra <= 0.5) return;
+      // Starts in the well but overflows past the well end.
+      const room = wellEnd - box.top;
+      if (room < 1) {
+        this.pushToWell(el, nextWellStart - box.top, pageIndex + 1);
+        return;
+      }
 
-      const current = parseFloat(getComputedStyle(el).marginTop) || 0;
-      el.style.setProperty('margin-top', `${current + extra}px`, 'important');
-      el.setAttribute('data-pagination-break', String(pageIndex + 1));
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'p' || tag === 'blockquote') {
+        if (this.emergencyClipBlock(el, room, pageIndex, proseMirrorEl)) {
+          return;
+        }
+      }
+
+      // Headings, short blocks, or emergency-clip refusal: move whole block.
+      this.pushToWell(el, nextWellStart - box.top, pageIndex + 1);
     };
 
-    for (const block of blocks) {
-      const tag = block.tagName.toLowerCase();
-      if (tag === 'ul' || tag === 'ol') {
-        for (const item of block.querySelectorAll<HTMLElement>(':scope > li')) {
-          if (item.getBoundingClientRect().height >= well - 1) {
-            for (const child of Array.from(item.children) as HTMLElement[]) {
-              snap(child);
+    // Multiple passes: moving/clipping one block can leave a sibling in the gutter.
+    for (let pass = 0; pass < 3; pass++) {
+      let moved = false;
+      for (const block of blocks) {
+        const tag = block.tagName.toLowerCase();
+        if (tag === 'ul' || tag === 'ol') {
+          for (const item of block.querySelectorAll<HTMLElement>(':scope > li')) {
+            if (item.getBoundingClientRect().height >= well - 1) {
+              for (const child of Array.from(item.children) as HTMLElement[]) {
+                const before = child.getAttribute('data-pagination-break');
+                enforce(child);
+                if (child.getAttribute('data-pagination-break') !== before) moved = true;
+              }
+            } else {
+              const before = item.getAttribute('data-pagination-break');
+              enforce(item);
+              if (item.getAttribute('data-pagination-break') !== before) moved = true;
             }
-          } else {
-            snap(item);
           }
+          continue;
         }
-        continue;
+        const before = block.getAttribute('data-pagination-break');
+        const wasClipped = block.getAttribute('data-split-clipped');
+        enforce(block);
+        if (
+          block.getAttribute('data-pagination-break') !== before ||
+          block.getAttribute('data-split-clipped') !== wasClipped
+        ) {
+          moved = true;
+        }
       }
-      snap(block);
+      if (!moved) break;
     }
+  }
+
+  private pushToWell(el: HTMLElement, extra: number, pageIndex: number): void {
+    if (extra <= 0.5) return;
+    const current = parseFloat(getComputedStyle(el).marginTop) || 0;
+    el.style.setProperty('margin-top', `${current + extra}px`, 'important');
+    el.setAttribute('data-pagination-break', String(pageIndex));
+  }
+
+  /**
+   * Clip a paragraph/blockquote to the last full line that fits in `room`,
+   * and paint the remainder as chrome continuations on following wells.
+   * Returns false when not even one line fits (caller should move the block).
+   */
+  private emergencyClipBlock(
+    el: HTMLElement,
+    room: number,
+    pageIndex: number,
+    _proseMirrorEl: HTMLElement,
+  ): boolean {
+    const lines = paragraphSplitter.measureLines(el);
+    let clipHeight = 0;
+    for (const line of lines) {
+      if (line.bottom <= room + 0.5) {
+        clipHeight = line.bottom;
+      } else {
+        break;
+      }
+    }
+    if (clipHeight < 1) return false;
+
+    const fullHeight = Math.max(el.scrollHeight, el.getBoundingClientRect().height);
+    // If everything already fits the clip, don't invent a split.
+    if (fullHeight <= clipHeight + 0.5) {
+      el.style.maxHeight = `${clipHeight}px`;
+      el.style.overflow = 'hidden';
+      return true;
+    }
+
+    const remaining = Math.max(0, fullHeight - clipHeight);
+    const availableAfterClip = Math.max(0, room - clipHeight);
+    const splitId = el.getAttribute('data-split-id') ?? `split-emergency-${pageIndex}-${clipHeight}`;
+
+    // Drop any prior emergency continuations for this node before re-placing.
+    if (el.getAttribute('data-split-clipped') === 'current') {
+      const priorId = el.getAttribute('data-split-id');
+      if (priorId && this.chromeLayer) {
+        for (const wrap of this.chromeLayer.querySelectorAll(
+          `.${PARAGRAPH_CONTINUATION_CLASS}[data-split-source="${priorId}"]`,
+        )) {
+          wrap.remove();
+        }
+      }
+    }
+
+    el.setAttribute('data-split-id', splitId);
+    el.style.maxHeight = `${clipHeight}px`;
+    el.style.overflow = 'hidden';
+    el.setAttribute('data-split-clipped', 'current');
+    el.style.setProperty(
+      'margin-bottom',
+      `${this.phantomAfterClip(availableAfterClip, remaining)}px`,
+      'important',
+    );
+
+    const neededPages = pageIndex + 1 + Math.ceil(remaining / PAGE_CONFIG.USABLE_HEIGHT_PX);
+    if (neededPages > this.pages.length) {
+      this.syncPageContainers(neededPages);
+    }
+
+    this.placeParagraphContinuations(
+      el,
+      clipHeight,
+      remaining,
+      pageIndex + 1,
+      splitId,
+    );
+    return true;
+  }
+
+  /**
+   * @deprecated Use enforceWellBounds — kept name as alias for tests that
+   * exercised gutter snapping.
+   */
+  private snapBlocksOutOfGutters(blocks: HTMLElement[], proseMirrorEl: HTMLElement): void {
+    this.enforceWellBounds(blocks, proseMirrorEl);
   }
 
   /**
@@ -421,8 +570,7 @@ export class PageRenderer {
     blocks: HTMLElement[],
     proseMirrorEl: HTMLElement,
   ): void {
-    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
-    const pmTop = proseMirrorEl.getBoundingClientRect().top;
+    const stride = pageStride();
 
     for (const pageAssignment of assignments) {
       if (pageAssignment.pageIndex <= 0 || pageAssignment.blocks.length === 0) {
@@ -451,7 +599,7 @@ export class PageRenderer {
       if (box.height <= 0) continue;
 
       const expectedTop = pageAssignment.pageIndex * stride;
-      const actualTop = box.top - pmTop;
+      const actualTop = box.top - this.firstWellStartY(proseMirrorEl);
       const delta = expectedTop - actualTop;
       if (Math.abs(delta) <= 0.5) continue;
 
@@ -468,8 +616,8 @@ export class PageRenderer {
    */
   private clampSplitClipsToWell(blocks: HTMLElement[], proseMirrorEl: HTMLElement): void {
     const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
-    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
-    const pmTop = proseMirrorEl.getBoundingClientRect().top;
+    const stride = pageStride();
+    const wellOrigin = this.firstWellStartY(proseMirrorEl);
 
     for (const el of blocks) {
       if (el.getAttribute('data-split-clipped') !== 'current') continue;
@@ -477,9 +625,9 @@ export class PageRenderer {
       const box = el.getBoundingClientRect();
       if (box.height <= 0 && !Number.isFinite(parseFloat(el.style.maxHeight))) continue;
 
-      const top = box.top - pmTop;
+      const top = box.top - wellOrigin;
       // Without a real top, fall back to assignment clip already applied.
-      if (box.height <= 0 && top === 0 && pmTop === 0) continue;
+      if (box.height <= 0 && top === 0 && wellOrigin === 0) continue;
 
       const pageIndex = Math.max(0, Math.floor(top / stride));
       const wellEnd = pageIndex * stride + well;
@@ -567,8 +715,8 @@ export class PageRenderer {
   ): void {
     const clipped = new Set<number>();
     const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
-    const stride = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
-    const pmTop = proseMirrorEl.getBoundingClientRect().top;
+    const stride = pageStride();
+    const wellOrigin = this.firstWellStartY(proseMirrorEl);
 
     for (const page of assignments) {
       for (const blockAssignment of page.blocks) {
@@ -581,12 +729,13 @@ export class PageRenderer {
         clipped.add(blockAssignment.blockIndex);
 
         const fullHeight = Math.max(el.scrollHeight, el.getBoundingClientRect().height);
-        const top = el.getBoundingClientRect().top - pmTop;
+        const top = el.getBoundingClientRect().top - wellOrigin;
         const wellEnd = page.pageIndex * stride + well;
         const maxClip = Math.max(0, wellEnd - top);
         const assignedClip = split.clipHeightPx;
         // Only clamp against the live well when layout metrics are available.
-        const hasLiveLayout = el.getBoundingClientRect().height > 0 || top !== 0 || pmTop !== 0;
+        const hasLiveLayout =
+          el.getBoundingClientRect().height > 0 || top !== 0 || wellOrigin !== 0;
         const clipHeightPx =
           hasLiveLayout && maxClip > 0 ? Math.min(assignedClip, maxClip) : assignedClip;
         const clipDelta = Math.max(0, assignedClip - clipHeightPx);
