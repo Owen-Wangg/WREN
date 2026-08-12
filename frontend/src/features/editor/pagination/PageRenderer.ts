@@ -418,14 +418,14 @@ export class PageRenderer {
 
       // Starts in the forbidden band (margin / gap) — shove to next well.
       if (box.top >= wellEnd - 0.5) {
-        this.pushToWell(el, nextWellStart - box.top, pageIndex + 1);
+        this.alignToY(el, nextWellStart, pageIndex + 1, proseMirrorEl);
         return;
       }
 
       // Starts in the well but overflows past the well end.
       const room = wellEnd - box.top;
       if (room < 1) {
-        this.pushToWell(el, nextWellStart - box.top, pageIndex + 1);
+        this.alignToY(el, nextWellStart, pageIndex + 1, proseMirrorEl);
         return;
       }
 
@@ -436,10 +436,9 @@ export class PageRenderer {
         }
       }
 
-      // Move whole block; if it still can't clear (e.g. li margin collapse),
-      // hard-clip as a last resort so ink never enters the gutter.
-      this.pushToWell(el, nextWellStart - box.top, pageIndex + 1);
-      const after = this.contentY(el, proseMirrorEl);
+      // Move whole block; if it still can't clear, hard-clip as a last resort.
+      this.alignToY(el, nextWellStart, pageIndex + 1, proseMirrorEl);
+      const after = this.contentY(this.pageBreakTarget(el), proseMirrorEl);
       if (after.bottom > wellEnd + 0.5 && after.top < wellEnd - 0.5) {
         this.hardClipToRoom(el, wellEnd - after.top, pageIndex);
       }
@@ -465,12 +464,15 @@ export class PageRenderer {
                   : [item];
 
             for (const target of targets) {
-              const beforeBreak = target.getAttribute('data-pagination-break');
+              const host = this.pageBreakTarget(target);
+              const beforeBreak = host.getAttribute('data-pagination-break');
               const beforeClip = target.getAttribute('data-split-clipped');
+              const beforeMargin = host.style.marginTop;
               enforce(target);
               if (
-                target.getAttribute('data-pagination-break') !== beforeBreak ||
-                target.getAttribute('data-split-clipped') !== beforeClip
+                host.getAttribute('data-pagination-break') !== beforeBreak ||
+                target.getAttribute('data-split-clipped') !== beforeClip ||
+                host.style.marginTop !== beforeMargin
               ) {
                 moved = true;
               }
@@ -478,12 +480,15 @@ export class PageRenderer {
           }
           continue;
         }
-        const before = block.getAttribute('data-pagination-break');
+        const host = this.pageBreakTarget(block);
+        const before = host.getAttribute('data-pagination-break');
         const wasClipped = block.getAttribute('data-split-clipped');
+        const beforeMargin = host.style.marginTop;
         enforce(block);
         if (
-          block.getAttribute('data-pagination-break') !== before ||
-          block.getAttribute('data-split-clipped') !== wasClipped
+          host.getAttribute('data-pagination-break') !== before ||
+          block.getAttribute('data-split-clipped') !== wasClipped ||
+          host.style.marginTop !== beforeMargin
         ) {
           moved = true;
         }
@@ -508,19 +513,60 @@ export class PageRenderer {
     return (el.textContent?.trim().length ?? 0) > 0;
   }
 
+  /**
+   * Page-break gaps must live on the list item (bullet + text move together),
+   * not the inner TipTap `<p>` whose margins collapse through the `<li>`.
+   */
+  private pageBreakTarget(el: HTMLElement): HTMLElement {
+    const parent = el.parentElement;
+    if (el.tagName.toLowerCase() === 'p' && parent?.tagName.toLowerCase() === 'li') {
+      return parent;
+    }
+    return el;
+  }
+
+  /** Margins on `li`/`p` collapse through the list; flow-root stops that. */
+  private preventMarginCollapse(el: HTMLElement): void {
+    el.style.setProperty('display', 'flow-root');
+    el.setAttribute('data-pagination-flow-root', 'true');
+  }
+
+  /**
+   * Move `el` so its live top matches `expectedTop` (content-Y). Uses
+   * margin-top plus flow-root so the gap is real layout space, then
+   * remeasures and corrects remaining drift.
+   */
+  private alignToY(
+    el: HTMLElement,
+    expectedTop: number,
+    pageIndex: number,
+    proseMirrorEl: HTMLElement,
+  ): void {
+    const target = this.pageBreakTarget(el);
+    const box = this.contentY(target, proseMirrorEl);
+    if (box.height <= 0) {
+      // jsdom / unmeasured: keep the assignment-derived gap already applied.
+      return;
+    }
+
+    this.preventMarginCollapse(target);
+    for (let i = 0; i < 4; i++) {
+      const actual = this.contentY(target, proseMirrorEl).top;
+      const delta = expectedTop - actual;
+      if (Math.abs(delta) <= 0.5) break;
+      const current = parseFloat(target.style.marginTop) || 0;
+      target.style.setProperty('margin-top', `${Math.max(0, current + delta)}px`, 'important');
+    }
+    target.setAttribute('data-pagination-break', String(pageIndex));
+  }
+
   private pushToWell(el: HTMLElement, extra: number, pageIndex: number): void {
     if (extra <= 0.5) return;
-    const tag = el.tagName.toLowerCase();
-    // List-item margins collapse through the parent ul with preceding siblings,
-    // which can swallow page-break gaps. Padding does not collapse.
-    if (tag === 'li') {
-      const current = parseFloat(el.style.paddingTop) || 0;
-      el.style.setProperty('padding-top', `${current + extra}px`, 'important');
-    } else {
-      const current = parseFloat(getComputedStyle(el).marginTop) || 0;
-      el.style.setProperty('margin-top', `${current + extra}px`, 'important');
-    }
-    el.setAttribute('data-pagination-break', String(pageIndex));
+    const target = this.pageBreakTarget(el);
+    this.preventMarginCollapse(target);
+    const current = parseFloat(target.style.marginTop) || 0;
+    target.style.setProperty('margin-top', `${current + extra}px`, 'important');
+    target.setAttribute('data-pagination-break', String(pageIndex));
   }
 
   /**
@@ -654,6 +700,28 @@ export class PageRenderer {
       }
 
       const start = pageAssignment.blocks[0];
+      const expectedTop = pageAssignment.pageIndex * stride;
+
+      // List continuations are recorded on the *previous* page's split, not
+      // as a new top-level block. Align that <li> to this well.
+      const prev = assignments[pageAssignment.pageIndex - 1];
+      const listSplit = prev?.blocks.find(
+        (block) =>
+          block.split?.type === 'list' &&
+          block.split.continuationPageIndex === pageAssignment.pageIndex &&
+          block.split.splitAtItem != null,
+      );
+      if (listSplit?.split?.splitAtItem != null) {
+        const list = blocks[listSplit.blockIndex];
+        const item = list?.querySelectorAll<HTMLElement>(':scope > li')[
+          listSplit.split.splitAtItem
+        ];
+        if (item) {
+          this.alignToY(item, expectedTop, pageAssignment.pageIndex, proseMirrorEl);
+        }
+        continue;
+      }
+
       if (start.split && start.split.continuationPageIndex === pageAssignment.pageIndex) {
         continue;
       }
@@ -661,27 +729,11 @@ export class PageRenderer {
       let el: HTMLElement | undefined = blocks[start.blockIndex];
       if (!el) continue;
 
-      if (start.split?.type === 'list' && start.split.splitAtItem != null) {
-        const item = el.querySelectorAll<HTMLElement>(':scope > li')[start.split.splitAtItem];
-        if (item) el = item;
-      }
-
       if (el.previousElementSibling?.getAttribute('data-split-clipped') === 'current') {
         continue;
       }
 
-      const box = el.getBoundingClientRect();
-      // Skip when layout metrics are unavailable (e.g. jsdom zero-rects).
-      if (box.height <= 0) continue;
-
-      const expectedTop = pageAssignment.pageIndex * stride;
-      const actualTop = box.top - this.firstWellStartY(proseMirrorEl);
-      const delta = expectedTop - actualTop;
-      if (Math.abs(delta) <= 0.5) continue;
-
-      const current = parseFloat(getComputedStyle(el).marginTop) || 0;
-      el.style.setProperty('margin-top', `${Math.max(0, current + delta)}px`, 'important');
-      el.setAttribute('data-pagination-break', String(pageAssignment.pageIndex));
+      this.alignToY(el, expectedTop, pageAssignment.pageIndex, proseMirrorEl);
     }
   }
 
@@ -770,9 +822,7 @@ export class PageRenderer {
         const item = list.querySelectorAll<HTMLElement>(':scope > li')[split.splitAtItem];
         if (!item) continue;
 
-        // Prefer the inner paragraph so TipTap list text receives a non-collapsing gap.
-        const inner = item.querySelector<HTMLElement>(':scope > p') ?? item;
-        this.applyPageBreakGap(inner, split.continuationPageIndex, pageAssignment.availableHeight);
+        this.applyPageBreakGap(item, split.continuationPageIndex, pageAssignment.availableHeight);
       }
     }
   }
@@ -926,6 +976,10 @@ export class PageRenderer {
    */
   private clearPositioning(blocks: HTMLElement[]): void {
     const clear = (el: HTMLElement): void => {
+      if (el.hasAttribute('data-pagination-flow-root')) {
+        el.style.removeProperty('display');
+        el.removeAttribute('data-pagination-flow-root');
+      }
       if (!el.hasAttribute('data-pagination-break')) return;
       el.style.removeProperty('margin-top');
       el.style.removeProperty('padding-top');
@@ -1126,11 +1180,17 @@ export class PageRenderer {
     this.clearHeaderFooter();
     this.disconnectHeaderFooterObservers();
 
-    const paginatedBlocks = this.workspace.querySelectorAll<HTMLElement>('[data-pagination-break]');
+    const paginatedBlocks = this.workspace.querySelectorAll<HTMLElement>(
+      '[data-pagination-break], [data-pagination-flow-root]',
+    );
     for (const block of paginatedBlocks) {
       block.style.removeProperty('margin-top');
       block.style.removeProperty('padding-top');
       block.style.removeProperty('box-shadow');
+      if (block.hasAttribute('data-pagination-flow-root')) {
+        block.style.removeProperty('display');
+        block.removeAttribute('data-pagination-flow-root');
+      }
       block.removeAttribute('data-pagination-break');
     }
 

@@ -756,6 +756,67 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       ).not.toBeNull();
     });
 
+    it('pushes a list item sitting in the gray gap down to the next well', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const list = document.createElement('ul');
+      const first = document.createElement('li');
+      first.textContent = 'stays on page one';
+      const second = document.createElement('li');
+      const para = document.createElement('p');
+      para.textContent = 'Inside Analytics — Usage appears first';
+      second.appendChild(para);
+      list.append(first, second);
+      prose.appendChild(list);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      const gapStart = PAGE_CONFIG.USABLE_HEIGHT_PX + PAGE_CONFIG.MARGIN_PX;
+      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 2000,
+        top: 0,
+        right: 624,
+        bottom: 2000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      const boxAt = (baseTop: number, el: HTMLElement, height: number) => {
+        const margin = parseFloat(el.style.marginTop) || 0;
+        const top = baseTop + margin;
+        return {
+          x: 0,
+          y: top,
+          width: 624,
+          height,
+          top,
+          right: 624,
+          bottom: top + height,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
+      first.getBoundingClientRect = () => boxAt(800, first, 40);
+      second.getBoundingClientRect = () => boxAt(gapStart, second, 40);
+      para.getBoundingClientRect = () => boxAt(gapStart, second, 40);
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 840,
+          availableHeight: 24,
+        },
+      ]);
+
+      expect(second.getAttribute('data-pagination-break')).toBe('1');
+      expect(parseFloat(second.style.marginTop)).toBe(nextWell - gapStart);
+    });
+
     it('does not remove a React-owned workspace on destroy', () => {
       renderer.destroy();
       scrollContainer.replaceChildren();
