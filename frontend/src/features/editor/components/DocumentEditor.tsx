@@ -47,6 +47,11 @@ import { FootnoteNode, type CitationConfigLike, type FootnoteAttrs } from '../ti
 import { BlockLayoutCommands, IndentableHeading, IndentableParagraph } from '../tiptapIndent';
 import { PageNumberNode, DateNode } from '../tiptapHeaderFooterNodes';
 import { PAGE_CONFIG, PageBreakNode, PaginationExtension } from '../pagination';
+import {
+  formatPageHint,
+  isOverVerticalScrollbar,
+  visiblePageFromScroll,
+} from '../pagination/scrollbarPageHint';
 
 import { EditorToolbar } from './toolbar/EditorToolbar';
 import { FootnoteList } from './FootnoteList';
@@ -148,6 +153,12 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       onPageCountChangeRef.current = onPageCountChange;
     });
 
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const hoveringScrollbarRef = useRef(false);
+    const lastPointerYRef = useRef(0);
+    const [pageCount, setPageCount] = useState(1);
+    const [pageHint, setPageHint] = useState<{ label: string; top: number } | null>(null);
+
     const [activeFootnoteNumber, setActiveFootnoteNumber] = useState<number | null>(null);
     const setActiveFootnoteNumberRef = useRef(setActiveFootnoteNumber);
     setActiveFootnoteNumberRef.current = setActiveFootnoteNumber;
@@ -207,8 +218,9 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
         FootnoteNode,
         PageBreakNode,
         PaginationExtension.configure({
-          onPageCountChange: (pageCount) => {
-            onPageCountChangeRef.current?.(pageCount);
+          onPageCountChange: (nextPageCount) => {
+            setPageCount(nextPageCount);
+            onPageCountChangeRef.current?.(nextPageCount);
           },
         }),
       ],
@@ -300,6 +312,55 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       setActiveFootnoteNumber(null);
     }, [activeFootnoteNumber, editor]);
 
+    const showPageHintAt = useCallback(
+      (clientY: number) => {
+        const scrollEl = scrollRef.current;
+        if (!scrollEl) return;
+        const current = visiblePageFromScroll(scrollEl, pageCount);
+        const rect = scrollEl.getBoundingClientRect();
+        const top = Math.min(Math.max(clientY - rect.top, 8), Math.max(8, rect.height - 28));
+        setPageHint({ label: formatPageHint(current, pageCount), top });
+      },
+      [pageCount],
+    );
+
+    useEffect(() => {
+      const scrollEl = scrollRef.current;
+      if (!scrollEl) return;
+
+      const onPointerMove = (event: PointerEvent) => {
+        lastPointerYRef.current = event.clientY;
+        if (!isOverVerticalScrollbar(scrollEl, event.clientX, event.clientY)) {
+          if (hoveringScrollbarRef.current) {
+            hoveringScrollbarRef.current = false;
+            setPageHint(null);
+          }
+          return;
+        }
+        hoveringScrollbarRef.current = true;
+        showPageHintAt(event.clientY);
+      };
+
+      const onPointerLeave = () => {
+        hoveringScrollbarRef.current = false;
+        setPageHint(null);
+      };
+
+      const onScroll = () => {
+        if (!hoveringScrollbarRef.current) return;
+        showPageHintAt(lastPointerYRef.current);
+      };
+
+      scrollEl.addEventListener('pointermove', onPointerMove);
+      scrollEl.addEventListener('pointerleave', onPointerLeave);
+      scrollEl.addEventListener('scroll', onScroll, { passive: true });
+      return () => {
+        scrollEl.removeEventListener('pointermove', onPointerMove);
+        scrollEl.removeEventListener('pointerleave', onPointerLeave);
+        scrollEl.removeEventListener('scroll', onScroll);
+      };
+    }, [showPageHintAt]);
+
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div data-document-editor-toolbar className="document-editor-toolbar-chrome shrink-0">
@@ -307,7 +368,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             <EditorToolbar editor={editor} />
           </div>
         </div>
-        <div className="document-editor-scroll min-h-0 flex-1 overflow-auto bg-surface-muted">
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            ref={scrollRef}
+            className="document-editor-scroll min-h-0 flex-1 overflow-auto bg-surface-muted"
+          >
           <div
             className="pagination-workspace"
             style={{
@@ -353,6 +418,17 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
               </div>
             </div>
           </div>
+        </div>
+        {pageHint ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute right-xl z-20 -translate-y-1/2 whitespace-nowrap rounded-md bg-text-primary px-sm py-xs text-caption font-sans font-medium text-text-on-accent shadow-md"
+            style={{ top: pageHint.top }}
+          >
+            {pageHint.label}
+          </div>
+        ) : null}
         </div>
       </div>
     );

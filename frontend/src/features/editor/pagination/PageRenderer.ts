@@ -15,6 +15,13 @@ import { ParagraphSplitter } from './ParagraphSplitter';
 import { collectTableRows, isHeaderRow } from './BlockMeasurer';
 
 // ---------------------------------------------------------------------------
+// DEBUG: Pagination clipping diagnostic — remove after confirming fix
+// Set to true via browser console: (window as any).__PAGINATION_DEBUG = true
+// ---------------------------------------------------------------------------
+const PAGINATION_DEBUG = (): boolean =>
+  typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__PAGINATION_DEBUG === true;
+
+// ---------------------------------------------------------------------------
 // Header/Footer clone CSS class names
 // ---------------------------------------------------------------------------
 
@@ -152,6 +159,11 @@ function applyPageStyles(el: HTMLElement): void {
   el.style.marginBottom = `${PAGE_CONFIG.PAGE_GAP_PX}px`;
   el.style.overflow = 'visible';
   el.style.pointerEvents = 'none';
+  // DEBUG: add red border to visualize page boundaries
+  if (PAGINATION_DEBUG()) {
+    el.style.outline = '2px dashed red';
+    el.style.outlineOffset = '-2px';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -509,12 +521,35 @@ export class PageRenderer {
       // Move whole block; if it still can't clear, hard-clip as a last resort.
       this.alignToY(el, nextWellStart, pageIndex + 1, proseMirrorEl);
       const after = this.contentY(this.pageBreakTarget(el), proseMirrorEl);
+
+      // BUG DIAGNOSTIC: After moving to page N+1, we must check against
+      // page N+1's well end — not the original page N's wellEnd.
+      const newPageIndex = pageIndex + 1;
+      const newWellEnd = newPageIndex * stride + well;
+
+      if (PAGINATION_DEBUG()) {
+        const tag = el.tagName.toLowerCase();
+        const text = el.textContent?.slice(0, 40) ?? '';
+        console.warn(
+          `[PAGINATION-DEBUG] enforce post-move check:\n` +
+          `  element: <${tag}> "${text}…"\n` +
+          `  moved from page ${pageIndex} → page ${newPageIndex}\n` +
+          `  OLD wellEnd (page ${pageIndex}): ${wellEnd}px\n` +
+          `  NEW wellEnd (page ${newPageIndex}): ${newWellEnd}px\n` +
+          `  after.top: ${after.top}px, after.bottom: ${after.bottom}px\n` +
+          `  OLD room calc (wellEnd - after.top): ${wellEnd - after.top}px ← BUG: often tiny/negative!\n` +
+          `  CORRECT room calc (newWellEnd - after.top): ${newWellEnd - after.top}px\n` +
+          `  Would hardClip trigger (old logic)? ${!this.isNonSplittableBlock(el) && after.bottom > wellEnd + 0.5 && after.top < wellEnd - 0.5}\n` +
+          `  Would hardClip trigger (new logic)? ${!this.isNonSplittableBlock(el) && after.bottom > newWellEnd + 0.5 && after.top < newWellEnd - 0.5}`,
+        );
+      }
+
       if (
         !this.isNonSplittableBlock(el) &&
-        after.bottom > wellEnd + 0.5 &&
-        after.top < wellEnd - 0.5
+        after.bottom > newWellEnd + 0.5 &&
+        after.top < newWellEnd - 0.5
       ) {
-        this.hardClipToRoom(el, wellEnd - after.top, pageIndex);
+        this.hardClipToRoom(el, newWellEnd - after.top, newPageIndex);
       }
     };
 
@@ -858,6 +893,19 @@ export class PageRenderer {
     const fullHeight = Math.max(el.scrollHeight, el.getBoundingClientRect().height);
     if (fullHeight <= room + 0.5) return;
 
+    if (PAGINATION_DEBUG()) {
+      const tag = el.tagName.toLowerCase();
+      const text = el.textContent?.slice(0, 40) ?? '';
+      console.warn(
+        `[PAGINATION-DEBUG] hardClipToRoom:\n` +
+        `  element: <${tag}> "${text}…"\n` +
+        `  page: ${pageIndex}, room: ${room}px\n` +
+        `  fullHeight: ${fullHeight}px\n` +
+        `  will clip to maxHeight: ${room}px\n` +
+        `  remaining to continuation: ${fullHeight - room}px`,
+      );
+    }
+
     const remaining = fullHeight - room;
     const splitId = el.getAttribute('data-split-id') ?? `split-hard-${pageIndex}-${Math.round(room)}`;
     if (el.getAttribute('data-split-clipped') === 'current') {
@@ -923,6 +971,24 @@ export class PageRenderer {
 
     const remaining = Math.max(0, fullHeight - clipHeight);
     const availableAfterClip = Math.max(0, room - clipHeight);
+    const splitId =
+      el.getAttribute('data-split-id') ?? `split-emergency-${pageIndex}-${clipHeight}`;
+
+    if (PAGINATION_DEBUG()) {
+      const tag = el.tagName.toLowerCase();
+      const text = el.textContent?.slice(0, 40) ?? '';
+      console.warn(
+        `[PAGINATION-DEBUG] emergencyClipBlock:\n` +
+        `  element: <${tag}> "${text}…"\n` +
+        `  page: ${pageIndex}, room: ${room}px\n` +
+        `  lines measured: ${lines.length}\n` +
+        `  clipHeight (last full line that fits): ${clipHeight}px\n` +
+        `  fullHeight: ${fullHeight}px\n` +
+        `  remaining (will go to continuation): ${remaining}px\n` +
+        `  continuation starts on page: ${pageIndex + 1}\n` +
+        `  chromePages available: ${this.chromePages.length}`,
+      );
+    }
     const splitId =
       el.getAttribute('data-split-id') ?? `split-emergency-${pageIndex}-${clipHeight}`;
 
