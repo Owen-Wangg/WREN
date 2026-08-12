@@ -378,8 +378,9 @@ export class PageRenderer {
 
   /**
    * Hard well enforcement: no block ink may occupy the bottom margin, page
-   * gap, or top margin. Overflowing paragraphs are emergency-clipped at the
-   * last full line that fits; other blocks move to the next well.
+   * gap, or top margin. Overflowing text blocks are emergency-clipped at the
+   * last full line that fits; otherwise the block is pushed to the next well.
+   * A final hard max-height clip guarantees nothing paints through the gutter.
    */
   private enforceWellBounds(blocks: HTMLElement[], proseMirrorEl: HTMLElement): void {
     const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
@@ -428,34 +429,51 @@ export class PageRenderer {
         return;
       }
 
-      const tag = el.tagName.toLowerCase();
-      if (tag === 'p' || tag === 'blockquote') {
+      // Prefer line-aware clip for any text-bearing block (p, li, headings, …).
+      if (this.canEmergencyClip(el)) {
         if (this.emergencyClipBlock(el, room, pageIndex, proseMirrorEl)) {
           return;
         }
       }
 
-      // Headings, short blocks, or emergency-clip refusal: move whole block.
+      // Move whole block; if it still can't clear (e.g. li margin collapse),
+      // hard-clip as a last resort so ink never enters the gutter.
       this.pushToWell(el, nextWellStart - box.top, pageIndex + 1);
+      const after = this.contentY(el, proseMirrorEl);
+      if (after.bottom > wellEnd + 0.5 && after.top < wellEnd - 0.5) {
+        this.hardClipToRoom(el, wellEnd - after.top, pageIndex);
+      }
     };
 
     // Multiple passes: moving/clipping one block can leave a sibling in the gutter.
-    for (let pass = 0; pass < 3; pass++) {
+    for (let pass = 0; pass < 4; pass++) {
       let moved = false;
       for (const block of blocks) {
         const tag = block.tagName.toLowerCase();
         if (tag === 'ul' || tag === 'ol') {
           for (const item of block.querySelectorAll<HTMLElement>(':scope > li')) {
-            if (item.getBoundingClientRect().height >= well - 1) {
-              for (const child of Array.from(item.children) as HTMLElement[]) {
-                const before = child.getAttribute('data-pagination-break');
-                enforce(child);
-                if (child.getAttribute('data-pagination-break') !== before) moved = true;
+            // Prefer clipping/pushing the inner paragraph when present — TipTap
+            // wraps list text in <p>, and li margins can collapse through the ul.
+            const innerParas = Array.from(
+              item.querySelectorAll<HTMLElement>(':scope > p'),
+            );
+            const targets =
+              innerParas.length > 0
+                ? innerParas
+                : item.getBoundingClientRect().height >= well - 1
+                  ? (Array.from(item.children) as HTMLElement[])
+                  : [item];
+
+            for (const target of targets) {
+              const beforeBreak = target.getAttribute('data-pagination-break');
+              const beforeClip = target.getAttribute('data-split-clipped');
+              enforce(target);
+              if (
+                target.getAttribute('data-pagination-break') !== beforeBreak ||
+                target.getAttribute('data-split-clipped') !== beforeClip
+              ) {
+                moved = true;
               }
-            } else {
-              const before = item.getAttribute('data-pagination-break');
-              enforce(item);
-              if (item.getAttribute('data-pagination-break') !== before) moved = true;
             }
           }
           continue;
@@ -474,16 +492,79 @@ export class PageRenderer {
     }
   }
 
+  private canEmergencyClip(el: HTMLElement): boolean {
+    const tag = el.tagName.toLowerCase();
+    if (
+      tag === 'p' ||
+      tag === 'li' ||
+      tag === 'blockquote' ||
+      /^h[1-6]$/.test(tag) ||
+      tag === 'td' ||
+      tag === 'th' ||
+      tag === 'div'
+    ) {
+      return true;
+    }
+    return (el.textContent?.trim().length ?? 0) > 0;
+  }
+
   private pushToWell(el: HTMLElement, extra: number, pageIndex: number): void {
     if (extra <= 0.5) return;
-    const current = parseFloat(getComputedStyle(el).marginTop) || 0;
-    el.style.setProperty('margin-top', `${current + extra}px`, 'important');
+    const tag = el.tagName.toLowerCase();
+    // List-item margins collapse through the parent ul with preceding siblings,
+    // which can swallow page-break gaps. Padding does not collapse.
+    if (tag === 'li') {
+      const current = parseFloat(el.style.paddingTop) || 0;
+      el.style.setProperty('padding-top', `${current + extra}px`, 'important');
+    } else {
+      const current = parseFloat(getComputedStyle(el).marginTop) || 0;
+      el.style.setProperty('margin-top', `${current + extra}px`, 'important');
+    }
     el.setAttribute('data-pagination-break', String(pageIndex));
   }
 
   /**
-   * Clip a paragraph/blockquote to the last full line that fits in `room`,
-   * and paint the remainder as chrome continuations on following wells.
+   * Last-resort clip with no line data — hide overflow past `room` and push
+   * following content into later wells via phantom margin + continuations.
+   */
+  private hardClipToRoom(el: HTMLElement, room: number, pageIndex: number): void {
+    if (room < 1) return;
+    const fullHeight = Math.max(el.scrollHeight, el.getBoundingClientRect().height);
+    if (fullHeight <= room + 0.5) return;
+
+    const remaining = fullHeight - room;
+    const splitId = el.getAttribute('data-split-id') ?? `split-hard-${pageIndex}-${Math.round(room)}`;
+    if (el.getAttribute('data-split-clipped') === 'current') {
+      const priorId = el.getAttribute('data-split-id');
+      if (priorId && this.chromeLayer) {
+        for (const wrap of this.chromeLayer.querySelectorAll(
+          `.${PARAGRAPH_CONTINUATION_CLASS}[data-split-source="${priorId}"]`,
+        )) {
+          wrap.remove();
+        }
+      }
+    }
+
+    el.setAttribute('data-split-id', splitId);
+    el.style.maxHeight = `${room}px`;
+    el.style.overflow = 'hidden';
+    el.setAttribute('data-split-clipped', 'current');
+    el.style.setProperty(
+      'margin-bottom',
+      `${this.phantomAfterClip(0, remaining)}px`,
+      'important',
+    );
+
+    const neededPages = pageIndex + 1 + Math.ceil(remaining / PAGE_CONFIG.USABLE_HEIGHT_PX);
+    if (neededPages > this.pages.length) {
+      this.syncPageContainers(neededPages);
+    }
+    this.placeParagraphContinuations(el, room, remaining, pageIndex + 1, splitId);
+  }
+
+  /**
+   * Clip a text block to the last full line that fits in `room`, and paint
+   * the remainder as chrome continuations on following wells.
    * Returns false when not even one line fits (caller should move the block).
    */
   private emergencyClipBlock(
@@ -513,7 +594,8 @@ export class PageRenderer {
 
     const remaining = Math.max(0, fullHeight - clipHeight);
     const availableAfterClip = Math.max(0, room - clipHeight);
-    const splitId = el.getAttribute('data-split-id') ?? `split-emergency-${pageIndex}-${clipHeight}`;
+    const splitId =
+      el.getAttribute('data-split-id') ?? `split-emergency-${pageIndex}-${clipHeight}`;
 
     // Drop any prior emergency continuations for this node before re-placing.
     if (el.getAttribute('data-split-clipped') === 'current') {
@@ -674,8 +756,7 @@ export class PageRenderer {
   ): void {
     const gap = this.pageBreakGap(previousAvailableHeight);
     if (gap <= 0) return;
-    el.style.setProperty('margin-top', `${gap}px`, 'important');
-    el.setAttribute('data-pagination-break', String(pageIndex));
+    this.pushToWell(el, gap, pageIndex);
   }
 
   private applyListItemSplits(assignments: PageAssignment[], blocks: HTMLElement[]): void {
@@ -689,7 +770,9 @@ export class PageRenderer {
         const item = list.querySelectorAll<HTMLElement>(':scope > li')[split.splitAtItem];
         if (!item) continue;
 
-        this.applyPageBreakGap(item, split.continuationPageIndex, pageAssignment.availableHeight);
+        // Prefer the inner paragraph so TipTap list text receives a non-collapsing gap.
+        const inner = item.querySelector<HTMLElement>(':scope > p') ?? item;
+        this.applyPageBreakGap(inner, split.continuationPageIndex, pageAssignment.availableHeight);
       }
     }
   }
@@ -845,6 +928,7 @@ export class PageRenderer {
     const clear = (el: HTMLElement): void => {
       if (!el.hasAttribute('data-pagination-break')) return;
       el.style.removeProperty('margin-top');
+      el.style.removeProperty('padding-top');
       el.style.removeProperty('box-shadow');
       el.removeAttribute('data-pagination-break');
     };
@@ -853,6 +937,9 @@ export class PageRenderer {
       clear(block);
       for (const item of block.querySelectorAll<HTMLElement>(':scope > li')) {
         clear(item);
+        for (const child of item.querySelectorAll<HTMLElement>(':scope > p')) {
+          clear(child);
+        }
       }
     }
 
@@ -1042,6 +1129,7 @@ export class PageRenderer {
     const paginatedBlocks = this.workspace.querySelectorAll<HTMLElement>('[data-pagination-break]');
     for (const block of paginatedBlocks) {
       block.style.removeProperty('margin-top');
+      block.style.removeProperty('padding-top');
       block.style.removeProperty('box-shadow');
       block.removeAttribute('data-pagination-break');
     }

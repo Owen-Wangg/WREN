@@ -241,6 +241,20 @@ body {
   z-index: 2;
 }
 
+/* Cover bottom margin on pages 2+ so leftover body ink cannot paint into the
+   footer band. Skip page 0 — the live footer lives in the content layer under
+   chrome and must stay visible. */
+.pagination-chrome-page:not([data-page-index='0'])::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% - var(--pagination-page-margin, 96px));
+  height: var(--pagination-page-margin, 96px);
+  background-color: var(--color-surface-primary, #ffffff);
+  pointer-events: none;
+}
+
 /* Cover the gray gutter so leftover body ink cannot paint between sheets. */
 .pagination-chrome-page::after {
   content: '';

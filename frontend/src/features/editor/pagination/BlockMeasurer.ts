@@ -96,6 +96,8 @@ function suspendPaginationStyles(node: HTMLElement): () => void {
     marginTopPriority: string;
     marginBottom: string;
     marginBottomPriority: string;
+    paddingTop: string;
+    paddingTopPriority: string;
   }> = [];
 
   const track = (el: HTMLElement): void => {
@@ -107,10 +109,15 @@ function suspendPaginationStyles(node: HTMLElement): () => void {
       marginTopPriority: el.style.getPropertyPriority('margin-top'),
       marginBottom: el.style.getPropertyValue('margin-bottom'),
       marginBottomPriority: el.style.getPropertyPriority('margin-bottom'),
+      paddingTop: el.style.getPropertyValue('padding-top'),
+      paddingTopPriority: el.style.getPropertyPriority('padding-top'),
     });
     if (el.style.maxHeight) el.style.maxHeight = '';
     if (el.getAttribute('data-split-clipped')) el.style.overflow = '';
-    if (el.hasAttribute('data-pagination-break')) el.style.removeProperty('margin-top');
+    if (el.hasAttribute('data-pagination-break')) {
+      el.style.removeProperty('margin-top');
+      el.style.removeProperty('padding-top');
+    }
     if (el.getAttribute('data-split-clipped') === 'current') {
       el.style.removeProperty('margin-bottom');
     }
@@ -119,6 +126,9 @@ function suspendPaginationStyles(node: HTMLElement): () => void {
   track(node);
   for (const item of node.querySelectorAll<HTMLElement>(':scope > li')) {
     track(item);
+    for (const child of item.querySelectorAll<HTMLElement>(':scope > p')) {
+      track(child);
+    }
   }
 
   return () => {
@@ -127,6 +137,7 @@ function suspendPaginationStyles(node: HTMLElement): () => void {
       entry.el.style.overflow = entry.overflow;
       entry.el.style.setProperty('margin-top', entry.marginTop, entry.marginTopPriority);
       entry.el.style.setProperty('margin-bottom', entry.marginBottom, entry.marginBottomPriority);
+      entry.el.style.setProperty('padding-top', entry.paddingTop, entry.paddingTopPriority);
     }
   };
 }

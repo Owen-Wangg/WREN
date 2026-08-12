@@ -240,7 +240,9 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       ]);
 
       expect(second.getAttribute('data-pagination-break')).toBe('1');
-      expect(parseFloat(second.style.marginTop)).toBeGreaterThan(PAGE_CONFIG.PAGE_GAP_PX);
+      const breakOffset =
+        parseFloat(second.style.paddingTop) || parseFloat(second.style.marginTop) || 0;
+      expect(breakOffset).toBeGreaterThan(PAGE_CONFIG.PAGE_GAP_PX);
       expect(first.getAttribute('data-pagination-break')).toBeNull();
     });
 
@@ -658,6 +660,97 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
 
       expect(paragraph.getAttribute('data-split-clipped')).toBe('current');
       expect(parseFloat(paragraph.style.maxHeight)).toBe(20);
+      expect(
+        scrollContainer.querySelector('.pagination-paragraph-continuation'),
+      ).not.toBeNull();
+    });
+
+    it('emergency-clips a list item paragraph that straddles the well end', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const list = document.createElement('ul');
+      const item = document.createElement('li');
+      const para = document.createElement('p');
+      para.textContent =
+        'Inside Evaluation Settings — General Information sits at the top, followed by more text that wraps.';
+      item.appendChild(para);
+      list.appendChild(item);
+      prose.appendChild(list);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 2000,
+        top: 0,
+        right: 624,
+        bottom: 2000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      para.getBoundingClientRect = () => {
+        const clip = parseFloat(para.style.maxHeight);
+        const height = Number.isFinite(clip) ? clip : 48;
+        return {
+          x: 0,
+          y: 828,
+          width: 624,
+          height,
+          top: 828,
+          right: 624,
+          bottom: 828 + height,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
+      Object.defineProperty(para, 'scrollHeight', {
+        configurable: true,
+        get: () => 48,
+      });
+      const rangeRects = [
+        {
+          x: 0,
+          y: 828,
+          width: 624,
+          height: 20,
+          top: 828,
+          right: 624,
+          bottom: 848,
+          left: 0,
+          toJSON: () => ({}),
+        },
+        {
+          x: 0,
+          y: 848,
+          width: 400,
+          height: 20,
+          top: 848,
+          right: 400,
+          bottom: 868,
+          left: 0,
+          toJSON: () => ({}),
+        },
+      ];
+      const nativeRange = document.createRange.bind(document);
+      vi.spyOn(document, 'createRange').mockImplementation(() => {
+        const range = nativeRange();
+        range.getClientRects = () => rangeRects as unknown as DOMRectList;
+        return range;
+      });
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 876,
+          availableHeight: 0,
+        },
+      ]);
+
+      expect(para.getAttribute('data-split-clipped')).toBe('current');
+      expect(parseFloat(para.style.maxHeight)).toBe(20);
       expect(
         scrollContainer.querySelector('.pagination-paragraph-continuation'),
       ).not.toBeNull();
