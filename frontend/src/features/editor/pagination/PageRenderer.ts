@@ -552,13 +552,7 @@ export class PageRenderer {
     return true;
   }
 
-  /**
-   * @deprecated Use enforceWellBounds — kept name as alias for tests that
-   * exercised gutter snapping.
-   */
-  private snapBlocksOutOfGutters(blocks: HTMLElement[], proseMirrorEl: HTMLElement): void {
-    this.enforceWellBounds(blocks, proseMirrorEl);
-  }
+
 
   /**
    * After assignment gaps are applied, confirm each page-start block's live
