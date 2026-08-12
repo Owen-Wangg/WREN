@@ -7,8 +7,9 @@
  * respecting orphan/widow constraints.
  *
  * Also supports:
- * - Heading keep-with-next: moves headings to next page when fewer than 2 lines
- *   of the following block would fit.
+ * - Keep-with-next: moves headings, horizontal rules, and short lead-in
+ *   blocks to the next page when fewer than 2 lines of the following block
+ *   would fit.
  * - Image pagination: moves images to next page if they don't fit, or scales
  *   oversized images to fit within one page.
  * - Table splitting: splits at row boundaries with optional header repetition.
@@ -127,28 +128,24 @@ export class ContentDistributor implements IContentDistributor {
       }
 
       // -----------------------------------------------------------------------
-      // Heading keep-with-next (Requirement 7.1–7.4)
+      // Keep-with-next: headings, horizontal rules, short lead-in blocks
+      // (Requirement 7.1–7.4)
       // -----------------------------------------------------------------------
-      if (
-        options.enableKeepWithNext &&
-        measurement.blockType === 'heading'
-      ) {
+      if (this.shouldKeepWithNext(measurement, options)) {
         const remainingHeight = effectiveHeight - usedHeight;
 
-        // Check if the heading fits on this page
         if (height <= remainingHeight) {
-          // Heading fits — check if next sibling can fit ≥ 2 lines
           const nextMeasurement = mi + 1 < measurements.length ? measurements[mi + 1] : null;
 
           if (nextMeasurement && !nextMeasurement.isPageBreak && nextMeasurement.height > 0) {
-            const remainingAfterHeading = remainingHeight - height;
-
-            // Check if fewer than 2 lines of the next block would fit
+            const remainingAfterLead = remainingHeight - height;
             const nextBlockLineHeight = this.estimateLineHeight(nextMeasurement);
             const minNextBlockHeight = 2 * nextBlockLineHeight;
 
-            if (remainingAfterHeading < minNextBlockHeight && remainingAfterHeading < nextMeasurement.height) {
-              // Move heading to next page
+            if (
+              remainingAfterLead < minNextBlockHeight &&
+              remainingAfterLead < nextMeasurement.height
+            ) {
               if (currentBlocks.length > 0) {
                 finalizePage();
               }
@@ -160,7 +157,6 @@ export class ContentDistributor implements IContentDistributor {
               continue;
             }
           }
-          // If heading is last block (no sibling) or next fits: keep on current page
           currentBlocks.push({
             blockIndex,
             startOnPage: pageIndex,
@@ -168,7 +164,6 @@ export class ContentDistributor implements IContentDistributor {
           usedHeight += height;
           continue;
         }
-        // Heading doesn't fit: move to next page
         if (currentBlocks.length > 0) {
           finalizePage();
         }
@@ -569,6 +564,9 @@ export class ContentDistributor implements IContentDistributor {
                 type: 'table',
                 splitAtRow: dataRows[splitStartRow].rowIndex + (i - splitStartRow),
                 continuationPageIndex: pageIdx + 1,
+                clipHeightPx: rows[dataRows[splitStartRow].rowIndex + (i - splitStartRow) - 1]?.bottom
+                  ?? currentPageUsed,
+                blockIndex,
               },
             }],
             usedHeight: currentPageUsed,
@@ -583,7 +581,13 @@ export class ContentDistributor implements IContentDistributor {
             blockIndex,
             startOnPage: pageIdx,
             split: i < dataRows.length - 1
-              ? { type: 'table', splitAtRow: rows.indexOf(row) + 1, continuationPageIndex: pageIdx + 1 }
+              ? {
+                  type: 'table',
+                  splitAtRow: rows.indexOf(row) + 1,
+                  continuationPageIndex: pageIdx + 1,
+                  clipHeightPx: row.bottom,
+                  blockIndex,
+                }
               : undefined,
           }],
           usedHeight: effectiveHeight,
@@ -604,10 +608,12 @@ export class ContentDistributor implements IContentDistributor {
             blockIndex,
             startOnPage: pageIdx,
             split: {
-              type: 'table',
-              splitAtRow: rows.indexOf(dataRows[i]),
-              continuationPageIndex: pageIdx + 1,
-            },
+                type: 'table',
+                splitAtRow: rows.indexOf(dataRows[i]),
+                continuationPageIndex: pageIdx + 1,
+                clipHeightPx: i > 0 ? dataRows[i - 1].bottom : headerHeight,
+                blockIndex,
+              },
           }],
           usedHeight: currentPageUsed,
           availableHeight: effectiveHeight - currentPageUsed,
@@ -731,6 +737,34 @@ export class ContentDistributor implements IContentDistributor {
     }
     // Default estimate: typical line height for body text
     return 24;
+  }
+
+  private lineCount(measurement: BlockMeasurement): number {
+    if (measurement.lines && measurement.lines.length > 0) {
+      return measurement.lines.length;
+    }
+    const lineHeight = this.estimateLineHeight(measurement);
+    return Math.max(1, Math.round(measurement.height / lineHeight));
+  }
+
+  /**
+   * Headings, section dividers, and short lead-in blocks (≤2 lines) stay
+   * with the following sibling when the sibling would otherwise orphan.
+   */
+  private shouldKeepWithNext(
+    measurement: BlockMeasurement,
+    options: DistributionOptions,
+  ): boolean {
+    if (!options.enableKeepWithNext) return false;
+    if (measurement.blockType === 'heading') return true;
+    if (measurement.blockType === 'horizontalRule') return true;
+    if (
+      measurement.blockType === 'paragraph' ||
+      measurement.blockType === 'blockquote'
+    ) {
+      return this.lineCount(measurement) <= 2;
+    }
+    return false;
   }
 
   /**

@@ -8,7 +8,7 @@
  * @see Requirements 2.1, 2.4, 13.2
  */
 
-import type { BlockMeasurement, ItemMeasurement } from './types';
+import type { BlockMeasurement, ItemMeasurement, RowMeasurement } from './types';
 import { ParagraphSplitter } from './ParagraphSplitter';
 
 const paragraphSplitter = new ParagraphSplitter();
@@ -33,6 +33,11 @@ function detectBlockType(
   // Page break: <hr data-page-break>
   if (tagName === 'hr' && node.hasAttribute('data-page-break')) {
     return { blockType: 'pageBreak', isPageBreak: true };
+  }
+
+  // StarterKit horizontal rule (section divider, not a hard page break)
+  if (tagName === 'hr') {
+    return { blockType: 'horizontalRule', isPageBreak: false };
   }
 
   // Heading: <h1>–<h6>
@@ -92,6 +97,7 @@ function suspendPaginationStyles(node: HTMLElement): () => void {
     el: HTMLElement;
     maxHeight: string;
     overflow: string;
+    width: string;
     marginTop: string;
     marginTopPriority: string;
     marginBottom: string;
@@ -105,6 +111,7 @@ function suspendPaginationStyles(node: HTMLElement): () => void {
       el,
       maxHeight: el.style.maxHeight,
       overflow: el.style.overflow,
+      width: el.style.width,
       marginTop: el.style.getPropertyValue('margin-top'),
       marginTopPriority: el.style.getPropertyPriority('margin-top'),
       marginBottom: el.style.getPropertyValue('margin-bottom'),
@@ -113,6 +120,9 @@ function suspendPaginationStyles(node: HTMLElement): () => void {
       paddingTopPriority: el.style.getPropertyPriority('padding-top'),
     });
     if (el.style.maxHeight) el.style.maxHeight = '';
+    if (el.hasAttribute('data-pagination-scaled')) {
+      el.style.removeProperty('width');
+    }
     if (el.getAttribute('data-split-clipped')) el.style.overflow = '';
     if (el.hasAttribute('data-pagination-break')) {
       el.style.removeProperty('margin-top');
@@ -124,6 +134,9 @@ function suspendPaginationStyles(node: HTMLElement): () => void {
   };
 
   track(node);
+  for (const img of node.querySelectorAll<HTMLElement>('img[data-pagination-scaled]')) {
+    track(img);
+  }
   for (const item of node.querySelectorAll<HTMLElement>(':scope > li')) {
     track(item);
     for (const child of item.querySelectorAll<HTMLElement>(':scope > p')) {
@@ -135,6 +148,7 @@ function suspendPaginationStyles(node: HTMLElement): () => void {
     for (const entry of saved) {
       entry.el.style.maxHeight = entry.maxHeight;
       entry.el.style.overflow = entry.overflow;
+      entry.el.style.width = entry.width;
       entry.el.style.setProperty('margin-top', entry.marginTop, entry.marginTopPriority);
       entry.el.style.setProperty('margin-bottom', entry.marginBottom, entry.marginBottomPriority);
       entry.el.style.setProperty('padding-top', entry.paddingTop, entry.paddingTopPriority);
@@ -185,7 +199,11 @@ function measureBlock(node: HTMLElement, blockIndex: number): BlockMeasurement {
       measurement.items = measureListItems(node);
     }
 
-    if (blockType === 'paragraph') {
+    if (blockType === 'table') {
+      measurement.rows = measureTableRows(node);
+    }
+
+    if (blockType === 'paragraph' || blockType === 'blockquote') {
       measurement.lines = paragraphSplitter.measureLines(node);
     }
 
@@ -210,6 +228,43 @@ function measureListItems(list: HTMLElement): ItemMeasurement[] {
       top,
       height: Math.max(0, Math.ceil(bottom - top)),
       bottom: Math.ceil(bottom),
+    };
+  });
+}
+
+/** Direct table rows in document order (thead, tbody, tfoot, or bare tr). */
+export function collectTableRows(table: HTMLElement): HTMLTableRowElement[] {
+  const fromSections = [
+    ...table.querySelectorAll<HTMLTableRowElement>(':scope > thead > tr'),
+    ...table.querySelectorAll<HTMLTableRowElement>(':scope > tbody > tr'),
+    ...table.querySelectorAll<HTMLTableRowElement>(':scope > tfoot > tr'),
+  ];
+  if (fromSections.length > 0) return fromSections;
+  return Array.from(table.querySelectorAll<HTMLTableRowElement>(':scope > tr'));
+}
+
+export function isHeaderRow(row: HTMLTableRowElement): boolean {
+  if (row.parentElement?.tagName.toLowerCase() === 'thead') return true;
+  const cells = Array.from(row.children);
+  return cells.length > 0 && cells.every((cell) => cell.tagName.toLowerCase() === 'th');
+}
+
+function measureTableRows(table: HTMLElement): RowMeasurement[] {
+  const tableTop = table.getBoundingClientRect().top;
+  const rows = collectTableRows(table);
+  return rows.map((row, rowIndex) => {
+    const rect = row.getBoundingClientRect();
+    const top = rect.top - tableTop;
+    const next = rows[rowIndex + 1];
+    const bottom = next
+      ? next.getBoundingClientRect().top - tableTop
+      : top + rect.height + readMargin(row, 'bottom');
+    return {
+      rowIndex,
+      top,
+      height: Math.max(0, Math.ceil(bottom - top)),
+      bottom: Math.ceil(bottom),
+      isHeader: isHeaderRow(row),
     };
   });
 }

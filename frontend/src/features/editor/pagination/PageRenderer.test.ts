@@ -817,6 +817,182 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
       expect(parseFloat(second.style.marginTop)).toBe(nextWell - gapStart);
     });
 
+    it('pushes a table that overflows the well but fits on the next page', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const table = document.createElement('table');
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.textContent = 'fits on the next sheet';
+      row.appendChild(cell);
+      table.appendChild(row);
+      prose.appendChild(table);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      prose.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 2000, top: 0, right: 624, bottom: 2000, left: 0, toJSON: () => ({}),
+      });
+      table.getBoundingClientRect = () => {
+        const margin = parseFloat(table.style.marginTop) || 0;
+        const top = 800 + margin;
+        return {
+          x: 0, y: top, width: 624, height: 100, top, right: 624, bottom: top + 100, left: 0, toJSON: () => ({}),
+        };
+      };
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 800,
+          availableHeight: 64,
+        },
+      ]);
+
+      expect(table.getAttribute('data-pagination-break')).toBe('1');
+      expect(parseFloat(table.style.marginTop)).toBe(nextWell - 800);
+      expect(table.getAttribute('data-split-clipped')).toBeNull();
+    });
+
+    it('clips an oversized table at a row boundary instead of mid-row', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const table = document.createElement('table');
+      const rowAt = (top: number, height: number, header = false) => {
+        const tr = document.createElement('tr');
+        const cell = document.createElement(header ? 'th' : 'td');
+        cell.textContent = header ? 'Header' : 'Row';
+        tr.appendChild(cell);
+        tr.getBoundingClientRect = () => ({
+          x: 0, y: top, width: 624, height, top, right: 624, bottom: top + height, left: 0, toJSON: () => ({}),
+        });
+        return tr;
+      };
+      table.append(rowAt(0, 400, true), rowAt(400, 400), rowAt(800, 400));
+      Object.defineProperty(table, 'scrollHeight', { configurable: true, get: () => 1200 });
+      table.getBoundingClientRect = () => {
+        const clip = parseFloat(table.style.maxHeight);
+        const height = Number.isFinite(clip) ? clip : 1200;
+        return {
+          x: 0, y: 0, width: 624, height, top: 0, right: 624, bottom: height, left: 0, toJSON: () => ({}),
+        };
+      };
+      prose.appendChild(table);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+      prose.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 2000, top: 0, right: 624, bottom: 2000, left: 0, toJSON: () => ({}),
+      });
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 1200,
+          availableHeight: 0,
+        },
+      ]);
+
+      expect(table.getAttribute('data-split-clipped')).toBe('current');
+      expect(parseFloat(table.style.maxHeight)).toBe(800);
+      expect(scrollContainer.querySelector('.pagination-table-continuation')).not.toBeNull();
+    });
+
+    it('paints table continuation rows with a repeated header', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const table = document.createElement('table');
+      const header = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = 'Col';
+      header.appendChild(th);
+      header.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 30, top: 0, right: 624, bottom: 30, left: 0, toJSON: () => ({}),
+      });
+      const makeData = (top: number) => {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.textContent = `r${top}`;
+        tr.appendChild(td);
+        tr.getBoundingClientRect = () => ({
+          x: 0, y: top, width: 624, height: 40, top, right: 624, bottom: top + 40, left: 0, toJSON: () => ({}),
+        });
+        return tr;
+      };
+      table.append(header, makeData(30), makeData(70), makeData(110));
+      table.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 150, top: 0, right: 624, bottom: 150, left: 0, toJSON: () => ({}),
+      });
+      Object.defineProperty(table, 'scrollHeight', { configurable: true, get: () => 150 });
+      prose.appendChild(table);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{
+            blockIndex: 0,
+            startOnPage: 0,
+            split: {
+              type: 'table',
+              splitAtRow: 2,
+              continuationPageIndex: 1,
+              clipHeightPx: 70,
+              blockIndex: 0,
+            },
+          }],
+          usedHeight: 70,
+          availableHeight: 794,
+        },
+        {
+          pageIndex: 1,
+          blocks: [{ blockIndex: 0, startOnPage: 1 }],
+          usedHeight: 110,
+          availableHeight: 754,
+        },
+      ]);
+
+      expect(table.style.maxHeight).toBe('70px');
+      const continuation = scrollContainer.querySelector<HTMLElement>(
+        '.pagination-table-continuation',
+      );
+      expect(continuation).not.toBeNull();
+      const cloneRows = continuation!.querySelectorAll('tr');
+      expect(cloneRows[0].style.display).not.toBe('none');
+      expect(cloneRows[1].style.display).toBe('none');
+      expect(cloneRows[2].style.display).not.toBe('none');
+    });
+
+    it('scales an oversized image to the usable well height', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const img = document.createElement('img');
+      img.className = 'document-editor-image';
+      img.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 1200, top: 0, right: 624, bottom: 1200, left: 0, toJSON: () => ({}),
+      });
+      Object.defineProperty(img, 'scrollHeight', { configurable: true, get: () => 1200 });
+      prose.appendChild(img);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      renderer.syncPageContainers(1);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 864,
+          availableHeight: 0,
+        },
+      ]);
+
+      expect(img.getAttribute('data-pagination-scaled')).toBe('true');
+      expect(img.style.maxHeight).toBe(`${PAGE_CONFIG.USABLE_HEIGHT_PX}px`);
+      expect(img.style.width).toBe('auto');
+    });
+
     it('does not remove a React-owned workspace on destroy', () => {
       renderer.destroy();
       scrollContainer.replaceChildren();

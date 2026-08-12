@@ -273,8 +273,9 @@ body {
   pointer-events: none;
 }
 
-/* Continuation slices of a split paragraph — paint-only, not editable. */
-.pagination-paragraph-continuation {
+/* Continuation slices of a split paragraph or table — paint-only, not editable. */
+.pagination-paragraph-continuation,
+.pagination-table-continuation {
   pointer-events: none;
   user-select: none;
 }

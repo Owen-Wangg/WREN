@@ -174,6 +174,35 @@ describe('BlockMeasurer', () => {
       expect(results[0].blockType).toBe('table');
     });
 
+    it('measures table rows including header detection', () => {
+      const table = document.createElement('table');
+      const header = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = 'Name';
+      header.appendChild(th);
+      header.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 30, top: 0, right: 624, bottom: 30, left: 0, toJSON: () => ({}),
+      });
+      const data = document.createElement('tr');
+      const td = document.createElement('td');
+      td.textContent = 'Ada';
+      data.appendChild(td);
+      data.getBoundingClientRect = () => ({
+        x: 0, y: 30, width: 624, height: 40, top: 30, right: 624, bottom: 70, left: 0, toJSON: () => ({}),
+      });
+      table.append(header, data);
+      table.getBoundingClientRect = () => ({
+        x: 0, y: 0, width: 624, height: 70, top: 0, right: 624, bottom: 70, left: 0, toJSON: () => ({}),
+      });
+      contentElement.appendChild(table);
+
+      const results = new BlockMeasurer(contentElement).measureAll();
+
+      expect(results[0].rows).toHaveLength(2);
+      expect(results[0].rows?.[0]).toMatchObject({ rowIndex: 0, height: 30, isHeader: true });
+      expect(results[0].rows?.[1]).toMatchObject({ rowIndex: 1, height: 40, isHeader: false });
+    });
+
     it('returns correct block type for image elements', () => {
       contentElement.appendChild(createMockElement('img', 300));
 
@@ -340,7 +369,7 @@ describe('BlockMeasurer', () => {
       const results = measurer.measureAll();
 
       expect(results[0].isPageBreak).toBe(false);
-      expect(results[0].blockType).toBe('other');
+      expect(results[0].blockType).toBe('horizontalRule');
     });
 
     it('does not detect non-hr elements with data-page-break as page break', () => {

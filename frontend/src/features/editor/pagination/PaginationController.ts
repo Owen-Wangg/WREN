@@ -520,6 +520,7 @@ export class PaginationController implements IPaginationController {
     const tagName = node.tagName.toLowerCase();
 
     if (tagName === 'hr' && node.hasAttribute('data-page-break')) return 'pageBreak';
+    if (tagName === 'hr') return 'horizontalRule';
     if (/^h[1-6]$/.test(tagName)) return 'heading';
     if (tagName === 'p') return 'paragraph';
     if (tagName === 'ul' || tagName === 'ol') return 'list';

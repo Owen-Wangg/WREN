@@ -98,6 +98,7 @@ export interface BlockMeasurement {
     | 'image'
     | 'blockquote'
     | 'pageBreak'
+    | 'horizontalRule'
     | 'other';
   /** Heading level (1–6) when blockType is 'heading'. */
   headingLevel?: number;

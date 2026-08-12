@@ -12,6 +12,7 @@
 import { PAGE_CONFIG } from './types';
 import type { PageAssignment, SplitInfo } from './types';
 import { ParagraphSplitter } from './ParagraphSplitter';
+import { collectTableRows, isHeaderRow } from './BlockMeasurer';
 
 // ---------------------------------------------------------------------------
 // Header/Footer clone CSS class names
@@ -20,6 +21,7 @@ import { ParagraphSplitter } from './ParagraphSplitter';
 const HEADER_CLONE_CLASS = 'pagination-header-clone';
 const FOOTER_CLONE_CLASS = 'pagination-footer-clone';
 const PARAGRAPH_CONTINUATION_CLASS = 'pagination-paragraph-continuation';
+const TABLE_CONTINUATION_CLASS = 'pagination-table-continuation';
 
 const paragraphSplitter = new ParagraphSplitter();
 
@@ -45,6 +47,7 @@ function serializeAssignments(assignments: PageAssignment[]): string {
                 split.type,
                 split.splitAtLine ?? '',
                 split.splitAtItem ?? '',
+                split.splitAtRow ?? '',
                 split.continuationPageIndex,
                 split.clipHeightPx ?? '',
               ].join('/')
@@ -287,6 +290,7 @@ export class PageRenderer {
       if (proseMirrorEl) {
         const blocks = Array.from(proseMirrorEl.children) as HTMLElement[];
         this.verifyAndCorrectPageStarts(assignments, blocks, proseMirrorEl);
+        this.applyImageScaling(blocks);
         this.clampSplitClipsToWell(blocks, proseMirrorEl);
         this.enforceWellBounds(blocks, proseMirrorEl);
       }
@@ -333,8 +337,10 @@ export class PageRenderer {
       this.applyListItemSplits(assignments, blocks);
       this.verifyAndCorrectPageStarts(assignments, blocks, proseMirrorEl);
       this.applyParagraphSplits(assignments, blocks, proseMirrorEl);
+      this.applyTableSplits(assignments, blocks, proseMirrorEl);
     }
 
+    this.applyImageScaling(blocks);
     this.clampSplitClipsToWell(blocks, proseMirrorEl);
     this.enforceWellBounds(blocks, proseMirrorEl);
     const needed = pagesNeededForContent(proseMirrorEl);
@@ -480,6 +486,20 @@ export class PageRenderer {
           }
           continue;
         }
+        if (tag === 'table') {
+          const beforeBreak = block.getAttribute('data-pagination-break');
+          const beforeClip = block.getAttribute('data-split-clipped');
+          const beforeMargin = block.style.marginTop;
+          this.enforceTableWell(block, proseMirrorEl);
+          if (
+            block.getAttribute('data-pagination-break') !== beforeBreak ||
+            block.getAttribute('data-split-clipped') !== beforeClip ||
+            block.style.marginTop !== beforeMargin
+          ) {
+            moved = true;
+          }
+          continue;
+        }
         const host = this.pageBreakTarget(block);
         const before = host.getAttribute('data-pagination-break');
         const wasClipped = block.getAttribute('data-split-clipped');
@@ -500,6 +520,16 @@ export class PageRenderer {
   private canEmergencyClip(el: HTMLElement): boolean {
     const tag = el.tagName.toLowerCase();
     if (
+      tag === 'table' ||
+      tag === 'thead' ||
+      tag === 'tbody' ||
+      tag === 'tfoot' ||
+      tag === 'tr' ||
+      tag === 'img'
+    ) {
+      return false;
+    }
+    if (
       tag === 'p' ||
       tag === 'li' ||
       tag === 'blockquote' ||
@@ -511,6 +541,137 @@ export class PageRenderer {
       return true;
     }
     return (el.textContent?.trim().length ?? 0) > 0;
+  }
+
+  /**
+   * Tables are not line-clipped. If the table fits one well, push it as a
+   * unit (Req 8.3). If it is taller than one well, clip at the last full
+   * row that fits and paint continuations.
+   */
+  private enforceTableWell(table: HTMLElement, proseMirrorEl: HTMLElement): void {
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    const stride = pageStride();
+
+    if (table.getAttribute('data-split-clipped') === 'current') {
+      const box = this.contentY(table, proseMirrorEl);
+      const clip = parseFloat(table.style.maxHeight);
+      const height = Number.isFinite(clip) ? Math.min(box.height, clip) : box.height;
+      const pageIndex = Math.max(0, Math.floor(box.top / stride));
+      const wellEnd = pageIndex * stride + well;
+      const maxHeight = wellEnd - box.top;
+      if (maxHeight > 0 && height > maxHeight + 0.5) {
+        const delta = height - maxHeight;
+        table.style.maxHeight = `${maxHeight}px`;
+        const phantom = parseFloat(table.style.marginBottom) || 0;
+        table.style.setProperty('margin-bottom', `${phantom + delta}px`, 'important');
+      }
+      return;
+    }
+
+    const box = this.contentY(table, proseMirrorEl);
+    if (box.height <= 0) return;
+
+    const pageIndex = Math.max(0, Math.floor(box.top / stride));
+    const wellStart = pageIndex * stride;
+    const wellEnd = wellStart + well;
+    const nextWellStart = (pageIndex + 1) * stride;
+
+    if (box.bottom <= wellEnd + 0.5 && box.top >= wellStart - 0.5) return;
+
+    if (box.top >= wellEnd - 0.5) {
+      this.alignToY(table, nextWellStart, pageIndex + 1, proseMirrorEl);
+      return;
+    }
+
+    const room = wellEnd - box.top;
+    const fullHeight = Math.max(table.scrollHeight, box.height);
+
+    if (fullHeight <= well + 0.5) {
+      this.alignToY(table, nextWellStart, pageIndex + 1, proseMirrorEl);
+      return;
+    }
+
+    if (room < 1) {
+      this.alignToY(table, nextWellStart, pageIndex + 1, proseMirrorEl);
+      return;
+    }
+
+    const clipHeight = this.lastFittingRowClipHeight(table, room);
+    if (clipHeight < 1) {
+      this.alignToY(table, nextWellStart, pageIndex + 1, proseMirrorEl);
+      return;
+    }
+
+    this.clipTableAtHeight(table, clipHeight, fullHeight, room, pageIndex);
+  }
+
+  private lastFittingRowClipHeight(table: HTMLElement, room: number): number {
+    const tableBox = table.getBoundingClientRect();
+    const rows = collectTableRows(table);
+    let clip = 0;
+    for (const row of rows) {
+      const rowBox = row.getBoundingClientRect();
+      const bottom = rowBox.bottom - tableBox.top;
+      if (bottom <= room + 0.5) {
+        clip = bottom;
+      } else {
+        break;
+      }
+    }
+    return clip;
+  }
+
+  private clipTableAtHeight(
+    table: HTMLElement,
+    clipHeight: number,
+    fullHeight: number,
+    room: number,
+    pageIndex: number,
+  ): void {
+    const remaining = Math.max(0, fullHeight - clipHeight);
+    const availableAfterClip = Math.max(0, room - clipHeight);
+    const splitId =
+      table.getAttribute('data-split-id') ?? `split-table-${pageIndex}-${clipHeight}`;
+
+    if (table.getAttribute('data-split-clipped') === 'current') {
+      const priorId = table.getAttribute('data-split-id');
+      if (priorId && this.chromeLayer) {
+        for (const wrap of this.chromeLayer.querySelectorAll(
+          `.${TABLE_CONTINUATION_CLASS}[data-split-source="${priorId}"]`,
+        )) {
+          wrap.remove();
+        }
+      }
+    }
+
+    table.setAttribute('data-split-id', splitId);
+    table.style.maxHeight = `${clipHeight}px`;
+    table.style.overflow = 'hidden';
+    table.setAttribute('data-split-clipped', 'current');
+    table.style.setProperty(
+      'margin-bottom',
+      `${this.phantomAfterClip(availableAfterClip, remaining)}px`,
+      'important',
+    );
+
+    const neededPages = pageIndex + 1 + Math.ceil(remaining / PAGE_CONFIG.USABLE_HEIGHT_PX);
+    if (neededPages > this.pages.length) {
+      this.syncPageContainers(neededPages);
+    }
+
+    const rows = collectTableRows(table);
+    let startRow = 0;
+    const tableBox = table.getBoundingClientRect();
+    for (let i = 0; i < rows.length; i++) {
+      const bottom = rows[i].getBoundingClientRect().bottom - tableBox.top;
+      if (bottom <= clipHeight + 0.5) {
+        startRow = i + 1;
+      } else {
+        break;
+      }
+    }
+
+    this.placeTableContinuations(table, startRow, pageIndex + 1, splitId);
   }
 
   /**
@@ -954,6 +1115,175 @@ export class PageRenderer {
     }
   }
 
+  private applyTableSplits(
+    assignments: PageAssignment[],
+    blocks: HTMLElement[],
+    proseMirrorEl: HTMLElement,
+  ): void {
+    const clipped = new Set<number>();
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    const stride = pageStride();
+    const wellOrigin = this.firstWellStartY(proseMirrorEl);
+
+    for (const page of assignments) {
+      for (const blockAssignment of page.blocks) {
+        const split = blockAssignment.split;
+        if (split?.type !== 'table' || split.splitAtRow == null) continue;
+        if (clipped.has(blockAssignment.blockIndex)) continue;
+
+        const el = blocks[blockAssignment.blockIndex];
+        if (!el) continue;
+        clipped.add(blockAssignment.blockIndex);
+
+        const fullHeight = Math.max(el.scrollHeight, el.getBoundingClientRect().height);
+        const top = el.getBoundingClientRect().top - wellOrigin;
+        const wellEnd = page.pageIndex * stride + well;
+        const maxClip = Math.max(0, wellEnd - top);
+        const rows = collectTableRows(el);
+        const splitRow = rows[split.splitAtRow];
+        const tableBox = el.getBoundingClientRect();
+        const rowClip =
+          split.clipHeightPx ??
+          (splitRow
+            ? splitRow.getBoundingClientRect().top - tableBox.top
+            : rows[split.splitAtRow - 1]
+              ? rows[split.splitAtRow - 1].getBoundingClientRect().bottom - tableBox.top
+              : 0);
+        const hasLiveLayout =
+          el.getBoundingClientRect().height > 0 || top !== 0 || wellOrigin !== 0;
+        const clipHeightPx =
+          hasLiveLayout && maxClip > 0 ? Math.min(rowClip, maxClip) : rowClip;
+        const clipDelta = Math.max(0, rowClip - clipHeightPx);
+        const remaining = Math.max(0, fullHeight - clipHeightPx);
+        const splitId = `split-table-${blockAssignment.blockIndex}`;
+
+        el.setAttribute('data-split-id', splitId);
+        el.style.maxHeight = `${clipHeightPx}px`;
+        el.style.overflow = 'hidden';
+        el.setAttribute('data-split-clipped', 'current');
+        el.style.setProperty(
+          'margin-bottom',
+          `${this.phantomAfterClip(page.availableHeight + clipDelta, remaining)}px`,
+          'important',
+        );
+
+        this.placeTableContinuations(
+          el,
+          split.splitAtRow,
+          split.continuationPageIndex,
+          splitId,
+        );
+      }
+    }
+  }
+
+  private placeTableContinuations(
+    source: HTMLElement,
+    startRowIndex: number,
+    startPageIndex: number,
+    splitId: string,
+  ): void {
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    const rows = collectTableRows(source);
+    const headerIndexes = rows
+      .map((row, index) => (isHeaderRow(row) ? index : -1))
+      .filter((index) => index >= 0);
+    const headerHeight = headerIndexes.reduce((sum, index) => {
+      return sum + rows[index].getBoundingClientRect().height;
+    }, 0);
+
+    let rowIndex = startRowIndex;
+    let pageIndex = startPageIndex;
+
+    while (rowIndex < rows.length && pageIndex < this.chromePages.length) {
+      const host = this.chromePages[pageIndex];
+      if (!host) break;
+
+      const pageRowIndexes = [...headerIndexes];
+      let used = headerHeight;
+      const start = rowIndex;
+
+      while (rowIndex < rows.length) {
+        if (headerIndexes.includes(rowIndex)) {
+          rowIndex += 1;
+          continue;
+        }
+        const height = rows[rowIndex].getBoundingClientRect().height;
+        if (used + height > well + 0.5 && pageRowIndexes.length > headerIndexes.length) {
+          break;
+        }
+        pageRowIndexes.push(rowIndex);
+        used += height;
+        rowIndex += 1;
+        if (height > well && pageRowIndexes.length === headerIndexes.length + 1) {
+          used = well;
+          break;
+        }
+      }
+
+      if (rowIndex === start && !headerIndexes.includes(start)) {
+        pageRowIndexes.push(start);
+        rowIndex = start + 1;
+        used = well;
+      }
+      if (rowIndex === start) {
+        break;
+      }
+
+      const slice = Math.min(used, well);
+      const wrap = document.createElement('div');
+      wrap.className = `${TABLE_CONTINUATION_CLASS} document-editor-surface`;
+      wrap.setAttribute('data-split-clipped', 'continuation');
+      wrap.setAttribute('data-split-source', splitId);
+      wrap.setAttribute('data-page-index', String(pageIndex));
+      wrap.setAttribute('aria-hidden', 'true');
+      wrap.style.position = 'absolute';
+      wrap.style.top = `${PAGE_CONFIG.MARGIN_PX}px`;
+      wrap.style.left = `${PAGE_CONFIG.MARGIN_PX}px`;
+      wrap.style.right = `${PAGE_CONFIG.MARGIN_PX}px`;
+      wrap.style.height = `${slice}px`;
+      wrap.style.overflow = 'hidden';
+      wrap.style.pointerEvents = 'none';
+
+      const clone = source.cloneNode(true) as HTMLElement;
+      clone.style.maxHeight = '';
+      clone.style.overflow = 'visible';
+      clone.style.removeProperty('margin-bottom');
+      clone.removeAttribute('data-split-clipped');
+      clone.removeAttribute('data-split-id');
+      clone.setAttribute('contenteditable', 'false');
+
+      const cloneRows = collectTableRows(clone);
+      const visible = new Set(pageRowIndexes);
+      for (let i = 0; i < cloneRows.length; i++) {
+        if (!visible.has(i)) {
+          cloneRows[i].style.display = 'none';
+        }
+      }
+
+      wrap.appendChild(clone);
+      host.appendChild(wrap);
+      pageIndex += 1;
+    }
+  }
+
+  private applyImageScaling(blocks: HTMLElement[]): void {
+    const well = PAGE_CONFIG.USABLE_HEIGHT_PX;
+    for (const block of blocks) {
+      const img =
+        block.tagName.toLowerCase() === 'img'
+          ? (block as HTMLImageElement)
+          : block.querySelector('img');
+      if (!img) continue;
+      const box = img.getBoundingClientRect();
+      const natural = Math.max(box.height, img.scrollHeight);
+      if (natural <= well + 0.5) continue;
+      img.style.maxHeight = `${well}px`;
+      img.style.width = 'auto';
+      img.setAttribute('data-pagination-scaled', 'true');
+    }
+  }
+
   /**
    * Clones the live header/footer regions onto letter frames after page 1.
    * Skips work when the page count has not changed — body edits must not
@@ -989,6 +1319,16 @@ export class PageRenderer {
 
     for (const block of blocks) {
       clear(block);
+      if (block.hasAttribute('data-pagination-scaled')) {
+        block.style.removeProperty('max-height');
+        block.style.removeProperty('width');
+        block.removeAttribute('data-pagination-scaled');
+      }
+      for (const img of block.querySelectorAll<HTMLElement>('img[data-pagination-scaled]')) {
+        img.style.removeProperty('max-height');
+        img.style.removeProperty('width');
+        img.removeAttribute('data-pagination-scaled');
+      }
       for (const item of block.querySelectorAll<HTMLElement>(':scope > li')) {
         clear(item);
         for (const child of item.querySelectorAll<HTMLElement>(':scope > p')) {
@@ -1143,7 +1483,7 @@ export class PageRenderer {
     for (const root of roots) {
       if (!root) continue;
       for (const clone of root.querySelectorAll<HTMLElement>(
-        `.${PARAGRAPH_CONTINUATION_CLASS}, [data-split-clipped="continuation"]`,
+        `.${PARAGRAPH_CONTINUATION_CLASS}, .${TABLE_CONTINUATION_CLASS}, [data-split-clipped="continuation"]`,
       )) {
         clone.remove();
       }

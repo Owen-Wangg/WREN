@@ -174,4 +174,73 @@ describe('Property 10: Heading Keep-With-Next', () => {
       expect(headingPage!.pageIndex).toBeGreaterThan(0);
     }
   });
+
+  it('horizontal rule moves with the following sibling when fewer than 2 lines fit', () => {
+    const effectiveHeight = DEFAULT_OPTIONS.usablePageHeight;
+    const hrHeight = 8;
+    const fillerHeight = effectiveHeight - hrHeight - 20;
+    const blocks: BlockMeasurement[] = [
+      makeParagraph(0, fillerHeight),
+      {
+        blockIndex: 1,
+        node: document.createElement('hr'),
+        height: hrHeight,
+        isPageBreak: false,
+        blockType: 'horizontalRule',
+      },
+      makeParagraph(2, 100),
+    ];
+
+    const result = distributor.distribute(blocks, DEFAULT_OPTIONS);
+    const hrPage = result.find((p) => p.blocks.some((b) => b.blockIndex === 1));
+    const siblingPage = result.find((p) => p.blocks.some((b) => b.blockIndex === 2));
+    expect(hrPage?.pageIndex).toBeGreaterThan(0);
+    expect(siblingPage?.pageIndex).toBe(hrPage?.pageIndex);
+  });
+
+  it('short lead-in paragraph moves with the following sibling when fewer than 2 lines fit', () => {
+    const effectiveHeight = DEFAULT_OPTIONS.usablePageHeight;
+    const leadHeight = 24;
+    const fillerHeight = effectiveHeight - leadHeight - 20;
+    const blocks: BlockMeasurement[] = [
+      makeParagraph(0, fillerHeight),
+      {
+        blockIndex: 1,
+        node: document.createElement('p'),
+        height: leadHeight,
+        isPageBreak: false,
+        blockType: 'paragraph',
+        lines: [{ lineIndex: 0, top: 0, height: 24, bottom: 24 }],
+      },
+      makeParagraph(2, 120),
+    ];
+
+    const result = distributor.distribute(blocks, DEFAULT_OPTIONS);
+    const leadPage = result.find((p) => p.blocks.some((b) => b.blockIndex === 1));
+    const siblingPage = result.find((p) => p.blocks.some((b) => b.blockIndex === 2));
+    expect(leadPage?.pageIndex).toBeGreaterThan(0);
+    expect(siblingPage?.pageIndex).toBe(leadPage?.pageIndex);
+  });
+
+  it('short blockquote lead-in moves with the following sibling', () => {
+    const effectiveHeight = DEFAULT_OPTIONS.usablePageHeight;
+    const leadHeight = 24;
+    const fillerHeight = effectiveHeight - leadHeight - 16;
+    const blocks: BlockMeasurement[] = [
+      makeParagraph(0, fillerHeight),
+      {
+        blockIndex: 1,
+        node: document.createElement('blockquote'),
+        height: leadHeight,
+        isPageBreak: false,
+        blockType: 'blockquote',
+        lines: [{ lineIndex: 0, top: 0, height: 24, bottom: 24 }],
+      },
+      makeParagraph(2, 80),
+    ];
+
+    const result = distributor.distribute(blocks, DEFAULT_OPTIONS);
+    const leadPage = result.find((p) => p.blocks.some((b) => b.blockIndex === 1));
+    expect(leadPage?.pageIndex).toBeGreaterThan(0);
+  });
 });
