@@ -789,8 +789,8 @@ export function DocumentEditorPage() {
               className={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
             >
               <Upload size={20} strokeWidth={1.75} aria-hidden="true" />
-              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
-                {resubmitDraftMutation.isPending ? 'Uploading' : 'Upload'}
+              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight text-balance">
+                {resubmitDraftMutation.isPending ? 'Uploading New Draft' : 'Upload New Draft'}
               </span>
             </button>
             <ExportMenu
