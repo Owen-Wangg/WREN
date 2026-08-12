@@ -327,7 +327,12 @@ export class PageRenderer {
         const block = blocks[start.blockIndex];
         const prev = assignments[pageAssignment.pageIndex - 1];
         if (!block || !prev) continue;
-        if (block.previousElementSibling?.getAttribute('data-split-clipped') === 'current') {
+        const prevBlock = block.previousElementSibling;
+        if (
+          prevBlock instanceof HTMLElement &&
+          prevBlock.getAttribute('data-split-clipped') === 'current' &&
+          prevBlock.tagName.toLowerCase() === 'p'
+        ) {
           continue;
         }
 
@@ -435,7 +440,8 @@ export class PageRenderer {
         return;
       }
 
-      // Prefer line-aware clip for any text-bearing block (p, li, headings, …).
+      // Prefer line-aware clip for splittable text. Headings never split —
+      // a mid-line max-height clip is what sliced "4. Step-by-step…" in half.
       if (this.canEmergencyClip(el)) {
         if (this.emergencyClipBlock(el, room, pageIndex, proseMirrorEl)) {
           return;
@@ -445,7 +451,11 @@ export class PageRenderer {
       // Move whole block; if it still can't clear, hard-clip as a last resort.
       this.alignToY(el, nextWellStart, pageIndex + 1, proseMirrorEl);
       const after = this.contentY(this.pageBreakTarget(el), proseMirrorEl);
-      if (after.bottom > wellEnd + 0.5 && after.top < wellEnd - 0.5) {
+      if (
+        !this.isNonSplittableBlock(el) &&
+        after.bottom > wellEnd + 0.5 &&
+        after.top < wellEnd - 0.5
+      ) {
         this.hardClipToRoom(el, wellEnd - after.top, pageIndex);
       }
     };
@@ -517,15 +527,19 @@ export class PageRenderer {
     }
   }
 
+  private isNonSplittableBlock(el: HTMLElement): boolean {
+    const tag = el.tagName.toLowerCase();
+    return /^h[1-6]$/.test(tag) || tag === 'hr' || tag === 'img' || tag === 'table';
+  }
+
   private canEmergencyClip(el: HTMLElement): boolean {
     const tag = el.tagName.toLowerCase();
+    if (this.isNonSplittableBlock(el)) return false;
     if (
-      tag === 'table' ||
       tag === 'thead' ||
       tag === 'tbody' ||
       tag === 'tfoot' ||
-      tag === 'tr' ||
-      tag === 'img'
+      tag === 'tr'
     ) {
       return false;
     }
@@ -533,7 +547,6 @@ export class PageRenderer {
       tag === 'p' ||
       tag === 'li' ||
       tag === 'blockquote' ||
-      /^h[1-6]$/.test(tag) ||
       tag === 'td' ||
       tag === 'th' ||
       tag === 'div'
@@ -693,6 +706,21 @@ export class PageRenderer {
   }
 
   /**
+   * Phantom margin after a clip must occupy real space so the next top-level
+   * block (often a heading) is pushed to the following well. Inner list
+   * `<p>` margins otherwise collapse through the `<ul>` and the heading
+   * sits in the gutter, then gets sliced by the chrome mask.
+   */
+  private containClipMargins(el: HTMLElement): void {
+    const host = this.pageBreakTarget(el);
+    this.preventMarginCollapse(host);
+    const list = host.closest('ul, ol');
+    if (list instanceof HTMLElement) {
+      this.preventMarginCollapse(list);
+    }
+  }
+
+  /**
    * Move `el` so its live top matches `expectedTop` (content-Y). Uses
    * margin-top plus flow-root so the gap is real layout space, then
    * remeasures and corrects remaining drift.
@@ -752,6 +780,7 @@ export class PageRenderer {
       }
     }
 
+    this.containClipMargins(el);
     el.setAttribute('data-split-id', splitId);
     el.style.maxHeight = `${room}px`;
     el.style.overflow = 'hidden';
@@ -790,6 +819,8 @@ export class PageRenderer {
       }
     }
     if (clipHeight < 1) return false;
+    // If the first line does not fully fit, move the block instead of slicing glyphs.
+    if (lines[0] && lines[0].bottom > room + 0.5) return false;
 
     const fullHeight = Math.max(el.scrollHeight, el.getBoundingClientRect().height);
     // If everything already fits the clip, don't invent a split.
@@ -816,6 +847,7 @@ export class PageRenderer {
       }
     }
 
+    this.containClipMargins(el);
     el.setAttribute('data-split-id', splitId);
     el.style.maxHeight = `${clipHeight}px`;
     el.style.overflow = 'hidden';
@@ -890,7 +922,12 @@ export class PageRenderer {
       let el: HTMLElement | undefined = blocks[start.blockIndex];
       if (!el) continue;
 
-      if (el.previousElementSibling?.getAttribute('data-split-clipped') === 'current') {
+      const prevEl = el.previousElementSibling;
+      if (
+        prevEl instanceof HTMLElement &&
+        prevEl.getAttribute('data-split-clipped') === 'current' &&
+        prevEl.tagName.toLowerCase() === 'p'
+      ) {
         continue;
       }
 

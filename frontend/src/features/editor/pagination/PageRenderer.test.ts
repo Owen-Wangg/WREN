@@ -751,9 +751,208 @@ describe('PageRenderer — Phase 1 Visual Containers', () => {
 
       expect(para.getAttribute('data-split-clipped')).toBe('current');
       expect(parseFloat(para.style.maxHeight)).toBe(20);
+      expect(item.getAttribute('data-pagination-flow-root')).toBe('true');
+      expect(list.getAttribute('data-pagination-flow-root')).toBe('true');
       expect(
         scrollContainer.querySelector('.pagination-paragraph-continuation'),
       ).not.toBeNull();
+    });
+
+    it('pushes a heading that straddles the well end instead of slicing glyphs', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const heading = document.createElement('h2');
+      heading.textContent = '4. Step-by-step instructions';
+      prose.appendChild(heading);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      const baseTop = 850;
+
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 2000,
+        top: 0,
+        right: 624,
+        bottom: 2000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      heading.getBoundingClientRect = () => {
+        const margin = parseFloat(heading.style.marginTop) || 0;
+        const top = baseTop + margin;
+        return {
+          x: 0,
+          y: top,
+          width: 624,
+          height: 28,
+          top,
+          right: 624,
+          bottom: top + 28,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
+      Object.defineProperty(heading, 'scrollHeight', {
+        configurable: true,
+        get: () => 28,
+      });
+      // Partial first-line glyph box — clipping this is the sliced-heading bug.
+      const rangeRects = [
+        {
+          x: 0,
+          y: baseTop,
+          width: 624,
+          height: 10,
+          top: baseTop,
+          right: 624,
+          bottom: baseTop + 10,
+          left: 0,
+          toJSON: () => ({}),
+        },
+      ];
+      const nativeRange = document.createRange.bind(document);
+      vi.spyOn(document, 'createRange').mockImplementation(() => {
+        const range = nativeRange();
+        range.getClientRects = () => rangeRects as unknown as DOMRectList;
+        return range;
+      });
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 878,
+          availableHeight: 0,
+        },
+      ]);
+
+      expect(heading.getAttribute('data-split-clipped')).toBeNull();
+      expect(heading.style.maxHeight).toBe('');
+      expect(heading.getAttribute('data-pagination-break')).toBe('1');
+      expect(parseFloat(heading.style.marginTop)).toBe(nextWell - baseTop);
+    });
+
+    it('keeps a heading after a clipped list fully below the page gutter', () => {
+      const prose = document.createElement('div');
+      prose.className = 'ProseMirror';
+      const list = document.createElement('ul');
+      const item = document.createElement('li');
+      const para = document.createElement('p');
+      para.textContent =
+        'Inside Evaluation Settings — General Information sits at the top, followed by your list of Categories.';
+      item.appendChild(para);
+      list.appendChild(item);
+      const heading = document.createElement('h2');
+      heading.textContent = '4. Step-by-step instructions';
+      prose.append(list, heading);
+      scrollContainer.querySelector('.pagination-content')?.appendChild(prose);
+
+      const nextWell = PAGE_CONFIG.HEIGHT_PX + PAGE_CONFIG.PAGE_GAP_PX;
+      const headingBase = 868;
+
+      prose.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 624,
+        height: 2000,
+        top: 0,
+        right: 624,
+        bottom: 2000,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      para.getBoundingClientRect = () => {
+        const clip = parseFloat(para.style.maxHeight);
+        const height = Number.isFinite(clip) ? clip : 48;
+        return {
+          x: 0,
+          y: 828,
+          width: 624,
+          height,
+          top: 828,
+          right: 624,
+          bottom: 828 + height,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
+      Object.defineProperty(para, 'scrollHeight', {
+        configurable: true,
+        get: () => 48,
+      });
+      heading.getBoundingClientRect = () => {
+        const margin = parseFloat(heading.style.marginTop) || 0;
+        const top = headingBase + margin;
+        return {
+          x: 0,
+          y: top,
+          width: 624,
+          height: 28,
+          top,
+          right: 624,
+          bottom: top + 28,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      };
+      const rangeRects = [
+        {
+          x: 0,
+          y: 828,
+          width: 624,
+          height: 20,
+          top: 828,
+          right: 624,
+          bottom: 848,
+          left: 0,
+          toJSON: () => ({}),
+        },
+        {
+          x: 0,
+          y: 848,
+          width: 400,
+          height: 20,
+          top: 848,
+          right: 400,
+          bottom: 868,
+          left: 0,
+          toJSON: () => ({}),
+        },
+      ];
+      const nativeRange = document.createRange.bind(document);
+      vi.spyOn(document, 'createRange').mockImplementation(() => {
+        const range = nativeRange();
+        range.getClientRects = () => rangeRects as unknown as DOMRectList;
+        return range;
+      });
+
+      renderer.syncPageContainers(2);
+      renderer.positionBlocks([
+        {
+          pageIndex: 0,
+          blocks: [{ blockIndex: 0, startOnPage: 0 }],
+          usedHeight: 864,
+          availableHeight: 0,
+        },
+        {
+          pageIndex: 1,
+          blocks: [{ blockIndex: 1, startOnPage: 1 }],
+          usedHeight: 28,
+          availableHeight: 836,
+        },
+      ]);
+
+      expect(para.getAttribute('data-split-clipped')).toBe('current');
+      expect(list.getAttribute('data-pagination-flow-root')).toBe('true');
+      expect(heading.getAttribute('data-split-clipped')).toBeNull();
+      expect(heading.style.maxHeight).toBe('');
+      expect(heading.getAttribute('data-pagination-break')).toBe('1');
+      const headingTop = heading.getBoundingClientRect().top;
+      expect(headingTop).toBeGreaterThanOrEqual(nextWell);
     });
 
     it('pushes a list item sitting in the gray gap down to the next well', () => {
