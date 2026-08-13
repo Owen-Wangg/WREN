@@ -179,7 +179,7 @@ export function ExportMenu({
                 className="mt-[2px] h-4 w-4 shrink-0 rounded border-border-strong text-accent-primary focus-visible:ring-2 focus-visible:ring-accent-primary/40 disabled:cursor-not-allowed"
               />
               <span className="text-caption font-sans leading-snug text-text-primary">
-                Include AI debrief feedback
+                Include AI Debrief
               </span>
             </label>
           </div>
