@@ -680,6 +680,7 @@ export function SidebarDebriefPanel({
                             environmentId={environmentId}
                             draftId={activeDraftId}
                             errorCategoryId={category}
+                            categoryLabel={categoryLabel}
                             initialVote={applicabilityQuery.data?.votes[category]}
                           />
                         )}
@@ -704,7 +705,7 @@ export function SidebarDebriefPanel({
                                   </span>
                                 </div>
                                 {item.quotedText && (
-                                  <div className="flex flex-col gap-[2px] pl-[20px]">
+                                  <div className="flex flex-col gap-sm pl-[20px]">
                                     <span className="text-caption text-signal-positive/70 uppercase tracking-wide font-medium">
                                       Where you did this well
                                     </span>
@@ -755,12 +756,12 @@ export function SidebarDebriefPanel({
                             {improvements.map((item) => (
                               <li key={item.id} className="flex flex-col gap-xs">
                                 {/* Question is the unavoidable headline */}
-                                <p className="text-bodySmall font-medium text-text-primary">
+                                <p className="text-bodySmall text-text-primary">
                                   {item.questionText}
                                 </p>
                                 {/* Quote is one example of the pattern — label makes clear there may be more */}
                                 {item.quotedText && (
-                                  <div className="flex flex-col gap-[2px]">
+                                  <div className="flex flex-col gap-sm">
                                     <span className="text-caption text-signal-caution/80 uppercase tracking-wide font-medium">
                                       One example — check your whole draft for this
                                     </span>

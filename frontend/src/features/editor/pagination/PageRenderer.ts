@@ -13,13 +13,11 @@ import { PAGE_CONFIG } from './types';
 import type { PageAssignment, SplitInfo } from './types';
 import { ParagraphSplitter } from './ParagraphSplitter';
 import { collectTableRows, isHeaderRow } from './BlockMeasurer';
-
-// ---------------------------------------------------------------------------
-// DEBUG: Pagination clipping diagnostic — remove after confirming fix
-// Set to true via browser console: (window as any).__PAGINATION_DEBUG = true
-// ---------------------------------------------------------------------------
-const PAGINATION_DEBUG = (): boolean =>
-  typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__PAGINATION_DEBUG === true;
+import {
+  logScrollDelta,
+  paginationDebug as PAGINATION_DEBUG,
+  snapshotScroll,
+} from './debug';
 
 // ---------------------------------------------------------------------------
 // Header/Footer clone CSS class names
@@ -266,6 +264,47 @@ export class PageRenderer {
    */
   setContentElement(el: HTMLElement | null): void {
     this.contentElement = el;
+  }
+
+  /**
+   * Runs `fn` while holding the scroll container's position steady.
+   *
+   * Pagination relayout tears down injected gaps, clips, phantom margins and
+   * continuation clones before rebuilding them, so document height collapses
+   * and re-expands within a single frame. During the collapsed window the
+   * browser clamps `scrollTop` to the (much smaller) new maximum, and that
+   * clamp is not undone when height returns — the viewport ends up at the
+   * bottom of the collapsed document. Capturing and restoring `scrollTop`
+   * around the mutation window prevents that.
+   *
+   * The restore is skipped when the user was already pinned to the bottom, so
+   * legitimate "stay at the end" behaviour is preserved.
+   */
+  withScrollPreserved<T>(label: string, fn: () => T): T {
+    const el = this.scrollContainer;
+    if (!el) return fn();
+
+    const before = snapshotScroll(el);
+    const pinnedToBottom =
+      before.maxScrollTop > 0 && before.scrollTop >= before.maxScrollTop - 1;
+
+    let result: T;
+    try {
+      result = fn();
+    } finally {
+      const after = snapshotScroll(el);
+      let restoredTo: number | null = null;
+
+      if (!pinnedToBottom && Math.abs(after.scrollTop - before.scrollTop) > 0.5) {
+        // Clamp to the new maximum: the document may legitimately be shorter now.
+        restoredTo = Math.min(before.scrollTop, after.maxScrollTop);
+        el.scrollTop = restoredTo;
+      }
+
+      logScrollDelta(label, before, after, restoredTo);
+    }
+
+    return result;
   }
 
   // -------------------------------------------------------------------------
@@ -522,34 +561,37 @@ export class PageRenderer {
       this.alignToY(el, nextWellStart, pageIndex + 1, proseMirrorEl);
       const after = this.contentY(this.pageBreakTarget(el), proseMirrorEl);
 
-      // BUG DIAGNOSTIC: After moving to page N+1, we must check against
-      // page N+1's well end — not the original page N's wellEnd.
-      const newPageIndex = pageIndex + 1;
-      const newWellEnd = newPageIndex * stride + well;
-
       if (PAGINATION_DEBUG()) {
-        const tag = el.tagName.toLowerCase();
-        const text = el.textContent?.slice(0, 40) ?? '';
+        // Observation only. `wellEnd` below belongs to page `pageIndex`, while
+        // the block has just been moved to `pageIndex + 1`. Analysis says the
+        // guard is therefore unreachable after a successful move; this log is
+        // here to confirm that against real browser metrics before changing it.
+        const nextWellEnd = (pageIndex + 1) * stride + well;
+        const oldGuard =
+          !this.isNonSplittableBlock(el) &&
+          after.bottom > wellEnd + 0.5 &&
+          after.top < wellEnd - 0.5;
+        const nextPageGuard =
+          !this.isNonSplittableBlock(el) &&
+          after.bottom > nextWellEnd + 0.5 &&
+          after.top < nextWellEnd - 0.5;
         console.warn(
           `[PAGINATION-DEBUG] enforce post-move check:\n` +
-          `  element: <${tag}> "${text}…"\n` +
-          `  moved from page ${pageIndex} → page ${newPageIndex}\n` +
-          `  OLD wellEnd (page ${pageIndex}): ${wellEnd}px\n` +
-          `  NEW wellEnd (page ${newPageIndex}): ${newWellEnd}px\n` +
-          `  after.top: ${after.top}px, after.bottom: ${after.bottom}px\n` +
-          `  OLD room calc (wellEnd - after.top): ${wellEnd - after.top}px ← BUG: often tiny/negative!\n` +
-          `  CORRECT room calc (newWellEnd - after.top): ${newWellEnd - after.top}px\n` +
-          `  Would hardClip trigger (old logic)? ${!this.isNonSplittableBlock(el) && after.bottom > wellEnd + 0.5 && after.top < wellEnd - 0.5}\n` +
-          `  Would hardClip trigger (new logic)? ${!this.isNonSplittableBlock(el) && after.bottom > newWellEnd + 0.5 && after.top < newWellEnd - 0.5}`,
+          `  element: <${el.tagName.toLowerCase()}> "${el.textContent?.slice(0, 40) ?? ''}…"\n` +
+          `  moved from page ${pageIndex} → page ${pageIndex + 1}\n` +
+          `  wellEnd(page ${pageIndex}): ${wellEnd}px | wellEnd(page ${pageIndex + 1}): ${nextWellEnd}px\n` +
+          `  after.top: ${after.top}px | after.bottom: ${after.bottom}px\n` +
+          `  guard as-shipped fires? ${oldGuard}\n` +
+          `  guard vs next-page wellEnd would fire? ${nextPageGuard}`,
         );
       }
 
       if (
         !this.isNonSplittableBlock(el) &&
-        after.bottom > newWellEnd + 0.5 &&
-        after.top < newWellEnd - 0.5
+        after.bottom > wellEnd + 0.5 &&
+        after.top < wellEnd - 0.5
       ) {
-        this.hardClipToRoom(el, newWellEnd - after.top, newPageIndex);
+        this.hardClipToRoom(el, wellEnd - after.top, pageIndex);
       }
     };
 
@@ -1269,6 +1311,24 @@ export class PageRenderer {
     let left = remaining;
     let pageIndex = startPageIndex;
 
+    if (PAGINATION_DEBUG()) {
+      const slicesNeeded = Math.ceil(remaining / well);
+      const slotsAvailable = this.chromePages.length - startPageIndex;
+      console.warn(
+        `[PAGINATION-DEBUG] placeParagraphContinuations:\n` +
+        `  splitId: ${splitId}\n` +
+        `  source: <${source.tagName.toLowerCase()}> "${source.textContent?.slice(0, 40) ?? ''}…"\n` +
+        `  clipHeightPx: ${clipHeightPx}px | remaining: ${remaining}px\n` +
+        `  startPageIndex: ${startPageIndex} | chromePages.length: ${this.chromePages.length}\n` +
+        `  continuation slices needed: ${slicesNeeded} | chrome slots available: ${slotsAvailable}\n` +
+        (slotsAvailable < slicesNeeded
+          ? `  >>> REMAINDER WILL BE DROPPED: loop bound (pageIndex < chromePages.length) ` +
+            `stops after ${Math.max(0, slotsAvailable)} slice(s). ` +
+            `Clipped text with no continuation = text disappears.`
+          : `  all slices have a chrome slot`),
+      );
+    }
+
     while (left > 0.5 && pageIndex < this.chromePages.length) {
       const slice = Math.min(left, well);
       const host = this.chromePages[pageIndex];
@@ -1851,11 +1911,14 @@ export class PageRenderer {
       }
       this.headerFooterDebounceTimer = setTimeout(() => {
         this.headerFooterDebounceTimer = null;
-        this.renderHeaderFooter(
-          this.currentHeaderContent,
-          this.currentFooterContent,
-          this.pages.length,
-        );
+        // Rebuilding clones must not move the reader's place in the document.
+        this.withScrollPreserved('renderHeaderFooter', () => {
+          this.renderHeaderFooter(
+            this.currentHeaderContent,
+            this.currentFooterContent,
+            this.pages.length,
+          );
+        });
       }, 500);
     };
 

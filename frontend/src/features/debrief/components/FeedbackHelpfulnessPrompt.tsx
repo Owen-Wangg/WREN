@@ -56,7 +56,7 @@ export function FeedbackHelpfulnessPrompt({
         <div className="flex flex-col gap-xs">
           <p className="text-body font-sans font-semibold text-signal-positive">Thank you for your feedback!</p>
           <p className="text-bodySmall text-text-secondary">
-            Your rating helps us improve the quality of AI feedback for everyone.
+            Your rating helps us fine-tune the AI Debrief.
           </p>
         </div>
       </div>

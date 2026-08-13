@@ -215,6 +215,12 @@ body {
   overflow: auto;
   overscroll-behavior: contain;
   background-color: var(--color-surface-muted);
+  /* The pagination layer owns vertical layout inside this scroller: it tears
+     down and rebuilds gaps, clips and phantom margins on every relayout.
+     Browser scroll anchoring picks anchor nodes inside that churn and fights
+     the JS restore, so anchoring is disabled here and scroll position is
+     conserved explicitly in PageRenderer.withScrollPreserved(). */
+  overflow-anchor: none;
 }
 
 /* Google Docs-style letter pages: gray workspace, 816×1056 frames, 32px gaps. */

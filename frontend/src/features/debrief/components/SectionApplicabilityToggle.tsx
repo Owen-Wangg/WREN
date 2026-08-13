@@ -22,6 +22,8 @@ export interface SectionApplicabilityToggleProps {
   readonly environmentId: string;
   readonly draftId: string;
   readonly errorCategoryId: string;
+  /** Human-readable category name (e.g. "Clarity") shown in the confirmation message. */
+  readonly categoryLabel: string;
   /** Initial vote loaded from the server (undefined = no vote yet). */
   readonly initialVote?: boolean;
 }
@@ -30,6 +32,7 @@ export function SectionApplicabilityToggle({
   environmentId,
   draftId,
   errorCategoryId,
+  categoryLabel,
   initialVote,
 }: SectionApplicabilityToggleProps) {
   const [vote, setVote] = useState<boolean | undefined>(initialVote);
@@ -105,8 +108,13 @@ export function SectionApplicabilityToggle({
         <ThumbsDown size={16} aria-hidden="true" />
       </button>
       {showAck && (
-        <span className="text-xs font-sans text-text-muted transition-opacity duration-300">
-          Feedback noted
+        <span
+          className={[
+            'text-xs font-sans transition-opacity duration-300',
+            vote === true ? 'text-green-600' : vote === false ? 'text-red-600' : 'text-text-muted',
+          ].join(' ')}
+        >
+          {categoryLabel} {vote === true ? 'applicable' : 'not applicable'}
         </span>
       )}
     </div>
