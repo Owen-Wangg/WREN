@@ -34,6 +34,10 @@ import { DocumentEditor, type DocumentEditorHandle, type DocumentEditorProps } f
 
 import { collectCommentIds, resolveAnchorRange, resolveDebriefHighlightRange } from '../anchorRange';
 import {
+  elementAtEditorPos,
+  scrollEditorElementIntoView,
+} from '../scrollEditorIntoView';
+import {
   buildAnchoredFeedbackItems,
   partitionAnchoredFeedbackItems,
 } from '../feedbackAnchoring';
@@ -78,17 +82,11 @@ function scrollRangeIntoView(
   editor: NonNullable<ReturnType<DocumentEditorHandle['getEditor']>>,
   from: number,
 ): void {
-  try {
-    const dom = editor.view.domAtPos(from);
-    const node = dom.node;
-    const el =
-      node.nodeType === Node.TEXT_NODE
-        ? node.parentElement
-        : (node as HTMLElement);
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth', inline: 'nearest' });
-  } catch {
-    // Position may be temporarily invalid during remounts; ignore.
-  }
+  const el = elementAtEditorPos(editor.view, from);
+  if (!el) return;
+  scrollEditorElementIntoView(el, { block: 'center' });
+  el.classList.add('document-toc-flash');
+  window.setTimeout(() => el.classList.remove('document-toc-flash'), 1200);
 }
 
 export function AnchoredFeedbackEditor({
@@ -219,7 +217,9 @@ export function AnchoredFeedbackEditor({
 
     // Defer scroll so the mark is painted and nested scroll parents settle.
     requestAnimationFrame(() => {
-      scrollRangeIntoView(editor, from);
+      requestAnimationFrame(() => {
+        scrollRangeIntoView(editor, from);
+      });
     });
   }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, anchors]);
 

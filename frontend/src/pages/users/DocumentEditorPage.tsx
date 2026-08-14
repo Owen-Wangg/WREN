@@ -973,6 +973,7 @@ export function DocumentEditorPage() {
                   setHighlightedAnchorId(selection.anchorId);
                   setHighlightedQuotedText(selection.quotedText);
                   setHighlightedLocationHint(undefined);
+                  setShowCoachHighlights(true);
                 }}
               />
             </div>

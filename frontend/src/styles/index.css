@@ -240,6 +240,14 @@ body {
   outline: none;
 }
 
+/* AI Debrief quote highlight — TipTap Highlight mark (`<mark>`). */
+.document-editor-surface mark {
+  background-color: #f5d76e;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* Brief flash when jumping to a heading from the Home TOC. */
 .document-editor-surface .document-toc-flash {
   animation: document-toc-flash 1.2s ease-out;
