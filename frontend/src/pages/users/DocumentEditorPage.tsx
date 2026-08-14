@@ -38,6 +38,8 @@ import {
   ExportMenu,
   type ExportOptions,
 } from '@/features/editor/components/ExportMenu';
+import { PrintPreviewModal } from '@/features/editor/components/PrintPreviewModal';
+import { usePrintedPageEstimate } from '@/features/editor/usePrintedPageEstimate';
 import { queryKeys } from '@/hooks';
 import {
   segmentsToTiptapContent,
@@ -154,7 +156,6 @@ export function DocumentEditorPage() {
     readStoredNavMode() === 'debrief' ? PANEL_WIDTH_DEBRIEF : PANEL_WIDTH_DEFAULT,
   );
   const [tocAnchors, setTocAnchors] = useState<TableOfContentData>([]);
-  const [pageCount, setPageCount] = useState(1);
 
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
@@ -198,7 +199,6 @@ export function DocumentEditorPage() {
     () => state?.docxParseWarning,
   );
   const [isPollingIngest, setIsPollingIngest] = useState(() => !!state?.ingestQueued);
-  const [ocrBannerDismissed, setOcrBannerDismissed] = useState(false);
   const [ingestError, setIngestError] = useState<string | undefined>(undefined);
 
   // Strip transient upload flags from history state immediately after mount so
@@ -214,6 +214,9 @@ export function DocumentEditorPage() {
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | undefined>(undefined);
   const [exportNotice, setExportNotice] = useState<string | undefined>(undefined);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewIncludeDebrief, setPreviewIncludeDebrief] = useState(false);
+  const previewIncludeDebriefRef = useRef(false);
 
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const panelDivRef = useRef<HTMLDivElement | null>(null);
@@ -348,7 +351,6 @@ export function DocumentEditorPage() {
       setCurrentContent(draftContent);
       setCurrentHeader(draftHeader);
       setCurrentFooter(draftFooter);
-      setOcrBannerDismissed(false);
       return;
     }
     if (!draftContent && routerInitialContent && !syncedDraftIdentityRef.current) {
@@ -677,12 +679,60 @@ export function DocumentEditorPage() {
     }
   };
 
+  const buildPreviewPdf = useCallback(async (): Promise<Blob> => {
+    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
+    if (previewIncludeDebriefRef.current) {
+      let debrief: Debrief | null = null;
+      let debriefStatus: 'ready' | 'empty' | 'unavailable' = 'empty';
+      try {
+        const history = await fetchDebriefHistory(apiClient, envId);
+        const latestDraftId = history[0]?.draftId;
+        const loaded = await fetchDebrief(apiClient, envId, latestDraftId);
+        if (loaded.items.length > 0) {
+          debrief = loaded;
+          debriefStatus = 'ready';
+        }
+      } catch {
+        debriefStatus = 'unavailable';
+      }
+      return combinedDocumentAndDebriefToPdfBlob({
+        content: cleaned,
+        documentTitle: documentName,
+        exportDate: new Date(),
+        debrief,
+        debriefStatus,
+      });
+    }
+    return tiptapContentToPdfBlob(cleaned, {
+      header: currentHeader,
+      footer: currentFooter,
+      lastEditedAt: contentUpdatedAt,
+    });
+  }, [currentContent, currentHeader, currentFooter, contentUpdatedAt, documentName, envId]);
+
+  const handlePreview = ({ includeDebrief }: ExportOptions) => {
+    setExportError(undefined);
+    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
+    if (includeDebrief && isEditorContentEmpty(cleaned)) {
+      setExportError('The document is empty. Add content before previewing a PDF.');
+      return;
+    }
+    previewIncludeDebriefRef.current = includeDebrief;
+    setPreviewIncludeDebrief(includeDebrief);
+    setPreviewOpen(true);
+  };
+
   const wordCount = wordCountFromEditorContent(currentContent);
+  const estimatedPageCount = usePrintedPageEstimate(
+    currentContent,
+    currentHeader,
+    currentFooter,
+  );
   const documentMeta = [
     breadcrumb !== 'Document' ? breadcrumb : null,
     `Draft v${draftVersion}`,
     `${wordCount.toLocaleString()} words`,
-    `${pageCount.toLocaleString()} ${pageCount === 1 ? 'page' : 'pages'}`,
+    estimatedPageCount === 1 ? '~1 page' : `~${estimatedPageCount.toLocaleString()} pages`,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -800,6 +850,7 @@ export function DocumentEditorPage() {
               debriefDisabledReason={debriefDisabledReason}
               triggerClassName={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
               onExport={(options) => void handleExport(options)}
+              onPreview={handlePreview}
             />
           </div>
         </nav>
@@ -945,32 +996,6 @@ export function DocumentEditorPage() {
               </p>
             </div>
           )}
-          {typeof draftQuery.data?.ocrConfidence === 'number' &&
-            !isPollingIngest &&
-            !ocrBannerDismissed && (
-            <div
-              role="status"
-              className={`flex items-start justify-between gap-md border-b px-lg py-sm ${
-                draftQuery.data.ocrConfidence < 70
-                  ? 'border-signal-caution/40 bg-signal-caution/10'
-                  : 'border-border-subtle bg-surface-primary'
-              }`}
-            >
-              <p className="text-bodySmall text-text-primary leading-relaxed">
-                OCR confidence {draftQuery.data.ocrConfidence.toFixed(0)}%
-                {draftQuery.data.ocrConfidence < 70
-                  ? ' — some text may need a manual check. Low-confidence words are highlighted in the draft.'
-                  : '.'}
-              </p>
-              <button
-                type="button"
-                className="shrink-0 text-caption font-sans font-medium text-text-secondary underline-offset-2 hover:underline"
-                onClick={() => setOcrBannerDismissed(true)}
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
           {ingestError && !isPollingIngest && (
             <div
               role="alert"
@@ -1054,12 +1079,24 @@ export function DocumentEditorPage() {
               onHeaderChange={(h) => setCurrentHeader(h)}
               onFooterChange={(f) => setCurrentFooter(f)}
               onTocUpdate={setTocAnchors}
-              onPageCountChange={setPageCount}
+              printedPageCount={estimatedPageCount}
               className="min-h-0 flex-1"
             />
           )}
         </main>
       </div>
+
+      <PrintPreviewModal
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        documentTitle={documentName}
+        subtitle={
+          previewIncludeDebrief
+            ? 'US Letter · with AI Debrief · not editable'
+            : 'US Letter · not editable'
+        }
+        buildPdf={buildPreviewPdf}
+      />
     </div>
   );
 }

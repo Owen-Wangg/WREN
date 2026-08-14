@@ -1,6 +1,6 @@
 /**
  * Unified export panel for the document editor left rail.
- * Format (DOCX / PDF) + optional AI Debrief inclusion, with a single Export CTA.
+ * Format (DOCX / PDF) + optional AI Debrief inclusion, with Preview and Export.
  */
 import { ChevronUp, Download } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -20,6 +20,7 @@ export interface ExportMenuProps {
   readonly debriefDisabledReason: string;
   readonly triggerClassName: string;
   readonly onExport: (options: ExportOptions) => void;
+  readonly onPreview: (options: ExportOptions) => void;
 }
 
 export function ExportMenu({
@@ -29,6 +30,7 @@ export function ExportMenu({
   debriefDisabledReason,
   triggerClassName,
   onExport,
+  onPreview,
 }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<ExportFormat>('pdf');
@@ -184,17 +186,40 @@ export function ExportMenu({
             </label>
           </div>
 
-          <button
-            type="button"
-            disabled={busy}
-            className={[
-              'inline-flex w-full items-center justify-center gap-sm rounded-md bg-accent-primary px-md py-xs',
-              'text-caption font-sans font-semibold text-text-on-accent',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40',
-              'disabled:cursor-not-allowed disabled:opacity-60',
-            ].join(' ')}
-            onClick={() => onExport({ format: effectiveFormat, includeDebrief })}
-          >
+          <div className="flex flex-col gap-xs">
+            <button
+              type="button"
+              disabled={busy}
+              title={
+                includeDebrief
+                  ? 'Preview the document and AI Debrief as PDF'
+                  : 'Preview as PDF (US Letter)'
+              }
+              className={[
+                'inline-flex w-full items-center justify-center gap-sm rounded-md border border-border-subtle bg-surface-primary px-md py-xs',
+                'text-caption font-sans font-semibold text-text-primary',
+                'hover:bg-surface-muted',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40',
+                'disabled:cursor-not-allowed disabled:opacity-60',
+              ].join(' ')}
+              onClick={() => {
+                onPreview({ format: effectiveFormat, includeDebrief });
+                setOpen(false);
+              }}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className={[
+                'inline-flex w-full items-center justify-center gap-sm rounded-md bg-accent-primary px-md py-xs',
+                'text-caption font-sans font-semibold text-text-on-accent',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40',
+                'disabled:cursor-not-allowed disabled:opacity-60',
+              ].join(' ')}
+              onClick={() => onExport({ format: effectiveFormat, includeDebrief })}
+            >
             {busy ? (
               <>
                 <span
@@ -206,7 +231,8 @@ export function ExportMenu({
             ) : (
               'Export'
             )}
-          </button>
+            </button>
+          </div>
 
           {error && (
             <p role="alert" className="mt-sm text-caption text-signal-critical">

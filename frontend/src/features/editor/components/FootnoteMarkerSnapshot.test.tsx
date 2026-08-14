@@ -45,7 +45,9 @@ describe('footnote superscript rendering snapshot', () => {
       />,
     );
 
-    const marker = screen.getByRole('textbox').querySelector('sup[data-footnote]');
+    const marker = screen
+      .getByRole('textbox', { name: 'Document editor' })
+      .querySelector('sup[data-footnote]');
     expect(marker?.outerHTML).toMatchSnapshot();
   });
 });

@@ -51,8 +51,8 @@ export interface AnchoredFeedbackEditorProps
     | 'onHeaderChange'
     | 'onFooterChange'
     | 'onTocUpdate'
-    | 'onPageCountChange'
     | 'className'
+    | 'printedPageCount'
   > {
   /** Inline + structural Feedback Items for the current draft; only `kind === 'inline'` items render here. */
   readonly feedbackItems: readonly FeedbackItem[];
@@ -102,12 +102,12 @@ export function AnchoredFeedbackEditor({
   onHeaderChange,
   onFooterChange,
   onTocUpdate,
-  onPageCountChange,
   className,
   highlightedAnchorId,
   highlightedQuotedText,
   highlightedLocationHint,
   showCoachHighlights = false,
+  printedPageCount,
 }: AnchoredFeedbackEditorProps) {
   const editorRef = useRef<DocumentEditorHandle>(null);
 
@@ -235,8 +235,8 @@ export function AnchoredFeedbackEditor({
         onHeaderChange={onHeaderChange}
         onFooterChange={onFooterChange}
         onTocUpdate={onTocUpdate}
-        onPageCountChange={onPageCountChange}
         onCommentActivated={handleCommentActivated}
+        printedPageCount={printedPageCount}
         className="min-h-0 flex-1"
       />
     </div>

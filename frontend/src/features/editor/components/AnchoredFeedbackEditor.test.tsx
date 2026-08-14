@@ -79,7 +79,7 @@ describe('AnchoredFeedbackEditor', () => {
       />,
     );
 
-    const editor = screen.getByRole('textbox');
+    const editor = screen.getByRole('textbox', { name: 'Document editor' });
     await waitFor(() => {
       const mark = editor.querySelector('[data-ai-feedback="true"]');
       expect(mark).not.toBeNull();
@@ -97,7 +97,7 @@ describe('AnchoredFeedbackEditor', () => {
       />,
     );
 
-    const editor = screen.getByRole('textbox');
+    const editor = screen.getByRole('textbox', { name: 'Document editor' });
     // Give any async effects time to run, then confirm no mark appeared.
     await waitFor(() => expect(editor).toBeInTheDocument());
     expect(editor.querySelector('[data-comment-id="fb-removed"]')).toBeNull();
@@ -113,7 +113,7 @@ describe('AnchoredFeedbackEditor', () => {
       />,
     );
 
-    const editor = screen.getByRole('textbox');
+    const editor = screen.getByRole('textbox', { name: 'Document editor' });
     await waitFor(() =>
       expect(editor.querySelector('[data-ai-feedback="true"]')).not.toBeNull(),
     );
@@ -135,7 +135,7 @@ describe('AnchoredFeedbackEditor', () => {
       />,
     );
 
-    const editor = screen.getByRole('textbox');
+    const editor = screen.getByRole('textbox', { name: 'Document editor' });
     await waitFor(() =>
       expect(editor.querySelector('[data-ai-feedback="true"]')).not.toBeNull(),
     );
