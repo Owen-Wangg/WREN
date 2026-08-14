@@ -1079,6 +1079,7 @@ export function DocumentEditorPage() {
               onHeaderChange={(h) => setCurrentHeader(h)}
               onFooterChange={(f) => setCurrentFooter(f)}
               onTocUpdate={setTocAnchors}
+              printedPageCount={estimatedPageCount}
               className="min-h-0 flex-1"
             />
           )}

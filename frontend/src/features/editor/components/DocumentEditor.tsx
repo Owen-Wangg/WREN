@@ -50,6 +50,7 @@ import { PageNumberNode, DateNode } from '../tiptapHeaderFooterNodes';
 import { EditorToolbar } from './toolbar/EditorToolbar';
 import { FootnoteList } from './FootnoteList';
 import { FootnotePanel } from './FootnotePanel';
+import { ScrollPageHint } from './ScrollPageHint';
 
 export type { TableOfContentData, TableOfContentDataItem } from '@tiptap/extension-table-of-contents';
 
@@ -76,6 +77,8 @@ export interface DocumentEditorProps {
   readonly onTocUpdate?: (anchors: TableOfContentData) => void;
   /** Citation configuration for footnote field validation (Requirement 4.4). */
   readonly citationConfig?: CitationConfigLike | null;
+  /** Estimated US Letter page count for the scrollbar “Page X of Y” hint. */
+  readonly printedPageCount?: number;
 }
 
 /** Imperative handle exposed via `ref` for driving the editor + `.docx` I/O. */
@@ -126,6 +129,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       onCommentActivated,
       onTocUpdate,
       citationConfig,
+      printedPageCount,
     },
     ref,
   ) {
@@ -142,6 +146,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       onTocUpdateRef.current = onTocUpdate;
     });
 
+    const scrollRef = useRef<HTMLDivElement>(null);
     const [activeFootnoteNumber, setActiveFootnoteNumber] = useState<number | null>(null);
     const setActiveFootnoteNumberRef = useRef(setActiveFootnoteNumber);
     setActiveFootnoteNumberRef.current = setActiveFootnoteNumber;
@@ -295,8 +300,12 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             <EditorToolbar editor={editor} />
           </div>
         </div>
-        <div className="document-editor-scroll min-h-0 flex-1 overflow-y-auto bg-surface-muted/50">
-          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary shadow-sm">
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            className="document-editor-scroll h-full min-h-0 overflow-y-auto bg-surface-muted/50"
+          >
+            <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary shadow-sm">
             <div
               className="document-header-region border-b border-border-subtle px-2xl py-sm sm:px-3xl"
               aria-label="Document header"
@@ -335,7 +344,11 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
               <p className="mb-1 text-caption font-sans text-text-muted select-none">Footer</p>
               <EditorContent editor={footerEditor} />
             </div>
+            </div>
           </div>
+          {printedPageCount != null && printedPageCount >= 1 ? (
+            <ScrollPageHint scrollRef={scrollRef} pageCount={printedPageCount} />
+          ) : null}
         </div>
       </div>
     );
