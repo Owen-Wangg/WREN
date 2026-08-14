@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType }
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
+  Eye,
   GripVertical,
   ListTree,
   MessageSquare,
@@ -38,6 +39,8 @@ import {
   ExportMenu,
   type ExportOptions,
 } from '@/features/editor/components/ExportMenu';
+import { PrintPreviewModal } from '@/features/editor/components/PrintPreviewModal';
+import { usePrintedPageEstimate } from '@/features/editor/usePrintedPageEstimate';
 import { queryKeys } from '@/hooks';
 import {
   segmentsToTiptapContent,
@@ -213,6 +216,7 @@ export function DocumentEditorPage() {
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | undefined>(undefined);
   const [exportNotice, setExportNotice] = useState<string | undefined>(undefined);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const panelDivRef = useRef<HTMLDivElement | null>(null);
@@ -677,10 +681,16 @@ export function DocumentEditorPage() {
   };
 
   const wordCount = wordCountFromEditorContent(currentContent);
+  const estimatedPageCount = usePrintedPageEstimate(
+    currentContent,
+    currentHeader,
+    currentFooter,
+  );
   const documentMeta = [
     breadcrumb !== 'Document' ? breadcrumb : null,
     `Draft v${draftVersion}`,
     `${wordCount.toLocaleString()} words`,
+    estimatedPageCount === 1 ? '~1 page' : `~${estimatedPageCount.toLocaleString()} pages`,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -789,6 +799,18 @@ export function DocumentEditorPage() {
               <Upload size={20} strokeWidth={1.75} aria-hidden="true" />
               <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight text-balance">
                 {resubmitDraftMutation.isPending ? 'Uploading New Draft' : 'Upload New Draft'}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              title="Print preview (US Letter PDF)"
+              aria-label="Print preview"
+              className={railButtonClass(false)}
+            >
+              <Eye size={20} strokeWidth={1.75} aria-hidden="true" />
+              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
+                Preview
               </span>
             </button>
             <ExportMenu
@@ -1057,6 +1079,16 @@ export function DocumentEditorPage() {
           )}
         </main>
       </div>
+
+      <PrintPreviewModal
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        content={currentContent}
+        header={currentHeader}
+        footer={currentFooter}
+        lastEditedAt={contentUpdatedAt}
+        documentTitle={documentName}
+      />
     </div>
   );
 }

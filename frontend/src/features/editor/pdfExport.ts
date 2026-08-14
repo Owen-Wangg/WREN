@@ -195,6 +195,91 @@ function formatLastEditedAt(iso: string | null | undefined): string {
   }
 }
 
+/** Offscreen HTML host width — 8.5in at 96dpi, matching US Letter PDF export. */
+export const PDF_HOST_WIDTH_PX = 816;
+/** jsPDF letter size in points. */
+const PDF_PAGE_WIDTH_PT = 612;
+const PDF_PAGE_HEIGHT_PT = 792;
+/** Used as both CSS px padding and PDF pt margin (existing exporter convention). */
+const SIDE_MARGIN = 36;
+const BASE_VERTICAL_MARGIN = 36;
+const HEADER_BAND = 20;
+const FOOTER_BAND = 20;
+const IMAGE_WAIT_MS = 1500;
+
+/**
+ * Convert a rendered export-host height into a US Letter page count using the
+ * same slice geometry as {@link tiptapContentToPdfBlob}.
+ */
+export function printedPageCountFromHostHeight(hostHeightPx: number): number {
+  if (!Number.isFinite(hostHeightPx) || hostHeightPx <= 0) return 1;
+  const usableWidthPt = PDF_PAGE_WIDTH_PT - SIDE_MARGIN * 2;
+  const usableHeightPt = PDF_PAGE_HEIGHT_PT - SIDE_MARGIN * 2;
+  const imgHeightPt = (hostHeightPx * usableWidthPt) / PDF_HOST_WIDTH_PX;
+  return Math.max(1, Math.ceil(imgHeightPt / usableHeightPt));
+}
+
+function createPdfExportHost(content: JSONContent, options?: PdfExportOptions): HTMLDivElement {
+  const top = BASE_VERTICAL_MARGIN + (options?.header != null ? HEADER_BAND : 0);
+  const bottom = BASE_VERTICAL_MARGIN + (options?.footer != null ? FOOTER_BAND : 0);
+  const host = document.createElement('div');
+  host.setAttribute('data-pdf-export', 'true');
+  host.style.cssText = [
+    'position:fixed',
+    'left:-10000px',
+    'top:0',
+    `width:${PDF_HOST_WIDTH_PX}px`,
+    `padding:${top}px ${SIDE_MARGIN}px ${bottom}px`,
+    'background:#fff',
+    'color:#111',
+    'font-family:Georgia,"Times New Roman",serif',
+    'font-size:12pt',
+    'line-height:1.5',
+    'box-sizing:border-box',
+  ].join(';');
+  host.innerHTML = tiptapContentToHtml(content);
+  return host;
+}
+
+function waitForHostImages(host: HTMLElement): Promise<void> {
+  const images = Array.from(host.querySelectorAll('img'));
+  if (images.length === 0) return Promise.resolve();
+  return Promise.race([
+    Promise.all(
+      images.map(
+        (img) =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                img.addEventListener('load', () => resolve(), { once: true });
+                img.addEventListener('error', () => resolve(), { once: true });
+              }),
+      ),
+    ).then(() => undefined),
+    new Promise<void>((resolve) => {
+      window.setTimeout(resolve, IMAGE_WAIT_MS);
+    }),
+  ]);
+}
+
+/**
+ * Cheap printed-page estimate: same offscreen host as PDF export, no canvas.
+ * Does not mutate the live editor. Safe to call on a debounce.
+ */
+export async function estimatePrintedPageCount(
+  content: JSONContent,
+  options?: PdfExportOptions,
+): Promise<number> {
+  const host = createPdfExportHost(content, options);
+  document.body.appendChild(host);
+  try {
+    await waitForHostImages(host);
+    return printedPageCountFromHostHeight(host.offsetHeight);
+  } finally {
+    host.remove();
+  }
+}
+
 /**
  * Render TipTap JSON to a PDF Blob (letter size, multi-page).
  * Header and footer are drawn programmatically on every page.
@@ -207,32 +292,11 @@ export async function tiptapContentToPdfBlob(
   const hasFooter = options?.footer != null;
   const dateStr = formatLastEditedAt(options?.lastEditedAt);
 
-  // Reserve vertical space for header/footer bands (pt units match jsPDF).
-  const HEADER_BAND = hasHeader ? 20 : 0;
-  const FOOTER_BAND = hasFooter ? 20 : 0;
-  const SIDE_MARGIN = 36;
-  const TOP_MARGIN = 36 + HEADER_BAND;
-  const BOTTOM_MARGIN = 36 + FOOTER_BAND;
-
-  const host = document.createElement('div');
-  host.setAttribute('data-pdf-export', 'true');
-  host.style.cssText = [
-    'position:fixed',
-    'left:-10000px',
-    'top:0',
-    'width:816px',
-    `padding:${TOP_MARGIN}px ${SIDE_MARGIN}px ${BOTTOM_MARGIN}px`,
-    'background:#fff',
-    'color:#111',
-    'font-family:Georgia,"Times New Roman",serif',
-    'font-size:12pt',
-    'line-height:1.5',
-    'box-sizing:border-box',
-  ].join(';');
-  host.innerHTML = tiptapContentToHtml(content);
+  const host = createPdfExportHost(content, options);
   document.body.appendChild(host);
 
   try {
+    await waitForHostImages(host);
     const canvas = await html2canvas(host, {
       scale: 2,
       useCORS: true,

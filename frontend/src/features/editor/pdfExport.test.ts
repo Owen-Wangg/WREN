@@ -1,8 +1,35 @@
 import { describe, expect, it } from 'vitest';
 
-import { tiptapContentToHtml } from './pdfExport';
+import {
+  estimatePrintedPageCount,
+  printedPageCountFromHostHeight,
+  tiptapContentToHtml,
+} from './pdfExport';
 
 import type { JSONContent } from '@tiptap/react';
+
+describe('printedPageCountFromHostHeight', () => {
+  it('returns 1 for empty or invalid heights', () => {
+    expect(printedPageCountFromHostHeight(0)).toBe(1);
+    expect(printedPageCountFromHostHeight(-10)).toBe(1);
+    expect(printedPageCountFromHostHeight(Number.NaN)).toBe(1);
+  });
+
+  it('maps 1088px of the 816px export host to exactly one letter page', () => {
+    expect(printedPageCountFromHostHeight(1088)).toBe(1);
+    expect(printedPageCountFromHostHeight(1089)).toBe(2);
+  });
+});
+
+describe('estimatePrintedPageCount', () => {
+  it('returns at least 1 for a short document in jsdom', async () => {
+    const content: JSONContent = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }],
+    };
+    await expect(estimatePrintedPageCount(content)).resolves.toBeGreaterThanOrEqual(1);
+  });
+});
 
 describe('tiptapContentToHtml', () => {
   it('preserves headings, bold/italic, and lists', () => {
