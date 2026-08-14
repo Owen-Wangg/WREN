@@ -21,6 +21,8 @@ export interface ChatFeedbackSidebarProps {
   readonly wordCount?: number;
   readonly askWrenService: AskWrenService;
   readonly isGeneratingFeedback?: boolean;
+  /** True after the first few minutes while the job is still running. */
+  readonly isTakingLonger?: boolean;
   /** False while the document/draft is still loading or being ingested. */
   readonly isDocumentReady?: boolean;
   /** Persist editor content as a new draft before AI Debrief regenerate. */
@@ -57,6 +59,7 @@ export function ChatFeedbackSidebar({
   wordCount = 0,
   askWrenService,
   isGeneratingFeedback = false,
+  isTakingLonger = false,
   isDocumentReady = true,
   onBeforeRegenerate,
   onFeedbackQueued,
@@ -111,6 +114,7 @@ export function ChatFeedbackSidebar({
           environmentId={documentId}
           autoRegenerate={false}
           isGenerating={isGeneratingFeedback}
+          isTakingLonger={isTakingLonger}
           isDocumentReady={isDocumentReady}
           onBeforeRegenerate={onBeforeRegenerate}
           onFeedbackQueued={onFeedbackQueued}

@@ -117,6 +117,8 @@ export interface SidebarDebriefPanelProps {
   readonly autoRegenerate?: boolean;
   /** True while DocumentEditorPage is polling for feedback generation. */
   readonly isGenerating?: boolean;
+  /** True after several minutes while the job is still running. */
+  readonly isTakingLonger?: boolean;
   /**
    * False while the document/draft is still loading or being ingested.
    * Prevents premature fetches and disables Regenerate until ready.
@@ -147,6 +149,7 @@ export function SidebarDebriefPanel({
   environmentId,
   autoRegenerate = false,
   isGenerating = false,
+  isTakingLonger = false,
   isDocumentReady = true,
   onBeforeRegenerate,
   onFeedbackQueued,
@@ -459,6 +462,11 @@ export function SidebarDebriefPanel({
               Saves inline edits &amp;<br />regenerates feedback
             </span>
           )}
+          {showRegenDots && isTakingLonger && (
+            <span className="px-sm text-caption text-text-secondary text-right leading-tight">
+              Still working on a long draft
+            </span>
+          )}
           {lastGeneratedCompact && (
             <span
               className="px-sm text-caption text-text-muted whitespace-nowrap"
@@ -517,6 +525,11 @@ export function SidebarDebriefPanel({
               <p className="text-bodySmall text-text-secondary leading-relaxed">
                 {generatingStep.detail}
               </p>
+              {isTakingLonger && (
+                <p className="text-caption text-text-secondary leading-relaxed">
+                  Still working — long drafts can take several more minutes.
+                </p>
+              )}
               <p className="text-caption text-text-muted">
                 Please don&apos;t close or refresh this page.
               </p>
@@ -575,6 +588,11 @@ export function SidebarDebriefPanel({
                       <p className="text-bodySmall text-text-secondary leading-relaxed">
                         {generatingStep.detail}
                       </p>
+                      {isTakingLonger && (
+                        <p className="text-caption text-text-secondary leading-relaxed">
+                          Still working — long drafts can take several more minutes.
+                        </p>
+                      )}
                     </div>
                   </div>
                 ) : (

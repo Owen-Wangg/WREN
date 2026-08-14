@@ -9,9 +9,13 @@ def test_complete_output_with_items_is_ok() -> None:
     require_complete_feedback_output("end_turn", 4)
 
 
-def test_max_tokens_is_non_retryable() -> None:
+def test_max_tokens_with_recovered_items_is_ok() -> None:
+    require_complete_feedback_output("max_tokens", 12)
+
+
+def test_max_tokens_with_no_items_is_non_retryable() -> None:
     try:
-        require_complete_feedback_output("max_tokens", 12)
+        require_complete_feedback_output("max_tokens", 0)
         raise AssertionError("expected TruncatedFeedbackError")
     except TruncatedFeedbackError:
         pass

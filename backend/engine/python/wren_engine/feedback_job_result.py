@@ -16,16 +16,19 @@ class TruncatedFeedbackError(NonRetryableFeedbackError):
 def require_complete_feedback_output(stop_reason: str | None, item_count: int) -> None:
     """Raise if the model output must not be persisted as a successful debrief.
 
-    ``max_tokens`` is non-retryable: the same prompt will overflow again.
-    An empty parse is retryable (transient malformed JSON).
+    Recovered items from a ``max_tokens`` stop are persistable (strengths are
+    emitted first, so a truncated array is often still a usable debrief).
+    ``max_tokens`` with zero recovered items is non-retryable: the same prompt
+    will overflow again. An empty parse on a normal stop is retryable.
     """
     reason = (stop_reason or "").strip().lower()
+    if item_count > 0:
+        return
     if reason == "max_tokens":
         raise TruncatedFeedbackError(
             "Bedrock stopped at max_tokens; feedback JSON is truncated"
         )
-    if item_count <= 0:
-        raise RuntimeError("No feedback items parsed from model output")
+    raise RuntimeError("No feedback items parsed from model output")
 
 
 def coerce_draft_segments(raw: object) -> list[dict]:

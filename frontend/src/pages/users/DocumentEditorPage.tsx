@@ -73,8 +73,10 @@ const PANEL_WIDTH_DEBRIEF = 420;
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 560;
 const RAIL_WIDTH_PX = 92;
-/** Lambda feedback jobs are capped at 5 minutes; wait a little longer, then surface failure. */
-const FEEDBACK_POLL_TIMEOUT_MS = 6 * 60 * 1000;
+/** Lambda jobs are 5 minutes; SQS retries up to 3 times. Warn at 6 minutes, keep waiting. */
+const FEEDBACK_POLL_SLOW_MS = 6 * 60 * 1000;
+/** Give up after ~3 visibility windows plus queue delay. */
+const FEEDBACK_POLL_GIVE_UP_MS = 18 * 60 * 1000;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -187,6 +189,7 @@ export function DocumentEditorPage() {
   const [feedbackGenerationError, setFeedbackGenerationError] = useState<string | undefined>(
     undefined,
   );
+  const [feedbackTakingLonger, setFeedbackTakingLonger] = useState(false);
   const feedbackPollStartedAtRef = useRef<number | null>(null);
 
   const state = location.state as {
@@ -480,6 +483,7 @@ export function DocumentEditorPage() {
       }
       void queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
       setFeedbackGenerationError(undefined);
+      setFeedbackTakingLonger(false);
       setIsPollingFeedback(true);
       void generateFeedback(apiClient, envId).catch(() => {
         // Non-fatal: student can Regenerate from the debrief panel.
@@ -545,6 +549,7 @@ export function DocumentEditorPage() {
             // Draft query invalidate will still refresh when available.
           }
           setIsPollingFeedback(true);
+          setFeedbackTakingLonger(false);
           setFeedbackGenerationError(undefined);
           void generateFeedback(apiClient, envId).catch(() => {
             // Non-fatal.
@@ -586,16 +591,21 @@ export function DocumentEditorPage() {
 
     let cancelled = false;
     const tick = async () => {
-      if (
-        feedbackPollStartedAtRef.current != null &&
-        Date.now() - feedbackPollStartedAtRef.current > FEEDBACK_POLL_TIMEOUT_MS
-      ) {
-        if (cancelled) return;
-        setIsPollingFeedback(false);
-        setFeedbackGenerationError(
-          "AI Debrief didn't finish in time. Long drafts can take a few minutes — try Regenerate again.",
-        );
-        return;
+      const startedAt = feedbackPollStartedAtRef.current;
+      if (startedAt != null) {
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > FEEDBACK_POLL_GIVE_UP_MS) {
+          if (cancelled) return;
+          setIsPollingFeedback(false);
+          setFeedbackTakingLonger(false);
+          setFeedbackGenerationError(
+            "AI Debrief didn't finish in time. Long drafts can take a few minutes — try Regenerate again.",
+          );
+          return;
+        }
+        if (elapsed > FEEDBACK_POLL_SLOW_MS) {
+          setFeedbackTakingLonger(true);
+        }
       }
 
       try {
@@ -604,6 +614,7 @@ export function DocumentEditorPage() {
 
         if (status.status === 'completed') {
           setIsPollingFeedback(false);
+          setFeedbackTakingLonger(false);
           setFeedbackGenerationError(undefined);
           void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
           void queryClient.invalidateQueries({
@@ -617,6 +628,7 @@ export function DocumentEditorPage() {
 
         if (status.status === 'failed') {
           setIsPollingFeedback(false);
+          setFeedbackTakingLonger(false);
           setFeedbackGenerationError("Couldn't generate the AI Debrief. Please try again.");
         }
       } catch {
@@ -926,15 +938,18 @@ export function DocumentEditorPage() {
                 wordCount={wordCount}
                 askWrenService={askWrenService}
                 isGeneratingFeedback={isPollingFeedback}
+                isTakingLonger={feedbackTakingLonger}
                 isDocumentReady={isDocumentReady}
                 generationError={feedbackGenerationError}
                 onBeforeRegenerate={saveDraftFromEditor}
                 onFeedbackQueued={() => {
                   setFeedbackGenerationError(undefined);
+                  setFeedbackTakingLonger(false);
                   setIsPollingFeedback(true);
                 }}
                 onGenerationFailed={() => {
                   setIsPollingFeedback(false);
+                  setFeedbackTakingLonger(false);
                   setFeedbackGenerationError(
                     "AI Debrief didn't finish. Long drafts can hit a generation limit — try Regenerate again.",
                   );

@@ -16,7 +16,9 @@ from wren_engine.feedback_classifier import (
     DensityOutcome,
     DensitySetting,
     FeedbackClassifier,
+    apply_raw_inline_density_cap,
     compute_density_cap,
+    word_count_from_segments,
 )
 from wren_engine.output_guardrail import ValidatedFeedbackItem
 
@@ -234,3 +236,31 @@ class TestApplyDensityBound:
         result = classifier.apply_density_bound([], word_count=1000, density="medium")
         assert len(result.retained) == 0
         assert len(result.trimmed) == 0
+
+    def test_moderate_alias_matches_medium(self) -> None:
+        assert compute_density_cap(1000, "moderate") == compute_density_cap(
+            1000, DensitySetting.MEDIUM
+        )
+
+
+def test_word_count_from_segments() -> None:
+    assert word_count_from_segments([
+        {"text": "One two three"},
+        {"text": "four five"},
+    ]) == 5
+
+
+def test_apply_raw_inline_density_cap_keeps_strengths_and_trims_inline() -> None:
+    items = [
+        {"kind": "strength", "error_category_id": "s1", "question_text": "Keep?"},
+        {"kind": "inline", "error_category_id": "Grammar", "question_text": "A?"},
+        {"kind": "inline", "error_category_id": "Grammar", "question_text": "B?"},
+        {"kind": "inline", "error_category_id": "Style", "question_text": "C?"},
+        {"kind": "structural", "error_category_id": "st1", "question_text": "Whole?"},
+    ]
+    # 500 words at low density → cap 1 inline item
+    result = apply_raw_inline_density_cap(items, word_count=500, density="low")
+    kinds = [item["kind"] for item in result]
+    assert kinds.count("inline") == 1
+    assert "strength" in kinds
+    assert "structural" in kinds

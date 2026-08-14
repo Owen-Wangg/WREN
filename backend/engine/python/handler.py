@@ -59,6 +59,11 @@ from wren_engine.feedback_job_result import (
     coerce_draft_segments,
     require_complete_feedback_output,
 )
+from wren_engine.feedback_classifier import (
+    apply_raw_inline_density_cap,
+    compute_density_cap,
+    word_count_from_segments,
+)
 from wren_engine.models import Segment, Span
 
 logger = logging.getLogger()
@@ -503,6 +508,16 @@ def assemble_prompt(
             f"Other paragraphs are provided for context only. Do not generate "
             f"any feedback items anchored to context-only paragraphs."
         )
+
+    draft_word_count = word_count_from_segments(segments)
+    inline_cap = compute_density_cap(draft_word_count, config.get('density', 'medium'))
+    type_instructions += (
+        f"\n\nINLINE DENSITY CAP: Emit at most {inline_cap} items with "
+        f'kind="inline". Consolidate recurring issues into one item with 1–2 '
+        "representative quotes. Strength and structural items do not count "
+        "against this cap. Prefer fewer, higher-impact inline items over "
+        "covering every instance."
+    )
 
     # Tone description goes into the grounding note as plain text.
     tone_desc = config.get('tone_description', '')
@@ -1682,15 +1697,23 @@ def process_feedback_request(
                             config=config,
                         )
                         new_strengths = cf_as_items[before_fill:]
+                        filled = 0
                         if new_strengths:
-                            extra = insert_feedback_items(
+                            filled = insert_feedback_items(
                                 document_id, draft_id, user_id, new_strengths, segments, conn,
                             )
                             logger.info(
                                 "Carry-forward fill-in inserted %s missing strength item(s)",
-                                extra,
+                                filled,
                             )
                         persist_resolution_status(document_id, draft_id, segments, config, conn)
+                        try:
+                            publish_debrief_ready(document_id, draft_id, cf_count + filled)
+                        except Exception as appsync_err:
+                            logger.warning(
+                                "AppSync publish failed after carry-forward (non-fatal): %s",
+                                appsync_err,
+                            )
                         return
 
                     if decision.carried_forward:
@@ -1772,6 +1795,11 @@ def process_feedback_request(
         logger.info("Parsing feedback output...")
         feedback_items = parse_feedback_output(model_output)
         logger.info(f"Parsed {len(feedback_items)} feedback items")
+        if (stop_reason or "").strip().lower() == "max_tokens" and feedback_items:
+            logger.warning(
+                "Bedrock stopped at max_tokens; persisting %s recovered item(s)",
+                len(feedback_items),
+            )
         require_complete_feedback_output(stop_reason, len(feedback_items))
 
         # Step 7b: Validate category IDs against this document type's taxonomy and
@@ -1815,6 +1843,20 @@ def process_feedback_request(
             filtered_count = original_count - len(feedback_items)
             if filtered_count > 0:
                 logger.info(f"Filtered {filtered_count} feedback items outside dept admin selection (kept {len(feedback_items)})")
+
+        before_density = len(feedback_items)
+        feedback_items = apply_raw_inline_density_cap(
+            feedback_items,
+            word_count=word_count_from_segments(segments),
+            density=str(config.get('density') or 'medium'),
+        )
+        trimmed_density = before_density - len(feedback_items)
+        if trimmed_density > 0:
+            logger.info(
+                "Density cap trimmed %s inline item(s) (kept %s)",
+                trimmed_density,
+                len(feedback_items),
+            )
 
         # Step 7c: Every displayed / priority category must have a strength item.
         _ensure_strength_coverage(
