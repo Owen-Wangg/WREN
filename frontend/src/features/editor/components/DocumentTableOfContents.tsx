@@ -24,8 +24,52 @@ function getToolbarOffset(scrollParent: HTMLElement): number {
   return FALLBACK_TOOLBAR_OFFSET_PX;
 }
 
+function connectedElement(node: Node | null | undefined): HTMLElement | null {
+  if (!node) return null;
+  const el = node instanceof HTMLElement ? node : node.parentElement;
+  if (el instanceof HTMLElement && el.isConnected) return el;
+  return null;
+}
+
+/** Resolve the heading from the live editor — cached `item.dom` can be detached after redraw. */
+function liveHeadingElement(item: TableOfContentDataItem): HTMLElement | null {
+  const editor = item.editor;
+  const view = editor?.view;
+  if (view) {
+    try {
+      const { doc } = view.state;
+      const maxPos = doc.content.size;
+      const pos = Math.max(0, Math.min(item.pos, maxPos));
+      let headingPos = pos;
+      const nodeAt = doc.nodeAt(pos);
+      if (nodeAt?.type.name !== 'heading') {
+        const $pos = doc.resolve(pos);
+        for (let depth = $pos.depth; depth > 0; depth--) {
+          if ($pos.node(depth).type.name === 'heading') {
+            headingPos = $pos.before(depth);
+            break;
+          }
+        }
+      }
+      const fromView = connectedElement(view.nodeDOM(headingPos) as Node | null);
+      if (fromView) {
+        const heading = fromView.closest('h1, h2, h3');
+        return heading instanceof HTMLElement ? heading : fromView;
+      }
+    } catch {
+      // Position may be stale during remounts.
+    }
+  }
+  return connectedElement(item.dom);
+}
+
+function flashHeading(el: HTMLElement): void {
+  el.classList.add('document-toc-flash');
+  window.setTimeout(() => el.classList.remove('document-toc-flash'), 1200);
+}
+
 function scrollToHeading(item: TableOfContentDataItem): void {
-  const el = item.dom;
+  const el = liveHeadingElement(item);
   const scrollParent = getEditorScrollParent();
 
   if (el && scrollParent) {
@@ -34,15 +78,13 @@ function scrollToHeading(item: TableOfContentDataItem): void {
     const elRect = el.getBoundingClientRect();
     const nextTop = scrollParent.scrollTop + (elRect.top - parentRect.top) - offset;
     scrollParent.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
-    el.classList.add('document-toc-flash');
-    window.setTimeout(() => el.classList.remove('document-toc-flash'), 1200);
+    flashHeading(el);
     return;
   }
 
   if (el) {
     el.scrollIntoView({ block: 'start', behavior: 'smooth', inline: 'nearest' });
-    el.classList.add('document-toc-flash');
-    window.setTimeout(() => el.classList.remove('document-toc-flash'), 1200);
+    flashHeading(el);
     return;
   }
 
