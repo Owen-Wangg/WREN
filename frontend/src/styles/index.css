@@ -212,151 +212,8 @@ body {
 }
 
 .document-editor-scroll {
-  overflow: auto;
+  overflow-y: auto;
   overscroll-behavior: contain;
-  background-color: var(--color-surface-muted);
-  /* The pagination layer owns vertical layout inside this scroller: it tears
-     down and rebuilds gaps, clips and phantom margins on every relayout.
-     Browser scroll anchoring picks anchor nodes inside that churn and fights
-     the JS restore, so anchoring is disabled here and scroll position is
-     conserved explicitly in PageRenderer.withScrollPreserved(). */
-  overflow-anchor: none;
-}
-
-/* Google Docs-style letter pages: gray workspace, 816×1056 frames, 32px gaps. */
-.pagination-workspace {
-  position: relative;
-  min-height: 100%;
-  padding-top: var(--pagination-page-gap, 32px);
-  padding-bottom: var(--pagination-page-gap, 32px);
-  background-color: var(--color-surface-muted);
-}
-
-.pagination-pages,
-.pagination-chrome {
-  position: absolute;
-  left: 50%;
-  top: var(--pagination-page-gap, 32px);
-  width: var(--pagination-page-width, 816px);
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-.pagination-pages {
-  z-index: 0;
-}
-
-/* Header/footer repeats sit above body ink so text cannot paint through them. */
-.pagination-chrome {
-  z-index: 2;
-}
-
-/* Cover bottom margin on pages 2+ so leftover body ink cannot paint into the
-   footer band. Skip page 0 — the live footer lives in the content layer under
-   chrome and must stay visible. */
-.pagination-chrome-page:not([data-page-index='0'])::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% - var(--pagination-page-margin, 96px));
-  height: var(--pagination-page-margin, 96px);
-  background-color: var(--color-surface-primary, #ffffff);
-  pointer-events: none;
-}
-
-/* Cover the gap and the next sheet's top margin so leftover body ink cannot
-   paint through either band. This overlay stops at the content-well start.
-   PageRenderer then keeps a keep-out strip *inside* the well (see
-   --pagination-well-clearance) so first-line glyphs cannot meet this edge. */
-.pagination-chrome-page::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: calc(var(--pagination-page-gap, 32px) + var(--pagination-page-margin, 96px));
-  background: linear-gradient(
-    to bottom,
-    var(--color-surface-muted, #f5f5f5) 0 var(--pagination-page-gap, 32px),
-    var(--color-surface-primary, #ffffff) var(--pagination-page-gap, 32px) 100%
-  );
-  pointer-events: none;
-}
-
-/* Continuation slices of a split paragraph or table — paint-only, not editable. */
-.pagination-paragraph-continuation,
-.pagination-table-continuation {
-  pointer-events: none;
-  user-select: none;
-}
-
-/* Placeholder first page before PageRenderer mounts real frames. */
-.pagination-pages:empty::before {
-  content: '';
-  display: block;
-  width: var(--pagination-page-width, 816px);
-  height: var(--pagination-page-height, 1056px);
-  background-color: var(--color-surface-primary);
-  box-shadow: var(--shadow-md, 0 4px 6px -1px rgb(0 0 0 / 0.1));
-}
-
-.pagination-content {
-  position: relative;
-  z-index: 1;
-  width: var(--pagination-page-width, 816px);
-  margin: 0 auto;
-  background: transparent;
-}
-
-.document-header-region,
-.document-footer-region {
-  position: absolute;
-  left: var(--pagination-page-margin, 96px);
-  right: var(--pagination-page-margin, 96px);
-  z-index: 2;
-  box-sizing: border-box;
-  height: var(--pagination-page-margin, 96px);
-  max-height: var(--pagination-page-margin, 96px);
-  overflow: hidden;
-  pointer-events: auto;
-  border-radius: 2px;
-}
-
-.document-header-region .tiptap,
-.document-header-region .ProseMirror,
-.document-footer-region .tiptap,
-.document-footer-region .ProseMirror {
-  max-height: 100%;
-  overflow: hidden;
-}
-
-.document-header-region {
-  top: 0;
-  display: flex;
-  align-items: flex-start;
-  padding-top: 16px;
-}
-
-.document-footer-region {
-  /* Page 1 bottom margin — inset so a line of footer text is never sliced by the sheet edge. */
-  top: calc(var(--pagination-page-height, 1056px) - var(--pagination-page-margin, 96px));
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding-bottom: 16px;
-}
-
-.document-header-region:hover,
-.document-footer-region:hover,
-.document-header-region:focus-within,
-.document-footer-region:focus-within {
-  background-color: color-mix(in srgb, var(--color-accent-primary, #2c2c2c) 4%, transparent);
-}
-
-.document-body-region {
-  box-sizing: border-box;
-  padding: var(--pagination-page-margin, 96px);
 }
 
 /* Fixed toolbar chrome — elevated above the scrolling document page. */
@@ -371,18 +228,11 @@ body {
     0 6px 16px rgba(0, 0, 0, 0.07);
 }
 
-/* Body fills one letter content area; header/footer stay in the page margins. */
-.document-editor-scroll .document-body-region .tiptap,
-.document-editor-scroll .document-body-region .ProseMirror,
-.document-editor-scroll .document-body-region .document-editor-surface {
-  min-height: var(--pagination-usable-height, 864px);
-}
-
-.document-editor-scroll .document-header-region .tiptap,
-.document-editor-scroll .document-header-region .ProseMirror,
-.document-editor-scroll .document-footer-region .tiptap,
-.document-editor-scroll .document-footer-region .ProseMirror {
-  min-height: 1.5em;
+/* TipTap mounts a ProseMirror root — stretch it so the page fills the viewport. */
+.document-editor-scroll .tiptap,
+.document-editor-scroll .ProseMirror,
+.document-editor-surface {
+  min-height: 100%;
 }
 
 .document-editor-surface.ProseMirror,

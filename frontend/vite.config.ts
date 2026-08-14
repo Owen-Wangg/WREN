@@ -31,42 +31,9 @@ export default defineConfig({
     },
   },
   test: {
-    // Two Vitest projects, so the jsdom suite keeps its current runtime while
-    // layout-dependent geometry tests run in a real browser engine.
-    // See .kiro/specs/pagination-content-occlusion/design.md ("Test Tiers"):
-    // Tier 1/3 -> `jsdom`, Tier 2 (measured geometry) -> `browser`.
-    projects: [
-      {
-        // `extends: true` reuses the root plugins/resolve aliases above.
-        extends: true,
-        test: {
-          name: 'jsdom',
-          globals: true,
-          environment: 'jsdom',
-          setupFiles: ['./src/test/setup.ts'],
-          css: true,
-          // Browser-mode specs are owned by the `browser` project below; jsdom
-          // has no layout engine, so running them here would compare zero-rects.
-          exclude: ['**/node_modules/**', '**/dist/**', '**/*.browser.test.ts'],
-        },
-      },
-      {
-        extends: true,
-        test: {
-          name: 'browser',
-          globals: true,
-          setupFiles: ['./src/test/setup.ts'],
-          css: true,
-          include: ['**/*.browser.test.ts'],
-          browser: {
-            enabled: true,
-            provider: 'playwright',
-            headless: true,
-            screenshotFailures: false,
-            instances: [{ browser: 'chromium' }],
-          },
-        },
-      },
-    ],
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    css: true,
   },
 });

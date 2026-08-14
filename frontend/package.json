@@ -12,8 +12,6 @@
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:jsdom": "vitest run --project jsdom",
-    "test:browser": "vitest run --project browser",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -64,7 +62,6 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "@vitest/browser": "3.2.6",
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.16",
@@ -72,7 +69,6 @@
     "globals": "^15.14.0",
     "jsdom": "^25.0.1",
     "jszip": "3.10.1",
-    "playwright": "1.62.1",
     "tailwindcss": "^4.0.0",
     "typescript": "~5.7.2",
     "typescript-eslint": "^8.18.1",

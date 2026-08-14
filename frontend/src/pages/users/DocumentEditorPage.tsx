@@ -154,7 +154,6 @@ export function DocumentEditorPage() {
     readStoredNavMode() === 'debrief' ? PANEL_WIDTH_DEBRIEF : PANEL_WIDTH_DEFAULT,
   );
   const [tocAnchors, setTocAnchors] = useState<TableOfContentData>([]);
-  const [pageCount, setPageCount] = useState(1);
 
   const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | undefined>(undefined);
   const [highlightedQuotedText, setHighlightedQuotedText] = useState<string | undefined>(
@@ -682,7 +681,6 @@ export function DocumentEditorPage() {
     breadcrumb !== 'Document' ? breadcrumb : null,
     `Draft v${draftVersion}`,
     `${wordCount.toLocaleString()} words`,
-    `${pageCount.toLocaleString()} ${pageCount === 1 ? 'page' : 'pages'}`,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -1054,7 +1052,6 @@ export function DocumentEditorPage() {
               onHeaderChange={(h) => setCurrentHeader(h)}
               onFooterChange={(f) => setCurrentFooter(f)}
               onTocUpdate={setTocAnchors}
-              onPageCountChange={setPageCount}
               className="min-h-0 flex-1"
             />
           )}

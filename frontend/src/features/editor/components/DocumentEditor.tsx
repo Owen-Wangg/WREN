@@ -46,12 +46,6 @@ import { LowConfidence } from '../tiptapLowConfidence';
 import { FootnoteNode, type CitationConfigLike, type FootnoteAttrs } from '../tiptapFootnote';
 import { BlockLayoutCommands, IndentableHeading, IndentableParagraph } from '../tiptapIndent';
 import { PageNumberNode, DateNode } from '../tiptapHeaderFooterNodes';
-import { PAGE_CONFIG, PageBreakNode, PaginationExtension } from '../pagination';
-import {
-  formatPageHint,
-  isOverVerticalScrollbar,
-  visiblePageFromScroll,
-} from '../pagination/scrollbarPageHint';
 
 import { EditorToolbar } from './toolbar/EditorToolbar';
 import { FootnoteList } from './FootnoteList';
@@ -80,8 +74,6 @@ export interface DocumentEditorProps {
   readonly onCommentActivated?: (commentId: string | null) => void;
   /** Fires when the document heading outline changes (Home panel TOC). */
   readonly onTocUpdate?: (anchors: TableOfContentData) => void;
-  /** Fires when letter-page count changes after pagination layout. */
-  readonly onPageCountChange?: (pageCount: number) => void;
   /** Citation configuration for footnote field validation (Requirement 4.4). */
   readonly citationConfig?: CitationConfigLike | null;
 }
@@ -133,7 +125,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       onFooterChange,
       onCommentActivated,
       onTocUpdate,
-      onPageCountChange,
       citationConfig,
     },
     ref,
@@ -143,21 +134,13 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
     const onFooterChangeRef = useRef(onFooterChange);
     const onCommentActivatedRef = useRef(onCommentActivated);
     const onTocUpdateRef = useRef(onTocUpdate);
-    const onPageCountChangeRef = useRef(onPageCountChange);
     useEffect(() => {
       onContentChangeRef.current = onContentChange;
       onHeaderChangeRef.current = onHeaderChange;
       onFooterChangeRef.current = onFooterChange;
       onCommentActivatedRef.current = onCommentActivated;
       onTocUpdateRef.current = onTocUpdate;
-      onPageCountChangeRef.current = onPageCountChange;
     });
-
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const hoveringScrollbarRef = useRef(false);
-    const lastPointerYRef = useRef(0);
-    const [pageCount, setPageCount] = useState(1);
-    const [pageHint, setPageHint] = useState<{ label: string; top: number } | null>(null);
 
     const [activeFootnoteNumber, setActiveFootnoteNumber] = useState<number | null>(null);
     const setActiveFootnoteNumberRef = useRef(setActiveFootnoteNumber);
@@ -216,13 +199,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
           onCommentActivated: (commentId) => onCommentActivatedRef.current?.(commentId),
         }),
         FootnoteNode,
-        PageBreakNode,
-        PaginationExtension.configure({
-          onPageCountChange: (nextPageCount) => {
-            setPageCount(nextPageCount);
-            onPageCountChangeRef.current?.(nextPageCount);
-          },
-        }),
       ],
       content: initialContent ?? EMPTY_DOC,
       editorProps: {
@@ -312,55 +288,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
       setActiveFootnoteNumber(null);
     }, [activeFootnoteNumber, editor]);
 
-    const showPageHintAt = useCallback(
-      (clientY: number) => {
-        const scrollEl = scrollRef.current;
-        if (!scrollEl) return;
-        const current = visiblePageFromScroll(scrollEl, pageCount);
-        const rect = scrollEl.getBoundingClientRect();
-        const top = Math.min(Math.max(clientY - rect.top, 8), Math.max(8, rect.height - 28));
-        setPageHint({ label: formatPageHint(current, pageCount), top });
-      },
-      [pageCount],
-    );
-
-    useEffect(() => {
-      const scrollEl = scrollRef.current;
-      if (!scrollEl) return;
-
-      const onPointerMove = (event: PointerEvent) => {
-        lastPointerYRef.current = event.clientY;
-        if (!isOverVerticalScrollbar(scrollEl, event.clientX, event.clientY)) {
-          if (hoveringScrollbarRef.current) {
-            hoveringScrollbarRef.current = false;
-            setPageHint(null);
-          }
-          return;
-        }
-        hoveringScrollbarRef.current = true;
-        showPageHintAt(event.clientY);
-      };
-
-      const onPointerLeave = () => {
-        hoveringScrollbarRef.current = false;
-        setPageHint(null);
-      };
-
-      const onScroll = () => {
-        if (!hoveringScrollbarRef.current) return;
-        showPageHintAt(lastPointerYRef.current);
-      };
-
-      scrollEl.addEventListener('pointermove', onPointerMove);
-      scrollEl.addEventListener('pointerleave', onPointerLeave);
-      scrollEl.addEventListener('scroll', onScroll, { passive: true });
-      return () => {
-        scrollEl.removeEventListener('pointermove', onPointerMove);
-        scrollEl.removeEventListener('pointerleave', onPointerLeave);
-        scrollEl.removeEventListener('scroll', onScroll);
-      };
-    }, [showPageHintAt]);
-
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div data-document-editor-toolbar className="document-editor-toolbar-chrome shrink-0">
@@ -368,67 +295,47 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, DocumentEditorPro
             <EditorToolbar editor={editor} />
           </div>
         </div>
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <div
-            ref={scrollRef}
-            className="document-editor-scroll min-h-0 flex-1 overflow-auto bg-surface-muted"
-          >
-          <div
-            className="pagination-workspace"
-            style={{
-              ['--pagination-page-width' as string]: `${PAGE_CONFIG.WIDTH_PX}px`,
-              ['--pagination-page-height' as string]: `${PAGE_CONFIG.HEIGHT_PX}px`,
-              ['--pagination-page-margin' as string]: `${PAGE_CONFIG.MARGIN_PX}px`,
-              ['--pagination-page-gap' as string]: `${PAGE_CONFIG.PAGE_GAP_PX}px`,
-              ['--pagination-usable-height' as string]: `${PAGE_CONFIG.USABLE_HEIGHT_PX}px`,
-              ['--pagination-well-clearance' as string]: `${PAGE_CONFIG.WELL_START_CLEARANCE_PX}px`,
-            }}
-          >
-            {/* Letter-sized page frames are painted here by PageRenderer. */}
-            <div className="pagination-pages" aria-hidden="true" />
-            <div className="pagination-chrome" aria-hidden="true" />
-            <div className="pagination-content">
-              <div className="document-header-region" aria-label="Document header">
-                <EditorContent editor={headerEditor} />
-              </div>
+        <div className="document-editor-scroll min-h-0 flex-1 overflow-y-auto bg-surface-muted/50">
+          <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col bg-surface-primary shadow-sm">
+            <div
+              className="document-header-region border-b border-border-subtle px-2xl py-sm sm:px-3xl"
+              aria-label="Document header"
+            >
+              <p className="mb-1 text-caption font-sans text-text-muted select-none">Header</p>
+              <EditorContent editor={headerEditor} />
+            </div>
 
-              <div className="document-body-region">
-                <EditorContent
-                  editor={editor}
-                  className={['block px-0', className].filter(Boolean).join(' ')}
+            <div className="flex-1 px-2xl pb-2xl pt-lg sm:px-3xl sm:pb-3xl">
+              <EditorContent
+                editor={editor}
+                className={['block h-full min-h-full flex-1 px-0', className]
+                  .filter(Boolean)
+                  .join(' ')}
+              />
+              {activeFootnote && (
+                <FootnotePanel
+                  open={true}
+                  onOpenChange={(isOpen) => {
+                    if (!isOpen) setActiveFootnoteNumber(null);
+                  }}
+                  footnote={activeFootnote}
+                  citationConfig={citationConfig}
+                  onSave={handleSaveFootnote}
+                  onDelete={handleDeleteFootnote}
+                  anchor={<span />}
                 />
-                {activeFootnote && (
-                  <FootnotePanel
-                    open={true}
-                    onOpenChange={(isOpen) => {
-                      if (!isOpen) setActiveFootnoteNumber(null);
-                    }}
-                    footnote={activeFootnote}
-                    citationConfig={citationConfig}
-                    onSave={handleSaveFootnote}
-                    onDelete={handleDeleteFootnote}
-                    anchor={<span />}
-                  />
-                )}
-                <FootnoteList footnotes={footnotes} />
-              </div>
+              )}
+              <FootnoteList footnotes={footnotes} />
+            </div>
 
-              <div className="document-footer-region" aria-label="Document footer">
-                <EditorContent editor={footerEditor} />
-              </div>
+            <div
+              className="document-footer-region border-t border-border-subtle px-2xl py-sm sm:px-3xl"
+              aria-label="Document footer"
+            >
+              <p className="mb-1 text-caption font-sans text-text-muted select-none">Footer</p>
+              <EditorContent editor={footerEditor} />
             </div>
           </div>
-        </div>
-        {pageHint ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="pointer-events-none absolute right-xl z-20 -translate-y-1/2 whitespace-nowrap rounded-md bg-text-primary px-sm py-xs text-caption font-sans font-medium text-text-on-accent shadow-md"
-            style={{ top: pageHint.top }}
-          >
-            {pageHint.label}
-          </div>
-        ) : null}
         </div>
       </div>
     );

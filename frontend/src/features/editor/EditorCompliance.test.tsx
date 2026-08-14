@@ -86,7 +86,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
         />,
       );
 
-      const editor = screen.getByRole('textbox');
+      const editor = screen.getByRole('textbox', { name: 'Document editor' });
       await waitFor(() => {
         const aiMarks = editor.querySelectorAll('[data-ai-feedback="true"]');
         expect(aiMarks.length).toBeGreaterThan(0);
@@ -103,7 +103,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
         />,
       );
 
-      const editor = screen.getByRole('textbox');
+      const editor = screen.getByRole('textbox', { name: 'Document editor' });
       await waitFor(() =>
         expect(editor.querySelector('[data-ai-feedback="true"]')).not.toBeNull(),
       );
@@ -128,7 +128,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
         />,
       );
 
-      const editor = screen.getByRole('textbox');
+      const editor = screen.getByRole('textbox', { name: 'Document editor' });
       await waitFor(() => {
         const aiMarks = editor.querySelectorAll('[data-ai-feedback="true"]');
         expect(aiMarks.length).toBe(2);
@@ -145,7 +145,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
         />,
       );
 
-      const editor = screen.getByRole('textbox');
+      const editor = screen.getByRole('textbox', { name: 'Document editor' });
       await waitFor(() =>
         expect(editor.querySelector('[data-ai-feedback="true"]')).not.toBeNull(),
       );
@@ -168,7 +168,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
         />,
       );
 
-      const editor = screen.getByRole('textbox');
+      const editor = screen.getByRole('textbox', { name: 'Document editor' });
       await waitFor(() =>
         expect(editor.querySelector('[data-ai-feedback="true"]')).not.toBeNull(),
       );
@@ -190,7 +190,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
         />,
       );
 
-      const editor = screen.getByRole('textbox');
+      const editor = screen.getByRole('textbox', { name: 'Document editor' });
       await waitFor(() =>
         expect(editor.querySelector('[data-ai-feedback="true"]')).not.toBeNull(),
       );
@@ -212,7 +212,7 @@ describe('Editor — No-Ghostwriting Compliance (Requirement 11.2)', () => {
         />,
       );
 
-      const editor = screen.getByRole('textbox');
+      const editor = screen.getByRole('textbox', { name: 'Document editor' });
       await waitFor(() =>
         expect(editor.querySelector('[data-ai-feedback="true"]')).not.toBeNull(),
       );

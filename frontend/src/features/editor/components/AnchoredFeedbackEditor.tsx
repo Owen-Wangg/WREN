@@ -51,7 +51,6 @@ export interface AnchoredFeedbackEditorProps
     | 'onHeaderChange'
     | 'onFooterChange'
     | 'onTocUpdate'
-    | 'onPageCountChange'
     | 'className'
   > {
   /** Inline + structural Feedback Items for the current draft; only `kind === 'inline'` items render here. */
@@ -102,7 +101,6 @@ export function AnchoredFeedbackEditor({
   onHeaderChange,
   onFooterChange,
   onTocUpdate,
-  onPageCountChange,
   className,
   highlightedAnchorId,
   highlightedQuotedText,
@@ -235,7 +233,6 @@ export function AnchoredFeedbackEditor({
         onHeaderChange={onHeaderChange}
         onFooterChange={onFooterChange}
         onTocUpdate={onTocUpdate}
-        onPageCountChange={onPageCountChange}
         onCommentActivated={handleCommentActivated}
         className="min-h-0 flex-1"
       />
