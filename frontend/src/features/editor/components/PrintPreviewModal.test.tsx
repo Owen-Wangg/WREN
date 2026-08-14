@@ -3,16 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PrintPreviewModal } from './PrintPreviewModal';
 
-vi.mock('../pdfExport', () => ({
-  tiptapContentToPdfBlob: vi.fn(async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' })),
-}));
-
-const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
-
 describe('PrintPreviewModal', () => {
+  const buildPdf = vi.fn(async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+
   beforeEach(() => {
     URL.createObjectURL = vi.fn(() => 'blob:preview');
     URL.revokeObjectURL = vi.fn();
+    buildPdf.mockClear();
   });
 
   it('is not in the document when closed', () => {
@@ -20,11 +17,13 @@ describe('PrintPreviewModal', () => {
       <PrintPreviewModal
         open={false}
         onOpenChange={() => undefined}
-        content={EMPTY_DOC}
         documentTitle="Essay"
+        subtitle="US Letter · not editable"
+        buildPdf={buildPdf}
       />,
     );
     expect(screen.queryByText('Print preview')).toBeNull();
+    expect(buildPdf).not.toHaveBeenCalled();
   });
 
   it('shows a loading state then an iframe when opened', async () => {
@@ -32,12 +31,15 @@ describe('PrintPreviewModal', () => {
       <PrintPreviewModal
         open={true}
         onOpenChange={() => undefined}
-        content={EMPTY_DOC}
         documentTitle="Essay"
+        subtitle="US Letter · with AI Debrief · not editable"
+        buildPdf={buildPdf}
       />,
     );
     expect(screen.getByRole('dialog', { name: 'Print preview' })).toBeInTheDocument();
+    expect(screen.getByText(/with AI Debrief/)).toBeInTheDocument();
     const frame = await screen.findByTitle('Print preview');
     expect(frame).toHaveAttribute('src', 'blob:preview');
+    expect(buildPdf).toHaveBeenCalledTimes(1);
   });
 });

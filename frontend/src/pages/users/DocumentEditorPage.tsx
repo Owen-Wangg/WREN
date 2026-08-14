@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect, useMemo, type ComponentType }
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
-  Eye,
   GripVertical,
   ListTree,
   MessageSquare,
@@ -217,6 +216,8 @@ export function DocumentEditorPage() {
   const [exportError, setExportError] = useState<string | undefined>(undefined);
   const [exportNotice, setExportNotice] = useState<string | undefined>(undefined);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewIncludeDebrief, setPreviewIncludeDebrief] = useState(false);
+  const previewIncludeDebriefRef = useRef(false);
 
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const panelDivRef = useRef<HTMLDivElement | null>(null);
@@ -680,6 +681,49 @@ export function DocumentEditorPage() {
     }
   };
 
+  const buildPreviewPdf = useCallback(async (): Promise<Blob> => {
+    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
+    if (previewIncludeDebriefRef.current) {
+      let debrief: Debrief | null = null;
+      let debriefStatus: 'ready' | 'empty' | 'unavailable' = 'empty';
+      try {
+        const history = await fetchDebriefHistory(apiClient, envId);
+        const latestDraftId = history[0]?.draftId;
+        const loaded = await fetchDebrief(apiClient, envId, latestDraftId);
+        if (loaded.items.length > 0) {
+          debrief = loaded;
+          debriefStatus = 'ready';
+        }
+      } catch {
+        debriefStatus = 'unavailable';
+      }
+      return combinedDocumentAndDebriefToPdfBlob({
+        content: cleaned,
+        documentTitle: documentName,
+        exportDate: new Date(),
+        debrief,
+        debriefStatus,
+      });
+    }
+    return tiptapContentToPdfBlob(cleaned, {
+      header: currentHeader,
+      footer: currentFooter,
+      lastEditedAt: contentUpdatedAt,
+    });
+  }, [currentContent, currentHeader, currentFooter, contentUpdatedAt, documentName, envId]);
+
+  const handlePreview = ({ includeDebrief }: ExportOptions) => {
+    setExportError(undefined);
+    const cleaned = stripAiMarksFromTipTapContent(currentContent) as JSONContent;
+    if (includeDebrief && isEditorContentEmpty(cleaned)) {
+      setExportError('The document is empty. Add content before previewing a PDF.');
+      return;
+    }
+    previewIncludeDebriefRef.current = includeDebrief;
+    setPreviewIncludeDebrief(includeDebrief);
+    setPreviewOpen(true);
+  };
+
   const wordCount = wordCountFromEditorContent(currentContent);
   const estimatedPageCount = usePrintedPageEstimate(
     currentContent,
@@ -801,18 +845,6 @@ export function DocumentEditorPage() {
                 {resubmitDraftMutation.isPending ? 'Uploading New Draft' : 'Upload New Draft'}
               </span>
             </button>
-            <button
-              type="button"
-              onClick={() => setPreviewOpen(true)}
-              title="Print preview (US Letter PDF)"
-              aria-label="Print preview"
-              className={railButtonClass(false)}
-            >
-              <Eye size={20} strokeWidth={1.75} aria-hidden="true" />
-              <span className="max-w-full px-[2px] text-caption font-sans font-medium leading-tight">
-                Preview
-              </span>
-            </button>
             <ExportMenu
               busy={exportBusy}
               error={exportError}
@@ -820,6 +852,7 @@ export function DocumentEditorPage() {
               debriefDisabledReason={debriefDisabledReason}
               triggerClassName={`${railButtonClass(false)} disabled:cursor-not-allowed disabled:opacity-60`}
               onExport={(options) => void handleExport(options)}
+              onPreview={handlePreview}
             />
           </div>
         </nav>
@@ -1083,11 +1116,13 @@ export function DocumentEditorPage() {
       <PrintPreviewModal
         open={previewOpen}
         onOpenChange={setPreviewOpen}
-        content={currentContent}
-        header={currentHeader}
-        footer={currentFooter}
-        lastEditedAt={contentUpdatedAt}
         documentTitle={documentName}
+        subtitle={
+          previewIncludeDebrief
+            ? 'US Letter · with AI Debrief · not editable'
+            : 'US Letter · not editable'
+        }
+        buildPdf={buildPreviewPdf}
       />
     </div>
   );

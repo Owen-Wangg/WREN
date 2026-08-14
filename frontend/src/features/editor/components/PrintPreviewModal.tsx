@@ -1,35 +1,26 @@
 /**
- * Read-only print preview: renders the current document as a US Letter PDF
- * in a modal. Uses the same exporter as Download PDF. Does not paginate the
- * live editor.
+ * Read-only print preview: shows a PDF blob in a modal. The caller supplies
+ * `buildPdf` so preview can match document-only or document+debrief export.
+ * Does not paginate the live editor.
  */
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { tiptapContentToPdfBlob } from '../pdfExport';
-import { stripAiMarksFromTipTapContent } from '@wren/types';
-
-import type { JSONContent } from '@tiptap/react';
-
 export interface PrintPreviewModalProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
-  readonly content: JSONContent;
-  readonly header?: JSONContent | null;
-  readonly footer?: JSONContent | null;
-  readonly lastEditedAt?: string | null;
   readonly documentTitle: string;
+  readonly subtitle: string;
+  readonly buildPdf: () => Promise<Blob>;
 }
 
 export function PrintPreviewModal({
   open,
   onOpenChange,
-  content,
-  header,
-  footer,
-  lastEditedAt,
   documentTitle,
+  subtitle,
+  buildPdf,
 }: PrintPreviewModalProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -49,8 +40,7 @@ export function PrintPreviewModal({
     setError(undefined);
     setObjectUrl(null);
 
-    const cleaned = stripAiMarksFromTipTapContent(content) as JSONContent;
-    void tiptapContentToPdfBlob(cleaned, { header, footer, lastEditedAt })
+    void buildPdf()
       .then((blob) => {
         const url = URL.createObjectURL(blob);
         if (cancelled) {
@@ -90,7 +80,7 @@ export function PrintPreviewModal({
                 Print preview
               </Dialog.Title>
               <p className="mt-xs truncate text-caption font-sans text-text-muted" title={documentTitle}>
-                {documentTitle} · US Letter · not editable
+                {documentTitle} · {subtitle}
               </p>
             </div>
             <Dialog.Close asChild>
