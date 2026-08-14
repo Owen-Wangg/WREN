@@ -25,6 +25,12 @@ export interface ChatFeedbackSidebarProps {
   readonly isDocumentReady?: boolean;
   /** Persist editor content as a new draft before AI Debrief regenerate. */
   readonly onBeforeRegenerate?: () => Promise<void>;
+  /** Start the page-level feedback status poll after the job is queued. */
+  readonly onFeedbackQueued?: () => void;
+  /** Called when generation fails without producing items. */
+  readonly onGenerationFailed?: () => void;
+  /** Shown when polling times out or the generation job fails. */
+  readonly generationError?: string;
   readonly onHighlight?: (anchorId: string) => void;
   /** Called when the student clicks a quoted phrase in Ask LEON chat. */
   readonly onChatQuoteClick?: (selection: {
@@ -53,6 +59,9 @@ export function ChatFeedbackSidebar({
   isGeneratingFeedback = false,
   isDocumentReady = true,
   onBeforeRegenerate,
+  onFeedbackQueued,
+  onGenerationFailed,
+  generationError,
   onHighlight,
   onChatQuoteClick,
   onHighlightText,
@@ -104,6 +113,9 @@ export function ChatFeedbackSidebar({
           isGenerating={isGeneratingFeedback}
           isDocumentReady={isDocumentReady}
           onBeforeRegenerate={onBeforeRegenerate}
+          onFeedbackQueued={onFeedbackQueued}
+          onGenerationFailed={onGenerationFailed}
+          generationError={generationError}
           activeQuoteId={activeQuoteId}
           onQuoteClick={onQuoteClick}
         />

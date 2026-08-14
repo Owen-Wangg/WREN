@@ -54,6 +54,11 @@ from wren_engine.progress_tracker import (
     ProgressTracker,
     ResolutionStatus,
 )
+from wren_engine.feedback_job_result import (
+    NonRetryableFeedbackError,
+    coerce_draft_segments,
+    require_complete_feedback_output,
+)
 from wren_engine.models import Segment, Span
 
 logger = logging.getLogger()
@@ -243,7 +248,7 @@ def load_draft_segments(draft_id: str, conn: psycopg.Connection) -> list[dict[st
 
             result = cur.fetchone()
             if result and result[0]:
-                return json.loads(result[0])
+                return coerce_draft_segments(result[0])
 
             return []
     except Exception as e:
@@ -582,12 +587,15 @@ def assemble_prompt(
     return assembled.system_message + "\n\n---\n\n" + assembled.user_message
 
 
-def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
+def invoke_bedrock(prompt: str, config: dict[str, Any]) -> tuple[str, str]:
     """Invoke Bedrock Claude model.
 
     `prompt` is produced by assemble_prompt as "system_message\\n\\n---\\n\\nuser_message".
     We split on that sentinel so the system instructions stay in the system field
     (where the model treats them as authoritative and non-overridable).
+
+    Returns ``(text, stop_reason)``. ``stop_reason`` is ``max_tokens`` when the
+    JSON array was cut off — callers must not persist that as a complete debrief.
     """
     try:
         bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
@@ -616,7 +624,9 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
         )
 
         output = json.loads(response['body'].read())
-        return output['content'][0]['text']
+        text = output['content'][0]['text']
+        stop_reason = str(output.get('stop_reason') or '')
+        return text, stop_reason
     except Exception as e:
         logger.error(f"Error invoking Bedrock: {str(e)}")
         raise
@@ -711,7 +721,9 @@ def _ensure_strength_coverage(
             document_text=document_text_from_segments(segments),
             missing_categories=missing_named,
         )
-        raw = invoke_bedrock(prompt, config)
+        raw, fill_stop = invoke_bedrock(prompt, config)
+        if fill_stop == 'max_tokens':
+            logger.warning("Strength fill-in output was truncated (non-fatal)")
         filled = parse_feedback_output(raw)
         normalize_feedback_kinds(filled)
         accepted = accept_filled_strengths(
@@ -1600,8 +1612,7 @@ def process_feedback_request(
         segments = load_draft_segments(draft_id, conn)
 
         if not segments:
-            logger.warning(f"No segments found for draft {draft_id}")
-            return
+            raise NonRetryableFeedbackError(f"No segments found for draft {draft_id}")
 
         # Step 3b: Load footnotes from draft content (Task 9.3)
         logger.info("Loading draft footnotes...")
@@ -1752,20 +1763,16 @@ def process_feedback_request(
 
         # Step 6: Invoke Bedrock (runs concurrently with resolution thread)
         logger.info("Invoking Bedrock...")
-        model_output = invoke_bedrock(prompt, config)
-        logger.info(f"Bedrock output received ({len(model_output)} chars)")
+        model_output, stop_reason = invoke_bedrock(prompt, config)
+        logger.info(
+            f"Bedrock output received ({len(model_output)} chars, stop_reason={stop_reason!r})"
+        )
 
         # Step 7: Parse feedback output
         logger.info("Parsing feedback output...")
         feedback_items = parse_feedback_output(model_output)
         logger.info(f"Parsed {len(feedback_items)} feedback items")
-
-        if not feedback_items:
-            logger.warning("No feedback items parsed from model output")
-            resolution_thread.join()
-            if resolution_errors:
-                logger.warning(f"Resolution thread error: {resolution_errors[0]}")
-            return
+        require_complete_feedback_output(stop_reason, len(feedback_items))
 
         # Step 7b: Validate category IDs against this document type's taxonomy and
         # apply the dept admin's priority selection on top.
@@ -1916,10 +1923,22 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
                 success_count += 1
 
+            except NonRetryableFeedbackError as job_error:
+                # Truncation / missing segments: retrying the same prompt will not help.
+                # Publish itemCount=0 so the UI can stop waiting instead of polling until timeout.
+                logger.error(
+                    f"Non-retryable feedback job failure: {str(job_error)}",
+                    exc_info=True,
+                )
+                try:
+                    publish_debrief_ready(document_id, draft_id, 0)
+                except Exception as appsync_err:
+                    logger.warning("AppSync publish failed after non-retryable error: %s", appsync_err)
+                failure_count += 1
             except Exception as job_error:
                 logger.error(f"Error processing job: {str(job_error)}", exc_info=True)
                 failure_count += 1
-                # SQS will handle the failure and retry or send to DLQ
+                raise
 
         logger.info(f"Feedback batch completed: {success_count} succeeded, {failure_count} failed")
 

@@ -31,6 +31,10 @@ import { fetchDebrief, fetchDebriefHistory, useAiDebrief } from '@/features/debr
 import type { Debrief } from '@/features/debrief';
 import { generateFeedback, fetchFeedbackStatus } from '@/features/editor/anchoredFeedbackApi';
 import {
+  editorContentDiffersFromPersisted,
+  segmentsNeedEngineSnapshot,
+} from '@/features/editor/draftSnapshot';
+import {
   combinedDocumentAndDebriefToPdfBlob,
   isEditorContentEmpty,
 } from '@/features/editor/combinedPdfExport';
@@ -69,6 +73,8 @@ const PANEL_WIDTH_DEBRIEF = 420;
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 560;
 const RAIL_WIDTH_PX = 92;
+/** Lambda feedback jobs are capped at 5 minutes; wait a little longer, then surface failure. */
+const FEEDBACK_POLL_TIMEOUT_MS = 6 * 60 * 1000;
 
 const EMPTY_EDITOR_CONTENT: JSONContent = {
   type: 'doc',
@@ -178,6 +184,10 @@ export function DocumentEditorPage() {
     if (s?.ingestQueued) return false;
     return !!(s?.feedbackQueued || s?.initialContent);
   });
+  const [feedbackGenerationError, setFeedbackGenerationError] = useState<string | undefined>(
+    undefined,
+  );
+  const feedbackPollStartedAtRef = useRef<number | null>(null);
 
   const state = location.state as {
     documentName?: string;
@@ -404,23 +414,25 @@ export function DocumentEditorPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const saveDraftFromEditor = useCallback(async () => {
-    // Only create a new draft version when the editor content differs from what
-    // is already persisted. Comparing serialised JSON directly is more reliable
-    // than trusting autosaveStatus, which can transiently show 'dirty' during
-    // the initial content-seeding renders even on an untouched PDF.
+    // Snapshot paragraph segments the feedback engine actually reads.
+    // Autosave PATCHes TipTap `content` only — segments stay frozen on the
+    // version row — so matching JSON is not enough; stale segments would
+    // produce a debrief that cannot land quotes in a long edited draft.
     await flushAutosave();
     const cleaned = asTipTapDoc(stripAiMarksFromTipTapContent(currentContent));
-    const persistedJson = draftContent ? JSON.stringify(
-      asTipTapDoc(stripAiMarksFromTipTapContent(draftContent)) ?? draftContent
-    ) : null;
-    const editorJson = cleaned ? JSON.stringify(cleaned) : null;
-    if (persistedJson !== null && persistedJson === editorJson) return;
     const segments = cleaned
       ? tipTapContentToSegments(cleaned)
       : segmentsFromEditorContent(currentContent);
+    const persistedJson = draftContent
+      ? JSON.stringify(asTipTapDoc(stripAiMarksFromTipTapContent(draftContent)) ?? draftContent)
+      : null;
+    const editorJson = cleaned ? JSON.stringify(cleaned) : null;
+    const contentChanged = editorContentDiffersFromPersisted(editorJson, persistedJson);
+    const segmentsStale = segmentsNeedEngineSnapshot(segments, draftQuery.data?.segments);
+    if (!contentChanged && !segmentsStale) return;
     await createDraft(apiClient, envId, segments, cleaned);
     await queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
-  }, [currentContent, draftContent, envId, flushAutosave, queryClient]);
+  }, [currentContent, draftContent, draftQuery.data?.segments, envId, flushAutosave, queryClient]);
 
   const resubmitDraftMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -467,6 +479,7 @@ export function DocumentEditorPage() {
         setCurrentContent(draft.content as JSONContent);
       }
       void queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
+      setFeedbackGenerationError(undefined);
       setIsPollingFeedback(true);
       void generateFeedback(apiClient, envId).catch(() => {
         // Non-fatal: student can Regenerate from the debrief panel.
@@ -532,6 +545,7 @@ export function DocumentEditorPage() {
             // Draft query invalidate will still refresh when available.
           }
           setIsPollingFeedback(true);
+          setFeedbackGenerationError(undefined);
           void generateFeedback(apiClient, envId).catch(() => {
             // Non-fatal.
           });
@@ -562,38 +576,57 @@ export function DocumentEditorPage() {
   }, [isPollingIngest, envId, queryClient]);
 
   useEffect(() => {
-    if (!isPollingFeedback) return;
+    if (!isPollingFeedback) {
+      feedbackPollStartedAtRef.current = null;
+      return;
+    }
+    if (feedbackPollStartedAtRef.current == null) {
+      feedbackPollStartedAtRef.current = Date.now();
+    }
 
     let cancelled = false;
-    const interval = setInterval(() => {
-      void (async () => {
-        try {
-          const status = await fetchFeedbackStatus(apiClient, envId);
-          if (cancelled) return;
+    const tick = async () => {
+      if (
+        feedbackPollStartedAtRef.current != null &&
+        Date.now() - feedbackPollStartedAtRef.current > FEEDBACK_POLL_TIMEOUT_MS
+      ) {
+        if (cancelled) return;
+        setIsPollingFeedback(false);
+        setFeedbackGenerationError(
+          "AI Debrief didn't finish in time. Long drafts can take a few minutes — try Regenerate again.",
+        );
+        return;
+      }
 
-          if (status.status === 'completed') {
-            setIsPollingFeedback(false);
-            clearInterval(interval);
-            void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
-            void queryClient.invalidateQueries({
-              queryKey: [...queryKeys.debrief(envId).slice(0, 4)],
-            });
-            void queryClient.invalidateQueries({
-              queryKey: queryKeys.debriefHistory(envId),
-            });
-            return;
-          }
+      try {
+        const status = await fetchFeedbackStatus(apiClient, envId);
+        if (cancelled) return;
 
-          if (status.status === 'failed') {
-            setIsPollingFeedback(false);
-            clearInterval(interval);
-          }
-        } catch {
-          if (cancelled) return;
+        if (status.status === 'completed') {
           setIsPollingFeedback(false);
-          clearInterval(interval);
+          setFeedbackGenerationError(undefined);
+          void queryClient.invalidateQueries({ queryKey: queryKeys.inlineFeedbackItems(envId) });
+          void queryClient.invalidateQueries({
+            queryKey: [...queryKeys.debrief(envId).slice(0, 4)],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.debriefHistory(envId),
+          });
+          return;
         }
-      })();
+
+        if (status.status === 'failed') {
+          setIsPollingFeedback(false);
+          setFeedbackGenerationError("Couldn't generate the AI Debrief. Please try again.");
+        }
+      } catch {
+        // Keep polling — transient network errors on long jobs.
+      }
+    };
+
+    void tick();
+    const interval = setInterval(() => {
+      void tick();
     }, 2500);
 
     return () => {
@@ -894,7 +927,18 @@ export function DocumentEditorPage() {
                 askWrenService={askWrenService}
                 isGeneratingFeedback={isPollingFeedback}
                 isDocumentReady={isDocumentReady}
+                generationError={feedbackGenerationError}
                 onBeforeRegenerate={saveDraftFromEditor}
+                onFeedbackQueued={() => {
+                  setFeedbackGenerationError(undefined);
+                  setIsPollingFeedback(true);
+                }}
+                onGenerationFailed={() => {
+                  setIsPollingFeedback(false);
+                  setFeedbackGenerationError(
+                    "AI Debrief didn't finish. Long drafts can hit a generation limit — try Regenerate again.",
+                  );
+                }}
                 onHighlight={(anchorId) => {
                   setActiveQuoteId(`ask:${anchorId}`);
                   setHighlightedAnchorId(anchorId);

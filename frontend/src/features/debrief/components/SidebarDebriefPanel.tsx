@@ -47,7 +47,7 @@ const GENERATING_STEPS: Array<{ message: string; detail: string }> = [
   },
   {
     message: 'Finalising your debrief…',
-    detail: 'Almost ready — this usually takes 20–40 seconds in total.',
+    detail: 'Almost ready — short drafts usually take under a minute; long drafts can take a few minutes.',
   },
 ];
 
@@ -127,6 +127,12 @@ export interface SidebarDebriefPanelProps {
    * TipTap content stays the source of truth in DocumentEditorPage.
    */
   readonly onBeforeRegenerate?: () => Promise<void>;
+  /** Called after the regenerate POST returns 202 so the page can poll status. */
+  readonly onFeedbackQueued?: () => void;
+  /** Called when generation fails without producing items (truncated job). */
+  readonly onGenerationFailed?: () => void;
+  /** Shown when polling times out or the generation job fails. */
+  readonly generationError?: string;
   /** Feedback item id of the quote currently highlighted in the editor. */
   readonly activeQuoteId?: string;
   /** Called when student clicks a quoted text to highlight it in the document. */
@@ -143,6 +149,9 @@ export function SidebarDebriefPanel({
   isGenerating = false,
   isDocumentReady = true,
   onBeforeRegenerate,
+  onFeedbackQueued,
+  onGenerationFailed,
+  generationError,
   activeQuoteId,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
@@ -182,7 +191,12 @@ export function SidebarDebriefPanel({
   useDebriefSubscription(
     environmentId,
     isAwaitingDebrief,
-    () => setIsAwaitingDebrief(false),
+    (itemCount) => {
+      setIsAwaitingDebrief(false);
+      if (itemCount === 0) {
+        onGenerationFailedRef.current?.();
+      }
+    },
   );
 
   const didAutoRegenerate = useRef(false);
@@ -190,6 +204,11 @@ export function SidebarDebriefPanel({
   regenerateRef.current = regenerate;
   const onBeforeRegenerateRef = useRef(onBeforeRegenerate);
   onBeforeRegenerateRef.current = onBeforeRegenerate;
+  const onFeedbackQueuedRef = useRef(onFeedbackQueued);
+  onFeedbackQueuedRef.current = onFeedbackQueued;
+  const onGenerationFailedRef = useRef(onGenerationFailed);
+  onGenerationFailedRef.current = onGenerationFailed;
+  const sawGeneratingRef = useRef(false);
 
   const runRegenerate = async () => {
     setIsSavingThenRegen(true);
@@ -198,7 +217,8 @@ export function SidebarDebriefPanel({
     try {
       await onBeforeRegenerateRef.current?.();
       await regenerateRef.current.mutateAsync();
-      // POST returned 202 — hand off the "waiting" flag to the subscription.
+      // POST returned 202 — poll status (and AppSync) until the job finishes.
+      onFeedbackQueuedRef.current?.();
       setSelectedDraftId(null);
       setIsAwaitingDebrief(true);
     } catch {
@@ -218,6 +238,21 @@ export function SidebarDebriefPanel({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per autoRegenerate mount
   }, [autoRegenerate]);
+
+  useEffect(() => {
+    if (!isAwaitingDebrief) {
+      sawGeneratingRef.current = false;
+      return;
+    }
+    if (isGenerating) {
+      sawGeneratingRef.current = true;
+      return;
+    }
+    if (sawGeneratingRef.current && !isGenerating) {
+      setIsAwaitingDebrief(false);
+      sawGeneratingRef.current = false;
+    }
+  }, [isGenerating, isAwaitingDebrief]);
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -507,6 +542,11 @@ export function SidebarDebriefPanel({
         {regenerate.isError && (
           <p role="alert" className="mb-md text-body text-signal-critical">
             Couldn't regenerate. Please try again.
+          </p>
+        )}
+        {generationError && !regenerating && !isGenerating && (
+          <p role="alert" className="mb-md text-body text-signal-critical">
+            {generationError}
           </p>
         )}
 

@@ -6,7 +6,8 @@
  * REST then updates the React Query cache.
  *
  * The `onComplete` callback is called after the cache is updated so the caller
- * can clear its "is generating" state.
+ * can clear its "is generating" state. `itemCount` is 0 when generation failed
+ * without persisting items (truncated output, missing segments).
  *
  * When VITE_APPSYNC_URL is absent or the subscription fails, this is a no-op
  * — the polling fallback in DocumentEditorPage handles completion.
@@ -43,7 +44,7 @@ const debriefReadyPayloadSchema = z.object({
 export function useDebriefSubscription(
   documentId: string,
   enabled: boolean,
-  onComplete: () => void,
+  onComplete: (itemCount: number) => void,
 ): void {
   const queryClient = useQueryClient();
   const onCompleteRef = useRef(onComplete);
@@ -63,7 +64,12 @@ export function useDebriefSubscription(
           const parsed = debriefReadyPayloadSchema.safeParse(payload);
           if (!parsed.success) return;
 
-          const { draftId } = parsed.data.data.onDebriefReady;
+          const { draftId, itemCount } = parsed.data.data.onDebriefReady;
+
+          if (itemCount === 0) {
+            onCompleteRef.current(0);
+            return;
+          }
 
           // Fetch by the specific draftId from the AppSync event — not "latest".
           // The autosave may have created a newer empty draft by the time this
@@ -83,7 +89,7 @@ export function useDebriefSubscription(
             void queryClient.invalidateQueries({
               queryKey: queryKeys.inlineFeedbackItems(documentId),
             });
-            onCompleteRef.current();
+            onCompleteRef.current(itemCount);
           });
         },
         error: (err: unknown) => {
