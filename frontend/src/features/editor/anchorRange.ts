@@ -199,6 +199,7 @@ export function findQuotedTextRange(
       result = found;
       return true;
     }
+    return false;
   });
   return result;
 }
@@ -256,6 +257,7 @@ export function findQuotedTextRangeInBand(
         return true;
       }
     }
+    return false;
   });
   return result;
 }
@@ -275,6 +277,7 @@ export function findQuotedTextInParagraph(
       result = findQuotedTextInBlock(node.textContent, pos + 1, quotedText);
       return true;
     }
+    return false;
   });
   return result;
 }
@@ -298,6 +301,7 @@ function expandRangeToWordBoundaries(
       found = true;
       return true;
     }
+    return false;
   });
   if (!found || !blockText) return range;
 
