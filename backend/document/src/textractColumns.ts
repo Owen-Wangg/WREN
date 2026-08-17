@@ -330,6 +330,8 @@ export function detectColumns(
       // Final validation: if we ended up with >6 columns after assignment, fall back
       if (columns.length > MAX_COLUMNS) {
         columns = makeSingleColumn(band.lines);
+      } else {
+        columns = dropMarginOverlays(columns);
       }
     }
 
@@ -341,6 +343,43 @@ export function detectColumns(
   }
 
   return pageBands;
+}
+
+function columnWordCount(col: ColumnRegion): number {
+  let words = 0;
+  for (const line of col.lines) {
+    const text = (line.Text ?? '').trim();
+    if (!text) continue;
+    words += text.split(/\s+/).filter(Boolean).length;
+  }
+  return words;
+}
+
+/**
+ * Margin comments / callout boxes look like a second column but only contain a
+ * few words. Keep the main column so those overlays do not split body lines.
+ */
+function dropMarginOverlays(columns: ColumnRegion[]): ColumnRegion[] {
+  if (columns.length !== 2) return columns;
+  const [left, right] = [...columns].sort((a, b) => a.left - b.left);
+  if (!left || !right) return columns;
+
+  const leftWords = columnWordCount(left);
+  const rightWords = columnWordCount(right);
+  const rightIsOverlay =
+    rightWords > 0 &&
+    rightWords <= 8 &&
+    right.lines.length <= 3 &&
+    leftWords >= Math.max(12, rightWords * 3);
+  const leftIsOverlay =
+    leftWords > 0 &&
+    leftWords <= 8 &&
+    left.lines.length <= 3 &&
+    rightWords >= Math.max(12, leftWords * 3);
+
+  if (rightIsOverlay && !leftIsOverlay) return [left];
+  if (leftIsOverlay && !rightIsOverlay) return [right];
+  return columns;
 }
 
 /**

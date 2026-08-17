@@ -129,6 +129,12 @@ const SENTENCE_TERMINAL_RE = /[.?!]\s*$/;
 
 /** Left-edge alignment tolerance as a fraction of page width (4%). */
 const LEFT_EDGE_TOLERANCE = 0.04;
+/**
+ * Mid-sentence wraps (first-line indent, centered last lines) may sit further
+ * right than the previous line. Still merge them unless the jump looks like a
+ * second column (~quarter of the content width).
+ */
+const WRAP_LEFT_SLACK = 0.25;
 
 /**
  * Compute the median line height from all lines with valid Height > 0.
@@ -282,8 +288,11 @@ export function mergeOcrLines(
       (line.left ?? 0) - (prev.left ?? 0),
     );
     const leftAligned = leftEdgesDiffer < LEFT_EDGE_TOLERANCE * pageWidth;
+    const midSentenceWrap =
+      !SENTENCE_TERMINAL_RE.test(prev.text) &&
+      leftEdgesDiffer < WRAP_LEFT_SLACK * pageWidth;
 
-    if (gap <= softGap && leftAligned) {
+    if (gap <= softGap && (leftAligned || midSentenceWrap)) {
       // Merge into current paragraph
       currentLines.push(line);
     } else {

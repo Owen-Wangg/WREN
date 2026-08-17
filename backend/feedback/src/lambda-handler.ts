@@ -18,6 +18,7 @@ import {
   upsertSectionApplicability,
   getSectionApplicabilityVotes,
 } from './sectionApplicabilityService.js';
+import { parseUuidParam } from './uuidParam.js';
 import {
   assertAskMessageAllowed,
   reserveDebriefGeneration,
@@ -364,10 +365,8 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { documentId } = event.pathParameters || {};
-  const requestedDraftId =
-    typeof event.queryStringParameters?.draftId === 'string'
-      ? event.queryStringParameters.draftId
-      : null;
+  // UI uses the sentinel "none" when no draft exists; never bind that to uuid.
+  const requestedDraftId = parseUuidParam(event.queryStringParameters?.draftId);
 
   const docQuery = `
     SELECT owner_user_id FROM document WHERE id = $1
@@ -744,8 +743,7 @@ async function handleRecordFeedbackHelpfulness(event: any): Promise<APIGatewayPr
   }
 
   const documentTypeId = docRows[0].document_type_id;
-  // draft_id is nullable — 'none' is not a valid uuid so fall back to null.
-  const effectiveDraftId: string | null = (draftId && draftId !== 'none') ? draftId : null;
+  const effectiveDraftId = parseUuidParam(draftId);
 
   await db.query(
     `INSERT INTO feedback_helpfulness_rating (document_id, draft_id, document_type_id, helpful, comment)
@@ -833,11 +831,22 @@ async function loadDraftSegments(
   const ownership = await assertDocumentOwner(documentId, userId);
   if (!ownership.ok) return ownership;
 
+  const validDraftId = parseUuidParam(draftId);
+  if (!validDraftId) {
+    return {
+      ok: false,
+      response: {
+        statusCode: 400,
+        body: JSON.stringify({ code: 'BAD_REQUEST', message: 'draftId must be a UUID' }),
+      },
+    };
+  }
+
   const db = await getDataAccess();
   const draftRows = await db.query(
     `SELECT id, segments FROM draft
      WHERE id = $1 AND document_id = $2`,
-    [draftId, documentId],
+    [validDraftId, documentId],
   );
   if (draftRows.length === 0) {
     return {
@@ -869,7 +878,7 @@ async function listDraftIdsForDocument(documentId: string): Promise<string[]> {
 async function handleGetAskWrenSession(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const { documentId } = event.pathParameters || {};
-  const draftId = event.queryStringParameters?.draftId;
+  const draftId = parseUuidParam(event.queryStringParameters?.draftId);
 
   if (!documentId || !draftId) {
     return {
@@ -977,7 +986,7 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const { documentId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
-  const draftId = body.draftId as string | undefined;
+  const draftId = parseUuidParam(body.draftId);
   const text = typeof body.text === 'string' ? body.text.trim() : '';
 
   if (!documentId || !draftId || !text) {
@@ -1054,7 +1063,10 @@ async function handleRecordSectionApplicability(event: any): Promise<APIGatewayP
   }
 
   const body = event.body ? JSON.parse(event.body) : {};
-  const { environmentId, draftId, errorCategoryId, applicable } = body;
+  const environmentId = parseUuidParam(body.environmentId);
+  const draftId = parseUuidParam(body.draftId);
+  const errorCategoryId = parseUuidParam(body.errorCategoryId);
+  const { applicable } = body;
 
   if (!environmentId || !draftId || !errorCategoryId || typeof applicable !== 'boolean') {
     return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'environmentId, draftId, errorCategoryId, and applicable are required' }) });
@@ -1080,8 +1092,9 @@ async function handleGetSectionApplicability(event: any): Promise<APIGatewayProx
     return withCors({ statusCode: 401, body: JSON.stringify({ code: 'UNAUTHORIZED', message: 'Authentication required' }) });
   }
 
-  const { environmentId, draftId } = event.queryStringParameters || {};
-  if (!environmentId || !draftId) {
+  const environmentId = parseUuidParam(event.queryStringParameters?.environmentId);
+  const draftId = parseUuidParam(event.queryStringParameters?.draftId);
+  if (!environmentId) {
     return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'environmentId and draftId are required' }) });
   }
 
@@ -1092,6 +1105,11 @@ async function handleGetSectionApplicability(event: any): Promise<APIGatewayProx
   );
   if (docRows.length === 0 || docRows[0].owner_user_id !== actor.userId) {
     return withCors({ statusCode: 404, body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }) });
+  }
+
+  // Empty debrief UI sends draftId=none; there are no votes to load.
+  if (!draftId) {
+    return withCors({ statusCode: 200, body: JSON.stringify({ votes: {} }) });
   }
 
   const votes = await getSectionApplicabilityVotes(db, environmentId, draftId);

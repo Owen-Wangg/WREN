@@ -3,7 +3,7 @@
  */
 import type { Block } from '@aws-sdk/client-textract';
 
-import { inferInlineFormatting, type PageMetrics } from './textractFormatting';
+import { inferInlineFormatting, needsSpaceBetween, type PageMetrics } from './textractFormatting';
 
 /** Helper: create a WORD block with geometry. */
 function wordBlock(
@@ -87,9 +87,7 @@ describe('inferInlineFormatting', () => {
   });
 
   describe('bold heuristic', () => {
-    it('marks runs as bold when avg height > 1.15× median word height (Req 1.1)', () => {
-      // Median height will be 0.02 (three normal words)
-      // Bold word has height 0.025 → 0.025 / 0.02 = 1.25 > 1.15
+    it('does not mark body words bold from OCR word-box height', () => {
       const words = [
         wordBlock('Normal', { height: 0.02, width: 0.05, top: 0.1 }),
         wordBlock('text', { height: 0.02, width: 0.04, top: 0.1 }),
@@ -97,10 +95,8 @@ describe('inferInlineFormatting', () => {
         wordBlock('BOLD', { height: 0.025, width: 0.05, top: 0.095 }),
       ];
       const result = inferInlineFormatting(lineBlock(), words, defaultMetrics);
-      // The bold word should be in a separate run (different height) with a bold mark
       const boldRuns = result.filter((r) => r.marks.some((m) => m.type === 'bold'));
-      expect(boldRuns.length).toBeGreaterThan(0);
-      expect(boldRuns.some((r) => r.text.includes('BOLD'))).toBe(true);
+      expect(boldRuns).toHaveLength(0);
     });
 
     it('does not mark as bold when height is at or below threshold', () => {
@@ -134,6 +130,23 @@ describe('inferInlineFormatting', () => {
       expect(italicRuns.some((r) => r.text.includes('Emphasis'))).toBe(true);
     });
 
+    it('does not italicize short words that only look narrow (of/be/it/the)', () => {
+      const words = [
+        wordBlock('court', { height: 0.02, width: 0.05, top: 0.1 }),
+        wordBlock('will', { height: 0.02, width: 0.05, top: 0.1 }),
+        wordBlock('of', { height: 0.02, width: 0.015, top: 0.1 }),
+        wordBlock('the', { height: 0.02, width: 0.018, top: 0.1 }),
+        wordBlock('Premises', { height: 0.02, width: 0.06, top: 0.1 }),
+      ];
+      const result = inferInlineFormatting(lineBlock(), words, defaultMetrics);
+      const italicText = result
+        .filter((r) => r.marks.some((m) => m.type === 'italic'))
+        .map((r) => r.text)
+        .join(' ');
+      expect(italicText).not.toMatch(/\bof\b/);
+      expect(italicText).not.toMatch(/\bthe\b/);
+    });
+
     it('does not mark italic when aspect ratio is above threshold', () => {
       const words = [
         wordBlock('One', { height: 0.02, width: 0.05, top: 0.1 }),
@@ -163,6 +176,15 @@ describe('inferInlineFormatting', () => {
       expect(fontSizeRuns.length).toBeGreaterThan(0);
       const fontSizeAttr = fontSizeRuns[0].marks.find((m) => m.type === 'textStyle');
       expect((fontSizeAttr?.attrs as Record<string, unknown>)?.fontSize).toBe('25.6pt');
+    });
+
+    it('caps letterhead-sized line boxes so they cannot blow up the page', () => {
+      // Height 0.30 vs median 0.025 → raw (0.30/0.025)×16 = 192pt
+      const hugeLine = lineBlock({ height: 0.30 });
+      const words = [wordBlock('2024', { height: 0.28, width: 0.4, top: 0.4 })];
+      const result = inferInlineFormatting(hugeLine, words, defaultMetrics);
+      const fontSizeAttr = result[0]?.marks.find((m) => m.type === 'textStyle');
+      expect((fontSizeAttr?.attrs as Record<string, unknown>)?.fontSize).toBe('36pt');
     });
 
     it('does not apply fontSize when line height is at or below threshold', () => {
@@ -195,6 +217,51 @@ describe('inferInlineFormatting', () => {
       expect(result[0].text).toBe('These words are grouped');
     });
 
+    it('keeps a space between runs that split on height (no glued words)', () => {
+      const words = [
+        wordBlock('The', { height: 0.02, width: 0.04, top: 0.1 }),
+        wordBlock('Negligence', { height: 0.03, width: 0.08, top: 0.095 }),
+        wordBlock('Act', { height: 0.02, width: 0.04, top: 0.1 }),
+        wordBlock('speaks', { height: 0.02, width: 0.05, top: 0.1 }),
+      ];
+      const result = inferInlineFormatting(lineBlock(), words, defaultMetrics);
+      const joined = result.map((r) => r.text).join('');
+      expect(joined).toContain('The ');
+      expect(joined).toContain('Negligence ');
+      expect(joined.replace(/\s+/g, ' ').trim()).toBe('The Negligence Act speaks');
+    });
+
+    it('strips scattered per-word bold from OCR height jitter', () => {
+      const words = [
+        wordBlock('two', { height: 0.02, width: 0.04, top: 0.1 }),
+        wordBlock('people', { height: 0.026, width: 0.05, top: 0.097 }),
+        wordBlock('are', { height: 0.02, width: 0.03, top: 0.1 }),
+        wordBlock('causing', { height: 0.026, width: 0.06, top: 0.097 }),
+        wordBlock('the', { height: 0.02, width: 0.03, top: 0.1 }),
+        wordBlock('damage', { height: 0.026, width: 0.05, top: 0.097 }),
+      ];
+      const result = inferInlineFormatting(lineBlock(), words, defaultMetrics);
+      const boldRuns = result.filter((r) => r.marks.some((m) => m.type === 'bold'));
+      expect(boldRuns).toHaveLength(0);
+      expect(result.map((r) => r.text).join('').replace(/\s+/g, ' ').trim()).toBe(
+        'two people are causing the damage',
+      );
+    });
+
+    it('spaces quoted words instead of gluing of"occupier"under', () => {
+      const words = [
+        wordBlock('definition', { height: 0.02, width: 0.08, top: 0.1 }),
+        wordBlock('of', { height: 0.02, width: 0.02, top: 0.1 }),
+        wordBlock('"occupier"', { height: 0.02, width: 0.07, top: 0.1 }),
+        wordBlock('under', { height: 0.02, width: 0.05, top: 0.1 }),
+        wordBlock('the', { height: 0.02, width: 0.03, top: 0.1 }),
+        wordBlock('OLA', { height: 0.02, width: 0.04, top: 0.1 }),
+      ];
+      const result = inferInlineFormatting(lineBlock(), words, defaultMetrics);
+      const joined = result.map((r) => r.text).join('').replace(/\s+/g, ' ').trim();
+      expect(joined).toBe('definition of "occupier" under the OLA');
+    });
+
     it('separates words with significantly different heights into different runs', () => {
       // First three normal, last one much taller → separate run
       const words = [
@@ -210,7 +277,7 @@ describe('inferInlineFormatting', () => {
   });
 
   describe('combined marks', () => {
-    it('can apply both bold and fontSize to the same run', () => {
+    it('still applies fontSize on a large line without inferring bold from height', () => {
       // Big line + tall words → fontSize + bold
       const bigLine = lineBlock({ height: 0.04 });
       const words = [
@@ -226,5 +293,19 @@ describe('inferInlineFormatting', () => {
       );
       expect(allHaveFontSize).toBe(true);
     });
+  });
+});
+
+describe('needsSpaceBetween', () => {
+  it('puts spaces outside a quoted word but not inside', () => {
+    expect(needsSpaceBetween('of', '"occupier"')).toBe(true);
+    expect(needsSpaceBetween('"occupier"', 'under')).toBe(true);
+    expect(needsSpaceBetween('"', 'occupier')).toBe(false);
+    expect(needsSpaceBetween('occupier', '"')).toBe(false);
+  });
+
+  it('keeps commas glued and contractions unspaced', () => {
+    expect(needsSpaceBetween('liable', ',')).toBe(false);
+    expect(needsSpaceBetween('Kato', "'s")).toBe(false);
   });
 });

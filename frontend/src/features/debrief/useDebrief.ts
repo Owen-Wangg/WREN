@@ -12,6 +12,7 @@ import {
   fetchDebrief,
   fetchDebriefHistory,
   fetchSectionApplicability,
+  isUsableDraftId,
   recordFeedbackHelpfulness,
   recordSectionApplicability,
   regenerateDebrief,
@@ -41,7 +42,12 @@ export function useAiDebrief(
 ): UseQueryResult<Debrief> {
   return useQuery({
     queryKey: queryKeys.debrief(environmentId, draftId ?? undefined),
-    queryFn: () => fetchDebrief(apiClient, environmentId, draftId ?? undefined),
+    queryFn: () =>
+      fetchDebrief(
+        apiClient,
+        environmentId,
+        isUsableDraftId(draftId) ? draftId : undefined,
+      ),
     enabled: !!environmentId && enabled,
   });
 }
@@ -80,7 +86,7 @@ export function useSectionApplicability(
   return useQuery({
     queryKey: queryKeys.sectionApplicability(environmentId, draftId ?? ''),
     queryFn: () => fetchSectionApplicability(apiClient, environmentId, draftId!),
-    enabled: !!environmentId && !!draftId,
+    enabled: !!environmentId && isUsableDraftId(draftId),
   });
 }
 

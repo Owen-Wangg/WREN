@@ -182,12 +182,27 @@ def accept_filled_strengths(
     return accepted
 
 
-def document_text_from_segments(segments: list[dict[str, Any]]) -> str:
+def document_text_from_segments(
+    segments: list[dict[str, Any]],
+    *,
+    max_chars: int | None = None,
+    per_paragraph: int | None = None,
+) -> str:
+    """Join labeled paragraphs, optionally truncated for a cheaper fill-in call."""
     lines: list[str] = []
+    used = 0
     for index, segment in enumerate(segments):
         text = segment.get("text", "")
-        if text:
-            lines.append(f"[PARAGRAPH {index}]\n{text}")
+        if not text:
+            continue
+        if per_paragraph is not None and len(text) > per_paragraph:
+            cut = text[:per_paragraph].rsplit(" ", 1)[0]
+            text = f"{cut}…" if cut else text[:per_paragraph]
+        block = f"[PARAGRAPH {index}]\n{text}"
+        if max_chars is not None and used and used + len(block) + 2 > max_chars:
+            break
+        lines.append(block)
+        used += len(block) + 2
     return "\n\n".join(lines)
 
 

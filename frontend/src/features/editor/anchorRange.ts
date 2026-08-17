@@ -10,13 +10,9 @@
  * anchor refers to, without task 18.2 needing to know anything about
  * ProseMirror internals beyond this file.
  *
- * Paragraph index counts only the document's top-level `paragraph`/`heading`
- * block nodes, matching `docxContentMapper`'s flat block structure (the
- * import/export round-trip only ever produces ordered top-level
- * paragraph/heading nodes — Requirement 6.2). Because `@tiptap/starter-kit`'s
- * supported inline content is text + marks only (no atomic inline nodes), a
- * block's content-start position plus a character offset maps directly onto a
- * document position — no need to walk individual text-run nodes.
+ * Paragraph index counts every `paragraph`/`heading` in document order,
+ * including those nested in lists and tables, matching
+ * `tipTapContentToSegments` (Requirement 6.2).
  *
  * Resolution returns `null` (rather than a best-effort guess) when a span
  * can't be resolved against the current document, so callers never attach a
@@ -37,7 +33,27 @@ export interface DocumentRange {
   readonly to: number;
 }
 
-const BLOCK_NODE_TYPES = new Set(['paragraph', 'heading']);
+const TEXT_BLOCK_TYPES = new Set(['paragraph', 'heading']);
+
+/**
+ * Visit every paragraph/heading, including those nested in lists and tables.
+ * Indices match `tipTapContentToSegments` for typical legal drafts.
+ * Return true from `visit` to stop.
+ */
+function forEachTextBlock(
+  doc: ProseMirrorNode,
+  visit: (node: ProseMirrorNode, pos: number, blockIndex: number) => boolean | void,
+): void {
+  let blockIndex = 0;
+  let stopped = false;
+  doc.descendants((node, pos) => {
+    if (stopped) return false;
+    if (!TEXT_BLOCK_TYPES.has(node.type.name)) return true;
+    if (visit(node, pos, blockIndex) === true) stopped = true;
+    blockIndex += 1;
+    return false;
+  });
+}
 
 /** Resolves an anchor span to a `{from, to}` ProseMirror position range. */
 export function resolveAnchorRange(
@@ -49,23 +65,15 @@ export function resolveAnchorRange(
   }
 
   let result: DocumentRange | null = null;
-  let blockIndex = 0;
 
-  doc.forEach((node, offset) => {
-    if (result || !BLOCK_NODE_TYPES.has(node.type.name)) {
-      return;
+  forEachTextBlock(doc, (node, pos, index) => {
+    if (index !== span.paragraphIndex) return;
+    const contentStart = pos + 1;
+    const textLength = node.textContent.length;
+    if (span.endOffset <= textLength) {
+      result = { from: contentStart + span.startOffset, to: contentStart + span.endOffset };
     }
-
-    if (blockIndex === span.paragraphIndex) {
-      // `offset` is the position immediately before this top-level block, so
-      // its content (text) begins one position further in.
-      const contentStart = offset + 1;
-      const textLength = node.textContent.length;
-      if (span.endOffset <= textLength) {
-        result = { from: contentStart + span.startOffset, to: contentStart + span.endOffset };
-      }
-    }
-    blockIndex += 1;
+    return true;
   });
 
   return result;
@@ -89,11 +97,41 @@ export function quoteSearchCandidates(quotedText: string): string[] {
       candidates.push(words.slice(0, -1).join(' '));
     }
   }
+  if (words.length > 8) {
+    candidates.push(words.slice(0, 8).join(' '));
+  }
   return candidates;
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeQuoteText(value: string): string {
+  return value
+    .replace(/[\u201C\u201D\u2018\u2019]/g, (ch) =>
+      ch === '\u2018' || ch === '\u2019' ? "'" : '"',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Map an index in whitespace-normalized text back onto the original string. */
+function rawIndexFromNormalized(raw: string, normalizedIndex: number): number {
+  const isSpace = (ch: string) => /\s/.test(ch);
+  let rawI = 0;
+  let normI = 0;
+  while (rawI < raw.length && isSpace(raw[rawI]!)) rawI += 1;
+  while (rawI < raw.length && normI < normalizedIndex) {
+    if (isSpace(raw[rawI]!)) {
+      while (rawI < raw.length && isSpace(raw[rawI]!)) rawI += 1;
+      normI += 1;
+    } else {
+      rawI += 1;
+      normI += 1;
+    }
+  }
+  return rawI;
 }
 
 /**
@@ -105,16 +143,8 @@ function findQuotedTextInBlock(
   contentStart: number,
   quotedText: string,
 ): DocumentRange | null {
-  const normalize = (value: string) =>
-    value
-      .replace(/[\u201C\u201D\u2018\u2019]/g, (ch) =>
-        ch === '\u2018' || ch === '\u2019' ? "'" : '"',
-      )
-      .replace(/\s+/g, ' ')
-      .trim();
-
-  const blockNormalized = normalize(blockText);
-  const fullNormalized = normalize(quotedText);
+  const blockNormalized = normalizeQuoteText(blockText);
+  const fullNormalized = normalizeQuoteText(quotedText);
   if (!fullNormalized) return null;
 
   const candidates = quoteSearchCandidates(fullNormalized);
@@ -128,16 +158,12 @@ function findQuotedTextInBlock(
     }
     if (idx < 0) continue;
 
-    // Map normalized index back onto original block text by walking both.
-    // For typical ASCII drafts the lengths match; if they diverge, fall back
-    // to searching the raw block for the candidate.
     let rawIdx = blockText.indexOf(candidate);
     if (rawIdx < 0) {
       rawIdx = blockText.toLowerCase().indexOf(candidate.toLowerCase());
     }
     if (rawIdx < 0) {
-      // Use normalized index when punctuation-only differences exist.
-      rawIdx = idx;
+      rawIdx = rawIndexFromNormalized(blockText, idx);
     }
 
     let end = rawIdx + candidate.length;
@@ -149,7 +175,8 @@ function findQuotedTextInBlock(
         if (expansion) end += expansion[0].length;
       }
     } else if (matchedCaseInsensitive) {
-      // Keep matched length.
+      const matchedLen = rawIndexFromNormalized(blockText, idx + candidate.length) - rawIdx;
+      if (matchedLen > 0) end = rawIdx + matchedLen;
     }
 
     return { from: contentStart + rawIdx, to: contentStart + end };
@@ -165,10 +192,14 @@ export function findQuotedTextRange(
   if (!quotedText.trim()) return null;
 
   let result: DocumentRange | null = null;
-  doc.forEach((node, offset) => {
-    if (result || !BLOCK_NODE_TYPES.has(node.type.name)) return;
-    const found = findQuotedTextInBlock(node.textContent, offset + 1, quotedText);
-    if (found) result = found;
+  forEachTextBlock(doc, (node, pos) => {
+    if (result) return true;
+    const found = findQuotedTextInBlock(node.textContent, pos + 1, quotedText);
+    if (found) {
+      result = found;
+      return true;
+    }
+    return false;
   });
   return result;
 }
@@ -203,8 +234,8 @@ export function paragraphBandForLocationHint(
 
 function countTopLevelBlocks(doc: ProseMirrorNode): number {
   let count = 0;
-  doc.forEach((node) => {
-    if (BLOCK_NODE_TYPES.has(node.type.name)) count += 1;
+  forEachTextBlock(doc, () => {
+    count += 1;
   });
   return count;
 }
@@ -217,14 +248,16 @@ export function findQuotedTextRangeInBand(
 ): DocumentRange | null {
   if (!quotedText.trim()) return null;
   let result: DocumentRange | null = null;
-  let blockIndex = 0;
-  doc.forEach((node, offset) => {
-    if (result || !BLOCK_NODE_TYPES.has(node.type.name)) return;
+  forEachTextBlock(doc, (node, pos, blockIndex) => {
+    if (result) return true;
     if (blockIndex >= band.start && blockIndex < band.end) {
-      const found = findQuotedTextInBlock(node.textContent, offset + 1, quotedText);
-      if (found) result = found;
+      const found = findQuotedTextInBlock(node.textContent, pos + 1, quotedText);
+      if (found) {
+        result = found;
+        return true;
+      }
     }
-    blockIndex += 1;
+    return false;
   });
   return result;
 }
@@ -238,13 +271,13 @@ export function findQuotedTextInParagraph(
   if (paragraphIndex < 0 || !quotedText.trim()) return null;
 
   let result: DocumentRange | null = null;
-  let blockIndex = 0;
-  doc.forEach((node, offset) => {
-    if (result || !BLOCK_NODE_TYPES.has(node.type.name)) return;
+  forEachTextBlock(doc, (node, pos, blockIndex) => {
+    if (result) return true;
     if (blockIndex === paragraphIndex) {
-      result = findQuotedTextInBlock(node.textContent, offset + 1, quotedText);
+      result = findQuotedTextInBlock(node.textContent, pos + 1, quotedText);
+      return true;
     }
-    blockIndex += 1;
+    return false;
   });
   return result;
 }
@@ -258,15 +291,17 @@ function expandRangeToWordBoundaries(
   let contentStart = 0;
   let found = false;
 
-  doc.forEach((node, offset) => {
-    if (found || !BLOCK_NODE_TYPES.has(node.type.name)) return;
-    const start = offset + 1;
+  forEachTextBlock(doc, (node, pos) => {
+    if (found) return true;
+    const start = pos + 1;
     const end = start + node.textContent.length;
     if (range.from >= start && range.to <= end) {
       blockText = node.textContent;
       contentStart = start;
       found = true;
+      return true;
     }
+    return false;
   });
   if (!found || !blockText) return range;
 

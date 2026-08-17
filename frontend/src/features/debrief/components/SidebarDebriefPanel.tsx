@@ -18,6 +18,7 @@ import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
 import { SectionApplicabilityToggle } from './SectionApplicabilityToggle';
 
+import { isUsableDraftId } from '../debriefApi';
 import { isStrengthItem, strengthDisplayText } from '../debriefItems';
 import { useAiDebrief, useDebriefHistory, useRegenerateDebrief, useSectionApplicability } from '../useDebrief';
 import { useDebriefSubscription } from '../useDebriefSubscription';
@@ -47,7 +48,7 @@ const GENERATING_STEPS: Array<{ message: string; detail: string }> = [
   },
   {
     message: 'Finalising your debrief…',
-    detail: 'Almost ready — this usually takes 20–40 seconds in total.',
+    detail: 'Almost ready — short drafts usually take under a minute; long drafts can take a few minutes.',
   },
 ];
 
@@ -117,6 +118,8 @@ export interface SidebarDebriefPanelProps {
   readonly autoRegenerate?: boolean;
   /** True while DocumentEditorPage is polling for feedback generation. */
   readonly isGenerating?: boolean;
+  /** True after several minutes while the job is still running. */
+  readonly isTakingLonger?: boolean;
   /**
    * False while the document/draft is still loading or being ingested.
    * Prevents premature fetches and disables Regenerate until ready.
@@ -127,6 +130,12 @@ export interface SidebarDebriefPanelProps {
    * TipTap content stays the source of truth in DocumentEditorPage.
    */
   readonly onBeforeRegenerate?: () => Promise<void>;
+  /** Called after the regenerate POST returns 202 so the page can poll status. */
+  readonly onFeedbackQueued?: () => void;
+  /** Called when generation fails without producing items (truncated job). */
+  readonly onGenerationFailed?: () => void;
+  /** Shown when polling times out or the generation job fails. */
+  readonly generationError?: string;
   /** Feedback item id of the quote currently highlighted in the editor. */
   readonly activeQuoteId?: string;
   /** Called when student clicks a quoted text to highlight it in the document. */
@@ -141,8 +150,12 @@ export function SidebarDebriefPanel({
   environmentId,
   autoRegenerate = false,
   isGenerating = false,
+  isTakingLonger = false,
   isDocumentReady = true,
   onBeforeRegenerate,
+  onFeedbackQueued,
+  onGenerationFailed,
+  generationError,
   activeQuoteId,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
@@ -182,7 +195,12 @@ export function SidebarDebriefPanel({
   useDebriefSubscription(
     environmentId,
     isAwaitingDebrief,
-    () => setIsAwaitingDebrief(false),
+    (itemCount) => {
+      setIsAwaitingDebrief(false);
+      if (itemCount === 0) {
+        onGenerationFailedRef.current?.();
+      }
+    },
   );
 
   const didAutoRegenerate = useRef(false);
@@ -190,6 +208,11 @@ export function SidebarDebriefPanel({
   regenerateRef.current = regenerate;
   const onBeforeRegenerateRef = useRef(onBeforeRegenerate);
   onBeforeRegenerateRef.current = onBeforeRegenerate;
+  const onFeedbackQueuedRef = useRef(onFeedbackQueued);
+  onFeedbackQueuedRef.current = onFeedbackQueued;
+  const onGenerationFailedRef = useRef(onGenerationFailed);
+  onGenerationFailedRef.current = onGenerationFailed;
+  const sawGeneratingRef = useRef(false);
 
   const runRegenerate = async () => {
     setIsSavingThenRegen(true);
@@ -198,7 +221,8 @@ export function SidebarDebriefPanel({
     try {
       await onBeforeRegenerateRef.current?.();
       await regenerateRef.current.mutateAsync();
-      // POST returned 202 — hand off the "waiting" flag to the subscription.
+      // POST returned 202 — poll status (and AppSync) until the job finishes.
+      onFeedbackQueuedRef.current?.();
       setSelectedDraftId(null);
       setIsAwaitingDebrief(true);
     } catch {
@@ -218,6 +242,21 @@ export function SidebarDebriefPanel({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per autoRegenerate mount
   }, [autoRegenerate]);
+
+  useEffect(() => {
+    if (!isAwaitingDebrief) {
+      sawGeneratingRef.current = false;
+      return;
+    }
+    if (isGenerating) {
+      sawGeneratingRef.current = true;
+      return;
+    }
+    if (sawGeneratingRef.current && !isGenerating) {
+      setIsAwaitingDebrief(false);
+      sawGeneratingRef.current = false;
+    }
+  }, [isGenerating, isAwaitingDebrief]);
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -424,6 +463,11 @@ export function SidebarDebriefPanel({
               Saves inline edits &amp;<br />regenerates feedback
             </span>
           )}
+          {showRegenDots && isTakingLonger && (
+            <span className="px-sm text-caption text-text-secondary text-right leading-tight">
+              Still working on a long draft
+            </span>
+          )}
           {lastGeneratedCompact && (
             <span
               className="px-sm text-caption text-text-muted whitespace-nowrap"
@@ -482,6 +526,11 @@ export function SidebarDebriefPanel({
               <p className="text-bodySmall text-text-secondary leading-relaxed">
                 {generatingStep.detail}
               </p>
+              {isTakingLonger && (
+                <p className="text-caption text-text-secondary leading-relaxed">
+                  Still working — long drafts can take several more minutes.
+                </p>
+              )}
               <p className="text-caption text-text-muted">
                 Please don&apos;t close or refresh this page.
               </p>
@@ -507,6 +556,11 @@ export function SidebarDebriefPanel({
         {regenerate.isError && (
           <p role="alert" className="mb-md text-body text-signal-critical">
             Couldn't regenerate. Please try again.
+          </p>
+        )}
+        {generationError && !regenerating && !isGenerating && (
+          <p role="alert" className="mb-md text-body text-signal-critical">
+            {generationError}
           </p>
         )}
 
@@ -535,6 +589,11 @@ export function SidebarDebriefPanel({
                       <p className="text-bodySmall text-text-secondary leading-relaxed">
                         {generatingStep.detail}
                       </p>
+                      {isTakingLonger && (
+                        <p className="text-caption text-text-secondary leading-relaxed">
+                          Still working — long drafts can take several more minutes.
+                        </p>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -675,7 +734,7 @@ export function SidebarDebriefPanel({
                         className="flex items-center justify-between gap-xs text-heading4 font-sans font-bold text-text-primary border-b border-border-subtle pb-xs"
                       >
                         <span>{categoryLabel}</span>
-                        {activeDraftId && (
+                        {isUsableDraftId(activeDraftId) && (
                           <SectionApplicabilityToggle
                             environmentId={environmentId}
                             draftId={activeDraftId}

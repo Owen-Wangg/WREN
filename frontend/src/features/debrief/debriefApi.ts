@@ -16,10 +16,21 @@ import type {
 } from './debriefTypes';
 import type { HttpClient } from '@/services';
 
+/** True when a draft id is safe to send to UUID-typed API params. */
+export function isUsableDraftId(
+  draftId: string | null | undefined,
+): draftId is string {
+  if (typeof draftId !== 'string') return false;
+  const trimmed = draftId.trim();
+  return trimmed.length > 0 && trimmed.toLowerCase() !== 'none';
+}
+
 // Paths — all real /v1 routes
 export function feedbackPath(documentId: string, draftId?: string): string {
   const base = `/v1/documents/${documentId}/feedback`;
-  return draftId ? `${base}?draftId=${encodeURIComponent(draftId)}` : base;
+  return isUsableDraftId(draftId)
+    ? `${base}?draftId=${encodeURIComponent(draftId)}`
+    : base;
 }
 
 export function feedbackHistoryPath(documentId: string): string {
@@ -91,8 +102,11 @@ export async function fetchDebrief(
   });
 
   // Prefer API draftId, then item sourceDraftId, then the requested draftId.
+  // 'none' is a local sentinel only — never send it as a UUID query param.
   const resolvedDraftId =
-    raw.draftId ?? raw.items[0]?.sourceDraftId ?? draftId ?? 'none';
+    raw.draftId ??
+    raw.items[0]?.sourceDraftId ??
+    (isUsableDraftId(draftId) ? draftId : 'none');
 
   // Prefer the newest item timestamp as "last generated".
   const generatedAt = raw.items

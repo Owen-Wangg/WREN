@@ -34,7 +34,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from .output_guardrail import ValidatedFeedbackItem
 
@@ -43,7 +43,9 @@ __all__ = [
     "ClassificationOutcome",
     "DensityOutcome",
     "FeedbackClassifier",
+    "apply_raw_inline_density_cap",
     "compute_density_cap",
+    "word_count_from_segments",
 ]
 
 
@@ -70,12 +72,18 @@ _DENSITY_MULTIPLIERS: dict[DensitySetting, float] = {
     DensitySetting.HIGH: 6.0,
 }
 
+# Document-type config historically stores "moderate"; treat it as medium.
+_DENSITY_ALIASES: dict[str, str] = {
+    "moderate": "medium",
+    "med": "medium",
+}
+
 # Minimum number of inline items regardless of document length,
 # so very short documents still get at least some feedback.
 _MINIMUM_INLINE_ITEMS: int = 1
 
-# Maximum cap — no document gets more than this regardless of length.
-_MAXIMUM_INLINE_ITEMS: int = 50
+# Maximum cap — long memos stay readable and finish in one Bedrock call.
+_MAXIMUM_INLINE_ITEMS: int = 24
 
 
 def compute_density_cap(
@@ -100,13 +108,14 @@ def compute_density_cap(
     else:
         # Parse string density to enum if needed
         if isinstance(density, str):
+            normalized = _DENSITY_ALIASES.get(density.lower(), density.lower())
             try:
-                density = DensitySetting(density.lower())
+                density = DensitySetting(normalized)
             except ValueError:
                 # If the density string is a numeric "items-per-N-words" format,
                 # e.g. "3.5" means 3.5 items per 1000 words
                 try:
-                    multiplier = float(density)
+                    multiplier = float(normalized)
                 except ValueError:
                     # Default to medium if unrecognizable
                     multiplier = _DENSITY_MULTIPLIERS[DensitySetting.MEDIUM]
@@ -279,3 +288,52 @@ class FeedbackClassifier:
         scored.sort(key=lambda x: (-x[0], x[1]))
 
         return [item for _, _, item in scored]
+
+
+def word_count_from_segments(segments: list[dict[str, Any]]) -> int:
+    """Count whitespace-delimited words across draft segments."""
+    total = 0
+    for segment in segments:
+        text = segment.get("text") or ""
+        if isinstance(text, str) and text.strip():
+            total += len(text.split())
+    return total
+
+
+def apply_raw_inline_density_cap(
+    items: list[dict[str, Any]],
+    *,
+    word_count: int,
+    density: str,
+) -> list[dict[str, Any]]:
+    """Trim ``kind=inline`` engine items to the density cap; leave others.
+
+    Operates on the raw Bedrock JSON dicts used by ``handler.py`` so the live
+    job path can apply Task 9.6 without converting the whole batch.
+    """
+    inline_items = [item for item in items if item.get("kind") == "inline"]
+    if not inline_items:
+        return items
+
+    wrappers = [
+        ValidatedFeedbackItem(
+            category=str(item.get("error_category_id") or ""),
+            question=str(item.get("question_text") or ""),
+        )
+        for item in inline_items
+    ]
+    outcome = FeedbackClassifier().apply_density_bound(wrappers, word_count, density)
+    if not outcome.trimmed:
+        return items
+
+    retained_wrapper_ids = {id(wrapper) for wrapper in outcome.retained}
+    retained_inline_ids = {
+        id(item)
+        for wrapper, item in zip(wrappers, inline_items)
+        if id(wrapper) in retained_wrapper_ids
+    }
+    return [
+        item
+        for item in items
+        if item.get("kind") != "inline" or id(item) in retained_inline_ids
+    ]

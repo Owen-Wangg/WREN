@@ -54,6 +54,21 @@ from wren_engine.progress_tracker import (
     ProgressTracker,
     ResolutionStatus,
 )
+from wren_engine.feedback_job_result import (
+    NonRetryableFeedbackError,
+    coerce_draft_segments,
+    require_complete_feedback_output,
+)
+from wren_engine.feedback_classifier import (
+    apply_raw_inline_density_cap,
+    compute_density_cap,
+    word_count_from_segments,
+)
+from wren_engine.debrief_budget import (
+    MAX_DEBRIEF_MAX_TOKENS,
+    cap_reference_materials,
+    debrief_max_tokens,
+)
 from wren_engine.models import Segment, Span
 
 logger = logging.getLogger()
@@ -101,9 +116,8 @@ For "strength" items:
 anchor.quotedText rules (CRITICAL — follow every rule exactly):
   1. VERBATIM: Copy the text character-for-character from the paragraph. Never paraphrase, rephrase, summarize, or alter spelling/punctuation in any way.
   2. RELEVANT: The quoted text MUST be the specific sentence or clause that CONTAINS the error, weakness, or issue your question_text discusses (or, for strength items, that demonstrates the strength). The reader sees this quote as direct evidence — if the quote does not demonstrate the point, the feedback is confusing and useless. Do NOT anchor to a nearby sentence that merely provides context.
-  3. COMPLETE: Always quote a full grammatical sentence or a self-contained clause — from capital letter (or clause start) through to its terminal punctuation. Never truncate mid-sentence, never cut off at an arbitrary word boundary, never produce a fragment that cannot stand alone.
-  4. NO SHORTENING: Do not trim, abbreviate, or use ellipsis. If the relevant sentence is long, quote it in full anyway.
-  5. FINDABLE: The exact character sequence you produce must appear verbatim in the paragraph text at paragraphIndex. If it cannot be found there via exact string match, the anchor will fail silently."""
+  3. COMPACT: Quote one self-contained clause or short sentence — at most ~40 words (about 280 characters). Never quote a whole paragraph or multiple sentences.
+  4. FINDABLE: The exact character sequence you produce must appear verbatim in the paragraph text at paragraphIndex. If it cannot be found there via exact string match, the anchor will fail silently."""
 _GUARDRAIL = (
     "NEVER provide replacement prose, rewrites, corrections, or any text the writer "
     "could paste directly into their document. positive_note must describe what already "
@@ -243,7 +257,7 @@ def load_draft_segments(draft_id: str, conn: psycopg.Connection) -> list[dict[st
 
             result = cur.fetchone()
             if result and result[0]:
-                return json.loads(result[0])
+                return coerce_draft_segments(result[0])
 
             return []
     except Exception as e:
@@ -499,6 +513,16 @@ def assemble_prompt(
             f"any feedback items anchored to context-only paragraphs."
         )
 
+    draft_word_count = word_count_from_segments(segments)
+    inline_cap = compute_density_cap(draft_word_count, config.get('density', 'medium'))
+    type_instructions += (
+        f"\n\nINLINE DENSITY CAP: Emit at most {inline_cap} items with "
+        f'kind="inline". Consolidate recurring issues into one item with 1–2 '
+        "representative quotes. Strength and structural items do not count "
+        "against this cap. Prefer fewer, higher-impact inline items over "
+        "covering every instance."
+    )
+
     # Tone description goes into the grounding note as plain text.
     tone_desc = config.get('tone_description', '')
     grounding_note = f"Tone: {tone_desc}" if tone_desc else ''
@@ -557,7 +581,7 @@ def assemble_prompt(
     )
 
     untrusted: list[UntrustedContent] = []
-    for material in reference_materials:
+    for material in cap_reference_materials(reference_materials):
         untrusted.append(UntrustedContent(
             label=f"REFERENCE MATERIAL: {material['title']}",
             text=material['content'],
@@ -582,12 +606,20 @@ def assemble_prompt(
     return assembled.system_message + "\n\n---\n\n" + assembled.user_message
 
 
-def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
+def invoke_bedrock(
+    prompt: str,
+    config: dict[str, Any],
+    *,
+    max_tokens: int | None = None,
+) -> tuple[str, str]:
     """Invoke Bedrock Claude model.
 
     `prompt` is produced by assemble_prompt as "system_message\\n\\n---\\n\\nuser_message".
     We split on that sentinel so the system instructions stay in the system field
     (where the model treats them as authoritative and non-overridable).
+
+    Returns ``(text, stop_reason)``. ``stop_reason`` is ``max_tokens`` when the
+    JSON array was cut off — callers must not persist that as a complete debrief.
     """
     try:
         bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
@@ -601,9 +633,16 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
             system_text = ""
             user_text = prompt
 
+        output_tokens = max_tokens if max_tokens is not None else MAX_DEBRIEF_MAX_TOKENS
+        logger.info(
+            "Invoking Bedrock model=%s prompt_chars=%s max_tokens=%s",
+            model_id,
+            len(prompt),
+            output_tokens,
+        )
         body: dict[str, Any] = {
             'anthropic_version': 'bedrock-2023-05-31',
-            'max_tokens': 16384,
+            'max_tokens': output_tokens,
             'messages': [{'role': 'user', 'content': user_text}],
             'temperature': float(config.get('temperature', 0.4)),
         }
@@ -616,7 +655,9 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> str:
         )
 
         output = json.loads(response['body'].read())
-        return output['content'][0]['text']
+        text = output['content'][0]['text']
+        stop_reason = str(output.get('stop_reason') or '')
+        return text, stop_reason
     except Exception as e:
         logger.error(f"Error invoking Bedrock: {str(e)}")
         raise
@@ -708,10 +749,16 @@ def _ensure_strength_coverage(
     )
     try:
         prompt = build_strength_fill_prompt(
-            document_text=document_text_from_segments(segments),
+            document_text=document_text_from_segments(
+                segments,
+                max_chars=8_000,
+                per_paragraph=480,
+            ),
             missing_categories=missing_named,
         )
-        raw = invoke_bedrock(prompt, config)
+        raw, fill_stop = invoke_bedrock(prompt, config, max_tokens=2048)
+        if fill_stop == 'max_tokens':
+            logger.warning("Strength fill-in output was truncated (non-fatal)")
         filled = parse_feedback_output(raw)
         normalize_feedback_kinds(filled)
         accepted = accept_filled_strengths(
@@ -1600,8 +1647,7 @@ def process_feedback_request(
         segments = load_draft_segments(draft_id, conn)
 
         if not segments:
-            logger.warning(f"No segments found for draft {draft_id}")
-            return
+            raise NonRetryableFeedbackError(f"No segments found for draft {draft_id}")
 
         # Step 3b: Load footnotes from draft content (Task 9.3)
         logger.info("Loading draft footnotes...")
@@ -1671,15 +1717,23 @@ def process_feedback_request(
                             config=config,
                         )
                         new_strengths = cf_as_items[before_fill:]
+                        filled = 0
                         if new_strengths:
-                            extra = insert_feedback_items(
+                            filled = insert_feedback_items(
                                 document_id, draft_id, user_id, new_strengths, segments, conn,
                             )
                             logger.info(
                                 "Carry-forward fill-in inserted %s missing strength item(s)",
-                                extra,
+                                filled,
                             )
                         persist_resolution_status(document_id, draft_id, segments, config, conn)
+                        try:
+                            publish_debrief_ready(document_id, draft_id, cf_count + filled)
+                        except Exception as appsync_err:
+                            logger.warning(
+                                "AppSync publish failed after carry-forward (non-fatal): %s",
+                                appsync_err,
+                            )
                         return
 
                     if decision.carried_forward:
@@ -1724,6 +1778,13 @@ def process_feedback_request(
             focus_paragraph_indices=focus_paragraph_indices,
             footnotes=draft_footnotes if draft_footnotes else None,
         )
+        output_tokens = debrief_max_tokens(
+            inline_cap=compute_density_cap(
+                word_count_from_segments(segments),
+                str(config.get('density') or 'medium'),
+            ),
+            category_count=len(doc_type_meta.get('category_ids') or []),
+        )
 
         # ─── Start resolution judging in parallel with Bedrock generation ─────
         # persist_resolution_status reads only the PRIOR draft's rows from the DB
@@ -1752,20 +1813,21 @@ def process_feedback_request(
 
         # Step 6: Invoke Bedrock (runs concurrently with resolution thread)
         logger.info("Invoking Bedrock...")
-        model_output = invoke_bedrock(prompt, config)
-        logger.info(f"Bedrock output received ({len(model_output)} chars)")
+        model_output, stop_reason = invoke_bedrock(prompt, config, max_tokens=output_tokens)
+        logger.info(
+            f"Bedrock output received ({len(model_output)} chars, stop_reason={stop_reason!r})"
+        )
 
         # Step 7: Parse feedback output
         logger.info("Parsing feedback output...")
         feedback_items = parse_feedback_output(model_output)
         logger.info(f"Parsed {len(feedback_items)} feedback items")
-
-        if not feedback_items:
-            logger.warning("No feedback items parsed from model output")
-            resolution_thread.join()
-            if resolution_errors:
-                logger.warning(f"Resolution thread error: {resolution_errors[0]}")
-            return
+        if (stop_reason or "").strip().lower() == "max_tokens" and feedback_items:
+            logger.warning(
+                "Bedrock stopped at max_tokens; persisting %s recovered item(s)",
+                len(feedback_items),
+            )
+        require_complete_feedback_output(stop_reason, len(feedback_items))
 
         # Step 7b: Validate category IDs against this document type's taxonomy and
         # apply the dept admin's priority selection on top.
@@ -1808,6 +1870,20 @@ def process_feedback_request(
             filtered_count = original_count - len(feedback_items)
             if filtered_count > 0:
                 logger.info(f"Filtered {filtered_count} feedback items outside dept admin selection (kept {len(feedback_items)})")
+
+        before_density = len(feedback_items)
+        feedback_items = apply_raw_inline_density_cap(
+            feedback_items,
+            word_count=word_count_from_segments(segments),
+            density=str(config.get('density') or 'medium'),
+        )
+        trimmed_density = before_density - len(feedback_items)
+        if trimmed_density > 0:
+            logger.info(
+                "Density cap trimmed %s inline item(s) (kept %s)",
+                trimmed_density,
+                len(feedback_items),
+            )
 
         # Step 7c: Every displayed / priority category must have a strength item.
         _ensure_strength_coverage(
@@ -1916,10 +1992,22 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
                 success_count += 1
 
+            except NonRetryableFeedbackError as job_error:
+                # Truncation / missing segments: retrying the same prompt will not help.
+                # Publish itemCount=0 so the UI can stop waiting instead of polling until timeout.
+                logger.error(
+                    f"Non-retryable feedback job failure: {str(job_error)}",
+                    exc_info=True,
+                )
+                try:
+                    publish_debrief_ready(document_id, draft_id, 0)
+                except Exception as appsync_err:
+                    logger.warning("AppSync publish failed after non-retryable error: %s", appsync_err)
+                failure_count += 1
             except Exception as job_error:
                 logger.error(f"Error processing job: {str(job_error)}", exc_info=True)
                 failure_count += 1
-                # SQS will handle the failure and retry or send to DLQ
+                raise
 
         logger.info(f"Feedback batch completed: {success_count} succeeded, {failure_count} failed")
 
