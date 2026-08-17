@@ -69,7 +69,11 @@ function expectedAlignment(
   const rightMargin = contentRight - lineRight;
 
   const marginDifference = Math.abs(leftMargin - rightMargin);
-  const isCenter = marginDifference < ALIGNMENT_TOLERANCE * pageWidth;
+  const isFullWidth = pageWidth > 0 && lineWidth / pageWidth > 0.75;
+  const isCenter =
+    !isFullWidth &&
+    leftMargin > 0.12 * pageWidth &&
+    marginDifference < ALIGNMENT_TOLERANCE * pageWidth;
 
   const rightEdgeDistance = Math.abs(contentRight - lineRight);
   const isRight =
@@ -135,6 +139,8 @@ describe('Property 5: Text alignment inference', () => {
           const rightMargin = contentRight - lineRight;
           const marginDiff = Math.abs(leftMargin - rightMargin);
           if (marginDiff >= ALIGNMENT_TOLERANCE * pageWidth) return true; // skip if not centered
+          if (lineWidth / pageWidth > 0.75) return true;
+          if (leftMargin <= 0.12 * pageWidth) return true;
 
           const line = makeLine(lineLeft, lineWidth);
           const metrics = makePageMetrics(contentLeft, contentRight);

@@ -27,6 +27,10 @@ export {
 
 // Utilities
 export {
+  sanitizeTipTapContent,
+  tipTapContentNeedsSanitization,
+} from './sanitizeLoadedContent';
+export {
   segmentText,
   reconstructText,
   draftToTiptapJSON,

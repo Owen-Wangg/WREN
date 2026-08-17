@@ -64,6 +64,11 @@ from wren_engine.feedback_classifier import (
     compute_density_cap,
     word_count_from_segments,
 )
+from wren_engine.debrief_budget import (
+    MAX_DEBRIEF_MAX_TOKENS,
+    cap_reference_materials,
+    debrief_max_tokens,
+)
 from wren_engine.models import Segment, Span
 
 logger = logging.getLogger()
@@ -111,9 +116,8 @@ For "strength" items:
 anchor.quotedText rules (CRITICAL — follow every rule exactly):
   1. VERBATIM: Copy the text character-for-character from the paragraph. Never paraphrase, rephrase, summarize, or alter spelling/punctuation in any way.
   2. RELEVANT: The quoted text MUST be the specific sentence or clause that CONTAINS the error, weakness, or issue your question_text discusses (or, for strength items, that demonstrates the strength). The reader sees this quote as direct evidence — if the quote does not demonstrate the point, the feedback is confusing and useless. Do NOT anchor to a nearby sentence that merely provides context.
-  3. COMPLETE: Always quote a full grammatical sentence or a self-contained clause — from capital letter (or clause start) through to its terminal punctuation. Never truncate mid-sentence, never cut off at an arbitrary word boundary, never produce a fragment that cannot stand alone.
-  4. NO SHORTENING: Do not trim, abbreviate, or use ellipsis. If the relevant sentence is long, quote it in full anyway.
-  5. FINDABLE: The exact character sequence you produce must appear verbatim in the paragraph text at paragraphIndex. If it cannot be found there via exact string match, the anchor will fail silently."""
+  3. COMPACT: Quote one self-contained clause or short sentence — at most ~40 words (about 280 characters). Never quote a whole paragraph or multiple sentences.
+  4. FINDABLE: The exact character sequence you produce must appear verbatim in the paragraph text at paragraphIndex. If it cannot be found there via exact string match, the anchor will fail silently."""
 _GUARDRAIL = (
     "NEVER provide replacement prose, rewrites, corrections, or any text the writer "
     "could paste directly into their document. positive_note must describe what already "
@@ -577,7 +581,7 @@ def assemble_prompt(
     )
 
     untrusted: list[UntrustedContent] = []
-    for material in reference_materials:
+    for material in cap_reference_materials(reference_materials):
         untrusted.append(UntrustedContent(
             label=f"REFERENCE MATERIAL: {material['title']}",
             text=material['content'],
@@ -602,7 +606,12 @@ def assemble_prompt(
     return assembled.system_message + "\n\n---\n\n" + assembled.user_message
 
 
-def invoke_bedrock(prompt: str, config: dict[str, Any]) -> tuple[str, str]:
+def invoke_bedrock(
+    prompt: str,
+    config: dict[str, Any],
+    *,
+    max_tokens: int | None = None,
+) -> tuple[str, str]:
     """Invoke Bedrock Claude model.
 
     `prompt` is produced by assemble_prompt as "system_message\\n\\n---\\n\\nuser_message".
@@ -624,9 +633,16 @@ def invoke_bedrock(prompt: str, config: dict[str, Any]) -> tuple[str, str]:
             system_text = ""
             user_text = prompt
 
+        output_tokens = max_tokens if max_tokens is not None else MAX_DEBRIEF_MAX_TOKENS
+        logger.info(
+            "Invoking Bedrock model=%s prompt_chars=%s max_tokens=%s",
+            model_id,
+            len(prompt),
+            output_tokens,
+        )
         body: dict[str, Any] = {
             'anthropic_version': 'bedrock-2023-05-31',
-            'max_tokens': 16384,
+            'max_tokens': output_tokens,
             'messages': [{'role': 'user', 'content': user_text}],
             'temperature': float(config.get('temperature', 0.4)),
         }
@@ -733,10 +749,14 @@ def _ensure_strength_coverage(
     )
     try:
         prompt = build_strength_fill_prompt(
-            document_text=document_text_from_segments(segments),
+            document_text=document_text_from_segments(
+                segments,
+                max_chars=8_000,
+                per_paragraph=480,
+            ),
             missing_categories=missing_named,
         )
-        raw, fill_stop = invoke_bedrock(prompt, config)
+        raw, fill_stop = invoke_bedrock(prompt, config, max_tokens=2048)
         if fill_stop == 'max_tokens':
             logger.warning("Strength fill-in output was truncated (non-fatal)")
         filled = parse_feedback_output(raw)
@@ -1758,6 +1778,13 @@ def process_feedback_request(
             focus_paragraph_indices=focus_paragraph_indices,
             footnotes=draft_footnotes if draft_footnotes else None,
         )
+        output_tokens = debrief_max_tokens(
+            inline_cap=compute_density_cap(
+                word_count_from_segments(segments),
+                str(config.get('density') or 'medium'),
+            ),
+            category_count=len(doc_type_meta.get('category_ids') or []),
+        )
 
         # ─── Start resolution judging in parallel with Bedrock generation ─────
         # persist_resolution_status reads only the PRIOR draft's rows from the DB
@@ -1786,7 +1813,7 @@ def process_feedback_request(
 
         # Step 6: Invoke Bedrock (runs concurrently with resolution thread)
         logger.info("Invoking Bedrock...")
-        model_output, stop_reason = invoke_bedrock(prompt, config)
+        model_output, stop_reason = invoke_bedrock(prompt, config, max_tokens=output_tokens)
         logger.info(
             f"Bedrock output received ({len(model_output)} chars, stop_reason={stop_reason!r})"
         )

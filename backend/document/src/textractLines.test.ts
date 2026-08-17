@@ -133,16 +133,28 @@ describe('mergeOcrLines', () => {
     expect(result[2]!.text).toBe('Line three');
   });
 
-  it('separates when left edges differ by >= 4% of page width (Req 8.1)', () => {
+  it('separates when left edges differ by >= 4% of page width AND the previous line ended a sentence (Req 8.1)', () => {
     const lineHeight = 0.02;
     const smallGap = lineHeight * 1.0;
     // left edges differ by 0.05, which is > 4% of 0.8 (0.032); pageWidth = 0.8
     const lines: TextractLine[] = [
-      { text: 'Normal text', top: 0.1, height: lineHeight, left: 0.1, page: 1 },
+      { text: 'Normal text.', top: 0.1, height: lineHeight, left: 0.1, page: 1 },
       { text: 'Indented text', top: 0.1 + lineHeight + smallGap, height: lineHeight, left: 0.15, page: 1 },
     ];
     const result = mergeOcrLines(lines, metrics);
     expect(result).toHaveLength(2);
+  });
+
+  it('merges a mid-sentence wrap even when the leftover line sits further right', () => {
+    const lineHeight = 0.02;
+    const smallGap = lineHeight * 1.0;
+    const lines: TextractLine[] = [
+      { text: "the franchisee's", top: 0.1, height: lineHeight, left: 0.1, page: 1 },
+      { text: 'wrongdoings.', top: 0.1 + lineHeight + smallGap, height: lineHeight, left: 0.22, page: 1 },
+    ];
+    const result = mergeOcrLines(lines, metrics);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.text).toBe("the franchisee's wrongdoings.");
   });
 
   it('processes lines in ascending page then ascending top order (Req 8.8)', () => {

@@ -4,18 +4,13 @@
  *
  * **Validates: Requirements 1.1, 1.2**
  *
- * For any LINE block containing 3 or more WORD blocks with valid geometry
- * (≥50% having Height and Top), words grouped into runs by vertical proximity
- * (±5% height, ≤10% height difference) SHALL receive bold marks if and only if
- * the run's average bounding box height exceeds 1.15× the median word height
- * of all WORD blocks on that LINE.
+ * Word-box height is not font-weight. Mixed OCR box heights SHALL NOT
+ * receive bold marks. Isolated italic on short tokens is also suppressed.
  */
 import fc from 'fast-check';
 import type { Block } from '@aws-sdk/client-textract';
 import { inferInlineFormatting, type PageMetrics } from './textractFormatting';
 
-const BOLD_HEIGHT_RATIO = 1.15;
-const RUN_HEIGHT_DIFF_THRESHOLD = 0.10;
 const MIN_RUNS = 100;
 
 /** Default page metrics — uses values that won't trigger fontSize marks. */
@@ -82,27 +77,24 @@ function median(values: number[]): number {
  * All words share the same Top and have a "base" height (the median),
  * with a subset of words intentionally made taller (potential bold) or kept at base height.
  */
+/**
+ * Arbitrary: 3+ WORD blocks with a *contiguous* tall span (not scattered
+ * per-word flags — scatter is treated as OCR noise and stripped).
+ */
 const validWordBlocksArb: fc.Arbitrary<Block[]> = fc
   .tuple(
     fc.integer({ min: 3, max: 12 }), // total word count (≥3 for bold heuristic)
     fc.double({ min: 0.015, max: 0.04, noNaN: true }), // base height
     fc.double({ min: 0.05, max: 0.3, noNaN: true }), // top position
+    fc.integer({ min: 0, max: 4 }), // contiguous tall run length
+    fc.double({ min: 1.20, max: 1.8, noNaN: true }), // tall multiplier
   )
-  .chain(([count, baseHeight, top]) =>
-    fc.tuple(
-      fc.constant(count),
-      fc.constant(baseHeight),
-      fc.constant(top),
-      // For each word, decide if it's "tall" (bold candidate) or normal
-      fc.array(fc.boolean(), { minLength: count, maxLength: count }),
-      // Height multiplier for tall words: must exceed 1.15× to be bold
-      fc.double({ min: 1.20, max: 1.8, noNaN: true }),
-    ),
-  )
-  .map(([count, baseHeight, top, tallFlags, tallMultiplier]) => {
+  .map(([count, baseHeight, top, tallLenRaw, tallMultiplier]) => {
+    const tallLen = Math.min(tallLenRaw, count);
+    const tallStart = tallLen === 0 ? 0 : Math.min(count - tallLen, Math.floor(count / 3));
     const words: Block[] = [];
     for (let i = 0; i < count; i++) {
-      const isTall = tallFlags[i];
+      const isTall = i >= tallStart && i < tallStart + tallLen;
       const height = isTall ? baseHeight * tallMultiplier : baseHeight;
       words.push(makeWordBlock(`w${i}`, height, top));
     }
@@ -146,53 +138,13 @@ const fewWordsArb: fc.Arbitrary<Block[]> = fc
     return words;
   });
 
-describe('Property 1: Bold formatting inference', () => {
-  it('bold marks are applied if and only if run average height > 1.15× median word height (Req 1.1, 1.2)', () => {
+describe('Property 1: Bold is not inferred from OCR word height', () => {
+  it('mixed word-box heights do not produce bold marks', () => {
     fc.assert(
       fc.property(validWordBlocksArb, (wordBlocks) => {
         const result = inferInlineFormatting(defaultLineBlock(), wordBlocks, defaultPageMetrics());
-
-        // Compute expected median word height from all valid words
-        const heights = wordBlocks
-          .map((b) => b.Geometry?.BoundingBox?.Height)
-          .filter((h): h is number => typeof h === 'number' && h > 0);
-        const medianWordHeight = median(heights);
-
-        if (medianWordHeight === 0) return; // Degenerate case, skip
-
-        // For each run in result, verify bold mark correctness
-        // We need to reconstruct which words ended up in each run by matching text
-        let wordIndex = 0;
-        for (const run of result) {
-          // Count words in this run (space-separated)
-          const runWordTexts = run.text.split(' ');
-          const runWordHeights: number[] = [];
-
-          for (const _text of runWordTexts) {
-            if (wordIndex < wordBlocks.length) {
-              const h = wordBlocks[wordIndex].Geometry?.BoundingBox?.Height;
-              if (typeof h === 'number' && h > 0) {
-                runWordHeights.push(h);
-              }
-              wordIndex++;
-            }
-          }
-
-          const hasBoldMark = run.marks.some((m) => m.type === 'bold');
-
-          if (runWordHeights.length > 0) {
-            const avgRunHeight =
-              runWordHeights.reduce((s, h) => s + h, 0) / runWordHeights.length;
-
-            if (avgRunHeight > BOLD_HEIGHT_RATIO * medianWordHeight) {
-              // Run average height exceeds threshold → bold SHOULD be applied
-              expect(hasBoldMark).toBe(true);
-            } else {
-              // Run average height ≤ threshold → bold SHOULD NOT be applied
-              expect(hasBoldMark).toBe(false);
-            }
-          }
-        }
+        const boldRuns = result.filter((r) => r.marks.some((m) => m.type === 'bold'));
+        expect(boldRuns).toHaveLength(0);
       }),
       { numRuns: MIN_RUNS },
     );
@@ -286,48 +238,27 @@ describe('Property 1: Bold formatting inference', () => {
     );
   });
 
-  it('tall words separated into their own run receive bold marks (Req 1.1, 1.2)', () => {
-    // Generate scenario: several normal words followed by one much taller word
-    // The taller word has a significantly different height → forms its own run
+  it('taller OCR word boxes still do not receive bold marks', () => {
     const splitRunArb = fc
       .tuple(
-        fc.integer({ min: 3, max: 6 }), // normal word count
-        fc.double({ min: 0.015, max: 0.03, noNaN: true }), // base height
-        fc.double({ min: 0.05, max: 0.3, noNaN: true }), // top
-        fc.double({ min: 1.25, max: 2.0, noNaN: true }), // tall multiplier (well above 1.15×)
+        fc.integer({ min: 3, max: 6 }),
+        fc.double({ min: 0.015, max: 0.03, noNaN: true }),
+        fc.double({ min: 0.05, max: 0.3, noNaN: true }),
+        fc.double({ min: 1.25, max: 2.0, noNaN: true }),
       )
       .map(([normalCount, baseHeight, top, tallMultiplier]) => {
         const words: Block[] = [];
         for (let i = 0; i < normalCount; i++) {
           words.push(makeWordBlock(`n${i}`, baseHeight, top));
         }
-        // Add one tall word — height differs > 10% from normal, so it forms its own run
-        const tallHeight = baseHeight * tallMultiplier;
-        words.push(makeWordBlock('BOLD', tallHeight, top));
-        return { words, baseHeight, tallHeight };
+        words.push(makeWordBlock('BOLD', baseHeight * tallMultiplier, top));
+        return words;
       });
 
     fc.assert(
-      fc.property(splitRunArb, ({ words, baseHeight, tallHeight }) => {
-        // Ensure the tall word's height exceeds the 10% threshold for run splitting
-        const heightDiff = Math.abs(tallHeight - baseHeight);
-        const maxH = Math.max(tallHeight, baseHeight);
-        if (heightDiff / maxH <= RUN_HEIGHT_DIFF_THRESHOLD) return; // Skip if not different enough to split
-
+      fc.property(splitRunArb, (words) => {
         const result = inferInlineFormatting(defaultLineBlock(), words, defaultPageMetrics());
-
-        // The tall word should be in a separate run
-        // Since total words ≥ 4 (3 normal + 1 tall), bold heuristic applies
-        // The median height will be baseHeight (majority of words)
-        // The tall run avg height (tallHeight) > 1.15× baseHeight
-        const medH = median(words.map((w) => w.Geometry!.BoundingBox!.Height!));
-        if (tallHeight > BOLD_HEIGHT_RATIO * medH) {
-          // Find the run containing 'BOLD'
-          const boldRun = result.find((r) => r.text.includes('BOLD'));
-          if (boldRun) {
-            expect(boldRun.marks.some((m) => m.type === 'bold')).toBe(true);
-          }
-        }
+        expect(result.filter((r) => r.marks.some((m) => m.type === 'bold'))).toHaveLength(0);
       }),
       { numRuns: MIN_RUNS },
     );
@@ -414,7 +345,10 @@ describe('Property 3: Font size mark application', () => {
 
         if (exceedsThreshold) {
           // All runs MUST have a textStyle mark with fontSize
-          const expectedFontSize = (lineHeight / medianLineHeight) * BASE_FONT_SIZE;
+          const expectedFontSize = Math.min(
+            (lineHeight / medianLineHeight) * BASE_FONT_SIZE,
+            36,
+          );
 
           for (const run of result) {
             const textStyleMark = run.marks.find((m) => m.type === 'textStyle');
@@ -507,7 +441,10 @@ describe('Property 3: Font size mark application', () => {
           };
 
           const result = inferInlineFormatting(lineBlock, wordBlocks, metrics);
-          const expectedFontSize = (lineHeight / medianLineHeight) * BASE_FONT_SIZE;
+          const expectedFontSize = Math.min(
+            (lineHeight / medianLineHeight) * BASE_FONT_SIZE,
+            36,
+          );
 
           // Since heightFactor > 1.3, all runs must have fontSize
           for (const run of result) {
@@ -670,7 +607,7 @@ describe('Property 4: Italic formatting inference', () => {
         const perWord: Array<{ text: string; hasItalic: boolean }> = [];
         for (const run of result) {
           const hasItalic = run.marks.some((m) => m.type === 'italic');
-          for (const w of run.text.split(' ')) {
+          for (const w of run.text.split(/\s+/).filter(Boolean)) {
             perWord.push({ text: w, hasItalic });
           }
         }
@@ -738,7 +675,7 @@ describe('Property 4: Italic formatting inference', () => {
           const perWord: Array<{ text: string; hasItalic: boolean }> = [];
           for (const run of result) {
             const hasItalic = run.marks.some((m) => m.type === 'italic');
-            for (const w of run.text.split(' ')) {
+            for (const w of run.text.split(/\s+/).filter(Boolean)) {
               perWord.push({ text: w, hasItalic });
             }
           }
@@ -781,7 +718,7 @@ describe('Property 4: Italic formatting inference', () => {
           const perWord: Array<{ text: string; hasItalic: boolean }> = [];
           for (const run of result) {
             const hasItalic = run.marks.some((m) => m.type === 'italic');
-            for (const w of run.text.split(' ')) {
+            for (const w of run.text.split(/\s+/).filter(Boolean)) {
               perWord.push({ text: w, hasItalic });
             }
           }

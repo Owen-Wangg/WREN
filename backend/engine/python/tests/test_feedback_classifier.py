@@ -137,7 +137,7 @@ class TestComputeDensityCap:
 
     def test_maximum_cap_for_very_long_docs(self) -> None:
         cap = compute_density_cap(100_000, DensitySetting.HIGH)
-        assert cap == 50  # Max cap
+        assert cap == 24  # Max cap
 
     def test_non_decreasing_in_word_count(self) -> None:
         """Property 13: density cap is non-decreasing in document length."""
@@ -228,7 +228,7 @@ class TestApplyDensityBound:
             items, word_count=250, density="high"
         )
         # 250 * 6/1000 = ceil(1.5) = 2... wait let me recalc
-        # Actually cap = max(1, min(ceil(250/1000*6), 50)) = max(1, 2) = 2
+        # Actually cap = max(1, min(ceil(250/1000*6), 24)) = max(1, 2) = 2
         # With cap=2, we should get the first 2 from priority ordering
         assert len(result.retained) == result.cap
 

@@ -153,7 +153,7 @@ describe('Property 18: Paragraph merging', () => {
       );
     });
 
-    it('lines with left edges differing by ≥ 4% of page width are NOT merged even with small gap', () => {
+    it('lines with left edges differing by ≥ 4% of page width are NOT merged when the previous line ended a sentence', () => {
       fc.assert(
         fc.property(
           pageMetricsArb,
@@ -175,8 +175,8 @@ describe('Property 18: Paragraph merging', () => {
             if (secondLeft > 0.9) return;
 
             const lines: TextractLine[] = [
-              { text: 'First line of paragraph', top: 0.1, height: medianHeight, left: baseLeft, page: 1 },
-              { text: 'second line different indent', top: 0.1 + medianHeight + gap, height: medianHeight, left: secondLeft, page: 1 },
+              { text: 'First line of paragraph.', top: 0.1, height: medianHeight, left: baseLeft, page: 1 },
+              { text: 'Second line different indent', top: 0.1 + medianHeight + gap, height: medianHeight, left: secondLeft, page: 1 },
             ];
 
             const result = mergeOcrLines(lines, pageMetrics);

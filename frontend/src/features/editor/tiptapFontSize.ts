@@ -28,6 +28,17 @@ export const FONT_SIZE_PRESETS = [
 
 export type FontSizePreset = (typeof FONT_SIZE_PRESETS)[number];
 
+const MAX_INLINE_FONT_SIZE_PT = 36;
+
+/** Clamp ingested letterhead/logo sizes to the toolbar max. */
+export function capInlineFontSize(fontSize: string): string {
+  const match = /^([\d.]+)\s*pt$/i.exec(fontSize.trim());
+  if (!match) return fontSize;
+  const pt = Number.parseFloat(match[1]!);
+  if (!Number.isFinite(pt) || pt <= MAX_INLINE_FONT_SIZE_PT) return fontSize;
+  return `${MAX_INLINE_FONT_SIZE_PT}pt`;
+}
+
 export const FontSize = Extension.create({
   name: 'fontSize',
 
@@ -50,7 +61,7 @@ export const FontSize = Extension.create({
             },
             renderHTML: (attributes: { fontSize?: string | null }) => {
               if (!attributes.fontSize) return {};
-              return { style: `font-size: ${attributes.fontSize}` };
+              return { style: `font-size: ${capInlineFontSize(attributes.fontSize)}` };
             },
           },
         },

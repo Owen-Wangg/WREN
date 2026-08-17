@@ -10,6 +10,8 @@ import { jsPDF } from 'jspdf';
 
 import type { JSONContent } from '@tiptap/react';
 
+import { capInlineFontSize } from './tiptapFontSize';
+
 export interface PdfExportOptions {
   /** TipTap JSON for the repeating page header; null/undefined = no header. */
   readonly header?: JSONContent | null;
@@ -46,7 +48,7 @@ function markOpen(type: string, attrs?: Record<string, unknown>): string {
     case 'textStyle': {
       const parts: string[] = [];
       if (attrs?.color) parts.push(`color:${String(attrs.color)}`);
-      if (attrs?.fontSize) parts.push(`font-size:${String(attrs.fontSize)}`);
+      if (attrs?.fontSize) parts.push(`font-size:${capInlineFontSize(String(attrs.fontSize))}`);
       if (attrs?.fontFamily) parts.push(`font-family:${String(attrs.fontFamily)}`);
       return parts.length ? `<span style="${parts.join(';')}">` : '<span>';
     }

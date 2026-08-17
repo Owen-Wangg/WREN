@@ -28,8 +28,13 @@ import {
   type PageMetrics,
   type MergedParagraph,
 } from './textractLines.js';
+import { stitchWrappedParagraphs } from './stitchWrappedParagraphs.js';
 import { buildBlockIndex } from './textractBlockIndex.js';
-import { inferInlineFormatting, type FormattedRun } from './textractFormatting.js';
+import {
+  inferInlineFormatting,
+  suppressScatteredEmphasis,
+  type FormattedRun,
+} from './textractFormatting.js';
 import { inferAlignment } from './textractAlignment.js';
 import { detectColumns, type PageBand } from './textractColumns.js';
 import { extractHeadersFooters } from './textractHeaderFooter.js';
@@ -712,7 +717,8 @@ function enrichedPipeline(
   }
 
   // --- Step 10: Page-level confidence warnings ---
-  const finalNodes = applyPageConfidenceWarnings(nodes, pageLineConfidences);
+  const stitched = stitchWrappedParagraphs(nodes);
+  const finalNodes = applyPageConfidenceWarnings(stitched, pageLineConfidences);
 
   // Ensure non-empty document
   if (finalNodes.length === 0) {
@@ -851,8 +857,8 @@ function buildEnrichedParagraph(
     }
 
     if (hasAnyWordBlocks && formattedRuns.length > 0) {
-      // Convert FormattedRuns to TipTap text nodes
-      contentNodes = formattedRunsToNodes(formattedRuns);
+      // Wrapped lines each had their own scatter cap; re-check the paragraph.
+      contentNodes = formattedRunsToNodes(suppressScatteredEmphasis(formattedRuns, 1));
     } else {
       // No word blocks available for formatting — use the merged paragraph text
       contentNodes = para.text ? [{ type: 'text', text: para.text }] : [];

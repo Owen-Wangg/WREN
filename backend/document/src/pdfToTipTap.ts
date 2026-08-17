@@ -9,6 +9,8 @@
  */
 import type { TipTapDoc, TipTapNode } from '@wren/types';
 
+import { stitchWrappedParagraphs } from './stitchWrappedParagraphs';
+
 export interface SpatialTextItem {
   text: string;
   x: number;
@@ -57,6 +59,8 @@ const MAX_INDENT_LEVEL = 8;
 const INDENT_GAP_FALLBACK = 28;
 /** Attach fontSize mark when run differs from body median by this ratio. */
 const FONT_SIZE_MARK_RATIO = 1.12;
+/** Match the editor toolbar max so letterhead/logo lines cannot blow up the page. */
+const MAX_INLINE_FONT_SIZE_PT = 36;
 /** Soft-wrap: max vertical gap between lines of the same paragraph (× median size). */
 const SOFT_WRAP_GAP_RATIO = 1.85;
 /** Paragraph break: gap larger than this (× median size) always starts a new block. */
@@ -105,7 +109,7 @@ function inferTextAlign(
   const lineWidth = Math.max(0, lineRight - line.minX);
   if (lineWidth < 8) return undefined;
   // Nearly full-width → leave default left.
-  if (lineWidth / bounds.width > 0.85) return undefined;
+  if (lineWidth / bounds.width > 0.75) return undefined;
 
   const leftMargin = line.minX - bounds.left;
   const rightMargin = bounds.left + bounds.width - lineRight;
@@ -197,7 +201,7 @@ function runsToTextNodes(
         medianFontSize > 0 &&
         Math.abs(r.fontSize - medianFontSize) / medianFontSize >= FONT_SIZE_MARK_RATIO - 1
       ) {
-        textStyleAttrs.fontSize = `${Math.round(r.fontSize)}pt`;
+        textStyleAttrs.fontSize = `${Math.round(Math.min(r.fontSize, MAX_INLINE_FONT_SIZE_PT))}pt`;
       }
       const color = normalizePdfColor(r.color);
       if (color) textStyleAttrs.color = color;
@@ -232,6 +236,70 @@ function stripFontSizeMarks(nodes: TipTapNode[]): TipTapNode[] | undefined {
   });
 }
 
+/** Closing punctuation stays glued to the previous word. Straight quotes are handled separately. */
+const NO_SPACE_BEFORE = /^[.,;:!?%)\]}’”/-]/;
+/** Opening punctuation stays glued to the following word. */
+const NO_SPACE_AFTER = /[(\[{‘“-]$/;
+const CONTRACTION_NEXT = /^'(?:s|t|re|ve|ll|d|m)$/i;
+
+function isStraightQuote(ch: string | undefined): boolean {
+  return ch === '"' || ch === "'";
+}
+
+function needsSpaceBetween(prev: string, next: string): boolean {
+  if (!prev || !next) return false;
+  if (/\s$/.test(prev) || /^\s/.test(next)) return false;
+
+  const prevTrim = prev.trimEnd();
+  const nextTrim = next.trimStart();
+  const prevEnd = prevTrim[prevTrim.length - 1];
+  const nextStart = nextTrim[0];
+
+  if (CONTRACTION_NEXT.test(nextTrim) && /[A-Za-z]$/.test(prevTrim)) {
+    return false;
+  }
+  if (isStraightQuote(nextStart) && /[A-Za-z0-9]$/.test(prevTrim)) {
+    return nextTrim.length > 1;
+  }
+  if (isStraightQuote(prevEnd) && /^[A-Za-z0-9]/.test(nextTrim)) {
+    return prevTrim.length > 1;
+  }
+  if (NO_SPACE_BEFORE.test(nextTrim)) return false;
+  if (NO_SPACE_AFTER.test(prevTrim)) return false;
+  return true;
+}
+
+/**
+ * Reconstruct a missing space between same-line PDF items. Per-character
+ * glyphs have a tiny gap; word items whose space glyph was omitted have a
+ * larger gap (or a bad/zero width that we estimated).
+ */
+function spacerForAdjacentRuns(prev: LineRun, next: LineRun): string {
+  if (!needsSpaceBetween(prev.text, next.text)) return '';
+  const gap = next.x - (prev.x + prev.width);
+  const em = Math.max(prev.fontSize, next.fontSize, 1);
+  if (gap > em * 0.12) return ' ';
+  const prevWord = prev.text.trim();
+  const nextWord = next.text.trim();
+  if (
+    gap >= -em * 0.35 &&
+    ((/[A-Za-z0-9]$/.test(prevWord) && /^["']/.test(nextWord) && nextWord.length > 1) ||
+      (/["']$/.test(prevWord) && prevWord.length > 1 && /^[A-Za-z0-9]/.test(nextWord)))
+  ) {
+    return ' ';
+  }
+  if (
+    gap >= -em * 0.35 &&
+    prevWord.length >= 2 &&
+    nextWord.length >= 2 &&
+    /[A-Za-z0-9]$/.test(prevWord) &&
+    /^[A-Za-z0-9]/.test(nextWord)
+  ) {
+    return ' ';
+  }
+  return '';
+}
+
 function itemsToLines(items: SpatialTextItem[]): Line[] {
   const sorted = [...items]
     .filter((i) => i.text.trim().length > 0)
@@ -257,8 +325,11 @@ function itemsToLines(items: SpatialTextItem[]): Line[] {
     };
 
     if (current && Math.abs(item.y - current.y) <= Math.max(3, fontSize * 0.35)) {
-      current.runs.push(run);
-      current.text += item.text;
+      const prev = current.runs[current.runs.length - 1];
+      const spacer = prev ? spacerForAdjacentRuns(prev, run) : '';
+      const spacedRun = spacer ? { ...run, text: spacer + run.text } : run;
+      current.runs.push(spacedRun);
+      current.text += spacedRun.text;
       current.maxFontSize = Math.max(current.maxFontSize, fontSize);
       current.minX = Math.min(current.minX, item.x);
     } else {
@@ -639,9 +710,12 @@ function shouldMergeSoftWrap(
   }
 
   if (lineIndentLevel(prev, baselineX, indentGap) !== lineIndentLevel(next, baselineX, indentGap)) {
-    return false;
+    if (endsSentence(prev.text) || Math.abs(prev.minX - next.minX) > indentGap * 6) {
+      return false;
+    }
+  } else if (Math.abs(prev.minX - next.minX) > indentGap * 0.55) {
+    if (endsSentence(prev.text)) return false;
   }
-  if (Math.abs(prev.minX - next.minX) > indentGap * 0.55) return false;
 
   // Similar body size — don't glue a caption onto body.
   if (
@@ -718,8 +792,9 @@ function lineToBlock(
   bounds: ContentBounds,
 ): TipTapNode {
   const content = runsToTextNodes(line.runs, medianFontSize, true);
-  const indent = lineIndentLevel(line, baselineX, indentGap);
   const align = inferTextAlign(line, bounds);
+  const indent =
+    align === 'center' ? 0 : lineIndentLevel(line, baselineX, indentGap);
   const attrs: Record<string, unknown> = {
     ...(indent > 0 ? { indent } : {}),
     ...(align ? { textAlign: align } : {}),
@@ -815,7 +890,7 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
     i += 1;
   }
 
-  const merged = mergeAdjacentLists(blocks);
+  const merged = stitchWrappedParagraphs(mergeAdjacentLists(blocks));
   return {
     type: 'doc',
     content: merged.length > 0 ? merged : [{ type: 'paragraph' }],

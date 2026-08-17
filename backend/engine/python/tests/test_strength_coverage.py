@@ -171,3 +171,15 @@ def test_build_strength_fill_prompt_lists_missing_categories_and_document() -> N
     assert "kind='strength'" in prompt
     assert "The plaintiff filed suit in Ontario." in prompt
     assert "[PARAGRAPH 0]" in prompt
+
+
+def test_document_text_from_segments_truncates_for_fill_in() -> None:
+    segments = [
+        {"text": "alpha " * 200},
+        {"text": "bravo " * 200},
+        {"text": "charlie " * 200},
+    ]
+    excerpt = document_text_from_segments(segments, max_chars=150, per_paragraph=80)
+    assert "[PARAGRAPH 0]" in excerpt
+    assert "[PARAGRAPH 2]" not in excerpt
+    assert len(excerpt) <= 200

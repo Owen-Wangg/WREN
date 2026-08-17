@@ -18,6 +18,7 @@ import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
 import { CitationDisplay } from './CitationDisplay';
 import { SectionApplicabilityToggle } from './SectionApplicabilityToggle';
 
+import { isUsableDraftId } from '../debriefApi';
 import { isStrengthItem, strengthDisplayText } from '../debriefItems';
 import { useAiDebrief, useDebriefHistory, useRegenerateDebrief, useSectionApplicability } from '../useDebrief';
 import { useDebriefSubscription } from '../useDebriefSubscription';
@@ -733,7 +734,7 @@ export function SidebarDebriefPanel({
                         className="flex items-center justify-between gap-xs text-heading4 font-sans font-bold text-text-primary border-b border-border-subtle pb-xs"
                       >
                         <span>{categoryLabel}</span>
-                        {activeDraftId && (
+                        {isUsableDraftId(activeDraftId) && (
                           <SectionApplicabilityToggle
                             environmentId={environmentId}
                             draftId={activeDraftId}

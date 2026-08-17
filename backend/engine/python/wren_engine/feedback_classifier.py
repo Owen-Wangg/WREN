@@ -82,8 +82,8 @@ _DENSITY_ALIASES: dict[str, str] = {
 # so very short documents still get at least some feedback.
 _MINIMUM_INLINE_ITEMS: int = 1
 
-# Maximum cap — no document gets more than this regardless of length.
-_MAXIMUM_INLINE_ITEMS: int = 50
+# Maximum cap — long memos stay readable and finish in one Bedrock call.
+_MAXIMUM_INLINE_ITEMS: int = 24
 
 
 def compute_density_cap(

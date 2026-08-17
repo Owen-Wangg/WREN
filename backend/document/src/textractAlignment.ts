@@ -34,6 +34,12 @@ export interface AlignmentResult {
 /** Tolerance for center and right alignment detection (4% of page width). */
 const ALIGNMENT_TOLERANCE = 0.04;
 
+/** Full-width left-aligned lines have ~equal tiny margins — that is not centering. */
+const FULL_WIDTH_RATIO = 0.75;
+
+/** Centered text sits inward; flush-left body has ~0 left margin. */
+const MIN_CENTER_LEFT_MARGIN = 0.12;
+
 /** Minimum left margin ratio for right-alignment detection. */
 const RIGHT_ALIGN_MIN_LEFT_MARGIN = 0.20;
 
@@ -47,7 +53,8 @@ const MAX_INDENT = 8;
  * Infer text alignment and indentation for a LINE block based on its
  * horizontal position relative to the page content bounds.
  *
- * Center detection: left and right margins differ by <4% of page width.
+ * Center detection: left and right margins differ by <4% of page width,
+ * the line is not full-width, and it sits inward from the left edge.
  * Right detection: right edge within 4% of page right margin AND left margin >20% of page width.
  * Priority: center wins when both conditions match.
  * Indent: floor((lineLeft - baselineLeft) / indentStep) clamped [0, 8],
@@ -65,7 +72,8 @@ export function inferAlignment(
   }
 
   const lineLeft = bbox.Left;
-  const lineRight = lineLeft + bbox.Width;
+  const lineWidth = bbox.Width;
+  const lineRight = lineLeft + lineWidth;
 
   const { contentBounds, baselineLeft, indentStep } = pageMetrics;
   const pageWidth = contentBounds.width;
@@ -81,7 +89,11 @@ export function inferAlignment(
 
   // --- Alignment detection ---
   const marginDifference = Math.abs(leftMargin - rightMargin);
-  const isCenter = marginDifference < ALIGNMENT_TOLERANCE * pageWidth;
+  const isFullWidth = lineWidth / pageWidth > FULL_WIDTH_RATIO;
+  const isCenter =
+    !isFullWidth &&
+    leftMargin > MIN_CENTER_LEFT_MARGIN * pageWidth &&
+    marginDifference < ALIGNMENT_TOLERANCE * pageWidth;
 
   const rightEdgeDistance = Math.abs(contentBounds.right - lineRight);
   const isRight =
@@ -95,6 +107,12 @@ export function inferAlignment(
     result.textAlign = 'right';
   }
   // If neither condition met, no textAlign attribute (Requirement 2.7)
+
+  // Centered/right lines have a large Left because they are short, not because
+  // they are indented. Applying indent as well produces a staircase of scraps.
+  if (result.textAlign) {
+    return result;
+  }
 
   // --- Indentation computation (Requirement 2.4) ---
   if (indentStep > 0) {

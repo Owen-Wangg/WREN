@@ -2,6 +2,42 @@ import { spatialPagesToTipTap, type SpatialPage } from './pdfToTipTap';
 import type { TipTapNode } from '@wren/types';
 
 describe('spatialPagesToTipTap', () => {
+  it('inserts spaces around quoted words', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: 'of', x: 0, y: 100, width: 14, height: 12, fontSize: 12 },
+          { text: '"occupier"', x: 16, y: 100, width: 64, height: 12, fontSize: 12 },
+          { text: 'under', x: 82, y: 100, width: 36, height: 12, fontSize: 12 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const text =
+      (doc.content as TipTapNode[] | undefined)?.[0]?.content
+        ?.map((n) => n.text ?? '')
+        .join('') ?? '';
+    expect(text).toBe('of "occupier" under');
+  });
+
+  it('inserts spaces between word items that omit the space glyph', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: 'The', x: 0, y: 100, width: 22, height: 12, fontSize: 12 },
+          { text: 'Negligence', x: 28, y: 100, width: 70, height: 12, fontSize: 12 },
+          { text: 'Act', x: 104, y: 100, width: 22, height: 12, fontSize: 12 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const text =
+      (doc.content as TipTapNode[] | undefined)?.[0]?.content
+        ?.map((n) => n.text ?? '')
+        .join('') ?? '';
+    expect(text).toBe('The Negligence Act');
+  });
+
   it('builds paragraphs with bold from font names', () => {
     const pages: SpatialPage[] = [
       {
@@ -62,6 +98,25 @@ describe('spatialPagesToTipTap', () => {
     expect(sized?.text).toBe('Slightly larger');
   });
 
+  it('caps oversized letterhead runs instead of rendering them at raw PDF size', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: 'Counsel for the Plaintiff', x: 0, y: 10, width: 180, height: 11, fontSize: 11 },
+          { text: '2024', x: 0, y: 80, width: 200, height: 90, fontSize: 96 },
+          { text: 'BCSC', x: 0, y: 180, width: 200, height: 90, fontSize: 96 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const json = JSON.stringify(doc);
+    expect(json).not.toMatch(/96pt/);
+    const sizes = [...json.matchAll(/"fontSize":"(\d+)pt"/g)].map((m) => Number(m[1]));
+    for (const pt of sizes) {
+      expect(pt).toBeLessThanOrEqual(36);
+    }
+  });
+
   it('sets paragraph indent from left offset', () => {
     const pages: SpatialPage[] = [
       {
@@ -76,6 +131,31 @@ describe('spatialPagesToTipTap', () => {
     const indented = blocks?.find((b) => JSON.stringify(b).includes('Indented text'));
     expect(indented?.type).toBe('paragraph');
     expect(Number(indented?.attrs?.indent ?? 0)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('joins a wrapped leftover that sits further right instead of indenting it', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          {
+            text: "Vicarious liability will typically not extend to include the franchisee's",
+            x: 50,
+            y: 10,
+            width: 420,
+            height: 12,
+            fontSize: 12,
+          },
+          { text: 'wrongdoings.', x: 180, y: 24, width: 90, height: 12, fontSize: 12 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = (doc.content as TipTapNode[] | undefined) ?? [];
+    const text = blocks
+      .map((b) => b.content?.map((n) => n.text ?? '').join('') ?? '')
+      .join('\n');
+    expect(text).toContain("franchisee's wrongdoings.");
+    expect(blocks.filter((b) => b.type === 'paragraph')).toHaveLength(1);
   });
 
   it('detects bullet lists', () => {
@@ -386,6 +466,36 @@ describe('spatialPagesToTipTap', () => {
     const rightish = blocks?.find((b) => JSON.stringify(b).includes('Rightish'));
     expect(centered?.attrs?.textAlign).toBe('center');
     expect(rightish?.attrs?.textAlign).toBe('right');
+  });
+
+  it('keeps ordinary body paragraphs left-aligned', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          {
+            text: 'This memo looks at whether Kato is responsible for the accident.',
+            x: 0,
+            y: 10,
+            width: 200,
+            height: 12,
+            fontSize: 12,
+          },
+          {
+            text: 'Kato, a franchisee of PetroCan, operates the premises.',
+            x: 0,
+            y: 28,
+            width: 190,
+            height: 12,
+            fontSize: 12,
+          },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = (doc.content as TipTapNode[] | undefined) ?? [];
+    for (const block of blocks) {
+      expect(block.attrs?.textAlign).not.toBe('center');
+    }
   });
 
   it('keeps color on headings after stripping fontSize marks', () => {
