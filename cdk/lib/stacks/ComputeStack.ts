@@ -125,6 +125,12 @@ export class ComputeStack extends Stack {
       sourceMap: true,
       target: "node22",
     };
+    // pdf.js / pdf-parse must ship as real node_modules (workers + ESM), not
+    // an esbuild bundle — otherwise Lambda cannot load the digital PDF path.
+    const documentBundling: lambdaNodejs.BundlingOptions = {
+      ...sharedBundling,
+      nodeModules: ["pdfjs-dist", "pdf-parse"],
+    };
 
     // One-way salt for activity-log actor pseudonyms. Generated into Secrets
     // Manager (never a guessable path). CloudFormation injects the value into
@@ -185,11 +191,11 @@ export class ComputeStack extends Stack {
         ...dbEnv(secrets.wren_document),
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
         PDF_OCR_ENABLED: "true",
-        // Textract is the sole OCR engine — no LiteParse/Tesseract.
+        // Textract is the OCR fallback when a PDF has no usable text layer.
         PDF_OCR_ENGINE: "textract",
         CONVERSATION_TABLE_NAME: props.conversationTableName,
       },
-      bundling: sharedBundling,
+      bundling: documentBundling,
     });
 
     // -----------------------------------------------------------------------

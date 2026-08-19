@@ -1,8 +1,8 @@
 /**
  * PDF extraction interfaces.
  *
- * The concrete implementation is {@link TextractPdfExtractor} (see
- * `textractPdfExtractor.ts`). LiteParse/Tesseract has been removed.
+ * The concrete implementation is {@link HybridPdfExtractor} (digital text
+ * layer via pdf.js, with {@link TextractPdfExtractor} as the OCR fallback).
  */
 import type { TipTapDoc } from '@wren/types';
 

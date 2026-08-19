@@ -9,6 +9,13 @@
  */
 import type { TipTapDoc, TipTapNode } from '@wren/types';
 
+import {
+  headingLevelFromPlainText,
+  isAllCapsHeadingText,
+  looksLikeStandaloneHeading,
+  wordCount,
+} from './pdfHeadingHeuristics';
+import { filterWatermarkPages } from './pdfWatermarks';
 import { stitchWrappedParagraphs } from './stitchWrappedParagraphs';
 
 export interface SpatialTextItem {
@@ -384,13 +391,6 @@ function lineIndentLevel(line: Line, baselineX: number, indentGap = INDENT_GAP_F
   return Math.min(MAX_INDENT_LEVEL, Math.max(0, Math.round(delta / gap)));
 }
 
-function wordCount(text: string): number {
-  return text
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean).length;
-}
-
 function lineBoldRatio(line: Line): number {
   const total = line.runs.reduce((n, r) => n + r.text.length, 0);
   if (total === 0) return 0;
@@ -398,21 +398,18 @@ function lineBoldRatio(line: Line): number {
   return bold / total;
 }
 
-function isAllCapsHeadingText(text: string): boolean {
-  const letters = text.replace(/[^A-Za-z]/g, '');
-  if (letters.length < 3) return false;
-  return letters === letters.toUpperCase();
-}
-
 /**
- * Heading level 1–3, or null for body. Size ratios first; then short bold /
- * ALL CAPS lines when the PDF uses a flat type size.
+ * Heading level 1–3, or null for body. Size ratios first; then TOC / judgment
+ * titles, short bold, or ALL CAPS lines when the PDF uses a flat type size.
  */
 function headingLevelForLine(line: Line, medianFontSize: number): number | null {
   if (isListLine(line)) return null;
 
   const text = line.text.trim();
   if (text.length === 0) return null;
+
+  const structural = headingLevelFromPlainText(text);
+  if (structural != null) return structural;
 
   if (line.maxFontSize >= medianFontSize * 1.35) {
     if (line.maxFontSize >= medianFontSize * 1.8) return 1;
@@ -695,6 +692,9 @@ function shouldMergeSoftWrap(
   if (isListLine(prev) || isListLine(next)) return false;
   if (headingLevelForLine(prev, medianFontSize) != null) return false;
   if (headingLevelForLine(next, medianFontSize) != null) return false;
+  if (looksLikeStandaloneHeading(prev.text) || looksLikeStandaloneHeading(next.text)) {
+    return false;
+  }
 
   // Table-ish lines: defer to scale at call site via a wide column gap check.
   const probeScale: LayoutScale = {
@@ -840,13 +840,9 @@ function percentile(sorted: number[], p: number): number {
   return sorted[idx]!;
 }
 
-/** Build a TipTap doc from spatial pages of text items. */
-export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
-  const allItems = pages.flatMap((p) => p.textItems ?? []);
-  const rawLines = itemsToLines(allItems);
-  if (rawLines.length === 0) {
-    return { type: 'doc', content: [{ type: 'paragraph' }] };
-  }
+function spatialItemsToBlocks(items: SpatialTextItem[]): TipTapNode[] {
+  const rawLines = itemsToLines(items);
+  if (rawLines.length === 0) return [];
 
   const sizes = rawLines.map((l) => l.maxFontSize).sort((a, b) => a - b);
   // Lower median so a single large title still counts as a heading vs body.
@@ -888,6 +884,18 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
 
     blocks.push(lineToBlock(lines[i]!, medianFontSize, baselineX, scale.indentGap, bounds));
     i += 1;
+  }
+
+  return blocks;
+}
+
+/** Build a TipTap doc from spatial pages of text items. */
+export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
+  // Process pages separately so page-local Y coordinates cannot interleave.
+  const cleaned = filterWatermarkPages(pages);
+  const blocks: TipTapNode[] = [];
+  for (const page of cleaned) {
+    blocks.push(...spatialItemsToBlocks(page.textItems ?? []));
   }
 
   const merged = stitchWrappedParagraphs(mergeAdjacentLists(blocks));

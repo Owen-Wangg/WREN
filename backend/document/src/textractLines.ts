@@ -1,6 +1,8 @@
 /**
  * Textract LINE geometry helpers — soft-wrap merge into paragraphs.
  */
+import { shouldKeepHeadingLinesSeparate } from './pdfHeadingHeuristics.js';
+
 export interface TextractLine {
   readonly text: string;
   readonly confidence?: number;
@@ -80,7 +82,8 @@ export function mergeTextractLinesIntoParagraphs(
     const shouldBreak =
       pageChanged ||
       gap > hardGap ||
-      (gap > softGap && gap > (prev.height ?? medianHeight) * 1.15);
+      (gap > softGap && gap > (prev.height ?? medianHeight) * 1.15) ||
+      shouldKeepHeadingLinesSeparate(prev.text, line.text);
 
     if (shouldBreak) {
       paragraphs.push(current.join(' '));
@@ -263,6 +266,17 @@ export function mergeOcrLines(
 
     // Gap > 2.4× always separates (Requirement 8.3)
     if (gap > hardGap) {
+      paragraphs.push({
+        lines: currentLines,
+        text: buildParagraphText(currentLines),
+      });
+      currentLines = [line];
+      prev = line;
+      continue;
+    }
+
+    // Do not glue TOC titles or consecutive ALL-CAPS section headings.
+    if (shouldKeepHeadingLinesSeparate(prev.text, line.text)) {
       paragraphs.push({
         lines: currentLines,
         text: buildParagraphText(currentLines),

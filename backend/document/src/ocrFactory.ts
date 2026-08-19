@@ -1,9 +1,9 @@
 /**
- * PDF extractor factory — always returns the Textract-backed extractor.
- * (LiteParse/Tesseract removed; Textract is the sole OCR engine.)
+ * PDF extractor factory — digital text layer first, Textract OCR fallback.
  */
 import type { RichPdfExtractor } from './pdfExtractor.js';
 import type { OcrEngineName } from './textractOcr.js';
+import { HybridPdfExtractor } from './hybridPdfExtractor.js';
 import { TextractPdfExtractor } from './textractPdfExtractor.js';
 
 export interface PdfExtractorOptions {
@@ -16,11 +16,12 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): {
   extractor: RichPdfExtractor;
   engine: OcrEngineName;
 } {
+  const ocr = new TextractPdfExtractor({
+    s3Bucket: options.s3Bucket,
+    s3Key: options.s3Key,
+  });
   return {
-    extractor: new TextractPdfExtractor({
-      s3Bucket: options.s3Bucket,
-      s3Key: options.s3Key,
-    }),
+    extractor: new HybridPdfExtractor(ocr),
     engine: 'textract',
   };
 }

@@ -43,12 +43,13 @@ import {
   computePageConfidence,
   computeDocumentConfidence,
 } from './textractConfidence.js';
+import { looksLikeStandaloneHeading } from './pdfHeadingHeuristics.js';
+import { polishPdfTipTapNodes } from './promotePdfHeadings.js';
 
 const SKIP_LAYOUT = new Set([
   'LAYOUT_HEADER',
   'LAYOUT_FOOTER',
   'LAYOUT_PAGE_NUMBER',
-  'LAYOUT_FIGURE',
 ]);
 
 // ─── Page Metrics Computation ───────────────────────────────────────────────
@@ -229,12 +230,49 @@ function paragraphNode(text: string): TipTapNode {
   };
 }
 
-function headingNode(text: string, level: 1 | 2): TipTapNode {
+function headingNode(
+  text: string,
+  level: 1 | 2,
+  extraAttrs?: Record<string, unknown>,
+): TipTapNode {
+  const attrs: Record<string, unknown> = { level, ...(extraAttrs ?? {}) };
   return {
     type: 'heading',
-    attrs: { level },
+    attrs,
     content: text ? [{ type: 'text', text }] : undefined,
   };
+}
+
+function headingAttrsFromLine(
+  lineBlock: Block | undefined,
+  metrics: PageMetrics,
+): Record<string, unknown> | undefined {
+  if (!lineBlock) return undefined;
+  try {
+    const align = inferAlignment(lineBlock, metrics);
+    if (!align.textAlign && !align.indent) return undefined;
+    return {
+      ...(align.textAlign ? { textAlign: align.textAlign } : {}),
+      ...(align.indent ? { indent: align.indent } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Textract often tags a table of contents or caption block as LAYOUT_FIGURE.
+ * Keep the text when the "figure" is actually several lines of readable copy.
+ */
+function looksLikeTextFigure(lineBlocks: Block[]): boolean {
+  const texts = lineBlocks
+    .map((b) => (typeof b.Text === 'string' ? b.Text.trim() : ''))
+    .filter(Boolean);
+  if (texts.length >= 3) return true;
+  const joined = texts.join(' ');
+  if (/table of contents/i.test(joined)) return true;
+  const headingLines = texts.filter((t) => looksLikeStandaloneHeading(t));
+  return headingLines.length >= 2;
 }
 
 function listFromLayout(block: Block, byId: Map<string, Block>): TipTapNode | null {
@@ -520,7 +558,13 @@ export function textractLayoutBlocksToTipTap(blocks: readonly Block[]): TipTapDo
   }
 
   // Validate output before returning (Requirements 9.1, 9.2, 9.4, 9.5)
-  return validateTipTapOutput(result);
+  const polished: TipTapDoc = {
+    type: 'doc',
+    content: polishPdfTipTapNodes(
+      Array.isArray(result.content) ? result.content : [],
+    ),
+  };
+  return validateTipTapOutput(polished);
 }
 
 /**
@@ -618,12 +662,36 @@ function enrichedPipeline(
     const type = block.BlockType;
     if (!type?.startsWith('LAYOUT_')) continue;
     if (block.Id && consumedLayoutIds.has(block.Id)) continue;
-    if (SKIP_LAYOUT.has(type)) {
-      // Handle LAYOUT_FIGURE: insert placeholder at reading-order position
-      if (type === 'LAYOUT_FIGURE') {
+    if (SKIP_LAYOUT.has(type)) continue;
+
+    if (type === 'LAYOUT_FIGURE') {
+      const page = block.Page ?? 1;
+      const metrics = pageMetricsMap.get(page) ?? computePageMetricsForPage(page, [], []);
+      const childLineBlocks = collectChildLineBlocks(block, byId);
+      if (looksLikeTextFigure(childLineBlocks)) {
+        try {
+          const pageBands = detectColumns(childLineBlocks, metrics);
+          nodes.push(
+            ...processPageBands(
+              pageBands,
+              metrics,
+              blockIndex,
+              allLineConfidences,
+              pageLineConfidences,
+              page,
+            ),
+          );
+        } catch {
+          const lines = collectChildLines(block, byId);
+          for (const para of mergeTextractLinesIntoParagraphs(lines)) {
+            if (para) nodes.push(paragraphNode(para));
+          }
+        }
+      } else {
         nodes.push(paragraphNode(FIGURE_PLACEHOLDER_TEXT));
-        if (block.Id) consumedLayoutIds.add(block.Id);
       }
+      if (block.Id) consumedLayoutIds.add(block.Id);
+      markDescendantLayoutsConsumed(block);
       continue;
     }
 
@@ -660,8 +728,12 @@ function enrichedPipeline(
       const lines = collectChildLines(block, byId);
       const text = linesToPlainText(lines);
       if (text) {
+        const page = block.Page ?? 1;
+        const metrics = pageMetricsMap.get(page) ?? computePageMetricsForPage(page, [], []);
+        const childLineBlocks = collectChildLineBlocks(block, byId);
+        const extra = headingAttrsFromLine(childLineBlocks[0], metrics);
         const level: 1 | 2 = type === 'LAYOUT_TITLE' ? 1 : 2;
-        nodes.push(headingNode(text, level));
+        nodes.push(headingNode(text, level, extra));
       }
       if (block.Id) consumedLayoutIds.add(block.Id);
       markDescendantLayoutsConsumed(block);
