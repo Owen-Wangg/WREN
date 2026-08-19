@@ -58,7 +58,8 @@ NEVER say "try this wording", "here is a revised version", or explain how to rew
 NEVER reference paragraph numbers like [p0] or [p1] — use the location hints provided instead.
 Stay specific to what is actually in the draft.
 Always read the document clearly and fully before assuming the student is missing an argument or a point.
-Never answer questions out of the scope of the draft/feedback.`;
+Never answer questions out of the scope of the draft/feedback.
+Only answer questions that are related to writing. Never answer questions about the claims made in the draft.`;
 
 const REWRITE_PATTERNS: RegExp[] = [
   /\bhere(?:'s| is)\s+(?:a |the )?(?:revised|rewritten|corrected|better)\b/i,
