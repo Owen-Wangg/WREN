@@ -43,14 +43,19 @@ def test_parameter_name_rejects_empty_prefix():
 # --------------------------------------------------------------------------- #
 
 
-def test_resolve_from_env_var_takes_precedence():
+def test_resolve_prefers_ssm_when_stack_prefix_is_set():
+    class FakeSsmClient:
+        def get_parameter(self, Name: str) -> dict:  # noqa: N803
+            assert Name == "/wren-dev/config/bedrock-model-id"
+            return {"Parameter": {"Value": "us.anthropic.claude-sonnet-4-6"}}
+
     env = {
-        "BEDROCK_MODEL_ID": "anthropic.claude-3-5-haiku-20241022-v1:0",
+        "BEDROCK_MODEL_ID": "stale-deploy-time-env-value",
         "STACK_PREFIX": "wren-dev",
     }
     assert (
-        resolve_bedrock_model_id(env=env)
-        == "anthropic.claude-3-5-haiku-20241022-v1:0"
+        resolve_bedrock_model_id(env=env, ssm_client=FakeSsmClient())
+        == "us.anthropic.claude-sonnet-4-6"
     )
 
 

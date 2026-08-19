@@ -46,15 +46,14 @@ __all__ = [
     "bedrock_model_id_parameter_name",
 ]
 
-#: Non-secret Lambda environment variable carrying the Bedrock model id,
-#: populated from the SSM parameter at deploy/cold-start (UBC CIC Lambda
-#: steering: non-secret config via env vars). Checked before falling back to
-#: a live SSM read.
+#: Non-secret Lambda environment variable carrying the Bedrock model id.
+#: Used as a local/test fallback when ``STACK_PREFIX`` is unset so a live SSM
+#: read is not required.
 _MODEL_ID_ENV_VAR = "BEDROCK_MODEL_ID"
 
-#: Environment variable carrying the deployment's ``StackPrefix``, used only to
-#: build the SSM fallback parameter path (mirrors ``cdk/lib/config.ts``
-#: ``bedrockModelIdParameterName``: ``/${stackPrefix}/config/bedrock-model-id``).
+#: Environment variable carrying the deployment's ``StackPrefix``. When set,
+#: the model id is read from SSM (``/${stackPrefix}/config/bedrock-model-id``)
+#: so Admin UI updates take effect without a Lambda redeploy.
 _STACK_PREFIX_ENV_VAR = "STACK_PREFIX"
 
 
@@ -86,52 +85,49 @@ def resolve_bedrock_model_id(
     hardcoded as the only supported model; changing the configured id requires
     no orchestration-logic change):
 
-    1. ``BEDROCK_MODEL_ID`` environment variable — the non-secret config value
-       a cold-start Lambda is expected to receive (populated from the SSM
-       parameter published by the CDK ``Config``/``AppConfigParameters``
-       construct).
-    2. A live SSM ``GetParameter`` call against
-       :func:`bedrock_model_id_parameter_name`, built from the ``STACK_PREFIX``
-       environment variable, when the env var above is not set. ``ssm_client``
-       is injectable so tests need no live AWS call; production lazily
-       imports ``boto3`` (the Lambda-runtime pattern used by
-       ``wren_db.secrets.resolve_database_credentials``).
+    1. A live SSM ``GetParameter`` call against
+       :func:`bedrock_model_id_parameter_name` when ``STACK_PREFIX`` is set.
+       This is the production source of truth so the Admin model-config UI
+       can change the id without a Lambda redeploy.
+    2. ``BEDROCK_MODEL_ID`` environment variable — local/test fallback when
+       SSM is not configured. ``ssm_client`` is injectable so tests need no
+       live AWS call; production lazily imports ``boto3``.
 
     Raises :class:`ModelInvocationError` if neither source yields a value —
     the engine must never silently fall back to an in-code default model id.
     """
     env = env if env is not None else os.environ
 
+    stack_prefix = env.get(_STACK_PREFIX_ENV_VAR)
+    if stack_prefix and stack_prefix.strip():
+        if ssm_client is None:
+            import boto3  # Lazy import: boto3 is provided by the Lambda runtime.
+
+            ssm_client = boto3.client("ssm")
+
+        parameter_name = bedrock_model_id_parameter_name(stack_prefix.strip())
+        try:
+            response = ssm_client.get_parameter(Name=parameter_name)
+        except Exception as exc:  # noqa: BLE001 - re-raised as a typed error below.
+            raise ModelInvocationError(
+                f"Failed to read SSM parameter {parameter_name!r}: {exc}"
+            ) from exc
+
+        value = response.get("Parameter", {}).get("Value")
+        if not value or not value.strip():
+            raise ModelInvocationError(
+                f"SSM parameter {parameter_name!r} is empty or missing a Value."
+            )
+        return value.strip()
+
     from_env = env.get(_MODEL_ID_ENV_VAR)
     if from_env and from_env.strip():
         return from_env.strip()
 
-    stack_prefix = env.get(_STACK_PREFIX_ENV_VAR)
-    if not stack_prefix:
-        raise ModelInvocationError(
-            f"Cannot resolve the Bedrock model id: neither {_MODEL_ID_ENV_VAR!r} "
-            f"nor {_STACK_PREFIX_ENV_VAR!r} is set in the environment."
-        )
-
-    if ssm_client is None:
-        import boto3  # Lazy import: boto3 is provided by the Lambda runtime.
-
-        ssm_client = boto3.client("ssm")
-
-    parameter_name = bedrock_model_id_parameter_name(stack_prefix)
-    try:
-        response = ssm_client.get_parameter(Name=parameter_name)
-    except Exception as exc:  # noqa: BLE001 - re-raised as a typed error below.
-        raise ModelInvocationError(
-            f"Failed to read SSM parameter {parameter_name!r}: {exc}"
-        ) from exc
-
-    value = response.get("Parameter", {}).get("Value")
-    if not value or not value.strip():
-        raise ModelInvocationError(
-            f"SSM parameter {parameter_name!r} is empty or missing a Value."
-        )
-    return value.strip()
+    raise ModelInvocationError(
+        f"Cannot resolve the Bedrock model id: neither {_MODEL_ID_ENV_VAR!r} "
+        f"nor {_STACK_PREFIX_ENV_VAR!r} is set in the environment."
+    )
 
 
 @dataclass(frozen=True, slots=True)

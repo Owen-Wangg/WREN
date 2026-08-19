@@ -100,6 +100,27 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
             },
           ],
         },
+        "CorsConfiguration": {
+          "CorsRules": [
+            {
+              "AllowedHeaders": [
+                "*",
+              ],
+              "AllowedMethods": [
+                "PUT",
+                "GET",
+                "HEAD",
+              ],
+              "AllowedOrigins": [
+                "*",
+              ],
+              "ExposedHeaders": [
+                "ETag",
+              ],
+              "MaxAge": 3000,
+            },
+          ],
+        },
         "LifecycleConfiguration": {
           "Rules": [
             {
@@ -177,6 +198,31 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
                   ],
                 },
               ],
+            },
+            {
+              "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion",
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "textract.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "StorageDocumentsBucket59145458",
+                        "Arn",
+                      ],
+                    },
+                    "/*",
+                  ],
+                ],
+              },
+              "Sid": "AllowTextractReadDocuments",
             },
           ],
           "Version": "2012-10-17",

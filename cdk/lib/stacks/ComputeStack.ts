@@ -16,7 +16,23 @@ import type { Construct } from "constructs";
 import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct";
 import { NotificationInfraConstruct } from "../constructs/NotificationInfraConstruct";
 
-import type { AppConfig } from "../config";
+import type { AppDbRole } from "../appDbRoles.js";
+import { bedrockModelIdParameterName, type AppConfig } from "../config";
+
+/** IAM resources for us.anthropic.* / us.meta.* cross-region inference profiles. */
+function crisBedrockInvokeResources(region: string, account: string): string[] {
+  const profileRegions = [...new Set([region, "us-east-1", "us-east-2", "us-west-2"])];
+  const resources: string[] = [];
+  for (const r of profileRegions) {
+    resources.push(`arn:aws:bedrock:${r}:${account}:inference-profile/us.anthropic.*`);
+    resources.push(`arn:aws:bedrock:${r}:${account}:inference-profile/us.meta.*`);
+  }
+  for (const r of ["us-east-1", "us-east-2", "us-west-2"] as const) {
+    resources.push(`arn:aws:bedrock:${r}::foundation-model/anthropic.*`);
+    resources.push(`arn:aws:bedrock:${r}::foundation-model/meta.*`);
+  }
+  return resources;
+}
 
 /**
  * Props for the Compute stack. Receives concrete VPC and resource identifiers
@@ -28,8 +44,8 @@ export interface ComputeStackProps extends StackProps {
   readonly vpc: ec2.IVpc;
   /** RDS Proxy endpoint hostname (from Database stack via SSM). */
   readonly databaseProxyEndpoint: string;
-  /** ARN of the Secrets Manager secret holding DB credentials. */
-  readonly databaseSecretArn: string;
+  /** Per-Lambda Secrets Manager ARNs (Postgres role secrets, not dbadmin). */
+  readonly databaseSecretArns: Record<AppDbRole, string>;
   /** S3 bucket name for submitted documents. */
   readonly documentsBucketName: string;
   /** S3 bucket name for reference materials. */
@@ -93,11 +109,12 @@ export class ComputeStack extends Stack {
 
     // Shared environment variables for Node Lambdas that access the DB.
     // Note: @wren/db-node reads DB_SECRET_ARN and DB_PROXY_HOST, not DATABASE_*.
-    const dbEnv = {
+    const dbEnv = (secretArn: string) => ({
       DB_PROXY_HOST: props.databaseProxyEndpoint,
-      DB_SECRET_ARN: props.databaseSecretArn,
+      DB_SECRET_ARN: secretArn,
       NODE_OPTIONS: "--enable-source-maps",
-    };
+    });
+    const secrets = props.databaseSecretArns;
 
     // Shared bundling config: workspace packages are resolved from the monorepo
     // root node_modules (npm workspaces hoist them there). esbuild runs from the
@@ -140,7 +157,7 @@ export class ComputeStack extends Stack {
       projectRoot: monorepoRoot,
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
-        ...dbEnv,
+        ...dbEnv(secrets.wren_authorizer),
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
       },
@@ -165,7 +182,7 @@ export class ComputeStack extends Stack {
       projectRoot: monorepoRoot,
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
-        ...dbEnv,
+        ...dbEnv(secrets.wren_document),
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
         PDF_OCR_ENABLED: "true",
         // Textract is the sole OCR engine — no LiteParse/Tesseract.
@@ -220,13 +237,14 @@ export class ComputeStack extends Stack {
       projectRoot: monorepoRoot,
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
-        ...dbEnv,
+        ...dbEnv(secrets.wren_admin),
         ...activitySaltEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         COGNITO_USER_POOL_ID: props.userPoolId,
         PROMPT_GUARDRAIL_ID: props.promptGuardrailId,
         PROMPT_GUARDRAIL_VERSION: "DRAFT",
+        STACK_PREFIX: config.stackPrefix,
       },
       bundling: sharedBundling,
     });
@@ -246,7 +264,7 @@ export class ComputeStack extends Stack {
       projectRoot: monorepoRoot,
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
-        ...dbEnv,
+        ...dbEnv(secrets.wren_audit),
         ...activitySaltEnv,
       },
       bundling: sharedBundling,
@@ -285,10 +303,11 @@ export class ComputeStack extends Stack {
       projectRoot: monorepoRoot,
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
-        ...dbEnv,
+        ...dbEnv(secrets.wren_feedback_orch),
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
         CONVERSATION_TABLE_NAME: props.conversationTableName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
+        STACK_PREFIX: config.stackPrefix,
       },
       bundling: sharedBundling,
     });
@@ -316,8 +335,9 @@ export class ComputeStack extends Stack {
       vpcSubnets: privateSubnets,
       environment: {
         DB_PROXY_HOST: props.databaseProxyEndpoint,
-        DB_SECRET_ARN: props.databaseSecretArn,
+        DB_SECRET_ARN: secrets.wren_feedback_engine,
         BEDROCK_MODEL_ID: config.bedrockModelId,
+        STACK_PREFIX: config.stackPrefix,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
       },
@@ -342,10 +362,6 @@ export class ComputeStack extends Stack {
       timeout: Duration.seconds(60),
       vpc,
       vpcSubnets: privateSubnets,
-      environment: {
-        DB_PROXY_HOST: props.databaseProxyEndpoint,
-        DB_SECRET_ARN: props.databaseSecretArn,
-      },
     });
 
     // -----------------------------------------------------------------------
@@ -372,7 +388,7 @@ export class ComputeStack extends Stack {
       projectRoot: monorepoRoot,
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
-        ...dbEnv,
+        ...dbEnv(secrets.wren_notification),
         NOTIFICATION_TOPIC_ARN: notificationInfra.topic.topicArn,
         OVERRIDE_EXPIRY_WARNING_HOURS: "24",
       },
@@ -436,7 +452,7 @@ export class ComputeStack extends Stack {
       projectRoot: monorepoRoot,
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
-        ...dbEnv,
+        ...dbEnv(secrets.wren_appsync_auth),
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
         // AppSync Lambda auth uses the Cognito idToken (not accessToken).
@@ -446,12 +462,6 @@ export class ComputeStack extends Stack {
       },
       bundling: sharedBundling,
     });
-
-    // DB secret access — same grant pattern as the REST authorizer.
-    this.appSyncAuthorizerFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["secretsmanager:GetSecretValue"],
-      resources: [props.databaseSecretArn],
-    }));
 
     // -----------------------------------------------------------------------
     // AppSync real-time API — debrief-ready notifications
@@ -475,16 +485,14 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // IAM: scoped roles — each function gets only what it needs
     // -----------------------------------------------------------------------
-    this.grantDatabaseAccess([
-      this.authorizerFunction,
-      this.documentFunction,
-      this.adminFunction,
-      this.auditFunction,
-      this.feedbackOrchestratorFunction,
-      this.feedbackEngineFunction,
-      this.diffAnchorProgressFunction,
-      this.notificationFunction,
-    ], props.databaseSecretArn);
+    this.grantDatabaseAccess(this.authorizerFunction, secrets.wren_authorizer);
+    this.grantDatabaseAccess(this.appSyncAuthorizerFunction, secrets.wren_appsync_auth);
+    this.grantDatabaseAccess(this.documentFunction, secrets.wren_document);
+    this.grantDatabaseAccess(this.adminFunction, secrets.wren_admin);
+    this.grantDatabaseAccess(this.auditFunction, secrets.wren_audit);
+    this.grantDatabaseAccess(this.feedbackOrchestratorFunction, secrets.wren_feedback_orch);
+    this.grantDatabaseAccess(this.feedbackEngineFunction, secrets.wren_feedback_engine);
+    this.grantDatabaseAccess(this.notificationFunction, secrets.wren_notification);
 
     // Authorizer: look up Cognito email/name when auto-provisioning app_user on first login.
     this.authorizerFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -550,17 +558,16 @@ export class ComputeStack extends Stack {
       ],
     }));
 
-    // Feedback Engine: Bedrock invoke (scoped to account, model-agnostic for cross-region inference).
+    const bedrockInvokeResources = crisBedrockInvokeResources(this.region, this.account);
+
+    // Feedback Engine: Bedrock invoke scoped to us.anthropic.* / us.meta.* CRIS
+    // (not all models/regions). A non-us.* profile will 403 until this list grows.
     this.feedbackEngineFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: [
         "bedrock:InvokeModel",
         "bedrock:InvokeModelWithResponseStream",
       ],
-      resources: [
-        `arn:aws:bedrock:*:${this.account}:model/*`,
-        `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
-        `arn:aws:bedrock:*::foundation-model/*`,
-      ],
+      resources: bedrockInvokeResources,
     }));
 
     // Ask WREN (Feedback Orchestrator): Bedrock + ConversationHistory DynamoDB.
@@ -569,11 +576,7 @@ export class ComputeStack extends Stack {
         "bedrock:InvokeModel",
         "bedrock:InvokeModelWithResponseStream",
       ],
-      resources: [
-        `arn:aws:bedrock:*:${this.account}:model/*`,
-        `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
-        `arn:aws:bedrock:*::foundation-model/*`,
-      ],
+      resources: bedrockInvokeResources,
     }));
     this.feedbackOrchestratorFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: [
@@ -586,6 +589,19 @@ export class ComputeStack extends Stack {
         `arn:aws:dynamodb:${this.region}:${this.account}:table/${props.conversationTableName}`,
       ],
     }));
+    // SSM Bedrock model id — runtime source of truth for Admin UI + invoke.
+    const bedrockModelParamArn = `arn:aws:ssm:${this.region}:${this.account}:parameter${bedrockModelIdParameterName(config)}`;
+    for (const fn of [this.adminFunction, this.feedbackEngineFunction, this.feedbackOrchestratorFunction]) {
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["ssm:GetParameter"],
+        resources: [bedrockModelParamArn],
+      }));
+    }
+    this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ssm:PutParameter"],
+      resources: [bedrockModelParamArn],
+    }));
+
     // ConversationHistory is SSE-KMS with the storage CMK — DynamoDB calls need decrypt/encrypt.
     props.storageEncryptionKey.grantEncryptDecrypt(this.feedbackOrchestratorFunction);
 
@@ -659,18 +675,12 @@ export class ComputeStack extends Stack {
   }
 
   /**
-   * Grant each Lambda permission to read the DB secret from Secrets Manager
-   * (required to connect via RDS Proxy with IAM auth or secret-based auth).
+   * Grant a Lambda permission to read only its own DB secret from Secrets Manager.
    */
-  private grantDatabaseAccess(
-    functions: lambda.Function[],
-    secretArn: string,
-  ): void {
-    for (const fn of functions) {
-      fn.addToRolePolicy(new iam.PolicyStatement({
-        actions: ["secretsmanager:GetSecretValue"],
-        resources: [secretArn],
-      }));
-    }
+  private grantDatabaseAccess(fn: lambda.Function, secretArn: string): void {
+    fn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["secretsmanager:GetSecretValue"],
+      resources: [secretArn],
+    }));
   }
 }

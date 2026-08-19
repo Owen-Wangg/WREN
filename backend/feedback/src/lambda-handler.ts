@@ -705,7 +705,9 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
     recipientUserId: actor.userId,
     context: {
       documentId,
-      documentName: docRows[0].name || 'Untitled',
+      documentName: typeof docRows[0].name === 'string' && docRows[0].name
+        ? docRows[0].name
+        : 'Untitled',
       draftId: String(draft.id),
     },
   }).catch((err) => {

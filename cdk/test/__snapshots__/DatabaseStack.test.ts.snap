@@ -10,6 +10,126 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
     },
   },
   "Resources": {
+    "DatabaseAppUserSecretWrenAdmin3EB30148": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "RDS Proxy credentials for Postgres role wren_admin",
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 32,
+          "SecretStringTemplate": "{"username":"wren_admin"}",
+        },
+        "Name": "wren-test/database/wren_admin",
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "DatabaseAppUserSecretWrenAppsyncAuth50B90F32": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "RDS Proxy credentials for Postgres role wren_appsync_auth",
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 32,
+          "SecretStringTemplate": "{"username":"wren_appsync_auth"}",
+        },
+        "Name": "wren-test/database/wren_appsync_auth",
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "DatabaseAppUserSecretWrenAudit745C8337": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "RDS Proxy credentials for Postgres role wren_audit",
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 32,
+          "SecretStringTemplate": "{"username":"wren_audit"}",
+        },
+        "Name": "wren-test/database/wren_audit",
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "DatabaseAppUserSecretWrenAuthorizer51C496C1": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "RDS Proxy credentials for Postgres role wren_authorizer",
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 32,
+          "SecretStringTemplate": "{"username":"wren_authorizer"}",
+        },
+        "Name": "wren-test/database/wren_authorizer",
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "DatabaseAppUserSecretWrenDocument617FE3FD": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "RDS Proxy credentials for Postgres role wren_document",
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 32,
+          "SecretStringTemplate": "{"username":"wren_document"}",
+        },
+        "Name": "wren-test/database/wren_document",
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "DatabaseAppUserSecretWrenFeedbackEngine8A759A25": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "RDS Proxy credentials for Postgres role wren_feedback_engine",
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 32,
+          "SecretStringTemplate": "{"username":"wren_feedback_engine"}",
+        },
+        "Name": "wren-test/database/wren_feedback_engine",
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "DatabaseAppUserSecretWrenFeedbackOrch323A062C": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "RDS Proxy credentials for Postgres role wren_feedback_orch",
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 32,
+          "SecretStringTemplate": "{"username":"wren_feedback_orch"}",
+        },
+        "Name": "wren-test/database/wren_feedback_orch",
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "DatabaseAppUserSecretWrenNotification87EA383A": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "RDS Proxy credentials for Postgres role wren_notification",
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 32,
+          "SecretStringTemplate": "{"username":"wren_notification"}",
+        },
+        "Name": "wren-test/database/wren_notification",
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
     "DatabaseInstanceAA8A5FDE": {
       "DeletionPolicy": "Retain",
       "Properties": {
@@ -26,7 +146,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         },
         "DeletionProtection": true,
         "Engine": "postgres",
-        "EngineVersion": "16.8",
+        "EngineVersion": "16.13",
         "MasterUserPassword": {
           "Fn::Join": [
             "",
@@ -40,6 +160,13 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           ],
         },
         "MasterUsername": "dbadmin",
+        "MonitoringInterval": 60,
+        "MonitoringRoleArn": {
+          "Fn::GetAtt": [
+            "DatabaseMonitoringRole576991DA",
+            "Arn",
+          ],
+        },
         "MultiAZ": false,
         "PubliclyAccessible": false,
         "StorageEncrypted": true,
@@ -64,6 +191,62 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
             "IAMAuth": "DISABLED",
             "SecretArn": {
               "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+            },
+          },
+          {
+            "AuthScheme": "SECRETS",
+            "IAMAuth": "DISABLED",
+            "SecretArn": {
+              "Ref": "DatabaseAppUserSecretWrenAuthorizer51C496C1",
+            },
+          },
+          {
+            "AuthScheme": "SECRETS",
+            "IAMAuth": "DISABLED",
+            "SecretArn": {
+              "Ref": "DatabaseAppUserSecretWrenAppsyncAuth50B90F32",
+            },
+          },
+          {
+            "AuthScheme": "SECRETS",
+            "IAMAuth": "DISABLED",
+            "SecretArn": {
+              "Ref": "DatabaseAppUserSecretWrenDocument617FE3FD",
+            },
+          },
+          {
+            "AuthScheme": "SECRETS",
+            "IAMAuth": "DISABLED",
+            "SecretArn": {
+              "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
+            },
+          },
+          {
+            "AuthScheme": "SECRETS",
+            "IAMAuth": "DISABLED",
+            "SecretArn": {
+              "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
+            },
+          },
+          {
+            "AuthScheme": "SECRETS",
+            "IAMAuth": "DISABLED",
+            "SecretArn": {
+              "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
+            },
+          },
+          {
+            "AuthScheme": "SECRETS",
+            "IAMAuth": "DISABLED",
+            "SecretArn": {
+              "Ref": "DatabaseAppUserSecretWrenFeedbackEngine8A759A25",
+            },
+          },
+          {
+            "AuthScheme": "SECRETS",
+            "IAMAuth": "DISABLED",
+            "SecretArn": {
+              "Ref": "DatabaseAppUserSecretWrenNotification87EA383A",
             },
           },
         ],
@@ -124,6 +307,86 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
               "Effect": "Allow",
               "Resource": {
                 "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseAppUserSecretWrenAuthorizer51C496C1",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseAppUserSecretWrenAppsyncAuth50B90F32",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseAppUserSecretWrenDocument617FE3FD",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseAppUserSecretWrenFeedbackEngine8A759A25",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseAppUserSecretWrenNotification87EA383A",
               },
             },
           ],
@@ -251,6 +514,37 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Type": "AWS::RDS::DBSubnetGroup",
       "UpdateReplacePolicy": "Retain",
     },
+    "DatabaseMonitoringRole576991DA": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "monitoring.rds.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
     "DatabaseParameterGroup2A921026": {
       "Properties": {
         "Description": "Enforce TLS for all PostgreSQL client connections (rds.force_ssl).",
@@ -288,6 +582,657 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       },
       "Type": "AWS::EC2::SecurityGroup",
     },
+    "DbPasswordSync": {
+      "DeletionPolicy": "Delete",
+      "DependsOn": [
+        "Migrations",
+      ],
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "DbPasswordSyncProviderframeworkonEvent51335C19",
+            "Arn",
+          ],
+        },
+        "appSecretArns": [
+          {
+            "Ref": "DatabaseAppUserSecretWrenAuthorizer51C496C1",
+          },
+          {
+            "Ref": "DatabaseAppUserSecretWrenAppsyncAuth50B90F32",
+          },
+          {
+            "Ref": "DatabaseAppUserSecretWrenDocument617FE3FD",
+          },
+          {
+            "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
+          },
+          {
+            "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
+          },
+          {
+            "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
+          },
+          {
+            "Ref": "DatabaseAppUserSecretWrenFeedbackEngine8A759A25",
+          },
+          {
+            "Ref": "DatabaseAppUserSecretWrenNotification87EA383A",
+          },
+        ],
+        "databaseProxyEndpoint": {
+          "Fn::GetAtt": [
+            "DatabaseInstanceProxyA71C974C",
+            "Endpoint",
+          ],
+        },
+        "databaseSecretArn": {
+          "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+        },
+      },
+      "Type": "AWS::CloudFormation::CustomResource",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "DbPasswordSyncFnAE6CA9E7": {
+      "DependsOn": [
+        "DbPasswordSyncFnServiceRoleDefaultPolicy16D5235F",
+        "DbPasswordSyncFnServiceRoleEF657156",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
+          "S3Key": "f83cd8319be1ef5d231643439c6b012ac2c61024cbda97758e21c896908cf2ed.zip",
+        },
+        "Environment": {
+          "Variables": {
+            "APP_DB_SECRET_ARNS": {
+              "Fn::Join": [
+                ",",
+                [
+                  {
+                    "Ref": "DatabaseAppUserSecretWrenAuthorizer51C496C1",
+                  },
+                  {
+                    "Ref": "DatabaseAppUserSecretWrenAppsyncAuth50B90F32",
+                  },
+                  {
+                    "Ref": "DatabaseAppUserSecretWrenDocument617FE3FD",
+                  },
+                  {
+                    "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
+                  },
+                  {
+                    "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
+                  },
+                  {
+                    "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
+                  },
+                  {
+                    "Ref": "DatabaseAppUserSecretWrenFeedbackEngine8A759A25",
+                  },
+                  {
+                    "Ref": "DatabaseAppUserSecretWrenNotification87EA383A",
+                  },
+                ],
+              ],
+            },
+            "DB_PROXY_HOST": {
+              "Fn::GetAtt": [
+                "DatabaseInstanceProxyA71C974C",
+                "Endpoint",
+              ],
+            },
+            "DB_SECRET_ARN": {
+              "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+            },
+            "NODE_OPTIONS": "--enable-source-maps",
+          },
+        },
+        "FunctionName": "wren-test-sync-db-passwords",
+        "Handler": "index.handler",
+        "MemorySize": 256,
+        "Role": {
+          "Fn::GetAtt": [
+            "DbPasswordSyncFnServiceRoleEF657156",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs22.x",
+        "Timeout": 120,
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            {
+              "Fn::GetAtt": [
+                "DbPasswordSyncFnSecurityGroup9CE02C09",
+                "GroupId",
+              ],
+            },
+          ],
+          "SubnetIds": [
+            {
+              "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5",
+            },
+            {
+              "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15",
+            },
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "DbPasswordSyncFnSecurityGroup9CE02C09": {
+      "Properties": {
+        "GroupDescription": "Automatic security group for Lambda Function wrentestDatabaseDbPasswordSyncFnA7718AE4",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "VpcId": {
+          "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "DbPasswordSyncFnServiceRoleDefaultPolicy16D5235F": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "secretsmanager:GetSecretValue",
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+                },
+                {
+                  "Ref": "DatabaseAppUserSecretWrenAuthorizer51C496C1",
+                },
+                {
+                  "Ref": "DatabaseAppUserSecretWrenAppsyncAuth50B90F32",
+                },
+                {
+                  "Ref": "DatabaseAppUserSecretWrenDocument617FE3FD",
+                },
+                {
+                  "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
+                },
+                {
+                  "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
+                },
+                {
+                  "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
+                },
+                {
+                  "Ref": "DatabaseAppUserSecretWrenFeedbackEngine8A759A25",
+                },
+                {
+                  "Ref": "DatabaseAppUserSecretWrenNotification87EA383A",
+                },
+              ],
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "DbPasswordSyncFnServiceRoleDefaultPolicy16D5235F",
+        "Roles": [
+          {
+            "Ref": "DbPasswordSyncFnServiceRoleEF657156",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "DbPasswordSyncFnServiceRoleEF657156": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "DbPasswordSyncProviderframeworkonEvent51335C19": {
+      "DependsOn": [
+        "DbPasswordSyncProviderframeworkonEventServiceRoleDefaultPolicy6242AE8A",
+        "DbPasswordSyncProviderframeworkonEventServiceRole8D942894",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
+          "S3Key": "e16ffb3b34af185b8b30c88fdb19faa13b6c42bb38580485c4e84b384ee48b63.zip",
+        },
+        "Description": "AWS CDK resource provider framework - onEvent (wren-test-Database/DbPasswordSyncProvider)",
+        "Environment": {
+          "Variables": {
+            "USER_ON_EVENT_FUNCTION_ARN": {
+              "Fn::GetAtt": [
+                "DbPasswordSyncFnAE6CA9E7",
+                "Arn",
+              ],
+            },
+          },
+        },
+        "Handler": "framework.onEvent",
+        "LoggingConfig": {
+          "ApplicationLogLevel": "FATAL",
+          "LogFormat": "JSON",
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "DbPasswordSyncProviderframeworkonEventServiceRole8D942894",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs24.x",
+        "Timeout": 900,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "DbPasswordSyncProviderframeworkonEventServiceRole8D942894": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "DbPasswordSyncProviderframeworkonEventServiceRoleDefaultPolicy6242AE8A": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "lambda:InvokeFunction",
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "DbPasswordSyncFnAE6CA9E7",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "DbPasswordSyncFnAE6CA9E7",
+                          "Arn",
+                        ],
+                      },
+                      ":*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": "lambda:GetFunction",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "DbPasswordSyncFnAE6CA9E7",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "DbPasswordSyncProviderframeworkonEventServiceRoleDefaultPolicy6242AE8A",
+        "Roles": [
+          {
+            "Ref": "DbPasswordSyncProviderframeworkonEventServiceRole8D942894",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "Migrations": {
+      "DeletionPolicy": "Delete",
+      "DependsOn": [
+        "DatabaseInstanceProxyProxyTargetGroup86ABC4C1",
+      ],
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "MigrationsProviderframeworkonEvent33437111",
+            "Arn",
+          ],
+        },
+        "databaseProxyEndpoint": {
+          "Fn::GetAtt": [
+            "DatabaseInstanceProxyA71C974C",
+            "Endpoint",
+          ],
+        },
+        "databaseSecretArn": {
+          "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+        },
+        "migrationsFingerprint": "688d38637dd78d4b",
+      },
+      "Type": "AWS::CloudFormation::CustomResource",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "MigrationsFn23B20CC3": {
+      "DependsOn": [
+        "MigrationsFnServiceRoleDefaultPolicy4569FF1A",
+        "MigrationsFnServiceRole583CD126",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
+          "S3Key": "8a504057e12e0191de6a7a9d70315f407fe871ff012b5ed9d5afe93b072f8622.zip",
+        },
+        "Environment": {
+          "Variables": {
+            "DB_PROXY_HOST": {
+              "Fn::GetAtt": [
+                "DatabaseInstanceProxyA71C974C",
+                "Endpoint",
+              ],
+            },
+            "DB_SECRET_ARN": {
+              "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+            },
+            "MIGRATIONS_DIR": "/var/task/migrations",
+            "NODE_OPTIONS": "--enable-source-maps",
+          },
+        },
+        "FunctionName": "wren-test-migrate",
+        "Handler": "index.handler",
+        "MemorySize": 256,
+        "Role": {
+          "Fn::GetAtt": [
+            "MigrationsFnServiceRole583CD126",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs22.x",
+        "Timeout": 300,
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            {
+              "Fn::GetAtt": [
+                "MigrationsFnSecurityGroup82FA154E",
+                "GroupId",
+              ],
+            },
+          ],
+          "SubnetIds": [
+            {
+              "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet1Subnet6DD86AE62279BBA5",
+            },
+            {
+              "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpcPrivateSubnet2Subnet1BDBE87783414D15",
+            },
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "MigrationsFnSecurityGroup82FA154E": {
+      "Properties": {
+        "GroupDescription": "Automatic security group for Lambda Function wrentestDatabaseMigrationsFn2F82C7A0",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "VpcId": {
+          "Fn::ImportValue": "wren-test-Vpc:ExportsOutputRefNetworkVpc7FB7348F649FC110",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "MigrationsFnServiceRole583CD126": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "MigrationsFnServiceRoleDefaultPolicy4569FF1A": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "secretsmanager:GetSecretValue",
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "MigrationsFnServiceRoleDefaultPolicy4569FF1A",
+        "Roles": [
+          {
+            "Ref": "MigrationsFnServiceRole583CD126",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "MigrationsProviderframeworkonEvent33437111": {
+      "DependsOn": [
+        "MigrationsProviderframeworkonEventServiceRoleDefaultPolicyE6A419A5",
+        "MigrationsProviderframeworkonEventServiceRoleEC5DE9CC",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
+          "S3Key": "e16ffb3b34af185b8b30c88fdb19faa13b6c42bb38580485c4e84b384ee48b63.zip",
+        },
+        "Description": "AWS CDK resource provider framework - onEvent (wren-test-Database/MigrationsProvider)",
+        "Environment": {
+          "Variables": {
+            "USER_ON_EVENT_FUNCTION_ARN": {
+              "Fn::GetAtt": [
+                "MigrationsFn23B20CC3",
+                "Arn",
+              ],
+            },
+          },
+        },
+        "Handler": "framework.onEvent",
+        "LoggingConfig": {
+          "ApplicationLogLevel": "FATAL",
+          "LogFormat": "JSON",
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "MigrationsProviderframeworkonEventServiceRoleEC5DE9CC",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs24.x",
+        "Timeout": 900,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "MigrationsProviderframeworkonEventServiceRoleDefaultPolicyE6A419A5": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "lambda:InvokeFunction",
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "MigrationsFn23B20CC3",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "MigrationsFn23B20CC3",
+                          "Arn",
+                        ],
+                      },
+                      ":*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": "lambda:GetFunction",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "MigrationsFn23B20CC3",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "MigrationsProviderframeworkonEventServiceRoleDefaultPolicyE6A419A5",
+        "Roles": [
+          {
+            "Ref": "MigrationsProviderframeworkonEventServiceRoleEC5DE9CC",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "MigrationsProviderframeworkonEventServiceRoleEC5DE9CC": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
     "ProxyEndpointParameter64BC4BC6": {
       "Properties": {
         "Description": "RDS Proxy endpoint hostname (TLS-enforced PostgreSQL access).",
@@ -309,6 +1254,94 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "Type": "String",
         "Value": {
           "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "SecretArnParameterWrenAdminB4F51740": {
+      "Properties": {
+        "Description": "ARN of the Secrets Manager secret for Postgres role wren_admin.",
+        "Name": "/wren-test/database/wren_admin/secret-arn",
+        "Type": "String",
+        "Value": {
+          "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "SecretArnParameterWrenAppsyncAuth6415A684": {
+      "Properties": {
+        "Description": "ARN of the Secrets Manager secret for Postgres role wren_appsync_auth.",
+        "Name": "/wren-test/database/wren_appsync_auth/secret-arn",
+        "Type": "String",
+        "Value": {
+          "Ref": "DatabaseAppUserSecretWrenAppsyncAuth50B90F32",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "SecretArnParameterWrenAuditA593D4FF": {
+      "Properties": {
+        "Description": "ARN of the Secrets Manager secret for Postgres role wren_audit.",
+        "Name": "/wren-test/database/wren_audit/secret-arn",
+        "Type": "String",
+        "Value": {
+          "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "SecretArnParameterWrenAuthorizerD0057B73": {
+      "Properties": {
+        "Description": "ARN of the Secrets Manager secret for Postgres role wren_authorizer.",
+        "Name": "/wren-test/database/wren_authorizer/secret-arn",
+        "Type": "String",
+        "Value": {
+          "Ref": "DatabaseAppUserSecretWrenAuthorizer51C496C1",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "SecretArnParameterWrenDocumentB40A724C": {
+      "Properties": {
+        "Description": "ARN of the Secrets Manager secret for Postgres role wren_document.",
+        "Name": "/wren-test/database/wren_document/secret-arn",
+        "Type": "String",
+        "Value": {
+          "Ref": "DatabaseAppUserSecretWrenDocument617FE3FD",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "SecretArnParameterWrenFeedbackEngine4985651B": {
+      "Properties": {
+        "Description": "ARN of the Secrets Manager secret for Postgres role wren_feedback_engine.",
+        "Name": "/wren-test/database/wren_feedback_engine/secret-arn",
+        "Type": "String",
+        "Value": {
+          "Ref": "DatabaseAppUserSecretWrenFeedbackEngine8A759A25",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "SecretArnParameterWrenFeedbackOrch5BBB804E": {
+      "Properties": {
+        "Description": "ARN of the Secrets Manager secret for Postgres role wren_feedback_orch.",
+        "Name": "/wren-test/database/wren_feedback_orch/secret-arn",
+        "Type": "String",
+        "Value": {
+          "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "SecretArnParameterWrenNotification765C99BE": {
+      "Properties": {
+        "Description": "ARN of the Secrets Manager secret for Postgres role wren_notification.",
+        "Name": "/wren-test/database/wren_notification/secret-arn",
+        "Type": "String",
+        "Value": {
+          "Ref": "DatabaseAppUserSecretWrenNotification87EA383A",
         },
       },
       "Type": "AWS::SSM::Parameter",

@@ -55,7 +55,10 @@ describe("DatabaseStack", () => {
   });
 
   it("generates DB credentials into Secrets Manager (never inlined)", () => {
-    template.resourceCountIs("AWS::SecretsManager::Secret", 1);
+    template.resourceCountIs("AWS::SecretsManager::Secret", 9);
+    const proxies = template.findResources("AWS::RDS::DBProxy");
+    const auth = Object.values(proxies)[0]?.Properties?.Auth as unknown[];
+    expect(auth).toHaveLength(9);
     // The instance's MasterUserPassword must resolve from the secret, not a
     // plaintext literal — regardless of whether CDK emits a resolve token
     // string or an intrinsic Join.

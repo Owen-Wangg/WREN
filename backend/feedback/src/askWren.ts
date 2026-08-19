@@ -19,6 +19,8 @@ import {
   PutCommand,
 } from '@aws-sdk/lib-dynamodb';
 
+import { resolveBedrockModelId } from './bedrockModelId.js';
+
 export type ChatRole = 'user' | 'wren';
 
 export interface ChatMessage {
@@ -402,8 +404,7 @@ export async function generateAskWrenReply(input: {
   documentTypeContext?: DocumentTypeContext;
   modelId?: string;
 }): Promise<string> {
-  const modelId =
-    input.modelId ?? process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+  const modelId = await resolveBedrockModelId(input.modelId);
 
   const history = input.priorMessages.slice(-12).map((m) => ({
     role: m.role === 'wren' ? ('assistant' as const) : ('user' as const),

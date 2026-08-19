@@ -73,6 +73,7 @@ from wren_engine.debrief_budget import (
     debrief_max_tokens,
 )
 from wren_engine.models import Segment, Span
+from wren_engine.model_invocation import resolve_bedrock_model_id
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -626,8 +627,8 @@ def invoke_bedrock(
     """
     try:
         bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
-        # DB override takes precedence over the deploy-time env var.
-        model_id = config.get('bedrock_model_id') or os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
+        # Per-job DB override, else SSM (STACK_PREFIX) / env fallback.
+        model_id = config.get('bedrock_model_id') or resolve_bedrock_model_id()
 
         sentinel = "\n\n---\n\n"
         if sentinel in prompt:
@@ -1025,7 +1026,7 @@ def judge_resolutions_with_llm(
         return {}
 
     bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
-    model_id = config.get('bedrock_model_id') or os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
+    model_id = config.get('bedrock_model_id') or resolve_bedrock_model_id()
 
     items_json = json.dumps([
         {

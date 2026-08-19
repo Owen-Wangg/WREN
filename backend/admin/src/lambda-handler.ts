@@ -46,6 +46,7 @@ import {
 } from './departmentScope';
 import { handler as syncCognitoAdminsHandler } from './scripts/sync-cognito-admins';
 import type { AuthContext } from '@wren/types';
+import { getBedrockModelIdFromSsm, putBedrockModelIdToSsm } from './bedrockModelParameter';
 
 /** TechnicalAdmin-only gate for endpoints without a dedicated capability. */
 function requireTechnicalAdmin(actor: AuthContext): void {
@@ -840,7 +841,8 @@ async function handleGetModelConfig(event: any): Promise<APIGatewayProxyResult> 
   );
   const dbModelId = rows[0]?.bedrock_model_id ?? null;
   const envModelId = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
-  const modelId = dbModelId ?? envModelId;
+  const ssmModelId = await getBedrockModelIdFromSsm();
+  const modelId = ssmModelId ?? dbModelId ?? envModelId;
 
   const allowedModels = await fetchAllowedModels();
 
@@ -909,6 +911,7 @@ async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResul
   }
 
   const db = await getDataAccess();
+  await putBedrockModelIdToSsm(modelId);
   await db.query(
     'UPDATE platform_usage_policy SET bedrock_model_id = $1 WHERE id = 1',
     [modelId],
