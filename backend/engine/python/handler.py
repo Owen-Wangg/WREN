@@ -38,7 +38,10 @@ from wren_engine.carry_forward import (
     CacheKey,
     ConfigSnapshot,
 )
-from wren_engine.output_guardrail import ValidatedFeedbackItem
+from wren_engine.output_guardrail import (
+    ValidatedFeedbackItem,
+    apply_output_guardrail,
+)
 from wren_engine.structural_feedback import StructuralFeedbackItem
 from wren_engine.strength_coverage import (
     accept_filled_strengths,
@@ -1916,7 +1919,21 @@ def process_feedback_request(
                 f"categories: {strength_missing_anchor}"
             )
 
-        # Step 8: Insert into database and update counters
+        # Step 8: No-ghostwriting output guardrail, then persist
+        before_guardrail = len(feedback_items)
+        feedback_items = apply_output_guardrail(
+            feedback_items,
+            document_id=document_id,
+            draft_id=draft_id,
+        )
+        dropped_guardrail = before_guardrail - len(feedback_items)
+        if dropped_guardrail > 0:
+            logger.warning(
+                "Output guardrail dropped %s feedback item(s) before persist (kept %s)",
+                dropped_guardrail,
+                len(feedback_items),
+            )
+
         logger.info("Inserting feedback items...")
         item_count = insert_feedback_items(document_id, draft_id, user_id, feedback_items, segments, conn)
 

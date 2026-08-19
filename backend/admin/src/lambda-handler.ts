@@ -29,9 +29,16 @@ import {
   getPlatformUsagePolicyForAdmin,
   updatePlatformUsagePolicy,
 } from './lifetimeUsagePolicy';
+import type { QueryExecutor } from './db';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
 import { AuthorizationError, NotFoundError } from './errors';
-import { requireCapability } from './capabilityGuard';
+import { assertCanListDepartmentUsers, requireCapability } from './capabilityGuard';
+import {
+  auditConfigEdit,
+  auditOverrideGrant,
+  auditPromptEdit,
+  auditRoleOrGrantChange,
+} from './auditRecordingService';
 import {
   assertCanViewDepartment,
   filterDocumentTypesForActor,
@@ -71,6 +78,18 @@ function currentUtcMonthStart(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
+
+async function lookupDepartmentId(
+  documentTypeId: string,
+  db: QueryExecutor,
+): Promise<string | undefined> {
+  const rows = await db.query<{ department_id: string }>(
+    'SELECT department_id FROM document_type WHERE id = $1',
+    [documentTypeId],
+  );
+  return rows[0]?.department_id;
+}
+
 export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGatewayProxyResult> => {
   // One-shot admin scripts invoked directly via `aws lambda invoke --payload '{"_script":"..."}'`
   if (event['_script'] === 'sync-cognito-admins') {
@@ -85,7 +104,6 @@ export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGa
       return await wrapHandler(() => handleGetMe(event));
     }
     if (resource === '/v1/departments' && httpMethod === 'GET') {
-      return await wrapHandler(() => handleListDepartments(event));
       return await wrapHandler(() => handleListDepartments(event));
     }
     if (resource === '/v1/departments' && httpMethod === 'POST') {
@@ -304,6 +322,24 @@ async function handleUpdateDocumentTypeConfig(event: any): Promise<APIGatewayPro
   const { documentTypeId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
   const config = await upsertDocumentTypeConfig(actor, documentTypeId, body, db);
+  const departmentId = await lookupDepartmentId(documentTypeId, db);
+  for (const field of Object.keys(body)) {
+    if (body[field] === undefined) continue;
+    await auditConfigEdit(actor, {
+      documentTypeId,
+      ...(departmentId ? { departmentId } : {}),
+      field,
+      action: 'updated',
+    }, db);
+  }
+  if (body.typePromptText !== undefined) {
+    await auditPromptEdit(actor, {
+      documentTypeId,
+      ...(departmentId ? { departmentId } : {}),
+      scope: 'documentType',
+      guardrailOutcome: 'passed',
+    }, db);
+  }
   return {
     statusCode: 200,
     body: JSON.stringify(config),
@@ -380,6 +416,12 @@ async function handleAssignRole(event: any): Promise<APIGatewayProxyResult> {
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   await assignRole(actor, body, db);
+  await auditRoleOrGrantChange(actor, {
+    action: 'role.assigned',
+    targetUserId: body.userId,
+    targetRole: body.role,
+    departmentId: body.departmentId,
+  }, db);
 
   // Publish department-appointment notification for the user receiving the role.
   publishNotificationEvent({
@@ -406,6 +448,12 @@ async function handleRevokeRole(event: any): Promise<APIGatewayProxyResult> {
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   await revokeRole(actor, body, db);
+  await auditRoleOrGrantChange(actor, {
+    action: 'role.revoked',
+    targetUserId: body.userId,
+    targetRole: body.role,
+    departmentId: body.departmentId,
+  }, db);
   return {
     statusCode: 200,
     body: JSON.stringify({ success: true, userId: body.userId, role: body.role }),
@@ -459,6 +507,14 @@ async function handleGrantOverride(event: any): Promise<APIGatewayProxyResult> {
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const result = await grantOverride(actor, body, db);
+  const departmentId = await lookupDepartmentId(result.documentTypeId, db);
+  await auditOverrideGrant(actor, {
+    userId: result.userId,
+    documentTypeId: result.documentTypeId,
+    reason: result.reason,
+    bounds: result.bounds,
+    ...(departmentId ? { departmentId } : {}),
+  }, db);
 
   // Publish access-grant-approved notification for the student receiving the override.
   publishNotificationEvent({
@@ -618,9 +674,10 @@ async function handleDeleteDepartment(event: any): Promise<APIGatewayProxyResult
 }
 
 async function handleListDepartmentUsers(event: any): Promise<APIGatewayProxyResult> {
-  parseAuthContext(event);
+  const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
+  assertCanListDepartmentUsers(actor, departmentId);
   const qs = event.queryStringParameters || {};
   const result = await listDepartmentUsers(departmentId, db, {
     q: qs.q,
@@ -636,6 +693,11 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
   const { departmentId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
   const department = await updateDepartmentPrompt(actor, departmentId, body, db);
+  await auditPromptEdit(actor, {
+    departmentId,
+    scope: 'system',
+    guardrailOutcome: 'passed',
+  }, db);
   return {
     statusCode: 200,
     body: JSON.stringify(department),

@@ -38,6 +38,7 @@ Design references:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -50,7 +51,10 @@ __all__ = [
     "ValidatedFeedbackItem",
     "OutputGuardrail",
     "GuardrailAuditSink",
+    "apply_output_guardrail",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class ViolationType(str, Enum):
@@ -375,6 +379,61 @@ class OutputGuardrail:
             document_id=document_id,
             draft_id=draft_id,
         )
+
+
+def apply_output_guardrail(
+    feedback_items: list[dict[str, Any]],
+    *,
+    document_id: Optional[str] = None,
+    draft_id: Optional[str] = None,
+    audit_sink: Optional[GuardrailAuditSink] = None,
+) -> list[dict[str, Any]]:
+    """Sanitize engine-shaped items through :class:`OutputGuardrail`.
+
+    Production items use ``error_category_id`` / ``question_text`` / ``kind``.
+    ``OutputGuardrail.validate`` requires ``category`` / ``question`` and
+    returns ``ValidatedFeedbackItem`` (allowed fields only). This adapter
+    maps aliases, validates per item (stable index — duplicates allowed),
+    and returns the original persist-shaped dicts with disallowed
+    ghostwriting fields stripped. Rejected items are dropped.
+    """
+    if not feedback_items:
+        return []
+
+    guardrail = OutputGuardrail()
+    kept: list[dict[str, Any]] = []
+    rejected_count = 0
+    stripped_count = 0
+
+    for item in feedback_items:
+        mapped = {
+            **item,
+            "category": item.get("error_category_id") or item.get("category", ""),
+            "question": item.get("question_text") or item.get("question", ""),
+        }
+        result = guardrail.validate(
+            [mapped],
+            audit_sink=audit_sink,
+            document_id=document_id,
+            draft_id=draft_id,
+        )
+        rejected_count += result.rejected_count
+        stripped_count += result.stripped_count
+        if result.accepted:
+            kept.append(
+                {k: v for k, v in item.items() if k not in _DISALLOWED_FIELDS}
+            )
+
+    if rejected_count or stripped_count:
+        logger.warning(
+            "Output guardrail: kept=%s rejected=%s stripped=%s document_id=%s draft_id=%s",
+            len(kept),
+            rejected_count,
+            stripped_count,
+            document_id,
+            draft_id,
+        )
+    return kept
 
 
 def _parse_model_output(raw_text: str) -> list[dict[str, Any]]:
