@@ -9,6 +9,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { IKey } from "aws-cdk-lib/aws-kms";
 import type { Construct } from "constructs";
 
@@ -108,6 +109,22 @@ export class ComputeStack extends Stack {
       target: "node22",
     };
 
+    // One-way salt for activity-log actor pseudonyms. Generated into Secrets
+    // Manager (never a guessable path). CloudFormation injects the value into
+    // Lambda env via a dynamic reference — activityLogService reads
+    // WREN_ACTIVITY_PSEUDONYM_SALT at runtime.
+    const activityPseudonymSalt = new secretsmanager.Secret(this, "ActivityPseudonymSalt", {
+      secretName: `${config.stackPrefix}/audit/pseudonym-salt`,
+      description: "One-way salt for activity-log actor pseudonyms",
+      generateSecretString: {
+        passwordLength: 48,
+        excludePunctuation: true,
+      },
+    });
+    const activitySaltEnv = {
+      WREN_ACTIVITY_PSEUDONYM_SALT: activityPseudonymSalt.secretValue.unsafeUnwrap(),
+    };
+
     // -----------------------------------------------------------------------
     // Lambda Authorizer (Node 22)
     // -----------------------------------------------------------------------
@@ -204,6 +221,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv,
+        ...activitySaltEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         COGNITO_USER_POOL_ID: props.userPoolId,
@@ -229,7 +247,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv,
-        WREN_ACTIVITY_PSEUDONYM_SALT: `/${config.stackPrefix}/audit/pseudonym-salt`,
+        ...activitySaltEnv,
       },
       bundling: sharedBundling,
     });
