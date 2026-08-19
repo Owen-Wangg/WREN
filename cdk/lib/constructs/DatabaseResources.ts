@@ -85,7 +85,12 @@ export class DatabaseResources extends Construct {
           secretName: `${this.props.config.stackPrefix}/database/${role}`,
           description: `RDS Proxy credentials for Postgres role ${role}`,
           generateSecretString: {
-            secretStringTemplate: JSON.stringify({ username: role }),
+            secretStringTemplate: JSON.stringify({
+              username: role,
+              port: 5432,
+              dbname: "appdb",
+              engine: "postgres",
+            }),
             generateStringKey: "password",
             excludeCharacters: " %+~`#$&*()|[]{}:;<>?!'/@\"\\",
             passwordLength: 32,

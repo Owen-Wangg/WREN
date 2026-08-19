@@ -55,13 +55,12 @@ def resolve_database_credentials(
     if not resolved_host:
         raise ValueError("Database host is not present in the secret or overrides.")
 
-    resolved_dbname = dbname or data.get("dbname") or data.get("database")
-    if not resolved_dbname:
-        raise ValueError("Database name is not present in the secret or overrides.")
+    # Per-role secrets are username+password only (RDS Proxy).
+    resolved_dbname = dbname or data.get("dbname") or data.get("database") or "appdb"
 
     raw_port = port if port is not None else data.get("port")
     if raw_port is None:
-        raise ValueError("Database port is not present in the secret or overrides.")
+        raw_port = 5432
     try:
         resolved_port = int(raw_port)
     except (TypeError, ValueError) as exc:

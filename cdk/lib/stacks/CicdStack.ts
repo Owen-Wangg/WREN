@@ -369,6 +369,19 @@ export class CicdStack extends Stack {
               resources: ["*"],
             }),
             new iam.PolicyStatement({
+              sid: "CdkAssetBucketRead",
+              actions: [
+                "s3:GetObject",
+                "s3:GetObjectVersion",
+                "s3:GetBucketLocation",
+                "s3:ListBucket",
+              ],
+              resources: [
+                `arn:aws:s3:::cdk-hnb659fds-assets-${this.account}-${this.region}`,
+                `arn:aws:s3:::cdk-hnb659fds-assets-${this.account}-${this.region}/*`,
+              ],
+            }),
+            new iam.PolicyStatement({
               sid: "KmsUseExistingStorageKey",
               actions: [
                 "kms:CreateGrant",

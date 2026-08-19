@@ -49,6 +49,11 @@ export class DatabaseStack extends Stack {
       APP_DB_ROLES.map((role) => [role, this.database.appUserSecrets[role].secretArn]),
     ) as Record<AppDbRole, string>;
 
+    // Compute previously imported this ARN across stacks. CloudFormation refuses
+    // to delete an in-use export, so keep publishing it until Compute has been
+    // deployed once on per-role secrets; then remove this call and redeploy.
+    this.exportValue(this.database.credentialsSecret.secretArn);
+
     new StringParameter(this, "ProxyEndpointParameter", {
       parameterName: ssmParameterNames.databaseProxyEndpoint(props.config),
       stringValue: this.database.proxy.endpoint,

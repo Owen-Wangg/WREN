@@ -73,7 +73,10 @@ from wren_engine.debrief_budget import (
     debrief_max_tokens,
 )
 from wren_engine.models import Segment, Span
-from wren_engine.model_invocation import resolve_bedrock_model_id
+from wren_engine.model_invocation import (
+    resolve_bedrock_model_id,
+    to_cross_region_inference_profile_id,
+)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -173,11 +176,13 @@ def get_db_connection():
         secret_response = secrets_client.get_secret_value(SecretId=secret_arn)
         secret = json.loads(secret_response['SecretString'])
 
-        host = os.getenv('DB_PROXY_HOST') or secret['host']
+        host = os.getenv('DB_PROXY_HOST') or secret.get('host')
+        port = int(os.getenv('DB_PORT') or secret.get('port') or 5432)
+        dbname = os.getenv('DB_NAME') or secret.get('dbname') or secret.get('database') or 'appdb'
         conn = psycopg.connect(
             host=host,
-            port=secret['port'],
-            dbname=secret['dbname'],
+            port=port,
+            dbname=dbname,
             user=secret['username'],
             password=secret['password'],
             sslmode='require'
@@ -628,7 +633,9 @@ def invoke_bedrock(
     try:
         bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
         # Per-job DB override, else SSM (STACK_PREFIX) / env fallback.
-        model_id = config.get('bedrock_model_id') or resolve_bedrock_model_id()
+        model_id = to_cross_region_inference_profile_id(
+            config.get('bedrock_model_id') or resolve_bedrock_model_id()
+        )
 
         sentinel = "\n\n---\n\n"
         if sentinel in prompt:
@@ -1026,7 +1033,9 @@ def judge_resolutions_with_llm(
         return {}
 
     bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
-    model_id = config.get('bedrock_model_id') or resolve_bedrock_model_id()
+    model_id = to_cross_region_inference_profile_id(
+        config.get('bedrock_model_id') or resolve_bedrock_model_id()
+    )
 
     items_json = json.dumps([
         {

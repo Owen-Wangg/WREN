@@ -108,9 +108,12 @@ export class ComputeStack extends Stack {
     });
 
     // Shared environment variables for Node Lambdas that access the DB.
-    // Note: @wren/db-node reads DB_SECRET_ARN and DB_PROXY_HOST, not DATABASE_*.
+    // Per-role secrets are username+password only; host/port/dbname are
+    // non-secret overrides (the RDS admin secret used to embed them).
     const dbEnv = (secretArn: string) => ({
       DB_PROXY_HOST: props.databaseProxyEndpoint,
+      DB_PORT: "5432",
+      DB_NAME: "appdb",
       DB_SECRET_ARN: secretArn,
       NODE_OPTIONS: "--enable-source-maps",
     });
@@ -286,7 +289,7 @@ export class ComputeStack extends Stack {
 
     this.feedbackQueue = new sqs.Queue(this, "FeedbackQueue", {
       queueName: `${config.stackPrefix}-feedback-queue`,
-      visibilityTimeout: Duration.seconds(300), // Must exceed engine timeout
+      visibilityTimeout: Duration.minutes(16), // Must exceed engine timeout
       deadLetterQueue: {
         queue: this.feedbackDlq,
         maxReceiveCount: 3, // Retry up to 3 times before DLQ
@@ -336,11 +339,13 @@ export class ComputeStack extends Stack {
       }),
       handler: lambda.Handler.FROM_IMAGE,
       memorySize: 1024,
-      timeout: Duration.minutes(5), // AI workload — generous timeout
+      timeout: Duration.minutes(15), // long documents can exceed 5m on Bedrock
       vpc,
       vpcSubnets: privateSubnets,
       environment: {
         DB_PROXY_HOST: props.databaseProxyEndpoint,
+        DB_PORT: "5432",
+        DB_NAME: "appdb",
         DB_SECRET_ARN: secrets.wren_feedback_engine,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         STACK_PREFIX: config.stackPrefix,

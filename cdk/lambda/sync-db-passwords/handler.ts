@@ -78,9 +78,12 @@ export async function handler(
         throw new Error(`Refusing to ALTER ROLE for unexpected username ${JSON.stringify(username)}.`);
       }
 
-      const [row] = await sql`
-        SELECT format('ALTER ROLE %I PASSWORD %L', ${username}, ${password}) AS ddl
-      `;
+      // Tagged-template binds are untyped; format() is VARIADIC "any", so
+      // Postgres cannot infer $1/$2 unless the cast is in the SQL string.
+      const [row] = await sql.unsafe(
+        "SELECT format('ALTER ROLE %I PASSWORD %L', $1::text, $2::text) AS ddl",
+        [username, password],
+      );
       const ddl = (row as { ddl?: string } | undefined)?.ddl;
       if (!ddl) {
         throw new Error(`Failed to format ALTER ROLE for ${username}.`);

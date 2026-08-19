@@ -38,3 +38,16 @@ describe("0027_app_db_roles", () => {
     expect(SQL).not.toMatch(/\bCREATE\s+TABLE\b/i);
   });
 });
+
+describe("0028_document_usage_policy_grant", () => {
+  const SQL_0028 = readFileSync(
+    join(__dirname, "migrations", "0028_document_usage_policy_grant.sql"),
+    "utf8",
+  );
+
+  it("grants wren_document SELECT on platform_usage_policy", () => {
+    expect(SQL_0028).toMatch(
+      /GRANT SELECT ON TABLE platform_usage_policy TO wren_document/,
+    );
+  });
+});

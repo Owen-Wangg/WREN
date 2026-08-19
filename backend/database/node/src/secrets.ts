@@ -70,8 +70,10 @@ export async function resolveDatabaseCredentials(
 
   const overrides = options.overrides ?? {};
   const host = overrides.host ?? raw.host;
-  const portValue = overrides.port ?? raw.port;
-  const dbname = overrides.dbname ?? raw.dbname ?? raw.database;
+  // Per-role secrets are username+password only (RDS Proxy). Default to the
+  // CDK instance name/port when the admin secret's host/dbname/port are absent.
+  const portValue = overrides.port ?? raw.port ?? 5432;
+  const dbname = overrides.dbname ?? raw.dbname ?? raw.database ?? 'appdb';
 
   if (!raw.username || !raw.password) {
     throw new Error('Secret is missing required username/password fields.');
@@ -79,12 +81,9 @@ export async function resolveDatabaseCredentials(
   if (!host) {
     throw new Error('Database host is not present in the secret or overrides.');
   }
-  if (!dbname) {
-    throw new Error('Database name is not present in the secret or overrides.');
-  }
 
   const port = typeof portValue === 'string' ? Number(portValue) : portValue;
-  if (port === undefined || !Number.isFinite(port)) {
+  if (!Number.isFinite(port)) {
     throw new Error('Database port is not present in the secret or overrides.');
   }
 

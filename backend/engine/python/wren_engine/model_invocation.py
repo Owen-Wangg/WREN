@@ -43,6 +43,7 @@ __all__ = [
     "ModelInvoker",
     "LangChainBedrockInvoker",
     "resolve_bedrock_model_id",
+    "to_cross_region_inference_profile_id",
     "bedrock_model_id_parameter_name",
 ]
 
@@ -72,6 +73,21 @@ def bedrock_model_id_parameter_name(stack_prefix: str) -> str:
     if not stack_prefix:
         raise ValueError("stack_prefix must not be empty")
     return f"/{stack_prefix}/config/bedrock-model-id"
+
+
+def to_cross_region_inference_profile_id(model_id: str) -> str:
+    """Map a bare Anthropic/Meta foundation-model id to a US CRIS profile.
+
+    IAM on Compute only allows ``us.anthropic.*`` / ``us.meta.*`` inference
+    profiles. A stored ``anthropic.claude-…`` id would invoke the regional
+    foundation-model ARN and 403.
+    """
+    value = model_id.strip()
+    if value.startswith(("us.", "eu.", "apac.")):
+        return value
+    if value.startswith(("anthropic.", "meta.")):
+        return f"us.{value}"
+    return value
 
 
 def resolve_bedrock_model_id(
@@ -118,11 +134,11 @@ def resolve_bedrock_model_id(
             raise ModelInvocationError(
                 f"SSM parameter {parameter_name!r} is empty or missing a Value."
             )
-        return value.strip()
+        return to_cross_region_inference_profile_id(value.strip())
 
     from_env = env.get(_MODEL_ID_ENV_VAR)
     if from_env and from_env.strip():
-        return from_env.strip()
+        return to_cross_region_inference_profile_id(from_env.strip())
 
     raise ModelInvocationError(
         f"Cannot resolve the Bedrock model id: neither {_MODEL_ID_ENV_VAR!r} "

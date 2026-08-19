@@ -54,6 +54,18 @@ describe("DatabaseStack", () => {
     });
   });
 
+  it("keeps exporting the RDS admin secret while Compute still imports it", () => {
+    const outputs = template.findOutputs("*");
+    const exported = Object.values(outputs).some((output) => {
+      const exportName = (output as { Export?: { Name?: unknown } }).Export?.Name;
+      return (
+        typeof exportName === "string" &&
+        exportName.includes("DatabaseInstanceSecretAttachment")
+      );
+    });
+    expect(exported).toBe(true);
+  });
+
   it("generates DB credentials into Secrets Manager (never inlined)", () => {
     template.resourceCountIs("AWS::SecretsManager::Secret", 9);
     const proxies = template.findResources("AWS::RDS::DBProxy");
