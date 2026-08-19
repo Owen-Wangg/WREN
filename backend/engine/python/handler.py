@@ -38,7 +38,10 @@ from wren_engine.carry_forward import (
     CacheKey,
     ConfigSnapshot,
 )
-from wren_engine.output_guardrail import ValidatedFeedbackItem
+from wren_engine.output_guardrail import (
+    ValidatedFeedbackItem,
+    apply_output_guardrail,
+)
 from wren_engine.structural_feedback import StructuralFeedbackItem
 from wren_engine.strength_coverage import (
     accept_filled_strengths,
@@ -70,6 +73,10 @@ from wren_engine.debrief_budget import (
     debrief_max_tokens,
 )
 from wren_engine.models import Segment, Span
+from wren_engine.model_invocation import (
+    resolve_bedrock_model_id,
+    to_cross_region_inference_profile_id,
+)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -169,11 +176,13 @@ def get_db_connection():
         secret_response = secrets_client.get_secret_value(SecretId=secret_arn)
         secret = json.loads(secret_response['SecretString'])
 
-        host = os.getenv('DB_PROXY_HOST') or secret['host']
+        host = os.getenv('DB_PROXY_HOST') or secret.get('host')
+        port = int(os.getenv('DB_PORT') or secret.get('port') or 5432)
+        dbname = os.getenv('DB_NAME') or secret.get('dbname') or secret.get('database') or 'appdb'
         conn = psycopg.connect(
             host=host,
-            port=secret['port'],
-            dbname=secret['dbname'],
+            port=port,
+            dbname=dbname,
             user=secret['username'],
             password=secret['password'],
             sslmode='require'
@@ -623,8 +632,10 @@ def invoke_bedrock(
     """
     try:
         bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
-        # DB override takes precedence over the deploy-time env var.
-        model_id = config.get('bedrock_model_id') or os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
+        # Per-job DB override, else SSM (STACK_PREFIX) / env fallback.
+        model_id = to_cross_region_inference_profile_id(
+            config.get('bedrock_model_id') or resolve_bedrock_model_id()
+        )
 
         sentinel = "\n\n---\n\n"
         if sentinel in prompt:
@@ -1022,7 +1033,9 @@ def judge_resolutions_with_llm(
         return {}
 
     bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
-    model_id = config.get('bedrock_model_id') or os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
+    model_id = to_cross_region_inference_profile_id(
+        config.get('bedrock_model_id') or resolve_bedrock_model_id()
+    )
 
     items_json = json.dumps([
         {
@@ -1916,7 +1929,21 @@ def process_feedback_request(
                 f"categories: {strength_missing_anchor}"
             )
 
-        # Step 8: Insert into database and update counters
+        # Step 8: No-ghostwriting output guardrail, then persist
+        before_guardrail = len(feedback_items)
+        feedback_items = apply_output_guardrail(
+            feedback_items,
+            document_id=document_id,
+            draft_id=draft_id,
+        )
+        dropped_guardrail = before_guardrail - len(feedback_items)
+        if dropped_guardrail > 0:
+            logger.warning(
+                "Output guardrail dropped %s feedback item(s) before persist (kept %s)",
+                dropped_guardrail,
+                len(feedback_items),
+            )
+
         logger.info("Inserting feedback items...")
         item_count = insert_feedback_items(document_id, draft_id, user_id, feedback_items, segments, conn)
 

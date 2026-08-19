@@ -24,6 +24,7 @@ import { resolveOcrEngine } from './textractOcr.js';
 import { UnsupportedFileFormatError } from './errors.js';
 import { ingestUpload } from './ingestion.js';
 import { enforceSizeLimit } from './sizeLimit.js';
+import { overSizeLimitHttpResponse } from './patchDraftSizeLimit.js';
 import { gateSubmission } from './submissionGating.js';
 import { createDraftRevision } from './draftVersioning.js';
 import { DbDraftRepository } from './draftRepository.js';
@@ -845,7 +846,7 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
   }
 
   const docRows = await db.query(
-    `SELECT owner_user_id FROM document WHERE id = $1`,
+    `SELECT owner_user_id, document_type_id FROM document WHERE id = $1`,
     [documentId],
   );
 
@@ -863,8 +864,20 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
     };
   }
 
+  const documentTypeId = docRows[0].document_type_id as string;
+  const dtRows = await db.query(
+    `SELECT size_limit_words FROM document_type WHERE id = $1`,
+    [documentTypeId],
+  );
+  const sizeLimitWords =
+    typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+
   const cleaned = stripAiMarksFromTipTapContent(tipTapContent) as TipTapDoc;
   const wordCount = wordCountFromTipTapContent(cleaned);
+  const overLimit = overSizeLimitHttpResponse(wordCount, sizeLimitWords);
+  if (overLimit) {
+    return overLimit;
+  }
   const header = isTipTapDoc(body.header) ? (body.header as TipTapDoc) : undefined;
   const footer = isTipTapDoc(body.footer) ? (body.footer as TipTapDoc) : undefined;
   const repo = new DbDraftRepository(db);

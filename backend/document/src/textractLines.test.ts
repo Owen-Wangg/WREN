@@ -220,4 +220,27 @@ describe('mergeOcrLines', () => {
     // When geometry is missing for a transition, those become separate paragraphs
     expect(result).toHaveLength(3);
   });
+
+  it('does not merge ALL-CAPS TOC entries into one paragraph', () => {
+    const lineHeight = 0.02;
+    const smallGap = lineHeight * 1.0;
+    const lines: TextractLine[] = [
+      { text: 'Table of Contents', top: 0.2, height: lineHeight, left: 0.1, page: 1 },
+      { text: 'INTRODUCTION', top: 0.2 + lineHeight + smallGap, height: lineHeight, left: 0.1, page: 1 },
+      {
+        text: 'OVERVIEW OF FACTS',
+        top: 0.2 + (lineHeight + smallGap) * 2,
+        height: lineHeight,
+        left: 0.1,
+        page: 1,
+      },
+    ];
+    const result = mergeOcrLines(lines, metrics);
+    expect(result).toHaveLength(3);
+    expect(result.map((p) => p.text)).toEqual([
+      'Table of Contents',
+      'INTRODUCTION',
+      'OVERVIEW OF FACTS',
+    ]);
+  });
 });

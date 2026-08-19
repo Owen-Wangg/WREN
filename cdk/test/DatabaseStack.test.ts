@@ -54,8 +54,23 @@ describe("DatabaseStack", () => {
     });
   });
 
+  it("keeps exporting the RDS admin secret while Compute still imports it", () => {
+    const outputs = template.findOutputs("*");
+    const exported = Object.values(outputs).some((output) => {
+      const exportName = (output as { Export?: { Name?: unknown } }).Export?.Name;
+      return (
+        typeof exportName === "string" &&
+        exportName.includes("DatabaseInstanceSecretAttachment")
+      );
+    });
+    expect(exported).toBe(true);
+  });
+
   it("generates DB credentials into Secrets Manager (never inlined)", () => {
-    template.resourceCountIs("AWS::SecretsManager::Secret", 1);
+    template.resourceCountIs("AWS::SecretsManager::Secret", 9);
+    const proxies = template.findResources("AWS::RDS::DBProxy");
+    const auth = Object.values(proxies)[0]?.Properties?.Auth as unknown[];
+    expect(auth).toHaveLength(9);
     // The instance's MasterUserPassword must resolve from the secret, not a
     // plaintext literal — regardless of whether CDK emits a resolve token
     // string or an intrinsic Join.

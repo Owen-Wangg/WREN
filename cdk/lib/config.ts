@@ -182,6 +182,9 @@ export const ssmParameterNames = {
   /** ARN of the Secrets Manager secret holding DB admin credentials. */
   databaseSecretArn: (config: AppConfig): string =>
     `/${config.stackPrefix}/database/secret-arn`,
+  /** ARN of the Secrets Manager secret for a per-Lambda Postgres role. */
+  databaseRoleSecretArn: (config: AppConfig, role: string): string =>
+    `/${config.stackPrefix}/database/${role}/secret-arn`,
   /** Name of the S3 bucket holding submitted document bytes. */
   documentsBucketName: (config: AppConfig): string =>
     `/${config.stackPrefix}/storage/documents-bucket-name`,

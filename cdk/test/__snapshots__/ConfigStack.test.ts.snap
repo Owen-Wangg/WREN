@@ -28,6 +28,47 @@ exports[`ConfigStack matches the synthesized template snapshot 1`] = `
       },
       "Type": "AWS::SSM::Parameter",
     },
+    "AppConfigPromptGuardrailId20179343": {
+      "Properties": {
+        "Description": "Bedrock Guardrail ID for admin prompt injection detection.",
+        "Name": "/wren-test/config/prompt-guardrail-id",
+        "Type": "String",
+        "Value": {
+          "Fn::GetAtt": [
+            "AppConfigPromptInjectionGuardrail4820E54A",
+            "GuardrailId",
+          ],
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "AppConfigPromptGuardrailVersion9397D6BC": {
+      "Properties": {
+        "Description": "Bedrock Guardrail version for admin prompt injection detection.",
+        "Name": "/wren-test/config/prompt-guardrail-version",
+        "Type": "String",
+        "Value": "DRAFT",
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "AppConfigPromptInjectionGuardrail4820E54A": {
+      "Properties": {
+        "BlockedInputMessaging": "Prompt contains disallowed instructions.",
+        "BlockedOutputsMessaging": "Response blocked.",
+        "ContentPolicyConfig": {
+          "FiltersConfig": [
+            {
+              "InputStrength": "MEDIUM",
+              "OutputStrength": "NONE",
+              "Type": "PROMPT_ATTACK",
+            },
+          ],
+        },
+        "Description": "Detects prompt injection attempts in admin-submitted prompt fields.",
+        "Name": "wren-test-prompt-injection",
+      },
+      "Type": "AWS::Bedrock::Guardrail",
+    },
   },
   "Rules": {
     "CheckBootstrapVersion": {

@@ -38,19 +38,37 @@ def test_parameter_name_rejects_empty_prefix():
         bedrock_model_id_parameter_name("")
 
 
+def test_bare_anthropic_id_is_mapped_to_us_cris_profile():
+    from wren_engine.model_invocation import to_cross_region_inference_profile_id
+
+    assert (
+        to_cross_region_inference_profile_id("anthropic.claude-sonnet-4-6")
+        == "us.anthropic.claude-sonnet-4-6"
+    )
+    assert (
+        to_cross_region_inference_profile_id("us.anthropic.claude-sonnet-4-6")
+        == "us.anthropic.claude-sonnet-4-6"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # resolve_bedrock_model_id — Requirement 51.2, 51.3: no hardcoded model id     #
 # --------------------------------------------------------------------------- #
 
 
-def test_resolve_from_env_var_takes_precedence():
+def test_resolve_prefers_ssm_when_stack_prefix_is_set():
+    class FakeSsmClient:
+        def get_parameter(self, Name: str) -> dict:  # noqa: N803
+            assert Name == "/wren-dev/config/bedrock-model-id"
+            return {"Parameter": {"Value": "us.anthropic.claude-sonnet-4-6"}}
+
     env = {
-        "BEDROCK_MODEL_ID": "anthropic.claude-3-5-haiku-20241022-v1:0",
+        "BEDROCK_MODEL_ID": "stale-deploy-time-env-value",
         "STACK_PREFIX": "wren-dev",
     }
     assert (
-        resolve_bedrock_model_id(env=env)
-        == "anthropic.claude-3-5-haiku-20241022-v1:0"
+        resolve_bedrock_model_id(env=env, ssm_client=FakeSsmClient())
+        == "us.anthropic.claude-sonnet-4-6"
     )
 
 
@@ -58,7 +76,7 @@ def test_resolve_strips_whitespace_from_env_var():
     env = {"BEDROCK_MODEL_ID": "  anthropic.claude-3-5-sonnet-20241022-v2:0  \n"}
     assert (
         resolve_bedrock_model_id(env=env)
-        == "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        == "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
     )
 
 
@@ -76,7 +94,7 @@ def test_resolve_falls_back_to_ssm_when_env_var_absent():
 
     model_id = resolve_bedrock_model_id(env=env, ssm_client=fake_client)
 
-    assert model_id == "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    assert model_id == "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
     assert fake_client.requested_names == ["/wren-prod/config/bedrock-model-id"]
 
 

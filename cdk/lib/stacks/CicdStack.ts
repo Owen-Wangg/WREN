@@ -226,7 +226,8 @@ export class CicdStack extends Stack {
               actionName: "Deploy_CDK",
               stackName: `${config.stackPrefix}-Compute`,
               templatePath: cdkOutput.atPath(`${config.stackPrefix}-Compute.template.json`),
-              adminPermissions: true,
+              adminPermissions: false,
+              deploymentRole: this.createComputeDeploymentRole(config.stackPrefix),
               cfnCapabilities: [
                 CfnCapabilities.NAMED_IAM,
                 CfnCapabilities.AUTO_EXPAND,
@@ -245,6 +246,172 @@ export class CicdStack extends Stack {
           ],
         },
       ],
+    });
+  }
+
+  /**
+   * CloudFormation execution role for `${stackPrefix}-Compute` only.
+   * Not account admin. Too-narrow failures show up in CFN events — add the
+   * missing action; do not restore adminPermissions.
+   */
+  private createComputeDeploymentRole(stackPrefix: string): iam.Role {
+    return new iam.Role(this, "ComputeDeployRole", {
+      roleName: `${stackPrefix}-compute-cfn-deploy`,
+      assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
+      description: "Scoped CFN execution role for the Compute stack (not account admin).",
+      inlinePolicies: {
+        ComputeDeploy: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              sid: "LambdaCompute",
+              actions: [
+                "lambda:AddPermission",
+                "lambda:CreateEventSourceMapping",
+                "lambda:CreateFunction",
+                "lambda:DeleteEventSourceMapping",
+                "lambda:DeleteFunction",
+                "lambda:DeleteFunctionConcurrency",
+                "lambda:DeleteFunctionEventInvokeConfig",
+                "lambda:GetEventSourceMapping",
+                "lambda:GetFunction",
+                "lambda:GetFunctionConfiguration",
+                "lambda:InvokeFunction",
+                "lambda:ListTags",
+                "lambda:ListVersionsByFunction",
+                "lambda:PublishVersion",
+                "lambda:PutFunctionConcurrency",
+                "lambda:PutFunctionEventInvokeConfig",
+                "lambda:RemovePermission",
+                "lambda:TagResource",
+                "lambda:UntagResource",
+                "lambda:UpdateEventSourceMapping",
+                "lambda:UpdateFunctionCode",
+                "lambda:UpdateFunctionConfiguration",
+              ],
+              resources: ["*"],
+            }),
+            new iam.PolicyStatement({
+              sid: "IamForLambdaRoles",
+              actions: [
+                "iam:AttachRolePolicy",
+                "iam:CreateRole",
+                "iam:DeleteRole",
+                "iam:DeleteRolePolicy",
+                "iam:DetachRolePolicy",
+                "iam:GetRole",
+                "iam:GetRolePolicy",
+                "iam:ListAttachedRolePolicies",
+                "iam:ListRolePolicies",
+                "iam:PassRole",
+                "iam:PutRolePolicy",
+                "iam:TagRole",
+                "iam:UntagRole",
+                "iam:UpdateAssumeRolePolicy",
+                "iam:UpdateRole",
+              ],
+              resources: [`arn:aws:iam::${this.account}:role/*`],
+              conditions: {
+                StringEqualsIfExists: {
+                  "iam:PassedToService": [
+                    "lambda.amazonaws.com",
+                    "appsync.amazonaws.com",
+                    "events.amazonaws.com",
+                  ],
+                },
+              },
+            }),
+            new iam.PolicyStatement({
+              sid: "MessagingRealtimeAndConfig",
+              actions: [
+                "sqs:*",
+                "sns:*",
+                "events:*",
+                "appsync:*",
+                "logs:*",
+                "secretsmanager:CreateSecret",
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:DescribeSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
+                "secretsmanager:TagResource",
+                "secretsmanager:UntagResource",
+                "secretsmanager:UpdateSecret",
+                "ssm:AddTagsToResource",
+                "ssm:DeleteParameter",
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:PutParameter",
+              ],
+              resources: ["*"],
+            }),
+            new iam.PolicyStatement({
+              sid: "VpcLambdaEni",
+              actions: [
+                "ec2:AssignPrivateIpAddresses",
+                "ec2:CreateNetworkInterface",
+                "ec2:DeleteNetworkInterface",
+                "ec2:DescribeNetworkInterfaces",
+                "ec2:DescribeSecurityGroups",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeVpcs",
+                "ec2:UnassignPrivateIpAddresses",
+              ],
+              resources: ["*"],
+            }),
+            new iam.PolicyStatement({
+              sid: "EcrImageResolve",
+              actions: [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:BatchGetImage",
+                "ecr:GetAuthorizationToken",
+                "ecr:GetDownloadUrlForLayer",
+              ],
+              resources: ["*"],
+            }),
+            new iam.PolicyStatement({
+              sid: "CdkAssetBucketRead",
+              actions: [
+                "s3:GetObject",
+                "s3:GetObjectVersion",
+                "s3:GetBucketLocation",
+                "s3:ListBucket",
+              ],
+              resources: [
+                `arn:aws:s3:::cdk-hnb659fds-assets-${this.account}-${this.region}`,
+                `arn:aws:s3:::cdk-hnb659fds-assets-${this.account}-${this.region}/*`,
+              ],
+            }),
+            new iam.PolicyStatement({
+              sid: "KmsUseExistingStorageKey",
+              actions: [
+                "kms:CreateGrant",
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:GenerateDataKey",
+                "kms:GenerateDataKeyWithoutPlaintext",
+              ],
+              resources: ["*"],
+            }),
+            new iam.PolicyStatement({
+              sid: "DenyOutOfScopeStacks",
+              effect: iam.Effect.DENY,
+              actions: [
+                "rds:*",
+                "cognito-idp:*",
+                "apigateway:*",
+                "organizations:*",
+                "s3:CreateBucket",
+                "s3:DeleteBucket",
+                "iam:CreateUser",
+                "iam:DeleteUser",
+                "iam:CreateAccessKey",
+              ],
+              resources: ["*"],
+            }),
+          ],
+        }),
+      },
     });
   }
 }

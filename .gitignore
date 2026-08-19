@@ -9,6 +9,9 @@ node_modules
 *.key
 sync-out.json
 
+# Local MCP config with env-expanded secrets (commit mcp.json.example only)
+.kiro/settings/mcp.json
+
 # Python (uv-managed)
 .venv/
 __pycache__/

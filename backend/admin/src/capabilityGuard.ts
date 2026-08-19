@@ -29,3 +29,25 @@ export function requireCapability(
     throw new AuthorizationError(decision.reason);
   }
 }
+
+/**
+ * Gate for GET /v1/departments/{departmentId}/users (PII: names + emails).
+ *
+ * TechnicalAdmin uses platform `user.search`. Everyone else must hold
+ * `user.searchScoped` for this department (DeptAdmin of that department).
+ * Students are denied — they can view the department catalog, but must not
+ * enumerate users across departments.
+ */
+export function assertCanListDepartmentUsers(
+  actor: AuthContext,
+  departmentId: string,
+): void {
+  if (actor.roles.includes('TechnicalAdmin')) {
+    requireCapability(actor, { capability: 'user.search', scope: { kind: 'platform' } });
+    return;
+  }
+  requireCapability(actor, {
+    capability: 'user.searchScoped',
+    scope: { kind: 'department', departmentId },
+  });
+}

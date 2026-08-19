@@ -53,6 +53,27 @@ describe('resolveDatabaseCredentials — runtime resolution (no hardcoded creds)
     expect(creds.port).toBe(5432);
   });
 
+  it('defaults port 5432 and dbname appdb for username/password-only secrets', async () => {
+    const onlyAuth = JSON.stringify({
+      username: 'wren_authorizer',
+      password: 'super-secret',
+    });
+    const { client } = mockClient(onlyAuth);
+
+    const creds = await resolveDatabaseCredentials('arn:secret', {
+      client,
+      overrides: { host: 'proxy.rds' },
+    });
+
+    expect(creds).toEqual({
+      host: 'proxy.rds',
+      port: 5432,
+      username: 'wren_authorizer',
+      password: 'super-secret',
+      dbname: 'appdb',
+    });
+  });
+
   it('coerces a string port to a number', async () => {
     const stringPort = JSON.stringify({
       host: 'db.internal',

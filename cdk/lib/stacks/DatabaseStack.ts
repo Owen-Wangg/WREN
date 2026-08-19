@@ -5,7 +5,9 @@ import type { IVpc } from "aws-cdk-lib/aws-ec2";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import type { Construct } from "constructs";
 import { ssmParameterNames, type AppConfig } from "../config.js";
+import { APP_DB_ROLES, appDbRolePascal, type AppDbRole } from "../appDbRoles.js";
 import { DatabaseResources } from "../constructs/DatabaseResources.js";
+import { DbPasswordSync } from "../constructs/DbPasswordSync.js";
 import { MigrationRunner } from "../constructs/MigrationRunner.js";
 
 export interface DatabaseStackProps extends StackProps {
@@ -28,6 +30,8 @@ export class DatabaseStack extends Stack {
   public readonly proxyEndpoint: string;
   /** ARN of the Secrets Manager secret holding DB admin credentials. */
   public readonly databaseSecretArn: string;
+  /** Per-app-role secret ARNs for Compute Lambdas (not dbadmin). */
+  public readonly appDbSecretArns: Record<AppDbRole, string>;
   /** Migration runner custom resource. */
   public readonly migrations: MigrationRunner;
 
@@ -41,6 +45,14 @@ export class DatabaseStack extends Stack {
 
     this.proxyEndpoint = this.database.proxy.endpoint;
     this.databaseSecretArn = this.database.credentialsSecret.secretArn;
+    this.appDbSecretArns = Object.fromEntries(
+      APP_DB_ROLES.map((role) => [role, this.database.appUserSecrets[role].secretArn]),
+    ) as Record<AppDbRole, string>;
+
+    // Compute previously imported this ARN across stacks. CloudFormation refuses
+    // to delete an in-use export, so keep publishing it until Compute has been
+    // deployed once on per-role secrets; then remove this call and redeploy.
+    this.exportValue(this.database.credentialsSecret.secretArn);
 
     new StringParameter(this, "ProxyEndpointParameter", {
       parameterName: ssmParameterNames.databaseProxyEndpoint(props.config),
@@ -53,6 +65,14 @@ export class DatabaseStack extends Stack {
       stringValue: this.database.credentialsSecret.secretArn,
       description: "ARN of the Secrets Manager secret holding DB admin credentials.",
     });
+
+    for (const role of APP_DB_ROLES) {
+      new StringParameter(this, `SecretArnParameter${appDbRolePascal(role)}`, {
+        parameterName: ssmParameterNames.databaseRoleSecretArn(props.config, role),
+        stringValue: this.database.appUserSecrets[role].secretArn,
+        description: `ARN of the Secrets Manager secret for Postgres role ${role}.`,
+      });
+    }
 
     // Run migrations after the database is ready
     const privateSubnets = props.vpc.selectSubnets({
@@ -72,5 +92,16 @@ export class DatabaseStack extends Stack {
     // The target group is a child construct of the proxy created by CDK's addProxy().
     const proxyTargetGroup = this.database.proxy.node.findChild("ProxyTargetGroup");
     this.migrations.node.addDependency(proxyTargetGroup);
+
+    const passwordSync = new DbPasswordSync(this, "DbPasswordSync", {
+      databaseProxyEndpoint: this.database.proxy.endpoint,
+      databaseSecretArn: this.database.credentialsSecret.secretArn,
+      appUserSecrets: this.database.appUserSecrets,
+      vpc: props.vpc,
+      vpcSubnets: privateSubnets,
+      stackPrefix: props.config.stackPrefix,
+    });
+    // Roles must exist (0027) before ALTER ROLE … PASSWORD.
+    passwordSync.node.addDependency(this.migrations);
   }
 }

@@ -205,4 +205,85 @@ describe('textractLayoutBlocksToTipTap', () => {
       content: [{ type: 'text', text: 'Real content' }],
     });
   });
+
+  it('keeps a table of contents tagged as LAYOUT_FIGURE instead of dropping it', () => {
+    const blocks: Block[] = [
+      {
+        Id: 'fig',
+        BlockType: 'LAYOUT_FIGURE',
+        Page: 1,
+        Relationships: [{ Type: 'CHILD', Ids: ['l1', 'l2', 'l3', 'l4'] }],
+      },
+      {
+        Id: 'l1',
+        BlockType: 'LINE',
+        Text: 'Table of Contents',
+        Page: 1,
+        Geometry: { BoundingBox: { Top: 0.2, Height: 0.02, Left: 0.1, Width: 0.4 } },
+      },
+      {
+        Id: 'l2',
+        BlockType: 'LINE',
+        Text: 'INTRODUCTION',
+        Page: 1,
+        Geometry: { BoundingBox: { Top: 0.24, Height: 0.02, Left: 0.1, Width: 0.3 } },
+      },
+      {
+        Id: 'l3',
+        BlockType: 'LINE',
+        Text: 'OVERVIEW OF FACTS',
+        Page: 1,
+        Geometry: { BoundingBox: { Top: 0.28, Height: 0.02, Left: 0.1, Width: 0.35 } },
+      },
+      {
+        Id: 'l4',
+        BlockType: 'LINE',
+        Text: 'DISCUSSION',
+        Page: 1,
+        Geometry: { BoundingBox: { Top: 0.32, Height: 0.02, Left: 0.1, Width: 0.25 } },
+      },
+    ];
+    const doc = textractLayoutBlocksToTipTap(blocks);
+    const json = JSON.stringify(doc);
+    expect(json).not.toContain('Figure could not be rendered');
+    expect(json).toContain('Table of Contents');
+    expect(json).toContain('INTRODUCTION');
+    const types = ((doc.content ?? []) as TipTapNode[]).map((n) => n.type);
+    expect(types.filter((t) => t === 'heading').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('drops CanLII overlay stamps from OCR output', () => {
+    const blocks: Block[] = [
+      {
+        Id: 'stamp',
+        BlockType: 'LAYOUT_TEXT',
+        Page: 1,
+        Relationships: [{ Type: 'CHILD', Ids: ['ls'] }],
+      },
+      {
+        Id: 'body',
+        BlockType: 'LAYOUT_TEXT',
+        Page: 1,
+        Relationships: [{ Type: 'CHILD', Ids: ['lb'] }],
+      },
+      {
+        Id: 'ls',
+        BlockType: 'LINE',
+        Text: '2024 BCSC 1953 (CanLII)',
+        Page: 1,
+        Geometry: { BoundingBox: { Top: 0.4, Height: 0.08, Left: 0.1, Width: 0.8 } },
+      },
+      {
+        Id: 'lb',
+        BlockType: 'LINE',
+        Text: 'The claim is dismissed.',
+        Page: 1,
+        Geometry: { BoundingBox: { Top: 0.55, Height: 0.02, Left: 0.1, Width: 0.5 } },
+      },
+    ];
+    const doc = textractLayoutBlocksToTipTap(blocks);
+    const json = JSON.stringify(doc);
+    expect(json).not.toContain('CanLII');
+    expect(json).toContain('The claim is dismissed.');
+  });
 });

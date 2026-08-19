@@ -521,4 +521,123 @@ describe('spatialPagesToTipTap', () => {
       ),
     ).toBe(false);
   });
+
+  it('promotes Table of Contents and ALL-CAPS section titles as headings', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: 'Table of Contents', x: 50, y: 40, width: 140, height: 14, fontSize: 14 },
+          { text: 'INTRODUCTION', x: 50, y: 70, width: 110, height: 12, fontSize: 12 },
+          { text: 'OVERVIEW OF FACTS', x: 50, y: 90, width: 150, height: 12, fontSize: 12 },
+          {
+            text: 'The claim concerns a family property dispute in Vancouver.',
+            x: 50,
+            y: 130,
+            width: 280,
+            height: 12,
+            fontSize: 12,
+          },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = (doc.content as TipTapNode[] | undefined) ?? [];
+    expect(blocks[0]?.type).toBe('heading');
+    expect(JSON.stringify(blocks[0])).toContain('Table of Contents');
+    expect(blocks[1]?.type).toBe('heading');
+    expect(JSON.stringify(blocks[1])).toContain('INTRODUCTION');
+    expect(blocks[2]?.type).toBe('heading');
+    expect(JSON.stringify(blocks[2])).toContain('OVERVIEW OF FACTS');
+    expect(blocks[3]?.type).toBe('paragraph');
+  });
+
+  it('drops CanLII overlay stamps so they do not overlap body text', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          {
+            text: 'IN THE SUPREME COURT OF BRITISH COLUMBIA',
+            x: 40,
+            y: 40,
+            width: 320,
+            height: 14,
+            fontSize: 14,
+            fontName: 'Arial-Bold',
+          },
+          {
+            text: '2024 BCSC 1953 (CanLII)',
+            x: 20,
+            y: 30,
+            width: 400,
+            height: 80,
+            fontSize: 72,
+          },
+          {
+            text: 'Reasons for Judgment',
+            x: 80,
+            y: 120,
+            width: 180,
+            height: 16,
+            fontSize: 16,
+            fontName: 'Arial-Bold',
+          },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const json = JSON.stringify(doc);
+    expect(json).not.toContain('CanLII');
+    expect(json).toContain('SUPREME COURT');
+    expect(json).toContain('Reasons for Judgment');
+  });
+
+  it('keeps page-local reading order instead of interleaving equal Y values', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [{ text: 'First page body', x: 10, y: 40, width: 100, height: 12, fontSize: 12 }],
+      },
+      {
+        textItems: [{ text: 'Second page body', x: 10, y: 40, width: 110, height: 12, fontSize: 12 }],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const texts = ((doc.content as TipTapNode[] | undefined) ?? []).map((b) =>
+      (b.content ?? []).map((n) => n.text ?? '').join(''),
+    );
+    expect(texts[0]).toContain('First page body');
+    expect(texts[1]).toContain('Second page body');
+  });
+
+  it('centers a court title and right-aligns a docket date', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          {
+            text: 'IN THE SUPREME COURT OF BRITISH COLUMBIA',
+            x: 115,
+            y: 20,
+            width: 200,
+            height: 14,
+            fontSize: 14,
+            fontName: 'Arial-Bold',
+          },
+          { text: 'Date: 20241024', x: 300, y: 50, width: 90, height: 11, fontSize: 11 },
+          {
+            text: 'The parties agreed the property was held in trust.',
+            x: 40,
+            y: 90,
+            width: 350,
+            height: 11,
+            fontSize: 11,
+          },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = (doc.content as TipTapNode[] | undefined) ?? [];
+    const title = blocks.find((b) => JSON.stringify(b).includes('SUPREME COURT'));
+    const date = blocks.find((b) => JSON.stringify(b).includes('20241024'));
+    expect(title?.attrs?.textAlign).toBe('center');
+    expect(date?.attrs?.textAlign).toBe('right');
+  });
 });

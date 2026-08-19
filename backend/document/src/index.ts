@@ -21,6 +21,8 @@ export { UnsupportedFileFormatError } from './errors';
 export { MammothDocxExtractor, type DocxExtractor } from './docxExtractor';
 export { type PdfExtractor, type RichPdfExtractor, type RichPdfExtraction } from './pdfExtractor';
 export { TextractPdfExtractor } from './textractPdfExtractor';
+export { HybridPdfExtractor } from './hybridPdfExtractor';
+export { spatialPagesToTipTap } from './pdfToTipTap';
 export {
   textractLayoutBlocksToTipTap,
   convertTextractBlocks,

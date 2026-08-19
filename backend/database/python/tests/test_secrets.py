@@ -60,6 +60,19 @@ def test_overrides_supply_rds_proxy_endpoint():
     assert creds.port == 5432
 
 
+def test_defaults_port_and_dbname_for_username_password_only_secrets():
+    only_auth = json.dumps({"username": "wren_authorizer", "password": "super-secret"})
+    creds = resolve_database_credentials(
+        "arn:secret",
+        client=FakeSecretsClient(only_auth),
+        host="proxy.rds",
+    )
+    assert creds.host == "proxy.rds"
+    assert creds.port == 5432
+    assert creds.dbname == "appdb"
+    assert creds.username == "wren_authorizer"
+
+
 def test_coerces_string_port():
     string_port = json.dumps(
         {

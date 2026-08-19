@@ -99,7 +99,7 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   config,
   vpc: vpcStack.vpc,
   databaseProxyEndpoint: databaseStack.proxyEndpoint,
-  databaseSecretArn: databaseStack.databaseSecretArn,
+  databaseSecretArns: databaseStack.appDbSecretArns,
   documentsBucketName: storageStack.documentsBucketName,
   referenceBucketName: storageStack.referenceBucketName,
   storageEncryptionKey: storageStack.storage.encryptionKey,
