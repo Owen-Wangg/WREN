@@ -197,6 +197,7 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_document),
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
+        DOCUMENTS_KMS_KEY_ARN: props.storageEncryptionKey.keyArn,
         PDF_OCR_ENABLED: "true",
         // Textract is the OCR fallback when a PDF has no usable text layer.
         PDF_OCR_ENGINE: "textract",
@@ -519,7 +520,15 @@ export class ComputeStack extends Stack {
 
     // Document Lambda: S3 read/write for document uploads + presigned URLs.
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:DeleteObjects"],
+      actions: [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:PutObjectTagging",
+        "s3:GetObjectTagging",
+        "s3:DeleteObjectTagging",
+        "s3:DeleteObject",
+        "s3:DeleteObjects",
+      ],
       resources: [`arn:aws:s3:::${props.documentsBucketName}/*`],
     }));
     // Amazon Textract OCR (LAYOUT + TABLES analysis).
