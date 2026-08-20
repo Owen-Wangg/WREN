@@ -108,6 +108,7 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
               ],
               "AllowedMethods": [
                 "PUT",
+                "POST",
                 "GET",
                 "HEAD",
               ],
@@ -129,6 +130,17 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
               },
               "Id": "AbortIncompleteMultipartUploads",
               "Status": "Enabled",
+            },
+            {
+              "ExpirationInDays": 1,
+              "Id": "ExpireOrphanedDocumentUploads",
+              "Status": "Enabled",
+              "TagFilters": [
+                {
+                  "Key": "orphan-upload",
+                  "Value": "true",
+                },
+              ],
             },
             {
               "Id": "TransitionNoncurrentToInfrequentAccess",
@@ -290,6 +302,17 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
               },
               "Id": "AbortIncompleteMultipartUploads",
               "Status": "Enabled",
+            },
+            {
+              "ExpirationInDays": 1,
+              "Id": "ExpireOrphanedDocumentUploads",
+              "Status": "Enabled",
+              "TagFilters": [
+                {
+                  "Key": "orphan-upload",
+                  "Value": "true",
+                },
+              ],
             },
             {
               "Id": "TransitionNoncurrentToInfrequentAccess",

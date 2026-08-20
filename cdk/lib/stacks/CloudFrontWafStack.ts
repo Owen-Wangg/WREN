@@ -1,4 +1,4 @@
-import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, Duration } from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as wafv2 from "aws-cdk-lib/aws-wafv2";
@@ -138,6 +138,37 @@ export class CloudFrontWafStack extends Stack {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
     });
 
+    const securityHeadersPolicy = new cloudfront.ResponseHeadersPolicy(
+      this,
+      "SecurityHeaders",
+      {
+        comment: `${config.stackPrefix} security headers (CSP blocks javascript: URIs)`,
+        securityHeadersBehavior: {
+          contentSecurityPolicy: {
+            contentSecurityPolicy:
+              "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss:",
+            override: true,
+          },
+          contentTypeOptions: { override: true },
+          frameOptions: {
+            frameOption: cloudfront.HeadersFrameOption.DENY,
+            override: true,
+          },
+          referrerPolicy: {
+            referrerPolicy:
+              cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+            override: true,
+          },
+          strictTransportSecurity: {
+            accessControlMaxAge: Duration.seconds(31_536_000),
+            includeSubdomains: true,
+            override: true,
+          },
+          xssProtection: { protection: true, modeBlock: true, override: true },
+        },
+      },
+    );
+
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
       comment: `${config.stackPrefix} - WREN Writing Coach CDN`,
       defaultBehavior: {
@@ -146,6 +177,7 @@ export class CloudFrontWafStack extends Stack {
         allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED, // API — no caching
         originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        responseHeadersPolicy: securityHeadersPolicy,
       },
       webAclId: this.webAcl.attrArn,
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
@@ -161,6 +193,7 @@ export class CloudFrontWafStack extends Stack {
       this.distribution.addBehavior("/app/*", amplifyOrigin, {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy: securityHeadersPolicy,
       });
     }
 

@@ -118,22 +118,22 @@ export async function countDocumentsOwnedByUser(
   userId: string,
   db: QueryExecutor,
 ): Promise<number> {
-  const rows = await db.query<{ count: number }>(
-    'SELECT COUNT(*)::int AS count FROM document WHERE owner_user_id = $1',
+  const rows = await db.query<{ document_upload_count: number }>(
+    'SELECT document_upload_count FROM user_lifetime_usage WHERE user_id = $1',
     [userId],
   );
-  return rows[0]?.count ?? 0;
+  return rows[0]?.document_upload_count ?? 0;
 }
 
 export async function countDraftsForDocument(
   documentId: string,
   db: QueryExecutor,
 ): Promise<number> {
-  const rows = await db.query<{ count: number }>(
-    'SELECT COUNT(*)::int AS count FROM draft WHERE document_id = $1',
+  const rows = await db.query<{ draft_create_count: number }>(
+    'SELECT draft_create_count FROM document WHERE id = $1',
     [documentId],
   );
-  return rows[0]?.count ?? 0;
+  return rows[0]?.draft_create_count ?? 0;
 }
 
 export async function getDebriefGenerationCount(
@@ -169,6 +169,57 @@ export async function reserveDebriefGeneration(
     );
   }
   return rows[0].debrief_generation_count;
+}
+
+/**
+ * Atomically reserve one lifetime document-upload slot for this user.
+ * Survives subsequent document deletion.
+ */
+export async function reserveDocumentUpload(
+  userId: string,
+  db: QueryExecutor,
+): Promise<number> {
+  const policy = await getPlatformUsagePolicy(db);
+  const rows = await db.query<{ document_upload_count: number }>(
+    `INSERT INTO user_lifetime_usage (user_id, document_upload_count)
+     SELECT $1, 1
+     WHERE $2 > 0
+     ON CONFLICT (user_id) DO UPDATE
+       SET document_upload_count = user_lifetime_usage.document_upload_count + 1
+       WHERE user_lifetime_usage.document_upload_count < $2
+     RETURNING document_upload_count`,
+    [userId, policy.documentUploadLimit],
+  );
+  if (!rows[0]) {
+    throw new UsageLimitReachedError(
+      `Document upload limit of ${policy.documentUploadLimit} reached.`,
+    );
+  }
+  return rows[0].document_upload_count;
+}
+
+/**
+ * Atomically reserve one draft-create slot for this document.
+ * The counter is not decremented when drafts are deleted.
+ */
+export async function reserveDraftCreate(
+  documentId: string,
+  db: QueryExecutor,
+): Promise<number> {
+  const policy = await getPlatformUsagePolicy(db);
+  const rows = await db.query<{ draft_create_count: number }>(
+    `UPDATE document
+     SET draft_create_count = draft_create_count + 1
+     WHERE id = $1 AND draft_create_count < $2
+     RETURNING draft_create_count`,
+    [documentId, policy.draftsPerDocumentLimit],
+  );
+  if (!rows[0]) {
+    throw new UsageLimitReachedError(
+      `Draft limit of ${policy.draftsPerDocumentLimit} reached for this document.`,
+    );
+  }
+  return rows[0].draft_create_count;
 }
 
 export async function assertDocumentUploadAllowed(

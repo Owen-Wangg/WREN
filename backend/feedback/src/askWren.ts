@@ -17,9 +17,11 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 
 import { resolveBedrockModelId } from './bedrockModelId.js';
+import { UsageLimitReachedError } from '@wren/admin/lifetimeUsagePolicy';
 
 export type ChatRole = 'user' | 'wren';
 
@@ -38,6 +40,8 @@ export interface ConversationSession {
   draftId: string;
   messages: ChatMessage[];
   ttl: number;
+  /** Monotonic user-message count used for the Ask-WREN quota. */
+  messageCount?: number;
 }
 
 const SYSTEM_PROMPT = `You are a Socratic writing coach. The student is working on their own draft.
@@ -97,9 +101,13 @@ function getBedrock(): BedrockRuntimeClient {
   return bedrockClient;
 }
 
+function normalizeId(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 /** Document-scoped session key — survives draft version bumps (Regenerate / Resubmit). */
 export function buildSessionId(userId: string, documentId: string): string {
-  return `${userId}#${documentId}`;
+  return `${userId}#${normalizeId(documentId)}`;
 }
 
 /** Legacy draft-scoped key (pre-carry-forward). Used only to migrate history. */
@@ -108,7 +116,7 @@ export function buildLegacyDraftSessionId(
   documentId: string,
   draftId: string,
 ): string {
-  return `${userId}#${documentId}#${draftId}`;
+  return `${userId}#${normalizeId(documentId)}#${normalizeId(draftId)}`;
 }
 
 export function assertSocraticReply(text: string): string {
@@ -202,6 +210,7 @@ export async function loadDocumentConversation(input: {
     draftId: input.draftId,
     messages: merged,
     ttl: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+    messageCount: merged.filter((m) => m.role === 'user').length,
   };
   await saveSession(migrated);
   return migrated;
@@ -444,6 +453,50 @@ export async function generateAskWrenReply(input: {
   return assertSocraticReply(text);
 }
 
+export async function reserveAskMessageSlot(input: {
+  userId: string;
+  documentId: string;
+  draftId: string;
+  currentUserMessageCount: number;
+  limit: number;
+}): Promise<void> {
+  const sessionId = buildSessionId(input.userId, input.documentId);
+  try {
+    await getDynamo().send(
+      new UpdateCommand({
+        TableName: tableName(),
+        Key: { sessionId },
+        UpdateExpression:
+          'SET messageCount = if_not_exists(messageCount, :current) + :one, userId = if_not_exists(userId, :uid), documentId = if_not_exists(documentId, :did), draftId = :draftId, #ttl = if_not_exists(#ttl, :ttl), messages = if_not_exists(messages, :empty)',
+        ConditionExpression:
+          '(attribute_not_exists(messageCount) AND :current < :limit) OR (attribute_exists(messageCount) AND messageCount < :limit)',
+        ExpressionAttributeNames: { '#ttl': 'ttl' },
+        ExpressionAttributeValues: {
+          ':current': input.currentUserMessageCount,
+          ':one': 1,
+          ':uid': input.userId,
+          ':did': input.documentId,
+          ':draftId': input.draftId,
+          ':ttl': Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+          ':empty': [],
+          ':limit': input.limit,
+        },
+      }),
+    );
+  } catch (err) {
+    const name =
+      err && typeof err === 'object' && 'name' in err
+        ? String((err as { name: unknown }).name)
+        : '';
+    if (name === 'ConditionalCheckFailedException') {
+      throw new UsageLimitReachedError(
+        `Ask message limit of ${input.limit} reached for this document.`,
+      );
+    }
+    throw err;
+  }
+}
+
 export async function appendAskWrenTurn(input: {
   userId: string;
   documentId: string;
@@ -452,6 +505,7 @@ export async function appendAskWrenTurn(input: {
   draftSegments: Array<{ index?: number; text?: string }>;
   documentTypeContext?: DocumentTypeContext;
   modelId?: string;
+  messageLimit: number;
 }): Promise<{ sessionId: string; userMessage: ChatMessage; reply: ChatMessage }> {
   const sessionId = buildSessionId(input.userId, input.documentId);
   const existing = await loadDocumentConversation({
@@ -470,6 +524,17 @@ export async function appendAskWrenTurn(input: {
   };
 
   const prior = existing?.messages ?? [];
+  const currentUserMessageCount =
+    existing?.messageCount ?? prior.filter((m) => m.role === 'user').length;
+
+  await reserveAskMessageSlot({
+    userId: input.userId,
+    documentId: input.documentId,
+    draftId: input.draftId,
+    currentUserMessageCount,
+    limit: input.messageLimit,
+  });
+
   const rawReplyText = await generateAskWrenReply({
     userText: userMessage.text,
     priorMessages: prior,
@@ -493,6 +558,7 @@ export async function appendAskWrenTurn(input: {
     draftId: input.draftId,
     messages: [...prior, userMessage, reply],
     ttl,
+    messageCount: currentUserMessageCount + 1,
   };
 
   await saveSession(session);

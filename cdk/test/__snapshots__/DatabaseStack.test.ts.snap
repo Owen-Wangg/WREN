@@ -28,7 +28,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
           "GenerateStringKey": "password",
           "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_admin"}",
+          "SecretStringTemplate": "{"username":"wren_admin","port":5432,"dbname":"appdb","engine":"postgres"}",
         },
         "Name": "wren-test/database/wren_admin",
       },
@@ -43,7 +43,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
           "GenerateStringKey": "password",
           "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_appsync_auth"}",
+          "SecretStringTemplate": "{"username":"wren_appsync_auth","port":5432,"dbname":"appdb","engine":"postgres"}",
         },
         "Name": "wren-test/database/wren_appsync_auth",
       },
@@ -58,7 +58,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
           "GenerateStringKey": "password",
           "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_audit"}",
+          "SecretStringTemplate": "{"username":"wren_audit","port":5432,"dbname":"appdb","engine":"postgres"}",
         },
         "Name": "wren-test/database/wren_audit",
       },
@@ -73,7 +73,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
           "GenerateStringKey": "password",
           "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_authorizer"}",
+          "SecretStringTemplate": "{"username":"wren_authorizer","port":5432,"dbname":"appdb","engine":"postgres"}",
         },
         "Name": "wren-test/database/wren_authorizer",
       },
@@ -88,7 +88,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
           "GenerateStringKey": "password",
           "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_document"}",
+          "SecretStringTemplate": "{"username":"wren_document","port":5432,"dbname":"appdb","engine":"postgres"}",
         },
         "Name": "wren-test/database/wren_document",
       },
@@ -103,7 +103,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
           "GenerateStringKey": "password",
           "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_feedback_engine"}",
+          "SecretStringTemplate": "{"username":"wren_feedback_engine","port":5432,"dbname":"appdb","engine":"postgres"}",
         },
         "Name": "wren-test/database/wren_feedback_engine",
       },
@@ -118,7 +118,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
           "GenerateStringKey": "password",
           "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_feedback_orch"}",
+          "SecretStringTemplate": "{"username":"wren_feedback_orch","port":5432,"dbname":"appdb","engine":"postgres"}",
         },
         "Name": "wren-test/database/wren_feedback_orch",
       },
@@ -133,7 +133,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
           "GenerateStringKey": "password",
           "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_notification"}",
+          "SecretStringTemplate": "{"username":"wren_notification","port":5432,"dbname":"appdb","engine":"postgres"}",
         },
         "Name": "wren-test/database/wren_notification",
       },
@@ -651,7 +651,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "f83cd8319be1ef5d231643439c6b012ac2c61024cbda97758e21c896908cf2ed.zip",
+          "S3Key": "efb1b22c07b951729158cc2c00849cc4805f5635ceb1678b6c52e914d035f757.zip",
         },
         "Environment": {
           "Variables": {
@@ -979,7 +979,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "databaseSecretArn": {
           "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
         },
-        "migrationsFingerprint": "688d38637dd78d4b",
+        "migrationsFingerprint": "07be114475b2792e",
       },
       "Type": "AWS::CloudFormation::CustomResource",
       "UpdateReplacePolicy": "Delete",
@@ -992,7 +992,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "8a504057e12e0191de6a7a9d70315f407fe871ff012b5ed9d5afe93b072f8622.zip",
+          "S3Key": "0ee5d92fadcdfe2401b5e536b2626c6fe85f3fb29d5ff55f4216994906f048b8.zip",
         },
         "Environment": {
           "Variables": {

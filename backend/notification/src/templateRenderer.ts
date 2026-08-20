@@ -74,9 +74,15 @@ export function renderActionUrl(
 ): string | null {
   if (!template) return null;
 
-  return template.replace(PLACEHOLDER_RE, (_match, name: string) => {
+  const rendered = template.replace(PLACEHOLDER_RE, (_match, name: string) => {
     const value = context[name];
     if (value === undefined || value === null) return `{{${name}}}`;
     return encodeURIComponent(value);
   });
+
+  // Defense in depth: never emit a scheme-bearing URL (javascript:, https:, …).
+  if (!rendered.startsWith('/') || rendered.startsWith('//') || rendered.includes(':')) {
+    return null;
+  }
+  return rendered;
 }

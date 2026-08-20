@@ -194,20 +194,45 @@ export function createDocument(
   });
 }
 
-/** Presigned S3 PUT URL for uploading a document file before create. */
+/** Presigned S3 POST for uploading a document file before create. */
+export type PresignUploadResponse = {
+  uploadUrl: string;
+  fields: Record<string, string>;
+  key: string;
+};
+
+const presignUploadSchema = z.object({
+  uploadUrl: z.string().url(),
+  fields: z.record(z.string()),
+  key: z.string().min(1),
+});
+
 export function getPresignedUrl(
   client: HttpClient,
   filename: string,
   contentType: string,
-): Promise<{ uploadUrl: string; key: string }> {
+): Promise<PresignUploadResponse> {
   return client.request('/v1/uploads/presign', {
     method: 'POST',
     body: { filename, contentType },
-    schema: z.object({
-      uploadUrl: z.string().url(),
-      key: z.string().min(1),
-    }),
+    schema: presignUploadSchema,
   });
+}
+
+/** POST the file to S3 using the presigned POST fields (not a raw PUT). */
+export async function uploadFileToPresign(
+  presign: PresignUploadResponse,
+  file: File,
+): Promise<void> {
+  const form = new FormData();
+  for (const [name, value] of Object.entries(presign.fields)) {
+    form.append(name, value);
+  }
+  form.append('file', file);
+  const putResponse = await fetch(presign.uploadUrl, { method: 'POST', body: form });
+  if (!putResponse.ok) {
+    throw new Error('File upload to storage failed');
+  }
 }
 
 export type { Draft };

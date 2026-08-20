@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import YAML from "js-yaml";
-import { Duration, Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -178,25 +178,20 @@ export class ApiStack extends Stack {
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.ERROR,
         tracingEnabled: true, // X-Ray tracing
-        // Enable the response cache cluster (0.5 GB — cheapest tier, sufficient
-        // for per-user debrief payloads). Per-method caching is opt-in below.
+        // Cache cluster stays enabled so Control Tower CT.APIGATEWAY.PR.3 can
+        // require encryption on the catch-all method setting. Per-method
+        // caching is off: GET /v1/documents/{documentId}/feedback must not be
+        // cached at API Gateway (cache key is documentId+draftId, not caller
+        // identity — a hit would skip the Lambda ownership check / IDOR).
+        // Browser-side Cache-Control: private is set by the Lambda instead.
         cacheClusterEnabled: true,
         cacheClusterSize: "0.5",
-        // Per-method cache override: GET /v1/documents/{documentId}/feedback
-        // Feedback for a specific draftId is immutable once generated — safe to
-        // cache. Cache key: path param (documentId) + query param (draftId).
-        // TTL matches the browser Cache-Control max-age set in the Lambda.
         methodOptions: {
           // Control Tower CT.APIGATEWAY.PR.3 — cache encryption required for the
           // catch-all method setting even when caching is disabled by default.
           // Only "*/*" or "{resource_path}/{http_method}" are valid keys.
           "/*/*": {
             cachingEnabled: false,
-            cacheDataEncrypted: true,
-          },
-          "/v1/documents/{documentId}/feedback/GET": {
-            cachingEnabled: true,
-            cacheTtl: Duration.seconds(3600),
             cacheDataEncrypted: true,
           },
         },

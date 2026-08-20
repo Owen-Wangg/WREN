@@ -83,6 +83,13 @@ export class StorageResources extends Construct {
         abortIncompleteMultipartUploadAfter: Duration.days(7),
       },
       {
+        id: "ExpireOrphanedDocumentUploads",
+        // Staging keys from POST /v1/uploads/presign. Tag is cleared when the
+        // object is attached to a document/draft so retained originals survive.
+        expiration: Duration.days(1),
+        tagFilters: { "orphan-upload": "true" },
+      },
+      {
         id: "TransitionNoncurrentToInfrequentAccess",
         noncurrentVersionTransitions: [
           {
@@ -110,7 +117,7 @@ export class StorageResources extends Construct {
         ? {
             cors: [
               {
-                allowedMethods: [HttpMethods.PUT, HttpMethods.GET, HttpMethods.HEAD],
+                allowedMethods: [HttpMethods.PUT, HttpMethods.POST, HttpMethods.GET, HttpMethods.HEAD],
                 allowedOrigins: ["*"],
                 allowedHeaders: ["*"],
                 exposedHeaders: ["ETag"],

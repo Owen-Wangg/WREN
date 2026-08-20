@@ -77,6 +77,11 @@ function walkForSegments(node: TipTapNode, out: Segment[]): void {
     return;
   }
 
+  if (typeof node.text === 'string') {
+    pushSegment(out, node.text);
+    return;
+  }
+
   for (const child of node.content ?? []) {
     walkForSegments(child, out);
   }
@@ -147,6 +152,63 @@ export function isTipTapDoc(value: unknown): value is TipTapNode {
 export function asTipTapDoc(value: unknown): TipTapDoc | undefined {
   if (!isTipTapDoc(value)) return undefined;
   return value as TipTapDoc;
+}
+
+/**
+ * Node types the editor (and Textract sanitizer) are allowed to persist.
+ * Unknown types on client-submitted content must be rejected, not ignored.
+ */
+export const CLIENT_TIPTAP_NODE_TYPES = new Set([
+  'doc',
+  'paragraph',
+  'heading',
+  'bulletList',
+  'orderedList',
+  'listItem',
+  'table',
+  'tableRow',
+  'tableCell',
+  'tableHeader',
+  'image',
+  'horizontalRule',
+  'text',
+  'hardBreak',
+  'blockquote',
+  'codeBlock',
+  'code',
+  'footnote',
+  'pageNumber',
+  'date',
+]);
+
+export const TIPTAP_FIELD_MAX_BYTES = 1_048_576;
+
+/** Return the first disallowed node type, or null if the tree is allowed. */
+export function findDisallowedTipTapNodeType(node: TipTapNode): string | null {
+  const type = node.type ?? '';
+  if (!type) {
+    if (typeof node.text === 'string') {
+      // bare text node without type — still count, still allowed
+    } else {
+      return 'missing-type';
+    }
+  } else if (!CLIENT_TIPTAP_NODE_TYPES.has(type)) {
+    return type;
+  }
+  for (const child of node.content ?? []) {
+    const found = findDisallowedTipTapNodeType(child);
+    if (found) return found;
+  }
+  const attrContent = node.attrs?.content;
+  if (attrContent && typeof attrContent === 'object' && !Array.isArray(attrContent)) {
+    const found = findDisallowedTipTapNodeType(attrContent as TipTapNode);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function serializedTipTapBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length;
 }
 
 /**

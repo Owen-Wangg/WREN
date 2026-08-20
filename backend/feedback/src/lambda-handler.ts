@@ -20,7 +20,7 @@ import {
 } from './sectionApplicabilityService.js';
 import { parseUuidParam } from './uuidParam.js';
 import {
-  assertAskMessageAllowed,
+  getPlatformUsagePolicy,
   reserveDebriefGeneration,
   UsageLimitReachedError,
 } from '@wren/admin/lifetimeUsagePolicy';
@@ -746,10 +746,23 @@ async function handleRecordFeedbackHelpfulness(event: any): Promise<APIGatewayPr
 
   const documentTypeId = docRows[0].document_type_id;
   const effectiveDraftId = parseUuidParam(draftId);
+  if (!effectiveDraftId) {
+    return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'draftId is required' }) });
+  }
+
+  const draftCheck = await db.query(
+    `SELECT 1 FROM draft WHERE id = $1 AND document_id = $2`,
+    [effectiveDraftId, environmentId],
+  );
+  if (draftCheck.length === 0) {
+    return withCors({ statusCode: 404, body: JSON.stringify({ code: 'NOT_FOUND', message: 'Draft not found for this document' }) });
+  }
 
   await db.query(
     `INSERT INTO feedback_helpfulness_rating (document_id, draft_id, document_type_id, helpful, comment)
-     VALUES ($1, $2, $3, $4, $5)`,
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (document_id, draft_id)
+     DO UPDATE SET helpful = EXCLUDED.helpful, comment = EXCLUDED.comment, created_at = now()`,
     [environmentId, effectiveDraftId, documentTypeId, helpful, comment ?? null],
   );
 
@@ -879,7 +892,7 @@ async function listDraftIdsForDocument(documentId: string): Promise<string[]> {
 
 async function handleGetAskWrenSession(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
-  const { documentId } = event.pathParameters || {};
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
   const draftId = parseUuidParam(event.queryStringParameters?.draftId);
 
   if (!documentId || !draftId) {
@@ -986,7 +999,7 @@ async function loadDocumentTypeContext(
 
 async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
-  const { documentId } = event.pathParameters || {};
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
   const body = event.body ? JSON.parse(event.body) : {};
   const draftId = parseUuidParam(body.draftId);
   const text = typeof body.text === 'string' ? body.text.trim() : '';
@@ -1015,7 +1028,7 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
 
   const db = await getDataAccess();
   const userMessageCount = (conversation?.messages ?? []).filter((m) => m.role === 'user').length;
-  await assertAskMessageAllowed(userMessageCount, db);
+  const policy = await getPlatformUsagePolicy(db);
 
   const documentTypeContext = await loadDocumentTypeContext(documentId);
 
@@ -1033,6 +1046,7 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
     draftSegments: draft.segments,
     documentTypeContext,
     modelId,
+    messageLimit: policy.messageLimit,
   });
 
   // Transition status to 'Polishing' on the student's first Ask WREN message.
@@ -1083,6 +1097,14 @@ async function handleRecordSectionApplicability(event: any): Promise<APIGatewayP
     return withCors({ statusCode: 404, body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }) });
   }
 
+  const draftCheck = await db.query(
+    `SELECT 1 FROM draft WHERE id = $1 AND document_id = $2`,
+    [draftId, environmentId],
+  );
+  if (draftCheck.length === 0) {
+    return withCors({ statusCode: 404, body: JSON.stringify({ code: 'NOT_FOUND', message: 'Draft not found for this document' }) });
+  }
+
   await upsertSectionApplicability(db, environmentId, draftId, errorCategoryId, applicable);
 
   return withCors({ statusCode: 200, body: JSON.stringify({ recorded: true }) });
@@ -1112,6 +1134,14 @@ async function handleGetSectionApplicability(event: any): Promise<APIGatewayProx
   // Empty debrief UI sends draftId=none; there are no votes to load.
   if (!draftId) {
     return withCors({ statusCode: 200, body: JSON.stringify({ votes: {} }) });
+  }
+
+  const draftCheck = await db.query(
+    `SELECT 1 FROM draft WHERE id = $1 AND document_id = $2`,
+    [draftId, environmentId],
+  );
+  if (draftCheck.length === 0) {
+    return withCors({ statusCode: 404, body: JSON.stringify({ code: 'NOT_FOUND', message: 'Draft not found for this document' }) });
   }
 
   const votes = await getSectionApplicabilityVotes(db, environmentId, draftId);

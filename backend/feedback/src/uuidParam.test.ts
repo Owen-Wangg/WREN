@@ -18,10 +18,11 @@ describe('parseUuidParam', () => {
     expect(parseUuidParam('not-a-uuid')).toBeNull();
   });
 
-  it('accepts a canonical uuid', () => {
+  it('accepts a canonical uuid and lowercases mixed-case input', () => {
     const id = '536a86c8-953a-4749-8ecf-e359951d6f92';
     expect(parseUuidParam(id)).toBe(id);
     expect(parseUuidParam(` ${id} `)).toBe(id);
+    expect(parseUuidParam(id.toUpperCase())).toBe(id);
   });
 
   it('accepts the nil uuid postgres allows', () => {

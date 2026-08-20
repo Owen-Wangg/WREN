@@ -2,6 +2,7 @@ import {
   stripAiMarksFromTipTapContent,
   tipTapContentToSegments,
   wordCountFromTipTapContent,
+  findDisallowedTipTapNodeType,
   type TipTapNode,
 } from './tiptapContent';
 
@@ -126,6 +127,50 @@ describe('tipTapContentToSegments', () => {
       ],
     };
     expect(wordCountFromTipTapContent(doc)).toBe(3);
+  });
+
+  it('counts text under unrecognized containers and bare text nodes', () => {
+    const doc: TipTapNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'blockquote',
+          content: [{ type: 'text', text: 'quoted words here' }],
+        },
+        {
+          type: 'codeBlock',
+          content: [{ type: 'text', text: 'function hello world' }],
+        },
+        { type: 'text', text: 'bare leftover text' },
+      ],
+    };
+    expect(wordCountFromTipTapContent(doc)).toBe(9);
+  });
+});
+
+describe('findDisallowedTipTapNodeType', () => {
+  it('accepts editor node types including footnotes', () => {
+    const doc: TipTapNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Hi' },
+            { type: 'footnote', attrs: { footnoteNumber: 1, content: { type: 'paragraph' } } },
+          ],
+        },
+      ],
+    };
+    expect(findDisallowedTipTapNodeType(doc)).toBeNull();
+  });
+
+  it('rejects unknown node types', () => {
+    const doc: TipTapNode = {
+      type: 'doc',
+      content: [{ type: 'script', content: [{ type: 'text', text: 'x' }] }],
+    };
+    expect(findDisallowedTipTapNodeType(doc)).toBe('script');
   });
 });
 

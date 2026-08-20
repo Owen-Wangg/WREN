@@ -1544,9 +1544,6 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FeedbackFunctionArn}/invocations"
-        cacheKeyParameters:
-          - method.request.path.documentId
-          - method.request.querystring.draftId
     post:
       summary: Enqueue feedback generation for the current draft
       tags: [Feedback]
@@ -1784,6 +1781,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
         - name: draftId
           in: query
           required: true
@@ -1845,6 +1844,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
       requestBody:
         required: true
         content:
@@ -3738,14 +3739,19 @@ paths:
                   type: string
       responses:
         "200":
-          description: Presigned upload URL
+          description: Presigned POST upload (fields + URL)
           content:
             application/json:
               schema:
                 type: object
+                required: [uploadUrl, fields, key]
                 properties:
                   uploadUrl:
                     type: string
+                  fields:
+                    type: object
+                    additionalProperties:
+                      type: string
                   key:
                     type: string
         "401":
@@ -3993,6 +3999,7 @@ paths:
                     actionUrlTemplate:
                       type: string
                       nullable: true
+                      pattern: "^/[A-Za-z0-9\\-._~!$&'()*+,;=:@%/{}]*$"
                     targetRoles:
                       type: array
                       items:
@@ -4044,6 +4051,7 @@ paths:
                   type: string
                 actionUrlTemplate:
                   type: string
+                  pattern: "^/[A-Za-z0-9\\-._~!$&'()*+,;=:@%/{}]*$"
                 dedupStrategy:
                   type: object
                   required: [enabled]
@@ -4114,6 +4122,7 @@ paths:
                 actionUrlTemplate:
                   type: string
                   nullable: true
+                  pattern: "^/[A-Za-z0-9\\-._~!$&'()*+,;=:@%/{}]*$"
                 dedupStrategy:
                   type: object
                   properties:

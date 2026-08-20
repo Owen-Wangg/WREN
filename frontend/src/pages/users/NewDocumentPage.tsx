@@ -9,6 +9,7 @@ import {
 import {
   createDocument,
   getPresignedUrl,
+  uploadFileToPresign,
 } from '@/features/dashboard/dashboardApi';
 import { generateFeedback } from '@/features/editor/anchoredFeedbackApi';
 import {
@@ -73,20 +74,13 @@ export function NewDocumentPage() {
         throw new Error('A .docx or .pdf file is required');
       }
 
-      const { uploadUrl, key } = await getPresignedUrl(
+      const presign = await getPresignedUrl(
         apiClient,
         referenceFile.name,
         contentTypeForFile(referenceFile),
       );
-
-      const putResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        body: referenceFile,
-        headers: { 'Content-Type': contentTypeForFile(referenceFile) },
-      });
-      if (!putResponse.ok) {
-        throw new Error('File upload to storage failed');
-      }
+      await uploadFileToPresign(presign, referenceFile);
+      const { key } = presign;
 
       // Parse DOCX client-side for rich TipTap. PDFs use server Textract OCR.
       let initialContent: JSONContent | undefined;

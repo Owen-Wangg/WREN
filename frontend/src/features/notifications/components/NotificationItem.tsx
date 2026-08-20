@@ -5,6 +5,7 @@
  * accent border. Read notifications use normal weight.
  */
 import { X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import type { NotificationView } from '../types/notification';
 
 export interface NotificationItemProps {
@@ -18,14 +19,16 @@ export function NotificationItem({
   onMarkAsRead,
   onDismiss,
 }: NotificationItemProps) {
+  const navigate = useNavigate();
   const isUnread = notification.state === 'unread';
 
   const handleClick = () => {
     if (isUnread && onMarkAsRead) {
       onMarkAsRead(notification.id);
     }
-    if (notification.actionUrl) {
-      window.location.href = notification.actionUrl;
+    const url = notification.actionUrl;
+    if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')) {
+      navigate(url);
     }
   };
 
