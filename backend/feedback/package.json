@@ -9,9 +9,6 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "devDependencies": {
-    "@types/uuid": "^9.0.7"
-  },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.515.0",
     "@aws-sdk/client-dynamodb": "^3.515.0",
@@ -23,6 +20,6 @@
     "@wren/db-node": "*",
     "@wren/notification": "*",
     "@wren/types": "*",
-    "uuid": "^9.0.0"
+    "uuid": "^11.1.1"
   }
 }

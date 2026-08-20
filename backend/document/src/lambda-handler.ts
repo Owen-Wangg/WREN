@@ -1324,7 +1324,7 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
       ['eq', '$Content-Type', contentType],
       ['eq', '$tagging', ORPHAN_UPLOAD_TAGGING],
       ...Object.entries(encryptionFields).map(
-        ([name, value]) => ['eq', `$${name}`, value] as [string, string, string],
+        ([name, value]) => ['eq', `$${name}`, value] as ['eq', string, string],
       ),
     ],
     Fields: {
