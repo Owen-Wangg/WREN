@@ -250,7 +250,7 @@ export function GuidePage() {
             redirects you with a question instead of a rewrite.
           </li>
           <li>
-            &ldquo;Is this legal claim accurate?&rdquo; — it stays focused on writing
+            &ldquo;Is this claim accurate?&rdquo; — it stays focused on writing
             craft, not fact-checking.
           </li>
           <li>
