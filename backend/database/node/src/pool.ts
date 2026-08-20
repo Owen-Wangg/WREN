@@ -78,6 +78,19 @@ export async function getDataAccess(
   });
 
   cachedSql = createSql(buildConnectionOptions(credentials, tuning));
+  try {
+    // Fail here — not on a later query — so a bad password is not cached
+    // and postgres.js cannot reject an idle socket after the handler returns.
+    await cachedSql.unsafe('SELECT 1');
+  } catch (error) {
+    try {
+      await cachedSql.end({ timeout: 1 });
+    } catch {
+      // ignore close errors on a failed handshake
+    }
+    cachedSql = undefined;
+    throw error;
+  }
   return new DataAccess(cachedSql);
 }
 
