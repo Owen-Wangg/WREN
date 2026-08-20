@@ -231,7 +231,7 @@ export async function uploadFileToPresign(
   form.append('file', file);
   const putResponse = await fetch(presign.uploadUrl, { method: 'POST', body: form });
   if (!putResponse.ok) {
-    throw new Error('File upload to storage failed');
+    throw new Error(`File upload to storage failed (${putResponse.status})`);
   }
 }
 
