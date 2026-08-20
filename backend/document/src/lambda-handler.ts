@@ -684,6 +684,19 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
+  // Header and footer are stored in the draft and fed to AI prompts — include
+  // them in the total word count and enforce the same size cap.
+  const headerFooterWords =
+    (ingestResult.header ? wordCountFromTipTapContent(ingestResult.header) : 0) +
+    (ingestResult.footer ? wordCountFromTipTapContent(ingestResult.footer) : 0);
+  if (headerFooterWords > 0) {
+    const bodyWords = storedContent
+      ? wordCountFromTipTapContent(storedContent)
+      : sizeResult.measuredWords;
+    const overLimit = overSizeLimitHttpResponse(bodyWords + headerFooterWords, sizeLimitWords);
+    if (overLimit) return overLimit;
+  }
+
   const insertQuery = `
     INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at, draft_create_count)
     VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
@@ -708,9 +721,10 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     {
       documentId,
       segments,
-      wordCount: storedContent
-        ? wordCountFromTipTapContent(storedContent)
-        : sizeResult.measuredWords,
+      wordCount:
+        (storedContent
+          ? wordCountFromTipTapContent(storedContent)
+          : sizeResult.measuredWords) + headerFooterWords,
       s3Key,
       ...(storedContent ? { content: storedContent } : {}),
       ...(ingestResult.header ? { header: ingestResult.header } : {}),
@@ -1224,6 +1238,17 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       };
     }
     wordCount = sizeResult.measuredWords;
+  }
+
+  // Include header and footer words in the total — they are stored in the
+  // draft and used in AI prompts just like body content.
+  const headerFooterWords =
+    (storedHeader ? wordCountFromTipTapContent(storedHeader) : 0) +
+    (storedFooter ? wordCountFromTipTapContent(storedFooter) : 0);
+  if (headerFooterWords > 0) {
+    const overLimit = overSizeLimitHttpResponse(wordCount + headerFooterWords, sizeLimitWords);
+    if (overLimit) return overLimit;
+    wordCount += headerFooterWords;
   }
 
   const draftRepo = new DbDraftRepository(db);

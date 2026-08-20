@@ -85,14 +85,34 @@ export async function processIngestQueueMessage(
       return;
     }
 
+    // Include header and footer in the total — they are stored in the draft
+    // and fed to AI prompts just like body content.
+    const headerFooterWords =
+      (ingestResult.header ? wordCountFromTipTapContent(ingestResult.header as TipTapDoc) : 0) +
+      (ingestResult.footer ? wordCountFromTipTapContent(ingestResult.footer as TipTapDoc) : 0);
+    if (headerFooterWords > 0 && message.sizeLimitWords !== null) {
+      const bodyWords = storedContent
+        ? wordCountFromTipTapContent(storedContent)
+        : sizeResult.measuredWords;
+      if (bodyWords + headerFooterWords > message.sizeLimitWords) {
+        await markIngestJobFailed(
+          db,
+          message.jobId,
+          `Document exceeds the ${message.sizeLimitWords}-word limit (${bodyWords + headerFooterWords} words including header and footer).`,
+        );
+        return;
+      }
+    }
+
     const draftRepo = new DbDraftRepository(db);
     const { draft } = await createDraftRevision(
       {
         documentId: message.documentId,
         segments,
-        wordCount: storedContent
-          ? wordCountFromTipTapContent(storedContent)
-          : sizeResult.measuredWords,
+        wordCount:
+          (storedContent
+            ? wordCountFromTipTapContent(storedContent)
+            : sizeResult.measuredWords) + headerFooterWords,
         s3Key: message.s3Key,
         ...(storedContent ? { content: storedContent } : {}),
         ...(ingestResult.header ? { header: ingestResult.header } : {}),
