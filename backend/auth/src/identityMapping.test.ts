@@ -156,6 +156,26 @@ describe('mapSubjectToAuthContext — DB is the authorization source of truth', 
     expect(context?.grants).toEqual([]);
   });
 
+  it('coerces postgres-style timestamps on grants into ISO-8601', async () => {
+    const { db } = makeDb({
+      users: [USER],
+      roles: [{ role: 'Student', scope: null }],
+      grants: [
+        {
+          id: 'grant-pg',
+          user_id: USER.id,
+          document_type_id: 'dt-locked',
+          granted_by: 'admin-1',
+          granted_at: '2024-01-02 03:04:05+00',
+          revoked_at: null,
+        },
+      ],
+    });
+
+    const context = await mapSubjectToAuthContext(USER.idp_subject, db);
+    expect(context?.grants[0]?.grantedAt).toBe('2024-01-02T03:04:05.000Z');
+  });
+
   it('ignores malformed DepartmentAdmin scopes (missing departmentId)', async () => {
     const { db } = makeDb({
       users: [USER],

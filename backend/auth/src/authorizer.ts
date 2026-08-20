@@ -24,6 +24,7 @@
 import type {
   APIGatewayAuthorizerResult,
   APIGatewayTokenAuthorizerEvent,
+  Context,
   PolicyDocument,
 } from 'aws-lambda';
 
@@ -124,55 +125,74 @@ export function serializeAuthContext(context: AuthContext): Record<string, strin
 export function createAuthorizerHandler(depsProvider: DepsProvider) {
   return async (
     event: APIGatewayTokenAuthorizerEvent,
+    lambdaContext?: Context,
   ): Promise<APIGatewayAuthorizerResult> => {
+    // postgres sockets keep the event loop alive; freeze as soon as we return
+    // or the 10s authorizer timeout races the success response (RIC 403).
+    if (lambdaContext) {
+      lambdaContext.callbackWaitsForEmptyEventLoop = false;
+    }
+
     const token = extractBearerToken(event.authorizationToken);
     if (!token) {
       throw new Error(UNAUTHORIZED);
     }
 
-    const { verifier, db, lookupProfile } = await depsProvider();
-
-    let subject: string;
-    let groups: readonly string[];
     try {
-      const identity = await verifier.verify(token);
-      subject = identity.subject;
-      groups = identity.groups;
-    } catch {
-      // Any verification error (signature, issuer, expiry) is a 401.
-      throw new Error(UNAUTHORIZED);
-    }
+      const { verifier, db, lookupProfile } = await depsProvider();
 
-    // Authorization is resolved ENTIRELY from the app DB using only the verified
-    // subject — never from token claims (Requirement 37.2, 37.3).
-    // Exception: `groups` is passed to ensureAppUser ONCE on first login so the
-    // SystemAdmin Cognito group can seed TechnicalAdmin. Never consulted again.
-    let context = await mapSubjectToAuthContext(subject, db);
-    if (!context) {
-      const profile = await lookupProfile(subject);
-      await ensureAppUser(db, {
-        idpSubject: subject,
-        email: profile.email,
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        groups,
-      });
-      context = await mapSubjectToAuthContext(subject, db);
-      if (!context) {
-        // Provisioning failed unexpectedly — deny rather than allow without identity.
-        const resource = stageWildcardResource(event.methodArn);
-        return {
-          principalId: subject,
-          policyDocument: policy('Deny', resource),
-        };
+      let subject: string;
+      let groups: readonly string[];
+      let username: string | undefined;
+      try {
+        const identity = await verifier.verify(token);
+        subject = identity.subject;
+        groups = identity.groups;
+        username = identity.username;
+      } catch {
+        // Any verification error (signature, issuer, expiry) is a 401.
+        throw new Error(UNAUTHORIZED);
       }
-    }
 
-    return {
-      principalId: context.userId,
-      policyDocument: policy('Allow', stageWildcardResource(event.methodArn)),
-      context: serializeAuthContext(context),
-    };
+      // Authorization is resolved ENTIRELY from the app DB using only the verified
+      // subject — never from token claims (Requirement 37.2, 37.3).
+      // Exception: `groups` is passed to ensureAppUser ONCE on first login so the
+      // SystemAdmin Cognito group can seed TechnicalAdmin. Never consulted again.
+      let context = await mapSubjectToAuthContext(subject, db);
+      if (!context) {
+        const profile = await lookupProfile(subject, username);
+        await ensureAppUser(db, {
+          idpSubject: subject,
+          email: profile.email,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          groups,
+        });
+        context = await mapSubjectToAuthContext(subject, db);
+        if (!context) {
+          // Provisioning failed unexpectedly — deny rather than allow without identity.
+          const resource = stageWildcardResource(event.methodArn);
+          return {
+            principalId: subject,
+            policyDocument: policy('Deny', resource),
+          };
+        }
+      }
+
+      return {
+        principalId: context.userId,
+        policyDocument: policy('Allow', stageWildcardResource(event.methodArn)),
+        context: serializeAuthContext(context),
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message === UNAUTHORIZED) {
+        throw error;
+      }
+      // Do not remap identity/DB failures to 401 — API Gateway caches authorizer
+      // results by token, so a transient mapping error would lock the user out.
+      console.error('Authorizer failed after token present:', error);
+      throw error;
+    }
   };
 }
 

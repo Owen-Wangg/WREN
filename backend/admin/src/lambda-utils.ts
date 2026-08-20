@@ -21,6 +21,17 @@ export function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
   };
 }
 
+function parseJsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || value.length === 0) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export function parseAuthContext(event: any): AuthContext {
   const context = event.requestContext?.authorizer;
   if (!context) throw new Error('Missing authorization context');
@@ -28,9 +39,9 @@ export function parseAuthContext(event: any): AuthContext {
     userId: context.userId,
     idpSubject: context.idpSubject,
     email: context.email,
-    roles: JSON.parse(context.roles || '[]'),
-    administeredDepartmentIds: JSON.parse(context.administeredDepartmentIds || '[]'),
-    grants: JSON.parse(context.grants || '[]'),
+    roles: parseJsonArray(context.roles) as AuthContext['roles'],
+    administeredDepartmentIds: parseJsonArray(context.administeredDepartmentIds) as AuthContext['administeredDepartmentIds'],
+    grants: parseJsonArray(context.grants) as AuthContext['grants'],
   };
 }
 

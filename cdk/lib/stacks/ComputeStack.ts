@@ -163,7 +163,8 @@ export class ComputeStack extends Stack {
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
-      timeout: Duration.seconds(10),
+      // VPC cold start (ENI + Secrets Manager + RDS Proxy + JWKS) can exceed 10s.
+      timeout: Duration.seconds(20),
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,
@@ -460,7 +461,7 @@ export class ComputeStack extends Stack {
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
-      timeout: Duration.seconds(10),
+      timeout: Duration.seconds(20),
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,

@@ -3,7 +3,7 @@
  * Routes: GET/POST /v1/documents/{documentId}/feedback, GET /v1/documents/{documentId}/feedback/status
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
-import { getDataAccess } from '@wren/db-node';
+import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
 import { publishNotificationEvent } from '@wren/notification';
@@ -316,7 +316,8 @@ function toAnchorDto(row: any) {
 
 const sqsClient = new SQSClient({ region: process.env.AWS_REGION || 'ca-central-1' });
 
-export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
+export const handler: APIGatewayProxyHandler = async (event, context): Promise<APIGatewayProxyResult> => {
+  freezeEventLoopOnReturn(context);
   try {
     const { httpMethod, resource } = event;
 

@@ -2,11 +2,12 @@
  * Audit Service Lambda entry point — routes API Gateway events to analytics/audit handlers.
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
-import { getDataAccess } from '@wren/db-node';
+import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { getAnalytics } from './analyticsService';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
 
-export const handler: APIGatewayProxyHandler = async (event): Promise<APIGatewayProxyResult> => {
+export const handler: APIGatewayProxyHandler = async (event, context): Promise<APIGatewayProxyResult> => {
+  freezeEventLoopOnReturn(context);
   try {
     const { httpMethod, resource } = event;
 

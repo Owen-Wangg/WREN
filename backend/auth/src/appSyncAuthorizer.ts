@@ -181,7 +181,14 @@ function readStringArg(
 }
 
 export function createAppSyncAuthorizerHandler(depsProvider: AppSyncDepsProvider) {
-  return async (event: AppSyncAuthorizerEvent): Promise<AppSyncAuthorizerResponse> => {
+  return async (
+    event: AppSyncAuthorizerEvent,
+    lambdaContext?: { callbackWaitsForEmptyEventLoop: boolean },
+  ): Promise<AppSyncAuthorizerResponse> => {
+    if (lambdaContext) {
+      lambdaContext.callbackWaitsForEmptyEventLoop = false;
+    }
+
     const token = extractToken(event.authorizationToken);
     if (!token) return deny();
 
