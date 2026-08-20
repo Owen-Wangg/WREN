@@ -1415,7 +1415,7 @@ def persist_resolution_status(
         diff = DiffEngine().compute(prev_segs, curr_segs)
         logger.info(
             f"DiffEngine: result changed={len(diff.changed)} added={len(diff.added)} "
-            f"removed={len(diff.removed)} unchanged={len(diff.unchanged)}"
+            f"deleted={len(diff.deleted)} unchanged={len(diff.unchanged)}"
         )
 
         from wren_engine.anchor_service import Anchor, AnchorState
