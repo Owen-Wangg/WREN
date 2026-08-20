@@ -16,7 +16,14 @@ export {
   type ResolveOptions,
 } from './secrets';
 export { DataAccess } from './client';
-export { createSql, getDataAccess, resetPool, type PoolEnv } from './pool';
+export {
+  createSql,
+  getDataAccess,
+  resetPool,
+  freezeEventLoopOnReturn,
+  type PoolEnv,
+  type LambdaCallbackContext,
+} from './pool';
 export {
   runMigrations,
   listMigrationFiles,

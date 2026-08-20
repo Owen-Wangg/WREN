@@ -199,22 +199,34 @@ export class ApiStack extends Stack {
       cloudWatchRole: true,
     });
 
-    // CORS on Gateway-generated errors (authorizer 401/403, missing token, 5xx).
-    // Without these, browsers report failures as CORS errors instead of the real status.
+    // CORS on Gateway-generated errors. DEFAULT_4XX / DEFAULT_5XX do NOT cover
+    // the specific authorizer/integration types — those responses omit
+    // Access-Control-Allow-Origin, so the browser reports a CORS failure
+    // instead of the real 401/500 (confirmed on GET /v1/auth/me).
     const gatewayCorsHeaders = {
       "Access-Control-Allow-Origin": `'${allowedOrigins}'`,
       "Access-Control-Allow-Headers":
         "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
       "Access-Control-Allow-Methods": `'${allowedMethods}'`,
     };
-    this.api.addGatewayResponse("Default4xx", {
-      type: apigateway.ResponseType.DEFAULT_4XX,
-      responseHeaders: gatewayCorsHeaders,
-    });
-    this.api.addGatewayResponse("Default5xx", {
-      type: apigateway.ResponseType.DEFAULT_5XX,
-      responseHeaders: gatewayCorsHeaders,
-    });
+    const gatewayErrorTypes: Array<[string, apigateway.ResponseType]> = [
+      ["Default4xx", apigateway.ResponseType.DEFAULT_4XX],
+      ["Default5xx", apigateway.ResponseType.DEFAULT_5XX],
+      ["Unauthorized", apigateway.ResponseType.UNAUTHORIZED],
+      ["AccessDenied", apigateway.ResponseType.ACCESS_DENIED],
+      ["AuthorizerFailure", apigateway.ResponseType.AUTHORIZER_FAILURE],
+      ["AuthorizerConfiguration", apigateway.ResponseType.AUTHORIZER_CONFIGURATION_ERROR],
+      ["IntegrationFailure", apigateway.ResponseType.INTEGRATION_FAILURE],
+      ["IntegrationTimeout", apigateway.ResponseType.INTEGRATION_TIMEOUT],
+      ["ExpiredToken", apigateway.ResponseType.EXPIRED_TOKEN],
+      ["MissingAuthToken", apigateway.ResponseType.MISSING_AUTHENTICATION_TOKEN],
+    ];
+    for (const [id, type] of gatewayErrorTypes) {
+      this.api.addGatewayResponse(id, {
+        type,
+        responseHeaders: gatewayCorsHeaders,
+      });
+    }
 
     // Grant API Gateway permission to invoke each Lambda. The functions live in
     // the Compute stack, so they are imported by ARN here — but with

@@ -2,8 +2,8 @@
  * Document Service Lambda entry point — routes API Gateway events to service functions.
  * Adapter: API Gateway proxy events → backend/document service handlers.
  */
-import type { APIGatewayProxyResult } from 'aws-lambda';
-import { getDataAccess } from '@wren/db-node';
+import type { APIGatewayProxyResult, Context } from 'aws-lambda';
+import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { S3Client, GetObjectCommand, DeleteObjectsCommand, DeleteObjectTaggingCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
@@ -291,7 +291,11 @@ async function updateDepartmentUserCounter(
   }
 }
 
-export const handler = async (event: any): Promise<APIGatewayProxyResult | void> => {
+export const handler = async (
+  event: any,
+  context?: Context,
+): Promise<APIGatewayProxyResult | void> => {
+  freezeEventLoopOnReturn(context);
   // SQS async PDF ingest (Textract OCR) — not an API Gateway event.
   if (Array.isArray(event?.Records) && event.Records[0]?.eventSource === 'aws:sqs') {
     for (const record of event.Records) {

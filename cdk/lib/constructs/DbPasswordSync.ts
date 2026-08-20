@@ -72,6 +72,8 @@ export class DbPasswordSync extends CustomResource {
         databaseSecretArn: props.databaseSecretArn,
         // Re-run when the set of app-user secrets changes (new role or rotation replace).
         appSecretArns: secretArns,
+        // Bump when ALTER ROLE must run again (secret/role password drift).
+        syncGeneration: "2",
       },
     });
 

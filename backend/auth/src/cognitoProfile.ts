@@ -13,7 +13,10 @@ export interface CognitoProfile {
   readonly lastName: string;
 }
 
-export type CognitoProfileLookup = (idpSubject: string) => Promise<CognitoProfile>;
+export type CognitoProfileLookup = (
+  idpSubject: string,
+  username?: string,
+) => Promise<CognitoProfile>;
 
 function attrMap(
   attributes: ReadonlyArray<{ Name?: string; Value?: string }> | undefined,
@@ -34,26 +37,39 @@ export function createCognitoProfileLookup(
   userPoolId: string,
   client: CognitoIdentityProviderClient = new CognitoIdentityProviderClient({}),
 ): CognitoProfileLookup {
-  return async (idpSubject: string): Promise<CognitoProfile> => {
-    const response = await client.send(
-      new AdminGetUserCommand({
-        UserPoolId: userPoolId,
-        Username: idpSubject,
-      }),
-    );
+  return async (idpSubject: string, username?: string): Promise<CognitoProfile> => {
+    const candidates = [...new Set(
+      [username, idpSubject].filter((value): value is string => Boolean(value && value.trim())),
+    )];
 
-    const attrs = attrMap(response.UserAttributes);
-    const email = attrs.email?.trim();
-    if (!email) {
-      throw new Error(
-        `Cognito user ${idpSubject} has no email attribute; cannot provision app_user`,
-      );
+    let lastError: unknown;
+    for (const Username of candidates) {
+      try {
+        const response = await client.send(
+          new AdminGetUserCommand({
+            UserPoolId: userPoolId,
+            Username,
+          }),
+        );
+        const attrs = attrMap(response.UserAttributes);
+        const email = attrs.email?.trim();
+        if (!email) {
+          throw new Error(
+            `Cognito user ${Username} has no email attribute; cannot provision app_user`,
+          );
+        }
+        return {
+          email,
+          firstName: attrs.given_name?.trim() || 'User',
+          lastName: attrs.family_name?.trim() || 'Account',
+        };
+      } catch (error) {
+        lastError = error;
+      }
     }
 
-    return {
-      email,
-      firstName: attrs.given_name?.trim() || 'User',
-      lastName: attrs.family_name?.trim() || 'Account',
-    };
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(`Cognito user ${idpSubject} not found for provisioning`);
   };
 }

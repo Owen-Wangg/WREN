@@ -29,6 +29,12 @@ ON CONFLICT (idp_subject) DO NOTHING
 const SELECT_USER_ID_SQL =
   'SELECT id FROM app_user WHERE idp_subject = $1';
 
+const SELECT_USER_ID_BY_EMAIL_SQL =
+  'SELECT id FROM app_user WHERE lower(email) = $1';
+
+const RELINK_IDP_SUBJECT_SQL =
+  'UPDATE app_user SET idp_subject = $1 WHERE id = $2 AND idp_subject <> $1';
+
 const ENSURE_STUDENT_ROLE_SQL = `
 INSERT INTO role_assignment (user_id, role, scope)
 SELECT $1::uuid, 'Student', NULL
@@ -57,17 +63,36 @@ export async function ensureAppUser(
   const firstName = input.firstName.trim() || 'User';
   const lastName = input.lastName.trim() || 'Account';
 
-  await db.query(UPSERT_USER_SQL, [
-    email,
-    firstName,
-    lastName,
+  let rows = await db.query<{ id: string }>(SELECT_USER_ID_SQL, [
     input.idpSubject,
   ]);
+  let userId = rows[0]?.id;
 
-  const rows = await db.query<{ id: string }>(SELECT_USER_ID_SQL, [
-    input.idpSubject,
-  ]);
-  const userId = rows[0]?.id;
+  // Seeded / recycled users often already have this email with a different
+  // Cognito `sub`. Relink instead of failing the unique email constraint.
+  if (!userId) {
+    const byEmail = await db.query<{ id: string }>(SELECT_USER_ID_BY_EMAIL_SQL, [
+      email,
+    ]);
+    if (byEmail[0]) {
+      await db.query(RELINK_IDP_SUBJECT_SQL, [input.idpSubject, byEmail[0].id]);
+      userId = byEmail[0].id;
+    }
+  }
+
+  if (!userId) {
+    await db.query(UPSERT_USER_SQL, [
+      email,
+      firstName,
+      lastName,
+      input.idpSubject,
+    ]);
+    rows = await db.query<{ id: string }>(SELECT_USER_ID_SQL, [
+      input.idpSubject,
+    ]);
+    userId = rows[0]?.id;
+  }
+
   if (!userId) {
     throw new Error(
       `Failed to provision app_user for idp_subject=${input.idpSubject}`,

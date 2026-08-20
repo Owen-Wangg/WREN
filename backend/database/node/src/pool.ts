@@ -15,6 +15,30 @@ export function createSql(options: PgConnectionOptions): Sql {
 let cachedSql: Sql | undefined;
 
 /**
+ * Minimal Lambda `context` shape. `@wren/db-node` does not depend on `aws-lambda`.
+ */
+export interface LambdaCallbackContext {
+  callbackWaitsForEmptyEventLoop: boolean;
+}
+
+/**
+ * Freeze the execution environment as soon as the handler returns.
+ *
+ * `postgres` keeps pooled sockets open (`idle_timeout` defaults to 30s).
+ * Lambda's default `callbackWaitsForEmptyEventLoop = true` then waits for
+ * those sockets to close, hits the function timeout, and the runtime has
+ * already accepted the handler result — posting it fails with HTTP 403 and
+ * `InvalidStateTransition` (`RuntimeResponseSentState` → `InvocationErrorResponse`).
+ *
+ * Call this at the top of every Lambda that uses {@link getDataAccess}.
+ */
+export function freezeEventLoopOnReturn(context: LambdaCallbackContext | undefined): void {
+  if (context) {
+    context.callbackWaitsForEmptyEventLoop = false;
+  }
+}
+
+/**
  * Required environment variables:
  *   - DB_SECRET_ARN  : Secrets Manager id/arn holding the DB credentials.
  * Optional (non-secret) overrides for the RDS Proxy endpoint:
@@ -54,6 +78,19 @@ export async function getDataAccess(
   });
 
   cachedSql = createSql(buildConnectionOptions(credentials, tuning));
+  try {
+    // Fail here — not on a later query — so a bad password is not cached
+    // and postgres.js cannot reject an idle socket after the handler returns.
+    await cachedSql.unsafe('SELECT 1');
+  } catch (error) {
+    try {
+      await cachedSql.end({ timeout: 1 });
+    } catch {
+      // ignore close errors on a failed handshake
+    }
+    cachedSql = undefined;
+    throw error;
+  }
   return new DataAccess(cachedSql);
 }
 

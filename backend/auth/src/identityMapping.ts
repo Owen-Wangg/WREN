@@ -17,7 +17,9 @@
  * satisfies it without a hard dependency.
  */
 import {
+  accessGrantSchema,
   authContextSchema,
+  roleSchema,
   type AccessGrant,
   type AuthContext,
   type Role,
@@ -70,7 +72,10 @@ const ACCESS_GRANT_SQL =
   'FROM access_grant WHERE user_id = $1 AND revoked_at IS NULL';
 
 function toIso(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : value;
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  return value;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -107,13 +112,18 @@ function collectAdministeredDepartmentIds(rows: readonly RoleAssignmentRow[]): s
 
 /** De-duplicated role identities (the app DB is the source of truth). */
 function collectRoles(rows: readonly RoleAssignmentRow[]): Role[] {
-  return [...new Set(rows.map((r) => r.role))];
+  const roles = new Set<Role>();
+  for (const row of rows) {
+    const parsed = roleSchema.safeParse(row.role);
+    if (parsed.success) roles.add(parsed.data);
+  }
+  return [...roles];
 }
 
 /** Map a flat `access_grant` row to the shared {@link AccessGrant} type (V4). */
 function toAccessGrant(row: AccessGrantRow): AccessGrant | undefined {
   if (!row.granted_by) return undefined;
-  return {
+  const candidate = {
     id: row.id,
     userId: row.user_id,
     documentTypeId: row.document_type_id,
@@ -121,6 +131,8 @@ function toAccessGrant(row: AccessGrantRow): AccessGrant | undefined {
     grantedAt: toIso(row.granted_at),
     ...(row.revoked_at ? { revokedAt: toIso(row.revoked_at) } : {}),
   };
+  const parsed = accessGrantSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : undefined;
 }
 
 /**
@@ -146,9 +158,9 @@ export async function mapSubjectToAuthContext(
   ]);
 
   const context: AuthContext = {
-    userId: user.id,
-    idpSubject: user.idp_subject,
-    email: user.email,
+    userId: String(user.id),
+    idpSubject: String(user.idp_subject),
+    email: String(user.email ?? '').trim().toLowerCase(),
     roles: collectRoles(roleRows),
     administeredDepartmentIds: collectAdministeredDepartmentIds(roleRows),
     grants: grantRows
@@ -158,5 +170,10 @@ export async function mapSubjectToAuthContext(
 
   // Validate the assembled context against the shared schema so a malformed
   // DB row fails safely rather than producing a bad authorization payload.
-  return authContextSchema.parse(context);
+  const parsed = authContextSchema.safeParse(context);
+  if (!parsed.success) {
+    console.error('Auth context schema failed', parsed.error.flatten());
+    throw parsed.error;
+  }
+  return parsed.data;
 }
