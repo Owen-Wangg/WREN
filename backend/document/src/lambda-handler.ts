@@ -1283,6 +1283,14 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
 
   const safeName = filename.replace(/[^\w.\-()+ ]+/g, '_');
   const key = `documents/${actor.userId}/uploads/${uuid()}-${safeName}`;
+  const kmsKeyArn = process.env.DOCUMENTS_KMS_KEY_ARN?.trim();
+  const encryptionFields: Record<string, string> = kmsKeyArn
+    ? {
+        'x-amz-server-side-encryption': 'aws:kms',
+        'x-amz-server-side-encryption-aws-kms-key-id': kmsKeyArn,
+        'x-amz-server-side-encryption-bucket-key-enabled': 'true',
+      }
+    : {};
   const { url, fields } = await createPresignedPost(s3Client, {
     Bucket: process.env.DOCUMENTS_BUCKET_NAME!,
     Key: key,
@@ -1290,10 +1298,14 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
       ['content-length-range', 1, MAX_UPLOAD_BYTES],
       ['eq', '$Content-Type', contentType],
       ['eq', '$tagging', ORPHAN_UPLOAD_TAGGING],
+      ...Object.entries(encryptionFields).map(
+        ([name, value]) => ['eq', `$${name}`, value] as [string, string, string],
+      ),
     ],
     Fields: {
       'Content-Type': contentType,
       tagging: ORPHAN_UPLOAD_TAGGING,
+      ...encryptionFields,
     },
     Expires: 15 * 60,
   });

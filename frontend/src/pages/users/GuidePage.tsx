@@ -38,8 +38,10 @@ export function GuidePage() {
           document.
         </p>
         <p>
-          <strong>Ask {appName}</strong> to go deeper. Ask questions and get guidance that
-          helps you think critically about your draft.
+          <strong>Ask {appName}</strong> to go deeper. Ask questions about your draft, the
+          AI Debrief, or aspects of your writing such as clarity and organization. It
+          coaches with questions rather than rewriting your text, so you can think
+          critically and develop your own revisions.
         </p>
         <p>
           Revise in the editor or upload a new draft as you work. Each version gives you
@@ -139,19 +141,123 @@ export function GuidePage() {
           On the left rail, click <strong>{appName}</strong> to switch from AI Debrief (or
           Contents) into chat.
         </p>
-        <p>Here you can talk directly with {appName} to:</p>
+        <p>
+          Ask {appName} supports the writing coach by helping you strengthen your writing
+          through guided reflection rather than direct editing. It asks questions that
+          encourage you to think critically about your draft and develop your own
+          revisions.
+        </p>
+        <p>You can ask questions about:</p>
         <ul className="list-disc space-y-sm pl-xl">
-          <li>Ask detailed questions about your document</li>
+          <li>Feedback provided in the AI Debrief</li>
+          <li>Content from your uploaded draft</li>
           <li>
-            Track your progress and see how much work has been completed as you make
-            changes
+            Specific aspects of writing, such as clarity, organization, persuasiveness,
+            tone, coherence, spelling, grammar, and consistency
           </li>
         </ul>
         <p>
-          Click a quoted phrase in a reply to jump to that passage in the draft.{' '}
-          {appName} will not rewrite your text for you — it asks questions and offers
-          observations so you can revise in your own words.
+          You can also track your progress and see how much work has been completed as
+          you make changes. Click a quoted phrase in a reply to jump to that passage in
+          the draft.
         </p>
+
+        <p className="font-semibold text-text-primary">
+          How to get the most out of Ask {appName}
+        </p>
+        <p>
+          Ask specific questions about your draft and the quality of your writing. The
+          more focused the question, the more targeted the guidance will be. Ask{' '}
+          {appName} is designed to coach rather than edit. Instead of providing rewrites,
+          it will often respond with questions and prompts that help you identify
+          opportunities for improvement on your own.
+        </p>
+
+        <p className="font-semibold text-text-primary">Sample questions</p>
+        <p>Structure and flow:</p>
+        <ul className="list-disc space-y-sm pl-xl">
+          <li>
+            &ldquo;Does my second section actually build on the first, or does it feel
+            disconnected?&rdquo;
+          </li>
+          <li>&ldquo;I have three main points, does the order make sense?&rdquo;</li>
+          <li>&ldquo;My conclusion feels weak. What am I missing?&rdquo;</li>
+          <li>
+            &ldquo;Does the argument in my conclusion follow logically from the
+            body?&rdquo;
+          </li>
+          <li>&ldquo;How could I improve the organization of this section?&rdquo;</li>
+        </ul>
+        <p>Clarity and argument strength:</p>
+        <ul className="list-disc space-y-sm pl-xl">
+          <li>&ldquo;Is my thesis clear from the first paragraph?&rdquo;</li>
+          <li>
+            &ldquo;I&apos;m not sure my second paragraph supports my thesis — can you
+            help me think through it?&rdquo;
+          </li>
+          <li>
+            &ldquo;I&apos;m worried this paragraph is repeating what I already said
+            earlier — can you help me see if it is?&rdquo;
+          </li>
+          <li>
+            &ldquo;Does the evidence in this section actually support the claim I&apos;m
+            making?&rdquo;
+          </li>
+          <li>
+            &ldquo;Which part of my argument is likely to be least convincing to a
+            reader?&rdquo;
+          </li>
+        </ul>
+        <p>When you are not sure what is wrong:</p>
+        <ul className="list-disc space-y-sm pl-xl">
+          <li>
+            &ldquo;Something feels off about my introduction but I can&apos;t tell
+            what.&rdquo;
+          </li>
+          <li>
+            &ldquo;I feel like something is missing from this section, but I can&apos;t
+            tell what. What questions should I ask myself?&rdquo;
+          </li>
+          <li>
+            &ldquo;Can you push back on my argument in the third paragraph?&rdquo;
+          </li>
+          <li>
+            &ldquo;What would a skeptical reader say about this section?&rdquo;
+          </li>
+        </ul>
+
+        <p className="font-semibold text-text-primary">
+          What Ask {appName} will not do
+        </p>
+        <p>
+          {appName} will not rewrite your text for you — it asks questions and offers
+          observations so you can revise in your own words. Specifically, it will not:
+        </p>
+        <ul className="list-disc space-y-sm pl-xl">
+          <li>
+            Write or rewrite sentences, paragraphs, or sections of your draft
+          </li>
+          <li>Verify whether legal, factual, or technical claims are accurate</li>
+          <li>
+            Answer questions that are unrelated to the content you uploaded or the
+            feedback you received
+          </li>
+        </ul>
+        <p>If you ask anyway, it stays in that coaching role. For example:</p>
+        <ul className="list-disc space-y-sm pl-xl">
+          <li>
+            &ldquo;Can you rewrite this sentence for me?&rdquo; — it declines and
+            redirects you with a question instead of a rewrite.
+          </li>
+          <li>
+            &ldquo;Is this legal claim accurate?&rdquo; — it stays focused on writing
+            craft, not fact-checking.
+          </li>
+          <li>
+            &ldquo;Just tell me what to fix&rdquo; — it holds that line even when asked
+            directly.
+          </li>
+        </ul>
       </GuideSection>
     </div>
   );
