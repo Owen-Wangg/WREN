@@ -9,6 +9,8 @@ import {
   getPlatformUsagePolicy,
   getPlatformUsagePolicyForAdmin,
   reserveDebriefGeneration,
+  reserveDocumentUpload,
+  reserveDraftCreate,
   updatePlatformUsagePolicy,
 } from './lifetimeUsagePolicy';
 
@@ -85,8 +87,18 @@ describe('platform lifetime usage policy', () => {
   it('blocks document upload at the lifetime cap', async () => {
     const db = new FakeDb();
     db.seedPlatformUsagePolicy({ document_upload_limit: 1 });
-    db.seedDocument({ id: 'doc-1', owner_user_id: 'student-1', document_type_id: 'dt-1' });
+    db.userLifetimeUsage.set('student-1', { document_upload_count: 1 });
     await expect(assertDocumentUploadAllowed('student-1', db)).rejects.toBeInstanceOf(
+      UsageLimitReachedError,
+    );
+  });
+
+  it('reserves document uploads until the lifetime cap and is not reset by live-row count', async () => {
+    const db = new FakeDb();
+    db.seedPlatformUsagePolicy({ document_upload_limit: 2 });
+    expect(await reserveDocumentUpload('student-1', db)).toBe(1);
+    expect(await reserveDocumentUpload('student-1', db)).toBe(2);
+    await expect(reserveDocumentUpload('student-1', db)).rejects.toBeInstanceOf(
       UsageLimitReachedError,
     );
   });
@@ -94,11 +106,24 @@ describe('platform lifetime usage policy', () => {
   it('blocks draft create at the lifetime cap', async () => {
     const db = new FakeDb();
     db.seedPlatformUsagePolicy({ drafts_per_document_limit: 1 });
-    db.seedDocument({ id: 'doc-1', owner_user_id: 'student-1', document_type_id: 'dt-1' });
-    db.seedDraft({ id: 'draft-1', document_id: 'doc-1', version_number: 1 });
+    db.seedDocument({
+      id: 'doc-1',
+      owner_user_id: 'student-1',
+      document_type_id: 'dt-1',
+      draft_create_count: 1,
+    });
     await expect(assertDraftCreateAllowed('doc-1', db)).rejects.toBeInstanceOf(
       UsageLimitReachedError,
     );
+  });
+
+  it('reserves draft creates until the lifetime cap', async () => {
+    const db = new FakeDb();
+    db.seedPlatformUsagePolicy({ drafts_per_document_limit: 2 });
+    db.seedDocument({ id: 'doc-1', owner_user_id: 'student-1', document_type_id: 'dt-1' });
+    expect(await reserveDraftCreate('doc-1', db)).toBe(1);
+    expect(await reserveDraftCreate('doc-1', db)).toBe(2);
+    await expect(reserveDraftCreate('doc-1', db)).rejects.toBeInstanceOf(UsageLimitReachedError);
   });
 
   it('blocks Ask messages at the lifetime cap', async () => {

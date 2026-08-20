@@ -25,6 +25,7 @@ import {
   createDraft,
   createDraftFromSource,
   getPresignedUrl,
+  uploadFileToPresign,
   fetchIngestStatus,
   patchCurrentDraft,
 } from '@/features/dashboard/dashboardApi';
@@ -506,20 +507,13 @@ export function DocumentEditorPage() {
       // DOCX: client TipTap. PDF: server Textract is source of truth.
       const parsed = isDocx ? await parseDocxUploadToTipTap(file) : {};
       const tipTap = parsed.content;
-      const { uploadUrl, key } = await getPresignedUrl(
+      const presign = await getPresignedUrl(
         apiClient,
         file.name,
         contentTypeForFile(file),
       );
-
-      const putResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        body: file,
-        headers: { 'Content-Type': contentTypeForFile(file) },
-      });
-      if (!putResponse.ok) {
-        throw new Error('File upload to storage failed');
-      }
+      await uploadFileToPresign(presign, file);
+      const { key } = presign;
 
       const cleaned = tipTap
         ? asTipTapDoc(stripAiMarksFromTipTapContent(tipTap))

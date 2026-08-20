@@ -23,7 +23,11 @@ const notificationViewSchema = z.object({
   renderedContent: z.string(),
   state: z.enum(['unread', 'read']),
   createdAt: z.string(),
-  actionUrl: z.string().nullable(),
+  actionUrl: z
+    .string()
+    .regex(/^\//)
+    .refine((value) => !value.startsWith('//'))
+    .nullable(),
 });
 
 const paginatedInboxSchema = z.object({

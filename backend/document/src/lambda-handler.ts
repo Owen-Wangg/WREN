@@ -4,10 +4,10 @@
  */
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import { getDataAccess } from '@wren/db-node';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, DeleteObjectsCommand, DeleteObjectTaggingCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { v4 as uuid } from 'uuid';
 import { resolveAccess } from '@wren/auth';
 import type { AccessGrant, TipTapDoc } from '@wren/types';
@@ -16,6 +16,9 @@ import {
   stripAiMarksFromTipTapContent,
   tipTapContentToSegments,
   wordCountFromTipTapContent,
+  findDisallowedTipTapNodeType,
+  serializedTipTapBytes,
+  TIPTAP_FIELD_MAX_BYTES,
 } from '@wren/types';
 
 import { MammothDocxExtractor } from './docxExtractor.js';
@@ -40,7 +43,8 @@ import {
 } from './ingestWorker.js';
 import {
   assertDocumentUploadAllowed,
-  assertDraftCreateAllowed,
+  reserveDraftCreate,
+  reserveDocumentUpload,
   UsageLimitReachedError,
 } from '@wren/admin/lifetimeUsagePolicy';
 
@@ -101,7 +105,41 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
   }
 }
 
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const ORPHAN_UPLOAD_TAGGING =
+  '<Tagging><TagSet><Tag><Key>orphan-upload</Key><Value>true</Value></Tag></TagSet></Tagging>';
+
+const DOCX_CONTENT_TYPE =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ca-central-1' });
+
+function canonicalUploadContentType(filename: string, contentType: string): string | null {
+  const lower = filename.toLowerCase();
+  const given = contentType.trim().toLowerCase();
+  const unspecified = given === '' || given === 'application/octet-stream';
+  if (lower.endsWith('.pdf')) {
+    if (unspecified || given === 'application/pdf') return 'application/pdf';
+    return null;
+  }
+  if (lower.endsWith('.docx')) {
+    if (unspecified || given === DOCX_CONTENT_TYPE) return DOCX_CONTENT_TYPE;
+    return null;
+  }
+  return null;
+}
+
+async function clearOrphanUploadTag(key: string): Promise<void> {
+  const bucket = process.env.DOCUMENTS_BUCKET_NAME;
+  if (!bucket) return;
+  try {
+    await s3Client.send(
+      new DeleteObjectTaggingCommand({ Bucket: bucket, Key: key }),
+    );
+  } catch (err) {
+    console.warn('clearOrphanUploadTag: non-fatal error', err);
+  }
+}
 
 /** Format a DB timestamp as an ISO-8601 string with offset (matches `@wren/types`). */
 function toIsoDateTime(value: unknown): string {
@@ -144,6 +182,32 @@ function wordCountFromSegments(segments: Array<{ text: string }>): number {
 function parseRequestTipTapContent(raw: unknown): TipTapDoc | undefined {
   if (!isTipTapDoc(raw)) return undefined;
   return stripAiMarksFromTipTapContent(raw) as TipTapDoc;
+}
+
+function rejectUnsafeTipTap(
+  doc: TipTapDoc,
+  field: string,
+): APIGatewayProxyResult | null {
+  const disallowed = findDisallowedTipTapNodeType(doc);
+  if (disallowed) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: `Unsupported TipTap node type '${disallowed}' in ${field}`,
+      }),
+    };
+  }
+  if (serializedTipTapBytes(doc) > TIPTAP_FIELD_MAX_BYTES) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'PAYLOAD_TOO_LARGE',
+        message: `${field} exceeds the 1MB serialized size limit`,
+      }),
+    };
+  }
+  return null;
 }
 
 /** Map a `document` row to the shared camelCase Document DTO. */
@@ -357,6 +421,10 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     | { kind?: string; text?: string; key?: string }
     | undefined;
   const tipTapContent = parseRequestTipTapContent(body.content);
+  if (tipTapContent) {
+    const rejected = rejectUnsafeTipTap(tipTapContent, 'content');
+    if (rejected) return rejected;
+  }
   const ocrEngine = parseOcrEngineFromBody(body);
 
   if (!documentTypeId || !name) {
@@ -513,6 +581,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     }
     const fileName = key.split('/').pop() || 'upload.docx';
     s3Key = key;
+    await clearOrphanUploadTag(key);
     // PDF OCR can exceed API Gateway ~29s — enqueue and return immediately.
     if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
       asyncPdf = { key, fileName };
@@ -522,12 +591,12 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     }
   }
 
-  await assertDocumentUploadAllowed(actor.userId, db);
+  await reserveDocumentUpload(actor.userId, db);
 
   if (asyncPdf) {
     const insertQuery = `
-      INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at, draft_create_count)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
       RETURNING id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
     `;
     const rows = await db.query(insertQuery, [
@@ -616,8 +685,8 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   }
 
   const insertQuery = `
-    INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, NOW())
+    INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at, draft_create_count)
+    VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
     RETURNING id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
   `;
   const rows = await db.query(insertQuery, [
@@ -779,6 +848,16 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
       TableName: conversationTableName,
       Key: { sessionId: `${actor.userId}#${documentId}` },
     }));
+    // Also delete the canonical lowercase key so mixed-case path params
+    // cannot orphan a session after documentId normalization.
+    const canonicalId =
+      typeof documentId === 'string' ? documentId.toLowerCase() : '';
+    if (canonicalId && canonicalId !== documentId) {
+      await dynamo.send(new DeleteCommand({
+        TableName: conversationTableName,
+        Key: { sessionId: `${actor.userId}#${canonicalId}` },
+      }));
+    }
   }
 
   return {
@@ -873,13 +952,27 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
     typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
 
   const cleaned = stripAiMarksFromTipTapContent(tipTapContent) as TipTapDoc;
-  const wordCount = wordCountFromTipTapContent(cleaned);
+  const header = isTipTapDoc(body.header) ? (body.header as TipTapDoc) : undefined;
+  const footer = isTipTapDoc(body.footer) ? (body.footer as TipTapDoc) : undefined;
+
+  for (const [field, doc] of [
+    ['content', cleaned],
+    ['header', header],
+    ['footer', footer],
+  ] as const) {
+    if (!doc) continue;
+    const rejected = rejectUnsafeTipTap(doc, field);
+    if (rejected) return rejected;
+  }
+
+  const wordCount =
+    wordCountFromTipTapContent(cleaned) +
+    (header ? wordCountFromTipTapContent(header) : 0) +
+    (footer ? wordCountFromTipTapContent(footer) : 0);
   const overLimit = overSizeLimitHttpResponse(wordCount, sizeLimitWords);
   if (overLimit) {
     return overLimit;
   }
-  const header = isTipTapDoc(body.header) ? (body.header as TipTapDoc) : undefined;
-  const footer = isTipTapDoc(body.footer) ? (body.footer as TipTapDoc) : undefined;
   const repo = new DbDraftRepository(db);
   const draft = await repo.updateCurrentDraftContent(
     documentId,
@@ -912,6 +1005,10 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     | undefined;
   const { segments } = body;
   const tipTapContent = parseRequestTipTapContent(body.content);
+  if (tipTapContent) {
+    const rejected = rejectUnsafeTipTap(tipTapContent, 'content');
+    if (rejected) return rejected;
+  }
   const ocrEngine = parseOcrEngineFromBody(body);
   const hasSource = source?.kind === 'file' || source?.kind === 'paste';
   const hasSegments = Array.isArray(segments);
@@ -946,7 +1043,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
-  await assertDraftCreateAllowed(documentId, db);
+  await reserveDraftCreate(documentId, db);
 
   const documentTypeId = docRows[0].document_type_id as string;
   const dtRows = await db.query(
@@ -1004,6 +1101,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       }
       const fileName = key.split('/').pop() || 'upload.docx';
       s3Key = key;
+      await clearOrphanUploadTag(key);
 
       if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
         const job = await insertQueuedIngestJob(db, {
@@ -1153,10 +1251,11 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
 
 async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
+  const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const filename = typeof body.filename === 'string' ? body.filename : '';
-  const contentType =
-    typeof body.contentType === 'string' ? body.contentType : 'application/octet-stream';
+  const rawContentType =
+    typeof body.contentType === 'string' ? body.contentType : '';
 
   if (!filename.trim()) {
     return {
@@ -1165,19 +1264,39 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
+  const contentType = canonicalUploadContentType(filename, rawContentType);
+  if (!contentType) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'UNSUPPORTED_FORMAT',
+        message: 'Only .docx and .pdf uploads are supported',
+      }),
+    };
+  }
+
+  await assertDocumentUploadAllowed(actor.userId, db);
+
   const safeName = filename.replace(/[^\w.\-()+ ]+/g, '_');
   const key = `documents/${actor.userId}/uploads/${uuid()}-${safeName}`;
-  const command = new PutObjectCommand({
+  const { url, fields } = await createPresignedPost(s3Client, {
     Bucket: process.env.DOCUMENTS_BUCKET_NAME!,
     Key: key,
-    ContentType: contentType,
+    Conditions: [
+      ['content-length-range', 1, MAX_UPLOAD_BYTES],
+      ['eq', '$Content-Type', contentType],
+      ['eq', '$tagging', ORPHAN_UPLOAD_TAGGING],
+    ],
+    Fields: {
+      'Content-Type': contentType,
+      tagging: ORPHAN_UPLOAD_TAGGING,
+    },
+    Expires: 15 * 60,
   });
-
-  const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 15 * 60 });
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ uploadUrl, key }),
+    body: JSON.stringify({ uploadUrl: url, fields, key }),
   };
 }
 

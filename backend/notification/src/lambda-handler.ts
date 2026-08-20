@@ -154,7 +154,7 @@ async function handleApiEvent(event: any): Promise<APIGatewayProxyResult> {
         body: JSON.stringify({ code: 'NOT_FOUND', message: error.message }),
       });
     }
-    if (error.message?.includes('Invalid state transition') || error.message?.includes('constraint violation')) {
+    if (error.message?.includes('Invalid state transition') || error.message?.includes('constraint violation') || error.message?.includes('Invalid action URL')) {
       return withCors({
         statusCode: 400,
         body: JSON.stringify({ code: 'BAD_REQUEST', message: error.message }),

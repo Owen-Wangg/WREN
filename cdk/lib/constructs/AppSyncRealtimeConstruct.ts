@@ -25,8 +25,9 @@ export interface AppSyncRealtimeProps {
  *
  * Auth model (mirrors the REST authorizer pattern):
  *   - Lambda authorizer (primary): verifies Cognito JWT + DB ownership check.
- *     Students may only subscribe to documents they own. ttlOverride=0 so
- *     every new WebSocket connection re-runs the ownership check.
+ *     Students may only subscribe to documents they own. Authorizer result
+ *     cache is disabled (resultsCacheTtl=0) so a connection-phase Allow
+ *     cannot be reused for a subscribe call that skipped ownership.
  *   - IAM (additional): Feedback Engine Lambda publishes the mutation via
  *     SigV4; students cannot invoke the mutation directly.
  *
@@ -60,13 +61,11 @@ export class AppSyncRealtimeConstruct extends Construct {
           authorizationType: appsync.AuthorizationType.LAMBDA,
           lambdaAuthorizerConfig: {
             handler: props.authorizerFunction,
-            // 5-minute cache. The authorizer runs at WebSocket connection time
-            // only (not per-message), so this only affects reconnections within
-            // the same token's validity window. Document ownership is immutable
-            // in this system, and the Cognito token itself expires after 1 hour,
-            // so a 5-minute TTL is safe and avoids a DB round-trip on every
-            // page refresh / network reconnect.
-            resultsCacheTtl: Duration.seconds(300),
+            // Cache disabled. AppSync keys authorizer results by token, not by
+            // subscription arguments — a cached connection-phase Allow (or an
+            // Allow for document A) must never authorize a later subscribe to
+            // document B. Ownership is re-checked on every connection/subscribe.
+            resultsCacheTtl: Duration.seconds(0),
           },
         },
         // IAM: Feedback Engine Lambda publishes via SigV4. Students cannot

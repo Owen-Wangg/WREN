@@ -1422,9 +1422,11 @@ export class MockApiClient implements HttpClient {
     if (key === 'POST /v1/uploads/presign') {
       const body = options.body as { filename?: string } | undefined;
       const filename = body?.filename ?? 'upload.docx';
+      const key = `documents/user-1/uploads/mock-${Date.now()}-${filename}`;
       const fixture = {
         uploadUrl: `https://mock-s3.local/upload/${encodeURIComponent(filename)}`,
-        key: `documents/user-1/uploads/mock-${Date.now()}-${filename}`,
+        fields: { key },
+        key,
       };
       if (!options.schema) return fixture as T;
       const result = options.schema.safeParse(fixture);

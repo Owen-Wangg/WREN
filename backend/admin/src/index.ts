@@ -116,6 +116,8 @@ export {
   assertDraftCreateAllowed,
   assertAskMessageAllowed,
   reserveDebriefGeneration,
+  reserveDocumentUpload,
+  reserveDraftCreate,
 } from './lifetimeUsagePolicy';
 export { UsageLimitReachedError } from './errors';
 

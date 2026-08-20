@@ -9,5 +9,5 @@ export function parseUuidParam(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   if (!trimmed || trimmed.toLowerCase() === 'none') return null;
-  return UUID_RE.test(trimmed) ? trimmed : null;
+  return UUID_RE.test(trimmed) ? trimmed.toLowerCase() : null;
 }

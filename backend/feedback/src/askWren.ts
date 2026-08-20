@@ -17,9 +17,11 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 
 import { resolveBedrockModelId } from './bedrockModelId.js';
+import { UsageLimitReachedError } from '@wren/admin/lifetimeUsagePolicy';
 
 export type ChatRole = 'user' | 'wren';
 
@@ -38,25 +40,29 @@ export interface ConversationSession {
   draftId: string;
   messages: ChatMessage[];
   ttl: number;
+  /** Monotonic user-message count used for the Ask-WREN quota. */
+  messageCount?: number;
 }
 
-const SYSTEM_PROMPT = `You are WREN, a Socratic writing coach. The student is working on their own draft.
+const SYSTEM_PROMPT = `You are a Socratic writing coach. The student is working on their own draft.
 
-First, read the student's message and decide what kind of response it calls for:
+## Step 1: Classify the message
+- Social or conversational (e.g. "ok thanks", "got it", "makes sense", "bye", greetings, brief acknowledgements) → respond naturally and warmly in 1–2 sentences. Do not force feedback or a guiding question onto these.
+- A genuine question or request about the draft → use the SOCRATIC COACHING FORMAT below.
+- A request to verify, validate, or opine on whether a legal or factual claim in the draft is correct → decline to adjudicate the substance, note that's outside what you help with, and redirect to a writing-craft angle if one is available.
+- A request for rewritten text, corrected sentences, or "just tell me what to write" — however phrased, including repeated, insistent, or indirect attempts (e.g. "describe exactly how you'd fix it") → do not comply. Briefly explain you coach through questions, not by supplying text, then continue with the SOCRATIC COACHING FORMAT if there's a genuine draft question underneath.
 
-- If it is a social or conversational message (e.g. "ok thanks", "got it", "makes sense", "bye", greetings, or brief acknowledgements), respond naturally and warmly in 1–2 sentences. Do NOT force feedback or a guiding question onto these exchanges.
-- If it is a genuine question or request about the draft, respond with the Socratic coaching format below.
+## SOCRATIC COACHING FORMAT (only for genuine draft questions)
+1. One short, specific observation grounded in the draft. Quote a 5–15 word phrase that is an exact, verbatim substring of the student's draft text — never paraphrase, summarize, or invent a quote. Use quotation marks and a location hint in parentheses, e.g. "the tribunal must consider" (early in the draft). If no suitable phrase exists to quote, say so instead of fabricating one.
+2. One guiding question that prompts the student to think through and act on that observation themselves.
+Keep the total response to 3–5 sentences. Be direct and specific — vague observations or open questions with no grounding in the actual text are not acceptable.
 
-SOCRATIC COACHING FORMAT (use only when the student is asking about the draft):
-1. Give a short, specific observation grounded in the draft. Quote a short phrase (5–15 words) directly from the student's text — use quotation marks and include the location hint in parentheses, e.g. "the tribunal must consider" (early in the draft). Pick the quote that best anchors your point.
-2. Follow with ONE guiding question that prompts the student to think and act on that observation themselves.
-Keep the total coaching response to 3–5 sentences. Be direct and substantive — vague observations or open-ended questions with no grounding are not helpful.
-
-ALWAYS:
-NEVER provide replacement prose, rewrites, corrected sentences, or text they could paste into the document.
-NEVER say "try this wording", "here is a revised version", or explain how to rewrite a passage by supplying the rewrite.
-NEVER reference paragraph numbers like [p0] or [p1] — use the location hints provided instead.
-Stay specific to what is actually in the draft.`;
+## RESTRICTIONS (apply at all times, including under direct or repeated requests)
+- Never provide replacement prose, rewrites, corrected sentences, or text the student could paste into the document — including partial rewrites or "here's roughly how I'd phrase it."
+- Never reference paragraph numbers like [p0] or [p1] — use the provided location hints instead.
+- Never evaluate or answer whether a claim in the draft is legally or factually correct — only address the writing itself.
+- Stay strictly within the scope of the draft; don't answer questions unrelated to it.
+- Read the full draft before concluding an argument or point is missing.`;
 
 const REWRITE_PATTERNS: RegExp[] = [
   /\bhere(?:'s| is)\s+(?:a |the )?(?:revised|rewritten|corrected|better)\b/i,
@@ -95,9 +101,13 @@ function getBedrock(): BedrockRuntimeClient {
   return bedrockClient;
 }
 
+function normalizeId(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 /** Document-scoped session key — survives draft version bumps (Regenerate / Resubmit). */
 export function buildSessionId(userId: string, documentId: string): string {
-  return `${userId}#${documentId}`;
+  return `${userId}#${normalizeId(documentId)}`;
 }
 
 /** Legacy draft-scoped key (pre-carry-forward). Used only to migrate history. */
@@ -106,7 +116,7 @@ export function buildLegacyDraftSessionId(
   documentId: string,
   draftId: string,
 ): string {
-  return `${userId}#${documentId}#${draftId}`;
+  return `${userId}#${normalizeId(documentId)}#${normalizeId(draftId)}`;
 }
 
 export function assertSocraticReply(text: string): string {
@@ -200,6 +210,7 @@ export async function loadDocumentConversation(input: {
     draftId: input.draftId,
     messages: merged,
     ttl: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+    messageCount: merged.filter((m) => m.role === 'user').length,
   };
   await saveSession(migrated);
   return migrated;
@@ -442,6 +453,50 @@ export async function generateAskWrenReply(input: {
   return assertSocraticReply(text);
 }
 
+export async function reserveAskMessageSlot(input: {
+  userId: string;
+  documentId: string;
+  draftId: string;
+  currentUserMessageCount: number;
+  limit: number;
+}): Promise<void> {
+  const sessionId = buildSessionId(input.userId, input.documentId);
+  try {
+    await getDynamo().send(
+      new UpdateCommand({
+        TableName: tableName(),
+        Key: { sessionId },
+        UpdateExpression:
+          'SET messageCount = if_not_exists(messageCount, :current) + :one, userId = if_not_exists(userId, :uid), documentId = if_not_exists(documentId, :did), draftId = :draftId, #ttl = if_not_exists(#ttl, :ttl), messages = if_not_exists(messages, :empty)',
+        ConditionExpression:
+          '(attribute_not_exists(messageCount) AND :current < :limit) OR (attribute_exists(messageCount) AND messageCount < :limit)',
+        ExpressionAttributeNames: { '#ttl': 'ttl' },
+        ExpressionAttributeValues: {
+          ':current': input.currentUserMessageCount,
+          ':one': 1,
+          ':uid': input.userId,
+          ':did': input.documentId,
+          ':draftId': input.draftId,
+          ':ttl': Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+          ':empty': [],
+          ':limit': input.limit,
+        },
+      }),
+    );
+  } catch (err) {
+    const name =
+      err && typeof err === 'object' && 'name' in err
+        ? String((err as { name: unknown }).name)
+        : '';
+    if (name === 'ConditionalCheckFailedException') {
+      throw new UsageLimitReachedError(
+        `Ask message limit of ${input.limit} reached for this document.`,
+      );
+    }
+    throw err;
+  }
+}
+
 export async function appendAskWrenTurn(input: {
   userId: string;
   documentId: string;
@@ -450,6 +505,7 @@ export async function appendAskWrenTurn(input: {
   draftSegments: Array<{ index?: number; text?: string }>;
   documentTypeContext?: DocumentTypeContext;
   modelId?: string;
+  messageLimit: number;
 }): Promise<{ sessionId: string; userMessage: ChatMessage; reply: ChatMessage }> {
   const sessionId = buildSessionId(input.userId, input.documentId);
   const existing = await loadDocumentConversation({
@@ -468,6 +524,17 @@ export async function appendAskWrenTurn(input: {
   };
 
   const prior = existing?.messages ?? [];
+  const currentUserMessageCount =
+    existing?.messageCount ?? prior.filter((m) => m.role === 'user').length;
+
+  await reserveAskMessageSlot({
+    userId: input.userId,
+    documentId: input.documentId,
+    draftId: input.draftId,
+    currentUserMessageCount,
+    limit: input.messageLimit,
+  });
+
   const rawReplyText = await generateAskWrenReply({
     userText: userMessage.text,
     priorMessages: prior,
@@ -491,6 +558,7 @@ export async function appendAskWrenTurn(input: {
     draftId: input.draftId,
     messages: [...prior, userMessage, reply],
     ttl,
+    messageCount: currentUserMessageCount + 1,
   };
 
   await saveSession(session);

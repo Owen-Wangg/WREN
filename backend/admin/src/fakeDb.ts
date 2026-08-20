@@ -144,6 +144,7 @@ interface DocumentRow {
   owner_user_id?: string;
   metadata?: Record<string, string>;
   debrief_generation_count?: number;
+  draft_create_count?: number;
 }
 
 interface PlatformUsagePolicyRow {
@@ -251,6 +252,7 @@ export class FakeDb implements QueryExecutor {
   public readonly overrides = new Map<string, OverrideRow>();
   public readonly activityEvents: ActivityEventRow[] = [];
   public readonly aggregateCounters = new Map<string, AggregateCounterRow>();
+  public readonly userLifetimeUsage = new Map<string, { document_upload_count: number }>();
   public platformUsagePolicy: PlatformUsagePolicyRow | null = null;
   public mutationCount = 0;
 
@@ -335,11 +337,13 @@ export class FakeDb implements QueryExecutor {
     owner_user_id?: string;
     metadata?: Record<string, string>;
     debrief_generation_count?: number;
+    draft_create_count?: number;
   }): DocumentRow {
     const full: DocumentRow = {
       ...row,
       owner_user_id: row.owner_user_id ?? 'seed-user',
       debrief_generation_count: row.debrief_generation_count ?? 0,
+      draft_create_count: row.draft_create_count ?? 0,
     };
     this.documents.set(full.id, full);
     return full;
@@ -1740,6 +1744,47 @@ export class FakeDb implements QueryExecutor {
         (d) => d.owner_user_id === (params[0] as string),
       ).length;
       return [{ count }] as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT document_upload_count FROM user_lifetime_usage WHERE user_id = $1')) {
+      const row = this.userLifetimeUsage.get(params[0] as string);
+      return (row ? [{ document_upload_count: row.document_upload_count }] : []) as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT draft_create_count FROM document WHERE id = $1')) {
+      const row = this.documents.get(params[0] as string);
+      return (row
+        ? [{ draft_create_count: row.draft_create_count ?? 0 }]
+        : []) as unknown as Row[];
+    }
+
+    if (sql.includes('INSERT INTO user_lifetime_usage')) {
+      this.mutationCount += 1;
+      const userId = params[0] as string;
+      const limit = params[1] as number;
+      if (limit <= 0) return [] as unknown as Row[];
+      const existing = this.userLifetimeUsage.get(userId);
+      if (!existing) {
+        this.userLifetimeUsage.set(userId, { document_upload_count: 1 });
+        return [{ document_upload_count: 1 }] as unknown as Row[];
+      }
+      if (existing.document_upload_count >= limit) return [] as unknown as Row[];
+      existing.document_upload_count += 1;
+      return [{ document_upload_count: existing.document_upload_count }] as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith('UPDATE document') &&
+      sql.includes('SET draft_create_count = draft_create_count + 1')
+    ) {
+      this.mutationCount += 1;
+      const row = this.documents.get(params[0] as string);
+      const limit = params[1] as number;
+      if (!row) return [] as unknown as Row[];
+      const current = row.draft_create_count ?? 0;
+      if (current >= limit) return [] as unknown as Row[];
+      row.draft_create_count = current + 1;
+      return [{ draft_create_count: row.draft_create_count }] as unknown as Row[];
     }
 
     if (sql.startsWith('SELECT debrief_generation_count FROM document WHERE id = $1')) {

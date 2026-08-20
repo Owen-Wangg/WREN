@@ -150,10 +150,12 @@ export async function getPresignedUrl(
   contentType: string,
 ): Promise<{
   uploadUrl: string;
+  fields: Record<string, string>;
   key: string;
 }> {
   const responseSchema = z.object({
     uploadUrl: z.string().url(),
+    fields: z.record(z.string()),
     key: z.string().min(1),
   });
 

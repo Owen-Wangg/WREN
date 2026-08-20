@@ -12,6 +12,31 @@ import type {
 } from './types.js';
 import { validateNoLeakConstraint } from './noLeakValidation.js';
 
+/**
+ * Action URLs must be site-relative paths. Reject schemes (`javascript:`,
+ * `https:`, protocol-relative `//`) so a catalog entry cannot execute in the
+ * recipient's session when assigned to `window.location` / the router.
+ *
+ * Mustache placeholders (`{{documentId}}`) are allowed so templates can
+ * interpolate IDs; `{` / `}` are therefore in the character class.
+ */
+const ACTION_URL_TEMPLATE_RE = /^\/[A-Za-z0-9\-._~!$&'()*+,;=:@%/{}]*$/;
+
+export function isSafeActionUrlTemplate(value: string): boolean {
+  if (!value.startsWith('/') || value.startsWith('//')) return false;
+  if (value.includes(':')) return false;
+  return ACTION_URL_TEMPLATE_RE.test(value);
+}
+
+function assertSafeActionUrlTemplate(value: string | null | undefined): void {
+  if (value == null || value === '') return;
+  if (!isSafeActionUrlTemplate(value)) {
+    throw new Error(
+      'Invalid action URL template: must be a site-relative path starting with /',
+    );
+  }
+}
+
 export interface CatalogServiceDeps {
   query: <Row = Record<string, unknown>>(text: string, params: readonly unknown[]) => Promise<Row[]>;
   execute: (text: string, params: readonly unknown[]) => Promise<number>;
@@ -67,6 +92,8 @@ class NotificationTypeCatalogServiceImpl implements NotificationTypeCatalogServi
         `No-leak constraint violation: ${validation.violations.join(', ')}`,
       );
     }
+
+    assertSafeActionUrlTemplate(input.actionUrlTemplate);
 
     // 2. Insert into notification_type
     const rows = await this.db.query<NotificationTypeRow>(
@@ -139,6 +166,7 @@ class NotificationTypeCatalogServiceImpl implements NotificationTypeCatalogServi
     }
 
     if (input.actionUrlTemplate !== undefined) {
+      assertSafeActionUrlTemplate(input.actionUrlTemplate);
       setClauses.push(`action_url_template = $${paramIdx}`);
       params.push(input.actionUrlTemplate);
       paramIdx++;

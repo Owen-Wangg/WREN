@@ -51,3 +51,18 @@ describe("0028_document_usage_policy_grant", () => {
     );
   });
 });
+
+describe("0030_user_lifetime_usage", () => {
+  const SQL_0030 = readFileSync(
+    join(__dirname, "migrations", "0030_user_lifetime_usage.sql"),
+    "utf8",
+  );
+
+  it("creates a per-user monotonic upload ledger and grants wren_document DML", () => {
+    expect(SQL_0030).toMatch(/CREATE TABLE user_lifetime_usage/);
+    expect(SQL_0030).toMatch(/draft_create_count/);
+    expect(SQL_0030).toMatch(
+      /GRANT SELECT, INSERT, UPDATE ON TABLE user_lifetime_usage TO wren_document/,
+    );
+  });
+});

@@ -27,7 +27,10 @@ function crisBedrockInvokeResources(region: string, account: string): string[] {
     resources.push(`arn:aws:bedrock:${r}:${account}:inference-profile/us.anthropic.*`);
     resources.push(`arn:aws:bedrock:${r}:${account}:inference-profile/us.meta.*`);
   }
-  for (const r of ["us-east-1", "us-east-2", "us-west-2"] as const) {
+  // Include the caller region: InvokeModel on us.* profiles from ca-central-1
+  // still authorizes arn:aws:bedrock:<region>::foundation-model/anthropic.*.
+  const fmRegions = [...new Set([region, "us-east-1", "us-east-2", "us-west-2"])];
+  for (const r of fmRegions) {
     resources.push(`arn:aws:bedrock:${r}::foundation-model/anthropic.*`);
     resources.push(`arn:aws:bedrock:${r}::foundation-model/meta.*`);
   }
@@ -577,6 +580,7 @@ export class ComputeStack extends Stack {
       actions: [
         "bedrock:InvokeModel",
         "bedrock:InvokeModelWithResponseStream",
+        "bedrock:GetInferenceProfile",
       ],
       resources: bedrockInvokeResources,
     }));
@@ -586,6 +590,7 @@ export class ComputeStack extends Stack {
       actions: [
         "bedrock:InvokeModel",
         "bedrock:InvokeModelWithResponseStream",
+        "bedrock:GetInferenceProfile",
       ],
       resources: bedrockInvokeResources,
     }));
