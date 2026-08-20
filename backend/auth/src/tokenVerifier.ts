@@ -24,6 +24,11 @@ export interface VerifiedIdentity {
    * requests (the DB is the source of truth after provisioning).
    */
   readonly groups: readonly string[];
+  /**
+   * Cognito `username` claim. Used only for AdminGetUser on first login
+   * (email-as-username pools reject AdminGetUser by `sub`). Not an authz input.
+   */
+  readonly username?: string;
 }
 
 /**
@@ -47,21 +52,43 @@ export interface CognitoVerifierConfig {
  * so warm Lambda invocations reuse fetched keys.
  */
 export class CognitoTokenVerifier implements TokenVerifier {
-  private readonly verifier: ReturnType<typeof CognitoJwtVerifier.create>;
+  private readonly primary: ReturnType<typeof CognitoJwtVerifier.create>;
+  private readonly secondary: ReturnType<typeof CognitoJwtVerifier.create>;
 
   public constructor(config: CognitoVerifierConfig) {
-    this.verifier = CognitoJwtVerifier.create({
+    const preferred = config.tokenUse ?? 'access';
+    const other = preferred === 'access' ? 'id' : 'access';
+    this.primary = CognitoJwtVerifier.create({
       userPoolId: config.userPoolId,
-      tokenUse: config.tokenUse ?? 'access',
+      tokenUse: preferred,
+      clientId: config.clientId,
+    });
+    this.secondary = CognitoJwtVerifier.create({
+      userPoolId: config.userPoolId,
+      tokenUse: other,
       clientId: config.clientId,
     });
   }
 
   public async verify(token: string): Promise<VerifiedIdentity> {
-    const payload = await this.verifier.verify(token);
+    try {
+      return this.fromPayload(await this.primary.verify(token));
+    } catch (primaryError) {
+      try {
+        return this.fromPayload(await this.secondary.verify(token));
+      } catch {
+        throw primaryError;
+      }
+    }
+  }
+
+  private fromPayload(payload: { sub?: string; username?: unknown; [key: string]: unknown }): VerifiedIdentity {
     const groups = Array.isArray(payload['cognito:groups'])
       ? (payload['cognito:groups'] as string[])
       : [];
-    return { subject: payload.sub, groups };
+    const username = typeof payload.username === 'string' && payload.username.trim().length > 0
+      ? payload.username.trim()
+      : undefined;
+    return { subject: payload.sub as string, groups, username };
   }
 }

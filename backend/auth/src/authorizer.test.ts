@@ -67,6 +67,18 @@ function makeDb(roles: RoleAssignmentRow[], grants: AccessGrantRow[] = [], user:
         }
         return [] as unknown as Row[];
       }
+      if (text.includes('UPDATE app_user') && text.includes('idp_subject')) {
+        const [idpSubject, id] = params as [string, string];
+        const idx = users.findIndex((u) => u.id === id);
+        if (idx >= 0) {
+          users[idx] = { ...users[idx], idp_subject: idpSubject };
+        }
+        return [] as unknown as Row[];
+      }
+      if (text.includes('lower(email)')) {
+        const found = users.find((u) => u.email.toLowerCase() === String(params[0]).toLowerCase());
+        return (found ? [{ id: found.id }] : []) as unknown as Row[];
+      }
       if (text.includes('SELECT id FROM app_user')) {
         const found = users.find((u) => u.idp_subject === params[0]);
         return (found ? [{ id: found.id }] : []) as unknown as Row[];
@@ -185,6 +197,39 @@ describe('Lambda authorizer', () => {
     const deps = depsFor(makeDb([]));
     const handler = createAuthorizerHandler(async () => deps);
     await expect(handler(event(''))).rejects.toThrow(UNAUTHORIZED);
+  });
+
+  it('freezes the Lambda event loop so pooled postgres sockets do not race the response', async () => {
+    const deps = depsFor(makeDb([{ role: 'Student', scope: null }]));
+    const handler = createAuthorizerHandler(async () => deps);
+    const lambdaContext = { callbackWaitsForEmptyEventLoop: true } as import('aws-lambda').Context;
+    await handler(event(tokenFor({ sub: USER.idp_subject })), lambdaContext);
+    expect(lambdaContext.callbackWaitsForEmptyEventLoop).toBe(false);
+  });
+
+  it('does not remap identity-mapping errors to Unauthorized (cached 401 would lock the token)', async () => {
+    const db: QueryExecutor = {
+      async query() {
+        throw new Error('relation "app_user" does not exist');
+      },
+    };
+    const handler = createAuthorizerHandler(async () => depsFor(db));
+    await expect(handler(event(tokenFor({ sub: USER.idp_subject })))).rejects.toThrow(
+      'relation "app_user" does not exist',
+    );
+  });
+
+  it('relinks an existing app_user row whose email matches but idp_subject does not', async () => {
+    const existing: AppUserRow = {
+      id: '44444444-4444-4444-4444-444444444444',
+      email: 'writer@example.com',
+      idp_subject: 'old-cognito-sub',
+    };
+    const deps = depsFor(makeDb([], [], existing));
+    const handler = createAuthorizerHandler(async () => deps);
+    const result = await handler(event(tokenFor({ sub: 'new-cognito-sub' })));
+    expect(result.principalId).toBe(existing.id);
+    expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Allow' });
   });
 
   it('provisions a verified subject with no app_user as Student on first login', async () => {

@@ -3,7 +3,7 @@
  * Handles: departments, document-types, users, roles, usage, overrides, and /v1/auth/me.
  */
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
-import { getDataAccess } from '@wren/db-node';
+import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { publishNotificationEvent } from '@wren/notification';
 import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState, listDepartmentUsers, archiveDepartment } from './departmentService';
 import {
@@ -91,7 +91,8 @@ async function lookupDepartmentId(
   return rows[0]?.department_id;
 }
 
-export const handler: APIGatewayProxyHandler = async (event: any): Promise<APIGatewayProxyResult> => {
+export const handler: APIGatewayProxyHandler = async (event: any, context): Promise<APIGatewayProxyResult> => {
+  freezeEventLoopOnReturn(context);
   // One-shot admin scripts invoked directly via `aws lambda invoke --payload '{"_script":"..."}'`
   if (event['_script'] === 'sync-cognito-admins') {
     return syncCognitoAdminsHandler(event);

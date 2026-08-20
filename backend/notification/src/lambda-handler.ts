@@ -11,7 +11,7 @@ import type {
   APIGatewayProxyResult,
   SQSEvent,
 } from 'aws-lambda';
-import { getDataAccess } from '@wren/db-node';
+import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { NotificationServiceImpl } from './notificationService';
 import { NotificationTypeCatalogServiceImpl } from './catalogService';
 import { checkOverrideExpiry } from './overrideExpiryHandler';
@@ -49,7 +49,8 @@ function parseAuthContext(event: any): { userId: string; roles: string[] } {
  *   - source: 'aws.events' → EventBridge (override expiry scan)
  *   - httpMethod → API Gateway (REST endpoints)
  */
-export const handler = async (event: any): Promise<any> => {
+export const handler = async (event: any, context?: { callbackWaitsForEmptyEventLoop: boolean }): Promise<any> => {
+  freezeEventLoopOnReturn(context);
   // SQS event (notification queue consumer)
   if (event.Records && Array.isArray(event.Records)) {
     return handleSqsEvent(event as SQSEvent);
