@@ -110,6 +110,28 @@ function expandToWordBoundaries(
 }
 
 /**
+ * Returns true only for punctuation that genuinely ends a sentence.
+ * Periods inside abbreviations (B.C, U.S., e.g., para.) are excluded by
+ * requiring that the next non-whitespace character be uppercase (or absent).
+ * A period immediately followed by a letter (no space) is always an
+ * abbreviation and never a sentence end.
+ */
+function isSentenceEnd(text: string, pos: number): boolean {
+  const ch = text[pos];
+  if (!ch) return false;
+  if (ch === '!' || ch === '?') return true;
+  if (ch !== '.') return false;
+  // Period followed directly by a letter = abbreviation (B.C, U.S., e.g.)
+  const after = text[pos + 1];
+  if (after && /[A-Za-z]/.test(after)) return false;
+  // Period followed by whitespace or end: sentence end only when the next
+  // non-whitespace character is uppercase (new sentence) or there is none.
+  let j = pos + 1;
+  while (j < text.length && /\s/.test(text[j]!)) j++;
+  return j >= text.length || /[A-Z"'([`“‘]/.test(text[j]!);
+}
+
+/**
  * Expand a located span to the nearest complete sentence so the displayed
  * quote is never a dangling clause. Walks backward to a sentence-starting
  * boundary and forward to a sentence-ending punctuation mark. Capped so we
@@ -120,7 +142,6 @@ function expandToSentenceBoundaries(
   startOffset: number,
   endOffset: number,
 ): { start: number; end: number } {
-  const SENTENCE_END = /[.!?]/;
   const MAX_LOOKBACK = 200;
   const MAX_LOOKAHEAD = 200;
 
@@ -132,8 +153,7 @@ function expandToSentenceBoundaries(
   const lookbackFrom = Math.max(0, start - MAX_LOOKBACK);
   let s = start;
   while (s > lookbackFrom) {
-    const ch = text[s - 1] ?? '';
-    if (SENTENCE_END.test(ch)) break;
+    if (isSentenceEnd(text, s - 1)) break;
     s -= 1;
   }
   // Skip whitespace after the sentence boundary.
@@ -144,9 +164,8 @@ function expandToSentenceBoundaries(
   const lookaheadTo = Math.min(text.length, end + MAX_LOOKAHEAD);
   let e = end;
   while (e < lookaheadTo) {
-    const ch = text[e] ?? '';
     e += 1;
-    if (SENTENCE_END.test(ch)) break;
+    if (isSentenceEnd(text, e - 1)) break;
   }
   end = e;
 
@@ -226,48 +245,75 @@ function resolveQuotedTextForItem(
       ? [...anchorByFeedbackId.values()].find((a) => a.id === row.current_anchor_id)
       : undefined) ?? anchorByFeedbackId.get(row.id);
 
+  // Helper: expand a located quote to a full sentence with fallback.
+  const expandQuote = (para: string, fromQuote: string): string => {
+    const idx = para.indexOf(fromQuote);
+    if (idx >= 0) {
+      const sentence = expandToSentenceBoundaries(para, idx, idx + fromQuote.length);
+      return para.slice(sentence.start, sentence.end).trim() || fromQuote;
+    }
+    return fromQuote;
+  };
+
+  // When a stored quote text is available, always prefer finding it verbatim
+  // over using raw anchor offsets — offsets can point to the wrong paragraph
+  // when the document structure shifts between drafts.
+  if (stored) {
+    // 1. Try the anchor's own paragraph first (fast path).
+    if (anchor) {
+      const para = segmentTextAt(segments, Number(anchor.paragraph_index ?? 0));
+      if (para) {
+        const fromQuote = resolveExactQuoteInParagraph(para, stored);
+        if (fromQuote) return expandQuote(para, fromQuote);
+      }
+    }
+
+    // 2. Scan all segments (handles misaligned paragraph index).
+    for (const segment of segments) {
+      const para = typeof segment.text === 'string' ? segment.text : '';
+      const fromQuote = resolveExactQuoteInParagraph(para, stored);
+      if (fromQuote) return expandQuote(para, fromQuote);
+    }
+
+    // 3. Anchor offsets as last resort — only reached when the stored quote
+    //    text cannot be found anywhere in the current draft (e.g. paragraph
+    //    was deleted). Raw offsets in the anchor's paragraph are better than
+    //    returning nothing.
+    if (anchor) {
+      const para = segmentTextAt(segments, Number(anchor.paragraph_index ?? 0));
+      if (para) {
+        const start = Number(anchor.start_offset ?? 0);
+        const end = Number(anchor.end_offset ?? 0);
+        if (end > start && end <= para.length) {
+          const sentence = expandToSentenceBoundaries(para, start, end);
+          const slice = para.slice(sentence.start, sentence.end).trim();
+          if (slice) return slice;
+          const raw = para.slice(start, end).trim();
+          if (raw) return raw;
+        }
+      }
+    }
+
+    return stored;
+  }
+
+  // No stored quote — fall back to anchor offsets directly.
   if (anchor) {
     const para = segmentTextAt(segments, Number(anchor.paragraph_index ?? 0));
     if (para) {
-      if (stored) {
-        const fromQuote = resolveExactQuoteInParagraph(para, stored);
-        if (fromQuote) {
-          // Expand the located quote to a full sentence.
-          const idx = para.indexOf(fromQuote);
-          if (idx >= 0) {
-            const sentence = expandToSentenceBoundaries(para, idx, idx + fromQuote.length);
-            return para.slice(sentence.start, sentence.end).trim();
-          }
-          return fromQuote;
-        }
-      }
       const start = Number(anchor.start_offset ?? 0);
       const end = Number(anchor.end_offset ?? 0);
       if (end > start && end <= para.length) {
         const sentence = expandToSentenceBoundaries(para, start, end);
         const slice = para.slice(sentence.start, sentence.end).trim();
         if (slice) return slice;
+        const raw = para.slice(start, end).trim();
+        if (raw) return raw;
       }
     }
   }
 
-  // No usable anchor — still try to complete a truncated stored quote across segments.
-  if (stored) {
-    for (const segment of segments) {
-      const para = typeof segment.text === 'string' ? segment.text : '';
-      const fromQuote = resolveExactQuoteInParagraph(para, stored);
-      if (fromQuote) {
-        const idx = para.indexOf(fromQuote);
-        if (idx >= 0) {
-          const sentence = expandToSentenceBoundaries(para, idx, idx + fromQuote.length);
-          return para.slice(sentence.start, sentence.end).trim();
-        }
-        return fromQuote;
-      }
-    }
-  }
-
-  return stored;
+  return undefined;
 }
 
 /** Map a `feedback_item` row to the shared camelCase FeedbackItem DTO. */
@@ -444,10 +490,18 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   const [feedbackRows, anchorRows, draftRows, draftSegRows] = await Promise.all([
     db.query(feedbackQuery, feedbackArgs),
     db.query(anchorsQuery, feedbackArgs),
-    db.query<{ id: string; version_number: number }>(
-      `SELECT id, version_number FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 2`,
-      [documentId],
-    ),
+    targetDraftId
+      ? db.query<{ id: string; version_number: number }>(
+          `SELECT id, version_number FROM draft
+           WHERE document_id = $1
+             AND version_number <= (SELECT version_number FROM draft WHERE id = $2)
+           ORDER BY version_number DESC LIMIT 2`,
+          [documentId, targetDraftId],
+        )
+      : db.query<{ id: string; version_number: number }>(
+          `SELECT id, version_number FROM draft WHERE document_id = $1 ORDER BY version_number DESC LIMIT 2`,
+          [documentId],
+        ),
     targetDraftId
       ? db.query(`SELECT segments FROM draft WHERE id = $1 AND document_id = $2`, [targetDraftId, documentId])
       : Promise.resolve([]),
@@ -460,15 +514,16 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
       ? db.query(`SELECT id, name FROM error_category WHERE id = ANY($1)`, [categoryIds])
       : Promise.resolve([]),
     draftRows.length >= 2
-      ? db.query<{ error_category_id: string; resolved: string; partial: string; total: string }>(
+      ? db.query<{ error_category_id: string; resolved: string; partial: string; unchanged: string; total: string }>(
           `SELECT fi.error_category_id,
                   COUNT(*) FILTER (WHERE rsh.status = 'resolved') AS resolved,
                   COUNT(*) FILTER (WHERE rsh.status = 'partially_resolved') AS partial,
+                  COUNT(*) FILTER (WHERE rsh.status = 'unchanged') AS unchanged,
                   COUNT(*) AS total
            FROM resolution_status_history rsh
            JOIN feedback_item fi ON fi.id = rsh.feedback_item_id
            WHERE rsh.draft_id = $1
-             AND rsh.status IN ('resolved', 'partially_resolved', 'still_unresolved')
+             AND rsh.status IN ('resolved', 'partially_resolved', 'still_unresolved', 'unchanged')
            GROUP BY fi.error_category_id`,
           [draftRows[0].id],
         )
@@ -491,28 +546,37 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
 
     if (resolutionRows.length > 0) {
       // Resolution-based: did the student actually fix the flagged issues?
-      // Weighted score: resolved=100, partially_resolved=50, still_unresolved=0
+      // Weighted score: resolved=100, partially_resolved=50, still_unresolved=0.
+      // Categories where ALL items are unchanged (no edit in that area) are
+      // omitted — showing progress is meaningless without an edit attempt.
       for (const r of resolutionRows) {
         const name = categoryNames[r.error_category_id];
         if (!name) continue;
         const resolved = parseInt(r.resolved, 10);
         const partial = parseInt(r.partial, 10);
+        const unchanged = parseInt((r as any).unchanged, 10);
         const total = parseInt(r.total, 10);
+
+        // Skip categories where nothing was edited — no progress to report.
+        if (unchanged === total) continue;
+
+        // Compute over only the non-unchanged items (the ones the student actually touched).
+        const evaluated = total - unchanged;
         const addressed = resolved + partial;
-        const pct = total > 0 ? Math.round(((resolved * 100 + partial * 50) / total / 100) * 100) : 0;
+        const pct = evaluated > 0 ? Math.round(((resolved * 100 + partial * 50) / evaluated / 100) * 100) : 0;
 
         let tendency: 'improving' | 'persistent' | 'emerging';
         let description: string;
 
         if (pct >= 40) {
           tendency = 'improving';
-          description = `You addressed ${addressed} of ${total} ${name} issue${total !== 1 ? 's' : ''} — keep it up.`;
+          description = `You addressed ${addressed} of ${evaluated} ${name} issue${evaluated !== 1 ? 's' : ''} — keep it up.`;
         } else if (addressed > 0) {
           tendency = 'persistent';
-          description = `You partially addressed ${name} — ${addressed} of ${total} issue${total !== 1 ? 's' : ''} showing progress. Worth more focus.`;
+          description = `You partially addressed ${name} — ${addressed} of ${evaluated} issue${evaluated !== 1 ? 's' : ''} showing progress. Worth more focus.`;
         } else {
           tendency = 'persistent';
-          description = `${name} issues from your previous draft remain unaddressed (0 of ${total} resolved).`;
+          description = `${name} issues from your previous draft remain unaddressed (0 of ${evaluated} resolved).`;
         }
 
         progressSummary.push({ category: name, tendency, description });

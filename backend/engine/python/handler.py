@@ -102,7 +102,7 @@ Return a JSON array. Each element must have exactly these keys:
   kind: "inline" | "structural" | "strength"
   question_text: string  — the opening question that draws the student into this feedback item
   positive_note: string | null  — REQUIRED for kind="strength": a specific, concrete affirmation of what the student did well (e.g. "Your use of R v Smith correctly identifies the ratio decidendi"). null for all other kinds.
-  anchor: { paragraphIndex: int, quotedText: string } | null  — required for kind="inline"; OPTIONAL for kind="strength" (include the verbatim sentence or clause that best exemplifies the strength); null for kind="structural"
+  anchor: { paragraphIndex: int, quotedText: string } | null  — REQUIRED for kind="inline" and kind="strength" (copy the verbatim sentence or clause that best exemplifies the issue or strength); null for kind="structural"
 Only output valid JSON. No markdown fences, no extra keys, no prose outside the array.
 
 OUTPUT ORDER (CRITICAL): Emit every kind="strength" item FIRST — one for each
@@ -112,11 +112,11 @@ array is truncated, strengths must still be present.
 kind rules:
   "inline"     — anchored to a specific text span; must have a valid anchor; positive_note must be null
   "structural" — document-wide area for improvement; anchor must be null; positive_note must be null
-  "strength"   — something the student did well; positive_note MUST be a specific affirmation; anchor is encouraged — include the verbatim sentence or clause that best exemplifies the strength when one can be identified
+  "strength"   — something the student did well; positive_note MUST be a specific affirmation; anchor MUST be included — copy the verbatim sentence or clause that best exemplifies the strength
 
 For "strength" items:
   - positive_note names the exact thing done well — be specific, cite the text or technique
-  - anchor is encouraged: identify the sentence or clause in the document that best demonstrates the strength and include it as a verbatim anchor quote
+  - anchor MUST be included: identify the sentence or clause in the document that best demonstrates the strength and include it as a verbatim anchor quote
   - question_text then builds on it: ask how they could apply this strength elsewhere, deepen it, or sustain it
   - Do NOT use positive_note to rewrite or correct anything — it describes what already exists in the document
 
@@ -468,11 +468,15 @@ def assemble_prompt(
     else:
         # Always label paragraphs with their index so the model can produce
         # accurate anchor.paragraphIndex values in inline feedback items.
+        # Skip consecutive segments with identical text — these are extraction
+        # artifacts (e.g. OCR duplicating a line) that confuse the model.
         para_lines = []
+        prev_text: str | None = None
         for i, seg in enumerate(segments):
             text = seg.get('text', '')
-            if text:
+            if text and text != prev_text:
                 para_lines.append(f"[PARAGRAPH {i}]\n{text}")
+                prev_text = text
         doc_text = '\n\n'.join(para_lines)
 
     # Build type instructions: department-level prompt first, then doc-type fields
@@ -687,11 +691,15 @@ def parse_feedback_output(model_output: str) -> list[dict[str, Any]]:
         if not isinstance(items, list):
             items = [items]
 
-        # Validate and sanitize items
+        # Validate, sanitize, and deduplicate items.
         validated_items = []
+        seen_keys: set[tuple[str, str]] = set()
         for item in items:
             if isinstance(item, dict) and 'error_category_id' in item and 'question_text' in item:
-                validated_items.append(item)
+                key = (item['error_category_id'], item['question_text'].strip().lower())
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    validated_items.append(item)
 
         return validated_items
     except json.JSONDecodeError as e:
@@ -708,10 +716,14 @@ def parse_feedback_output(model_output: str) -> list[dict[str, Any]]:
                 items = json.loads(recovered)
                 if not isinstance(items, list):
                     return []
-                validated_items = [
-                    item for item in items
-                    if isinstance(item, dict) and 'error_category_id' in item and 'question_text' in item
-                ]
+                seen_keys: set[tuple[str, str]] = set()
+                validated_items = []
+                for item in items:
+                    if isinstance(item, dict) and 'error_category_id' in item and 'question_text' in item:
+                        key = (item['error_category_id'], item['question_text'].strip().lower())
+                        if key not in seen_keys:
+                            seen_keys.add(key)
+                            validated_items.append(item)
                 logger.info(f"Recovered {len(validated_items)} items from truncated output")
                 return validated_items
         except Exception:
@@ -720,6 +732,192 @@ def parse_feedback_output(model_output: str) -> list[dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error parsing feedback output: {str(e)}")
         return []
+
+
+def _first_sentence(text: str) -> str:
+    """Return the first complete sentence from text (up to 280 chars).
+
+    Skips abbreviation periods (single uppercase letter before '.', or '.'
+    immediately followed by a letter) so 'B.C.' and 'e.g.' don't truncate.
+    """
+    for i, ch in enumerate(text):
+        if ch in ('!', '?'):
+            return text[:i + 1].strip()
+        if ch == '.':
+            before = text[max(0, i - 1):i]
+            after = text[i + 1:i + 2]
+            if before and before.isupper() and len(before) == 1:
+                continue
+            if after and after.isalpha():
+                continue
+            rest = text[i + 1:]
+            stripped = rest.lstrip()
+            if not stripped or stripped[0].isupper() or stripped[0] in ('"', "'"):
+                return text[:i + 1].strip()
+    return text[:280].strip()
+
+
+def _synthesize_missing_quotes(
+    feedback_items: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> None:
+    """For inline and strength items that have a paragraphIndex anchor but no
+    quotedText, synthesize the quote from the first sentence of that paragraph.
+
+    Guarantees at least one quote per section when the AI omits quotedText
+    despite being instructed to include it, or when an anchor match failed.
+    Only fires when anchor exists — we do not fabricate quotes without a
+    paragraph pointer.
+    """
+    for item in feedback_items:
+        if item.get('kind') not in ('inline', 'strength'):
+            continue
+        anchor = item.get('anchor')
+        if not isinstance(anchor, dict):
+            continue
+        if anchor.get('quotedText'):
+            continue
+        para_idx = anchor.get('paragraphIndex', 0)
+        if not isinstance(para_idx, int) or para_idx >= len(segments):
+            continue
+        text = segments[para_idx].get('text', '')
+        if not text:
+            continue
+        sentence = _first_sentence(text)
+        if sentence:
+            anchor['quotedText'] = sentence
+
+
+def _check_quote_coverage(
+    draft_id: str,
+    conn: psycopg.Connection,
+) -> tuple[bool, bool]:
+    """Return (has_strength_quote, has_inline_quote) for the given draft."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT kind, COUNT(*)
+               FROM feedback_item
+               WHERE source_draft_id = %s
+                 AND quoted_text IS NOT NULL
+                 AND quoted_text <> ''
+                 AND kind IN ('strength', 'inline')
+               GROUP BY kind""",
+            (draft_id,),
+        )
+        rows = cur.fetchall()
+    counts = {row[0]: row[1] for row in rows}
+    return counts.get('strength', 0) > 0, counts.get('inline', 0) > 0
+
+
+def _build_quote_fallback_prompt(
+    missing_sections: list[str],
+    document_text: str,
+    category_ids: list[str],
+    category_names: list[str],
+) -> str:
+    """Short targeted prompt that asks for exactly one anchored item per missing section."""
+    id_name_pairs = list(zip(category_ids, category_names))
+    cat_lines = '\n'.join(f'  {cid}: {name}' for cid, name in id_name_pairs)
+    items_needed = len(missing_sections)
+
+    section_lines = []
+    if 'strength' in missing_sections:
+        section_lines.append(
+            '- One kind="strength": something genuinely well done. '
+            'anchor MUST be present with paragraphIndex and verbatim quotedText. '
+            'positive_note MUST be a specific affirmation.'
+        )
+    if 'inline' in missing_sections:
+        section_lines.append(
+            '- One kind="inline": a specific issue anchored to a text span. '
+            'anchor MUST be present with paragraphIndex and verbatim quotedText. '
+            'positive_note must be null.'
+        )
+
+    return (
+        f"You are reviewing a student's legal document. "
+        f"Generate exactly {items_needed} feedback item(s) as a JSON array.\n\n"
+        f"Required item(s):\n" + '\n'.join(section_lines) + "\n\n"
+        f"Each item must have: error_category_id (UUID from the list below), "
+        f"kind, question_text (Socratic question, never a correction), "
+        f"positive_note, anchor ({{paragraphIndex: int, quotedText: string}} — REQUIRED, "
+        f"copy text verbatim from the paragraph).\n\n"
+        f"Categories:\n{cat_lines}\n\n"
+        f"Document:\n{document_text}\n\n"
+        f"Output only a valid JSON array. No markdown fences."
+    )
+
+
+def _run_quote_safety_net(
+    document_id: str,
+    draft_id: str,
+    user_id: str,
+    segments: list[dict[str, Any]],
+    config: dict[str, Any],
+    doc_type_meta: dict[str, Any],
+    conn: psycopg.Connection,
+) -> int:
+    """After items are persisted, check that each visible section has at least
+    one quoted item. If not, run a single targeted Bedrock fill-in and append
+    the missing examples without wiping existing data. Returns the count of
+    items inserted (0 if coverage was already adequate or if it failed).
+    Non-fatal: any error is logged and swallowed so the main job always completes."""
+    try:
+        has_strength, has_inline = _check_quote_coverage(draft_id, conn)
+        missing = []
+        if not has_strength:
+            missing.append('strength')
+        if not has_inline:
+            missing.append('inline')
+        if not missing:
+            return 0
+
+        logger.warning(
+            "Quote safety net: section(s) %s have no quoted items — running fill-in",
+            missing,
+        )
+
+        category_ids = list(doc_type_meta.get('category_ids', []))
+        category_names = list(doc_type_meta.get('category_names', []))
+        if not category_ids:
+            logger.warning("Quote safety net: no category IDs, skipping")
+            return 0
+
+        doc_text = document_text_from_segments(segments, max_chars=6_000, per_paragraph=400)
+        prompt = _build_quote_fallback_prompt(
+            missing_sections=missing,
+            document_text=doc_text,
+            category_ids=category_ids,
+            category_names=category_names,
+        )
+
+        raw, stop_reason = invoke_bedrock(prompt, config, max_tokens=1024)
+        if stop_reason == 'max_tokens':
+            logger.warning("Quote safety net: fill-in output truncated")
+
+        fill_items = parse_feedback_output(raw)
+        if not fill_items:
+            logger.warning("Quote safety net: fill-in returned no parseable items")
+            return 0
+
+        _synthesize_missing_quotes(fill_items, segments)
+
+        needed_kinds = set(missing)
+        fill_items = [i for i in fill_items if i.get('kind') in needed_kinds]
+        if not fill_items:
+            logger.warning("Quote safety net: no fill-in items matched needed sections")
+            return 0
+
+        inserted = insert_feedback_items(
+            document_id, draft_id, user_id, fill_items, segments, conn,
+            wipe_existing=False,
+        )
+        logger.info("Quote safety net: appended %s fallback item(s)", inserted)
+        return inserted
+
+    except Exception as exc:
+        logger.warning("Quote safety net failed (non-fatal): %s", exc, exc_info=True)
+        return 0
 
 
 def _ensure_strength_coverage(
@@ -867,12 +1065,31 @@ def insert_feedback_items(
     user_id: str,
     feedback_items: list[dict[str, Any]],
     segments: list[dict[str, Any]],
-    conn: psycopg.Connection
+    conn: psycopg.Connection,
+    *,
+    wipe_existing: bool = True,
 ) -> int:
     """Insert feedback items and anchors into database."""
     try:
         item_count = 0
         with conn.cursor() as cur:
+            if wipe_existing:
+                # Wipe any rows from a prior generation run for this draft so counts
+                # don't accumulate across regenerations on the same draft.
+                cur.execute(
+                    "UPDATE feedback_item SET current_anchor_id = NULL WHERE source_draft_id = %s",
+                    (draft_id,),
+                )
+                cur.execute(
+                    """DELETE FROM resolution_status_history
+                       WHERE feedback_item_id IN (
+                           SELECT id FROM feedback_item WHERE source_draft_id = %s
+                       )""",
+                    (draft_id,),
+                )
+                cur.execute("DELETE FROM anchor WHERE draft_id = %s", (draft_id,))
+                cur.execute("DELETE FROM feedback_item WHERE source_draft_id = %s", (draft_id,))
+
             for item in feedback_items:
                 try:
                     # Locate the model's quoted text verbatim in the paragraph to
@@ -934,11 +1151,15 @@ def insert_feedback_items(
                                     f"quote_preview={model_quote[:80]!r} "
                                     f"para_preview={para_text[:80]!r}"
                                 )
+                                # Still store the model's text so the TypeScript
+                                # resolver can search across all segments for it.
+                                quoted_text = model_quote or None
                         elif item_kind == 'inline':
                             if not model_quote:
                                 logger.warning(f"Inline item missing quotedText in anchor")
                             elif para_index >= len(segments):
                                 logger.warning(f"Anchor paragraphIndex={para_index} out of range (segments={len(segments)})")
+                                quoted_text = model_quote or None
                     elif item_kind == 'inline':
                         logger.warning(f"Inline item missing anchor field entirely")
 
@@ -1339,9 +1560,27 @@ def _persist_carried_forward_items(
     new_draft_id) plus a new anchor row so the debrief for this draft is
     self-contained (REQ-NFR-COST-01 criterion 1: "persist prior Feedback Items
     and reuse them").
+
+    Idempotent: wipes any existing rows for new_draft_id before inserting so
+    SQS retries do not produce duplicate feedback items.
     """
     count = 0
     with conn.cursor() as cur:
+        # Idempotency guard — clear any rows from a previous (failed) attempt.
+        cur.execute(
+            "UPDATE feedback_item SET current_anchor_id = NULL WHERE source_draft_id = %s",
+            (new_draft_id,),
+        )
+        cur.execute(
+            """DELETE FROM resolution_status_history
+               WHERE feedback_item_id IN (
+                   SELECT id FROM feedback_item WHERE source_draft_id = %s
+               )""",
+            (new_draft_id,),
+        )
+        cur.execute("DELETE FROM anchor WHERE draft_id = %s", (new_draft_id,))
+        cur.execute("DELETE FROM feedback_item WHERE source_draft_id = %s", (new_draft_id,))
+
         for cached in prior_cached:
             try:
                 item = cached.item
@@ -1365,6 +1604,10 @@ def _persist_carried_forward_items(
                         para_text = segments[para_idx].get('text', '')
                         if end_off > start_off and end_off <= len(para_text):
                             quoted_text = para_text[start_off:end_off]
+                        # No valid offsets — synthesize from first sentence so
+                        # carry-forward items always surface a quote.
+                        if quoted_text is None and para_text and kind in ('inline', 'strength'):
+                            quoted_text = _first_sentence(para_text) or None
 
                 feedback_id = str(uuid.uuid4())
                 cur.execute("""
@@ -1639,6 +1882,9 @@ def process_feedback_request(
     """Process a single feedback request."""
     conn = None
     resolution_thread: threading.Thread | None = None
+    has_persisted_cf_items: bool = False  # True when _persist_carried_forward_items committed rows
+    cf_count: int = 0                     # count of those rows (for aggregate counters)
+    remapped: list = []                   # carried-forward items after index remapping
     try:
         # Step 1: Get database connection
         conn = get_db_connection()
@@ -1704,6 +1950,7 @@ def process_feedback_request(
                         cf_count = _persist_carried_forward_items(
                             document_id, draft_id, segments, remapped, conn,
                         )
+                        has_persisted_cf_items = True
                         logger.info(f"Persisted {cf_count} carried-forward items for draft {draft_id}")
                         cf_as_items = [
                             {
@@ -1734,14 +1981,20 @@ def process_feedback_request(
                         if new_strengths:
                             filled = insert_feedback_items(
                                 document_id, draft_id, user_id, new_strengths, segments, conn,
+                                wipe_existing=False,
                             )
                             logger.info(
                                 "Carry-forward fill-in inserted %s missing strength item(s)",
                                 filled,
                             )
                         persist_resolution_status(document_id, draft_id, segments, config, conn)
+                        safety_net_count = _run_quote_safety_net(
+                            document_id, draft_id, user_id, segments, config, doc_type_meta, conn,
+                        )
+                        total_cf = cf_count + filled + safety_net_count
+                        update_aggregate_counters(writing_type_id, total_cf, conn)
                         try:
-                            publish_debrief_ready(document_id, draft_id, cf_count + filled)
+                            publish_debrief_ready(document_id, draft_id, total_cf)
                         except Exception as appsync_err:
                             logger.warning(
                                 "AppSync publish failed after carry-forward (non-fatal): %s",
@@ -1769,6 +2022,7 @@ def process_feedback_request(
                         cf_count = _persist_carried_forward_items(
                             document_id, draft_id, segments, remapped, conn,
                         )
+                        has_persisted_cf_items = True
                         logger.info(
                             f"Carry-forward: {len(remapped)} reused "
                             f"({cf_count} persisted), "
@@ -1899,8 +2153,21 @@ def process_feedback_request(
             )
 
         # Step 7c: Every displayed / priority category must have a strength item.
+        # When CF items were already committed to DB for unchanged paragraphs,
+        # include them as phantom entries so the coverage check does not
+        # treat those categories as missing and insert duplicate strength items.
+        cf_phantom_items: list[dict[str, Any]] = [
+            {
+                'error_category_id': cached.item.category,
+                'kind': _cached_item_kind(cached),
+                'question_text': cached.item.question,
+            }
+            for cached in remapped
+        ] if remapped else []
+        coverage_view = list(feedback_items) + cf_phantom_items
+        before_coverage = len(coverage_view)
         _ensure_strength_coverage(
-            feedback_items,
+            coverage_view,
             valid_category_ids=valid_category_ids,
             category_priority=list(category_priority or []),
             category_ids=list(doc_type_meta.get('category_ids', [])),
@@ -1908,6 +2175,8 @@ def process_feedback_request(
             segments=segments,
             config=config,
         )
+        # Sync only genuinely new fill-in items back — not the CF phantoms.
+        feedback_items.extend(coverage_view[before_coverage:])
 
         # Warn when inline items lack anchors or strength items lack anchors (anchor encouraged).
         inline_missing_anchor = [
@@ -1944,16 +2213,31 @@ def process_feedback_request(
                 len(feedback_items),
             )
 
+        # Synthesize quotes for any item that has a paragraph pointer but no
+        # quotedText — ensures the debrief always shows at least one quote per
+        # section even when the AI omits verbatim text.
+        _synthesize_missing_quotes(feedback_items, segments)
+
         logger.info("Inserting feedback items...")
-        item_count = insert_feedback_items(document_id, draft_id, user_id, feedback_items, segments, conn)
+        # Wipe existing rows only on a full regeneration (no CF items were persisted).
+        # When CF items are already in the DB, append without wiping so they survive.
+        item_count = insert_feedback_items(
+            document_id, draft_id, user_id, feedback_items, segments, conn,
+            wipe_existing=not has_persisted_cf_items,
+        )
+
+        safety_net_count = _run_quote_safety_net(
+            document_id, draft_id, user_id, segments, config, doc_type_meta, conn,
+        )
 
         logger.info("Updating aggregate counters...")
-        update_aggregate_counters(writing_type_id, item_count, conn)
+        total_count = item_count + cf_count + safety_net_count
+        update_aggregate_counters(writing_type_id, total_count, conn)
 
         # Notify the frontend via AppSync so the subscription fires immediately.
         # Non-fatal: polling fallback remains active during the transition period.
         try:
-            publish_debrief_ready(document_id, draft_id, item_count)
+            publish_debrief_ready(document_id, draft_id, total_count)
         except Exception as appsync_err:
             logger.warning("AppSync publish failed (non-fatal): %s", appsync_err)
 
