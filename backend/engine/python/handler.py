@@ -15,6 +15,7 @@ import hashlib
 
 import psycopg
 import boto3
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
 from publish_debrief_ready import publish_debrief_ready
@@ -635,7 +636,11 @@ def invoke_bedrock(
     JSON array was cut off — callers must not persist that as a complete debrief.
     """
     try:
-        bedrock_client = boto3.client('bedrock-runtime', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
+        bedrock_client = boto3.client(
+            'bedrock-runtime',
+            region_name=os.getenv('AWS_REGION', 'ca-central-1'),
+            config=BotoConfig(read_timeout=300, retries={'max_attempts': 2}),
+        )
         # Per-job DB override, else SSM (STACK_PREFIX) / env fallback.
         model_id = to_cross_region_inference_profile_id(
             config.get('bedrock_model_id') or resolve_bedrock_model_id()
