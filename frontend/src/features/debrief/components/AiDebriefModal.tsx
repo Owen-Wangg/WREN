@@ -48,6 +48,7 @@ export interface AiDebriefModalProps {
     feedbackItemId: string;
     anchorId?: string;
     quotedText?: string;
+    resolvedHighlight?: { paragraphIndex: number; startOffset: number; endOffset: number };
   }) => void;
 }
 
@@ -384,6 +385,7 @@ export function AiDebriefModal({
                                             feedbackItemId: item.id,
                                             anchorId: item.currentAnchorId,
                                             quotedText: item.quotedText,
+                                            resolvedHighlight: item.resolvedHighlight ?? undefined,
                                           })
                                         }
                                         role="button"
@@ -436,6 +438,7 @@ export function AiDebriefModal({
                                             feedbackItemId: item.id,
                                             anchorId: item.currentAnchorId,
                                             quotedText: item.quotedText,
+                                            resolvedHighlight: item.resolvedHighlight ?? undefined,
                                           })
                                         }
                                         role="button"

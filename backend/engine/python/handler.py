@@ -124,7 +124,7 @@ For "strength" items:
 anchor.quotedText rules (CRITICAL — follow every rule exactly):
   1. VERBATIM: Copy the text character-for-character from the paragraph. Never paraphrase, rephrase, summarize, or alter spelling/punctuation in any way.
   2. RELEVANT: The quoted text MUST be the specific sentence or clause that CONTAINS the error, weakness, or issue your question_text discusses (or, for strength items, that demonstrates the strength). The reader sees this quote as direct evidence — if the quote does not demonstrate the point, the feedback is confusing and useless. Do NOT anchor to a nearby sentence that merely provides context.
-  3. COMPACT: Quote one self-contained clause or short sentence — at most ~40 words (about 280 characters). Never quote a whole paragraph or multiple sentences.
+  3. COMPLETE SENTENCE: Always quote one full sentence — start at the sentence's first word and end at its terminal punctuation (period, question mark, or exclamation mark). Aim for 15–40 words (roughly 100–280 characters). Never stop mid-sentence or mid-clause. If the relevant sentence is very short (under 15 words), include the immediately preceding or following sentence for context. Never quote more than 2 sentences or exceed 300 characters.
   4. FINDABLE: The exact character sequence you produce must appear verbatim in the paragraph text at paragraphIndex. If it cannot be found there via exact string match, the anchor will fail silently."""
 _GUARDRAIL = (
     "NEVER provide replacement prose, rewrites, corrections, or any text the writer "
@@ -742,22 +742,42 @@ def parse_feedback_output(model_output: str) -> list[dict[str, Any]]:
 def _first_sentence(text: str) -> str:
     """Return the first complete sentence from text (up to 280 chars).
 
-    Skips abbreviation periods (single uppercase letter before '.', or '.'
-    immediately followed by a letter) so 'B.C.' and 'e.g.' don't truncate.
+    Skips abbreviation periods: single uppercase letter before '.' (B.C.),
+    '.' immediately followed by a letter (e.g.), or short capitalized words
+    mid-sentence (Ms., Dr., Prof., Jan., No., etc.).
     """
     for i, ch in enumerate(text):
         if ch in ('!', '?'):
             return text[:i + 1].strip()
         if ch == '.':
-            before = text[max(0, i - 1):i]
             after = text[i + 1:i + 2]
-            if before and before.isupper() and len(before) == 1:
-                continue
+            # Period immediately followed by a letter: e.g., i.e.
             if after and after.isalpha():
+                continue
+            # Extract the word immediately before this period
+            word_end = i
+            word_start = i
+            while word_start > 0 and text[word_start - 1].isalpha():
+                word_start -= 1
+            word_before = text[word_start:word_end]
+            # Single uppercase letter: B.C., U.S., S. 3(b)
+            if len(word_before) == 1 and word_before.isupper():
+                continue
+            # Short capitalized word mid-sentence: likely abbreviation
+            # (Ms., Dr., Jr., Prof., Rev., Jan., No., Vol., etc.)
+            if (1 < len(word_before) <= 5
+                    and word_before[0].isupper()
+                    and word_start > 0
+                    and not text[word_start - 1].isalpha()):
                 continue
             rest = text[i + 1:]
             stripped = rest.lstrip()
             if not stripped or stripped[0].isupper() or stripped[0] in ('"', "'"):
+                return text[:i + 1].strip()
+            # Digit after period: sentence end only if the preceding word is
+            # long (not an abbreviation like "s. 3" or "para. 10") — handles
+            # inline footnote numbers in legal text.
+            if stripped[0].isdigit() and len(word_before) > 5:
                 return text[:i + 1].strip()
     return text[:280].strip()
 

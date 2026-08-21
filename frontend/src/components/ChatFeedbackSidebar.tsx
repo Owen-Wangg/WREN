@@ -48,6 +48,7 @@ export interface ChatFeedbackSidebarProps {
     feedbackItemId: string;
     anchorId?: string;
     quotedText?: string;
+    resolvedHighlight?: { paragraphIndex: number; startOffset: number; endOffset: number };
   }) => void;
 }
 

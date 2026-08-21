@@ -179,6 +179,9 @@ export function DocumentEditorPage() {
   const [highlightedLocationHint, setHighlightedLocationHint] = useState<string | undefined>(
     undefined,
   );
+  const [highlightedResolvedHighlight, setHighlightedResolvedHighlight] = useState<
+    { paragraphIndex: number; startOffset: number; endOffset: number } | undefined
+  >(undefined);
   const [activeQuoteId, setActiveQuoteId] = useState<string | undefined>(undefined);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
   // Start polling immediately if we arrived from a fresh upload (router state
@@ -1024,12 +1027,14 @@ export function DocumentEditorPage() {
                     setHighlightedAnchorId(undefined);
                     setHighlightedQuotedText(undefined);
                     setHighlightedLocationHint(undefined);
+                    setHighlightedResolvedHighlight(undefined);
                     return;
                   }
                   setActiveQuoteId(selection.quoteKey);
                   setHighlightedAnchorId(undefined);
                   setHighlightedQuotedText(selection.quotedText);
                   setHighlightedLocationHint(selection.locationHint);
+                  setHighlightedResolvedHighlight(undefined);
                   setShowCoachHighlights(true);
                 }}
                 activeQuoteId={activeQuoteId}
@@ -1039,12 +1044,14 @@ export function DocumentEditorPage() {
                     setHighlightedAnchorId(undefined);
                     setHighlightedQuotedText(undefined);
                     setHighlightedLocationHint(undefined);
+                    setHighlightedResolvedHighlight(undefined);
                     return;
                   }
                   setActiveQuoteId(selection.feedbackItemId);
                   setHighlightedAnchorId(selection.anchorId);
                   setHighlightedQuotedText(selection.quotedText);
                   setHighlightedLocationHint(undefined);
+                  setHighlightedResolvedHighlight(selection.resolvedHighlight);
                   setShowCoachHighlights(true);
                 }}
               />
@@ -1191,6 +1198,7 @@ export function DocumentEditorPage() {
               highlightedAnchorId={highlightedAnchorId}
               highlightedQuotedText={highlightedQuotedText}
               highlightedLocationHint={highlightedLocationHint}
+              highlightedResolvedHighlight={highlightedResolvedHighlight}
               showCoachHighlights={showCoachHighlights}
               onContentChange={(content) => setCurrentContent(content)}
               onHeaderChange={(h) => setCurrentHeader(h)}
