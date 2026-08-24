@@ -142,7 +142,7 @@ export function FootnotePanel({
           align="start"
           sideOffset={4}
           className="z-50 w-80 rounded-lg border border-border-strong bg-surface-primary p-lg shadow-lg"
-          onOpenAutoFocus={(e) => {
+          onOpenAutoFocus={(e: Event) => {
             // Open synchronously from the trigger's own click/focus handler
             // (no async gating) — this default autofocus behavior is kept
             // so the 200ms open budget (Requirement 3.2) is satisfied by the
