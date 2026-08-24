@@ -479,6 +479,14 @@ export const feedbackItemSchema = z
     positiveNote: z.string().optional(),
     /** Exact quote from the document that triggered this feedback (no generation). */
     quotedText: z.string().optional(),
+    /** Backend-resolved highlight offsets matching the expanded quotedText. */
+    resolvedHighlight: z
+      .object({
+        paragraphIndex: z.number().int().nonnegative(),
+        startOffset: z.number().int().nonnegative(),
+        endOffset: z.number().int().nonnegative(),
+      })
+      .optional(),
     currentAnchorId: idSchema.optional(),
     citationReferenceId: idSchema.optional(),
     sourceDraftId: idSchema,

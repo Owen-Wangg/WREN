@@ -58,6 +58,11 @@ const feedbackResponseSchema = z.object({
     questionText: z.string(),
     positiveNote: z.string().nullable().optional(),
     quotedText: z.string().nullable().optional(),
+    resolvedHighlight: z.object({
+      paragraphIndex: z.number(),
+      startOffset: z.number(),
+      endOffset: z.number(),
+    }).nullable().optional(),
     currentAnchorId: z.string().nullable().optional(),
     citationReferenceId: z.string().nullable().optional(),
     sourceDraftId: z.string().nullable().optional(),

@@ -179,7 +179,11 @@ export function DocumentEditorPage() {
   const [highlightedLocationHint, setHighlightedLocationHint] = useState<string | undefined>(
     undefined,
   );
+  const [highlightedResolvedHighlight, setHighlightedResolvedHighlight] = useState<
+    { paragraphIndex: number; startOffset: number; endOffset: number } | undefined
+  >(undefined);
   const [activeQuoteId, setActiveQuoteId] = useState<string | undefined>(undefined);
+  const [highlightFailed, setHighlightFailed] = useState(false);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
   // Start polling immediately if we arrived from a fresh upload (router state
   // carries feedbackQueued / legacy initialContent when feedback was auto-queued).
@@ -1019,32 +1023,39 @@ export function DocumentEditorPage() {
                   setShowCoachHighlights(true);
                 }}
                 onChatQuoteClick={(selection) => {
+                  setHighlightFailed(false);
                   if (activeQuoteId === selection.quoteKey) {
                     setActiveQuoteId(undefined);
                     setHighlightedAnchorId(undefined);
                     setHighlightedQuotedText(undefined);
                     setHighlightedLocationHint(undefined);
+                    setHighlightedResolvedHighlight(undefined);
                     return;
                   }
                   setActiveQuoteId(selection.quoteKey);
                   setHighlightedAnchorId(undefined);
                   setHighlightedQuotedText(selection.quotedText);
                   setHighlightedLocationHint(selection.locationHint);
+                  setHighlightedResolvedHighlight(undefined);
                   setShowCoachHighlights(true);
                 }}
                 activeQuoteId={activeQuoteId}
+                highlightFailed={highlightFailed}
                 onQuoteClick={(selection) => {
+                  setHighlightFailed(false);
                   if (activeQuoteId === selection.feedbackItemId) {
                     setActiveQuoteId(undefined);
                     setHighlightedAnchorId(undefined);
                     setHighlightedQuotedText(undefined);
                     setHighlightedLocationHint(undefined);
+                    setHighlightedResolvedHighlight(undefined);
                     return;
                   }
                   setActiveQuoteId(selection.feedbackItemId);
                   setHighlightedAnchorId(selection.anchorId);
                   setHighlightedQuotedText(selection.quotedText);
                   setHighlightedLocationHint(undefined);
+                  setHighlightedResolvedHighlight(selection.resolvedHighlight);
                   setShowCoachHighlights(true);
                 }}
               />
@@ -1191,7 +1202,9 @@ export function DocumentEditorPage() {
               highlightedAnchorId={highlightedAnchorId}
               highlightedQuotedText={highlightedQuotedText}
               highlightedLocationHint={highlightedLocationHint}
+              highlightedResolvedHighlight={highlightedResolvedHighlight}
               showCoachHighlights={showCoachHighlights}
+              onHighlightFailed={() => setHighlightFailed(true)}
               onContentChange={(content) => setCurrentContent(content)}
               onHeaderChange={(h) => setCurrentHeader(h)}
               onFooterChange={(f) => setCurrentFooter(f)}

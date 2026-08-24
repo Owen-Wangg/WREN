@@ -44,10 +44,13 @@ export interface ChatFeedbackSidebarProps {
   readonly onHighlightText?: (text: string) => void;
   /** Feedback item / chat quote id currently highlighted in the editor. */
   readonly activeQuoteId?: string;
+  /** True when the editor could not resolve the highlighted quote to an exact span. */
+  readonly highlightFailed?: boolean;
   readonly onQuoteClick?: (selection: {
     feedbackItemId: string;
     anchorId?: string;
     quotedText?: string;
+    resolvedHighlight?: { paragraphIndex: number; startOffset: number; endOffset: number };
   }) => void;
 }
 
@@ -69,6 +72,7 @@ export function ChatFeedbackSidebar({
   onChatQuoteClick,
   onHighlightText,
   activeQuoteId,
+  highlightFailed,
   onQuoteClick,
 }: ChatFeedbackSidebarProps) {
   const debriefQuery = useAiDebrief(documentId, null, isDocumentReady);
@@ -121,6 +125,7 @@ export function ChatFeedbackSidebar({
           onGenerationFailed={onGenerationFailed}
           generationError={generationError}
           activeQuoteId={activeQuoteId}
+          highlightFailed={highlightFailed}
           onQuoteClick={onQuoteClick}
         />
       </div>

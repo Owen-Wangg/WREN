@@ -111,10 +111,9 @@ function expandToWordBoundaries(
 
 /**
  * Returns true only for punctuation that genuinely ends a sentence.
- * Periods inside abbreviations (B.C, U.S., e.g., para.) are excluded by
- * requiring that the next non-whitespace character be uppercase (or absent).
- * A period immediately followed by a letter (no space) is always an
- * abbreviation and never a sentence end.
+ * Periods inside abbreviations are excluded: single uppercase letter (B.C.),
+ * period immediately followed by a letter (e.g.), or short capitalized words
+ * mid-sentence (Ms., Dr., Prof., Jan., No., etc.).
  */
 function isSentenceEnd(text: string, pos: number): boolean {
   const ch = text[pos];
@@ -124,11 +123,31 @@ function isSentenceEnd(text: string, pos: number): boolean {
   // Period followed directly by a letter = abbreviation (B.C, U.S., e.g.)
   const after = text[pos + 1];
   if (after && /[A-Za-z]/.test(after)) return false;
+  // Extract the word immediately before this period
+  let ws = pos;
+  while (ws > 0 && /[A-Za-z]/.test(text[ws - 1]!)) ws--;
+  const wordBefore = text.slice(ws, pos);
+  // Single uppercase letter: B.C., S. 3(b)
+  if (wordBefore.length === 1 && /[A-Z]/.test(wordBefore)) return false;
+  // Short capitalized word: likely abbreviation/title
+  // (Ms., Dr., Jr., Prof., Rev., Jan., No., Vol., etc.)
+  if (
+    wordBefore.length > 1 &&
+    wordBefore.length <= 5 &&
+    /[A-Z]/.test(wordBefore[0]!)
+  ) {
+    return false;
+  }
   // Period followed by whitespace or end: sentence end only when the next
   // non-whitespace character is uppercase (new sentence) or there is none.
   let j = pos + 1;
   while (j < text.length && /\s/.test(text[j]!)) j++;
-  return j >= text.length || /[A-Z"'([`“‘]/.test(text[j]!);
+  if (j >= text.length || /[A-Z”'([`”']/.test(text[j]!)) return true;
+  // Digit after period: sentence end only if the preceding word is long
+  // (not an abbreviation like “s. 3” or “para. 10”) — handles inline
+  // footnote numbers in legal text.
+  if (/[0-9]/.test(text[j]!) && wordBefore.length > 5) return true;
+  return false;
 }
 
 /**
@@ -234,25 +253,45 @@ function segmentTextAt(
  * Rebuild quotedText from the draft paragraph so the AI Debrief shows the
  * same exact span the editor highlights (word-complete, not mid-token cutoff).
  */
+interface ResolvedQuote {
+  text: string;
+  paragraphIndex: number;
+  startOffset: number;
+  endOffset: number;
+}
+
 function resolveQuotedTextForItem(
   row: any,
   anchorByFeedbackId: Map<string, any>,
   segments: Array<{ index?: number; text?: string }>,
-): string | undefined {
+): ResolvedQuote | undefined {
   const stored = typeof row.quoted_text === 'string' ? row.quoted_text : undefined;
   const anchor =
     (row.current_anchor_id
       ? [...anchorByFeedbackId.values()].find((a) => a.id === row.current_anchor_id)
       : undefined) ?? anchorByFeedbackId.get(row.id);
 
-  // Helper: expand a located quote to a full sentence with fallback.
-  const expandQuote = (para: string, fromQuote: string): string => {
+  // Helper: expand a located quote to a full sentence and return resolved offsets.
+  const expandQuote = (para: string, fromQuote: string, paraIndex: number): ResolvedQuote => {
     const idx = para.indexOf(fromQuote);
     if (idx >= 0) {
       const sentence = expandToSentenceBoundaries(para, idx, idx + fromQuote.length);
-      return para.slice(sentence.start, sentence.end).trim() || fromQuote;
+      const text = para.slice(sentence.start, sentence.end).trim() || fromQuote;
+      const finalStart = para.indexOf(text, Math.max(0, sentence.start - 1));
+      return {
+        text,
+        paragraphIndex: paraIndex,
+        startOffset: finalStart >= 0 ? finalStart : sentence.start,
+        endOffset: finalStart >= 0 ? finalStart + text.length : sentence.end,
+      };
     }
-    return fromQuote;
+    const fallbackIdx = para.indexOf(fromQuote);
+    return {
+      text: fromQuote,
+      paragraphIndex: paraIndex,
+      startOffset: fallbackIdx >= 0 ? fallbackIdx : 0,
+      endOffset: fallbackIdx >= 0 ? fallbackIdx + fromQuote.length : fromQuote.length,
+    };
   };
 
   // When a stored quote text is available, always prefer finding it verbatim
@@ -261,18 +300,21 @@ function resolveQuotedTextForItem(
   if (stored) {
     // 1. Try the anchor's own paragraph first (fast path).
     if (anchor) {
-      const para = segmentTextAt(segments, Number(anchor.paragraph_index ?? 0));
+      const paraIndex = Number(anchor.paragraph_index ?? 0);
+      const para = segmentTextAt(segments, paraIndex);
       if (para) {
         const fromQuote = resolveExactQuoteInParagraph(para, stored);
-        if (fromQuote) return expandQuote(para, fromQuote);
+        if (fromQuote) return expandQuote(para, fromQuote, paraIndex);
       }
     }
 
     // 2. Scan all segments (handles misaligned paragraph index).
-    for (const segment of segments) {
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      const paraIndex = segment.index ?? i;
       const para = typeof segment.text === 'string' ? segment.text : '';
       const fromQuote = resolveExactQuoteInParagraph(para, stored);
-      if (fromQuote) return expandQuote(para, fromQuote);
+      if (fromQuote) return expandQuote(para, fromQuote, paraIndex);
     }
 
     // 3. Anchor offsets as last resort — only reached when the stored quote
@@ -280,35 +322,53 @@ function resolveQuotedTextForItem(
     //    was deleted). Raw offsets in the anchor's paragraph are better than
     //    returning nothing.
     if (anchor) {
-      const para = segmentTextAt(segments, Number(anchor.paragraph_index ?? 0));
+      const paraIndex = Number(anchor.paragraph_index ?? 0);
+      const para = segmentTextAt(segments, paraIndex);
       if (para) {
         const start = Number(anchor.start_offset ?? 0);
         const end = Number(anchor.end_offset ?? 0);
         if (end > start && end <= para.length) {
           const sentence = expandToSentenceBoundaries(para, start, end);
           const slice = para.slice(sentence.start, sentence.end).trim();
-          if (slice) return slice;
+          if (slice) {
+            const sliceStart = para.indexOf(slice, Math.max(0, sentence.start - 1));
+            return {
+              text: slice,
+              paragraphIndex: paraIndex,
+              startOffset: sliceStart >= 0 ? sliceStart : sentence.start,
+              endOffset: sliceStart >= 0 ? sliceStart + slice.length : sentence.end,
+            };
+          }
           const raw = para.slice(start, end).trim();
-          if (raw) return raw;
+          if (raw) return { text: raw, paragraphIndex: paraIndex, startOffset: start, endOffset: end };
         }
       }
     }
 
-    return stored;
+    return { text: stored, paragraphIndex: Number(anchor?.paragraph_index ?? 0), startOffset: 0, endOffset: 0 };
   }
 
   // No stored quote — fall back to anchor offsets directly.
   if (anchor) {
-    const para = segmentTextAt(segments, Number(anchor.paragraph_index ?? 0));
+    const paraIndex = Number(anchor.paragraph_index ?? 0);
+    const para = segmentTextAt(segments, paraIndex);
     if (para) {
       const start = Number(anchor.start_offset ?? 0);
       const end = Number(anchor.end_offset ?? 0);
       if (end > start && end <= para.length) {
         const sentence = expandToSentenceBoundaries(para, start, end);
         const slice = para.slice(sentence.start, sentence.end).trim();
-        if (slice) return slice;
+        if (slice) {
+          const sliceStart = para.indexOf(slice, Math.max(0, sentence.start - 1));
+          return {
+            text: slice,
+            paragraphIndex: paraIndex,
+            startOffset: sliceStart >= 0 ? sliceStart : sentence.start,
+            endOffset: sliceStart >= 0 ? sliceStart + slice.length : sentence.end,
+          };
+        }
         const raw = para.slice(start, end).trim();
-        if (raw) return raw;
+        if (raw) return { text: raw, paragraphIndex: paraIndex, startOffset: start, endOffset: end };
       }
     }
   }
@@ -324,12 +384,12 @@ function toFeedbackItemDto(
     segments?: Array<{ index?: number; text?: string }>;
   },
 ) {
-  const quotedText =
+  const resolved =
     options?.segments && options.anchorByFeedbackId
       ? resolveQuotedTextForItem(row, options.anchorByFeedbackId, options.segments)
-      : row.quoted_text
-        ? row.quoted_text
-        : undefined;
+      : undefined;
+
+  const quotedText = resolved?.text ?? (row.quoted_text || undefined);
 
   return {
     id: row.id,
@@ -338,6 +398,15 @@ function toFeedbackItemDto(
     kind: row.kind,
     questionText: row.question_text,
     ...(quotedText ? { quotedText } : {}),
+    ...(resolved && resolved.endOffset > 0
+      ? {
+          resolvedHighlight: {
+            paragraphIndex: resolved.paragraphIndex,
+            startOffset: resolved.startOffset,
+            endOffset: resolved.endOffset,
+          },
+        }
+      : {}),
     ...(row.positive_note ? { positiveNote: row.positive_note } : {}),
     ...(row.current_anchor_id ? { currentAnchorId: row.current_anchor_id } : {}),
     ...(row.citation_reference_id ? { citationReferenceId: row.citation_reference_id } : {}),

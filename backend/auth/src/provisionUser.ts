@@ -23,7 +23,13 @@ export interface ProvisionUserInput {
 const UPSERT_USER_SQL = `
 INSERT INTO app_user (email, first_name, last_name, idp_subject)
 VALUES ($1, $2, $3, $4)
-ON CONFLICT (idp_subject) DO NOTHING
+ON CONFLICT (idp_subject) DO UPDATE
+  SET first_name = CASE
+        WHEN app_user.first_name IS NULL OR app_user.first_name = '' OR app_user.first_name = 'User'
+        THEN EXCLUDED.first_name ELSE app_user.first_name END,
+      last_name = CASE
+        WHEN app_user.last_name IS NULL OR app_user.last_name = '' OR app_user.last_name = 'Account'
+        THEN EXCLUDED.last_name ELSE app_user.last_name END
 `;
 
 const SELECT_USER_ID_SQL =
@@ -32,8 +38,17 @@ const SELECT_USER_ID_SQL =
 const SELECT_USER_ID_BY_EMAIL_SQL =
   'SELECT id FROM app_user WHERE lower(email) = $1';
 
-const RELINK_IDP_SUBJECT_SQL =
-  'UPDATE app_user SET idp_subject = $1 WHERE id = $2 AND idp_subject <> $1';
+const RELINK_IDP_SUBJECT_SQL = `
+  UPDATE app_user
+  SET idp_subject = $1,
+      first_name = CASE
+        WHEN first_name IS NULL OR first_name = '' OR first_name = 'User'
+        THEN $3 ELSE first_name END,
+      last_name = CASE
+        WHEN last_name IS NULL OR last_name = '' OR last_name = 'Account'
+        THEN $4 ELSE last_name END
+  WHERE id = $2 AND idp_subject <> $1
+`;
 
 const ENSURE_STUDENT_ROLE_SQL = `
 INSERT INTO role_assignment (user_id, role, scope)
@@ -75,7 +90,7 @@ export async function ensureAppUser(
       email,
     ]);
     if (byEmail[0]) {
-      await db.query(RELINK_IDP_SUBJECT_SQL, [input.idpSubject, byEmail[0].id]);
+      await db.query(RELINK_IDP_SUBJECT_SQL, [input.idpSubject, byEmail[0].id, firstName, lastName]);
       userId = byEmail[0].id;
     }
   }

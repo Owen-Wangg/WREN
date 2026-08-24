@@ -74,8 +74,12 @@ export interface AnchoredFeedbackEditorProps
   readonly highlightedQuotedText?: string;
   /** Coarse Ask LEON location hint used to prefer a paragraph band when matching. */
   readonly highlightedLocationHint?: string;
+  /** Backend-resolved highlight offsets that match the expanded quotedText exactly. */
+  readonly highlightedResolvedHighlight?: { paragraphIndex: number; startOffset: number; endOffset: number };
   /** Show comment marks only after coach has responded (default: false). */
   readonly showCoachHighlights?: boolean;
+  /** Called when a debrief highlight click could not resolve to an exact span. */
+  readonly onHighlightFailed?: () => void;
 }
 
 function scrollRangeIntoView(
@@ -104,7 +108,9 @@ export function AnchoredFeedbackEditor({
   highlightedAnchorId,
   highlightedQuotedText,
   highlightedLocationHint,
+  highlightedResolvedHighlight,
   showCoachHighlights = false,
+  onHighlightFailed,
   printedPageCount,
 }: AnchoredFeedbackEditorProps) {
   const editorRef = useRef<DocumentEditorHandle>(null);
@@ -190,21 +196,36 @@ export function AnchoredFeedbackEditor({
 
     if (!highlightedAnchorId && !highlightedQuotedText?.trim()) return;
 
-    const anchor = highlightedAnchorId
+    const rawAnchor = highlightedAnchorId
       ? anchors.find((a) => a.id === highlightedAnchorId)
       : undefined;
 
+    // Prefer backend-resolved offsets (they match the expanded quotedText exactly).
+    const anchor = highlightedResolvedHighlight ?? rawAnchor ?? null;
+
     const range = resolveDebriefHighlightRange(editor.state.doc, {
-      anchor: anchor ?? null,
+      anchor,
       quotedText: highlightedQuotedText,
       locationHint: highlightedLocationHint,
     });
     if (!range) {
-      console.warn('Could not resolve debrief highlight', {
-        highlightedAnchorId,
-        highlightedQuotedText,
-        highlightedLocationHint,
-      });
+      // Still scroll to the approximate paragraph location even when the
+      // exact text span can't be resolved.
+      if (anchor) {
+        const approxRange = resolveAnchorRange(editor.state.doc, {
+          paragraphIndex: anchor.paragraphIndex,
+          startOffset: 0,
+          endOffset: 1,
+        });
+        if (approxRange) {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              scrollRangeIntoView(editor, approxRange.from);
+            });
+          });
+        }
+      }
+      onHighlightFailed?.();
       return;
     }
 
@@ -221,7 +242,7 @@ export function AnchoredFeedbackEditor({
         scrollRangeIntoView(editor, from);
       });
     });
-  }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, anchors]);
+  }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, highlightedResolvedHighlight, anchors, onHighlightFailed]);
 
   return (
     <div className={['flex h-full min-h-0 flex-1 flex-col gap-0', className].filter(Boolean).join(' ')}>
