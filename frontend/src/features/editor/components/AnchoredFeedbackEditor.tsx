@@ -78,6 +78,8 @@ export interface AnchoredFeedbackEditorProps
   readonly highlightedResolvedHighlight?: { paragraphIndex: number; startOffset: number; endOffset: number };
   /** Show comment marks only after coach has responded (default: false). */
   readonly showCoachHighlights?: boolean;
+  /** Called when a debrief highlight click could not resolve to an exact span. */
+  readonly onHighlightFailed?: () => void;
 }
 
 function scrollRangeIntoView(
@@ -108,6 +110,7 @@ export function AnchoredFeedbackEditor({
   highlightedLocationHint,
   highlightedResolvedHighlight,
   showCoachHighlights = false,
+  onHighlightFailed,
   printedPageCount,
 }: AnchoredFeedbackEditorProps) {
   const editorRef = useRef<DocumentEditorHandle>(null);
@@ -206,11 +209,23 @@ export function AnchoredFeedbackEditor({
       locationHint: highlightedLocationHint,
     });
     if (!range) {
-      console.warn('Could not resolve debrief highlight', {
-        highlightedAnchorId,
-        highlightedQuotedText,
-        highlightedLocationHint,
-      });
+      // Still scroll to the approximate paragraph location even when the
+      // exact text span can't be resolved.
+      if (anchor) {
+        const approxRange = resolveAnchorRange(editor.state.doc, {
+          paragraphIndex: anchor.paragraphIndex,
+          startOffset: 0,
+          endOffset: 1,
+        });
+        if (approxRange) {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              scrollRangeIntoView(editor, approxRange.from);
+            });
+          });
+        }
+      }
+      onHighlightFailed?.();
       return;
     }
 
@@ -227,7 +242,7 @@ export function AnchoredFeedbackEditor({
         scrollRangeIntoView(editor, from);
       });
     });
-  }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, highlightedResolvedHighlight, anchors]);
+  }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, highlightedResolvedHighlight, anchors, onHighlightFailed]);
 
   return (
     <div className={['flex h-full min-h-0 flex-1 flex-col gap-0', className].filter(Boolean).join(' ')}>

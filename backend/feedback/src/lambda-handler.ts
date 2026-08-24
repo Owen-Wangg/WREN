@@ -129,14 +129,12 @@ function isSentenceEnd(text: string, pos: number): boolean {
   const wordBefore = text.slice(ws, pos);
   // Single uppercase letter: B.C., S. 3(b)
   if (wordBefore.length === 1 && /[A-Z]/.test(wordBefore)) return false;
-  // Short capitalized word mid-sentence: likely abbreviation
+  // Short capitalized word: likely abbreviation/title
   // (Ms., Dr., Jr., Prof., Rev., Jan., No., Vol., etc.)
   if (
     wordBefore.length > 1 &&
     wordBefore.length <= 5 &&
-    /[A-Z]/.test(wordBefore[0]!) &&
-    ws > 0 &&
-    !/[A-Za-z]/.test(text[ws - 1]!)
+    /[A-Z]/.test(wordBefore[0]!)
   ) {
     return false;
   }

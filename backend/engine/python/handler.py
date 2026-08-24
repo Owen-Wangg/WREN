@@ -763,12 +763,10 @@ def _first_sentence(text: str) -> str:
             # Single uppercase letter: B.C., U.S., S. 3(b)
             if len(word_before) == 1 and word_before.isupper():
                 continue
-            # Short capitalized word mid-sentence: likely abbreviation
+            # Short capitalized word: likely abbreviation/title
             # (Ms., Dr., Jr., Prof., Rev., Jan., No., Vol., etc.)
             if (1 < len(word_before) <= 5
-                    and word_before[0].isupper()
-                    and word_start > 0
-                    and not text[word_start - 1].isalpha()):
+                    and word_before[0].isupper()):
                 continue
             rest = text[i + 1:]
             stripped = rest.lstrip()

@@ -183,6 +183,7 @@ export function DocumentEditorPage() {
     { paragraphIndex: number; startOffset: number; endOffset: number } | undefined
   >(undefined);
   const [activeQuoteId, setActiveQuoteId] = useState<string | undefined>(undefined);
+  const [highlightFailed, setHighlightFailed] = useState(false);
   const [showCoachHighlights, setShowCoachHighlights] = useState(false);
   // Start polling immediately if we arrived from a fresh upload (router state
   // carries feedbackQueued / legacy initialContent when feedback was auto-queued).
@@ -1022,6 +1023,7 @@ export function DocumentEditorPage() {
                   setShowCoachHighlights(true);
                 }}
                 onChatQuoteClick={(selection) => {
+                  setHighlightFailed(false);
                   if (activeQuoteId === selection.quoteKey) {
                     setActiveQuoteId(undefined);
                     setHighlightedAnchorId(undefined);
@@ -1038,7 +1040,9 @@ export function DocumentEditorPage() {
                   setShowCoachHighlights(true);
                 }}
                 activeQuoteId={activeQuoteId}
+                highlightFailed={highlightFailed}
                 onQuoteClick={(selection) => {
+                  setHighlightFailed(false);
                   if (activeQuoteId === selection.feedbackItemId) {
                     setActiveQuoteId(undefined);
                     setHighlightedAnchorId(undefined);
@@ -1200,6 +1204,7 @@ export function DocumentEditorPage() {
               highlightedLocationHint={highlightedLocationHint}
               highlightedResolvedHighlight={highlightedResolvedHighlight}
               showCoachHighlights={showCoachHighlights}
+              onHighlightFailed={() => setHighlightFailed(true)}
               onContentChange={(content) => setCurrentContent(content)}
               onHeaderChange={(h) => setCurrentHeader(h)}
               onFooterChange={(f) => setCurrentFooter(f)}

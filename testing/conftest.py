@@ -7,6 +7,6 @@ services scaffolded later under ``cdk/lambda`` can rely on the same helper.
 import sys
 from pathlib import Path
 
-_TESTING_PYTHON = Path(__file__).parent / "testing" / "python"
+_TESTING_PYTHON = Path(__file__).parent / "python"
 if str(_TESTING_PYTHON) not in sys.path:
     sys.path.insert(0, str(_TESTING_PYTHON))

@@ -87,6 +87,7 @@ export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
   })();
 
   // Transform flat trend points → [{ weekLabel, [categoryName]: score }, ...]
+  // Pad with empty weeks up to the current date so the x-axis always extends to today.
   const { chartData, categoryNames } = (() => {
     const points = filteredPoints;
     const weekOrder: string[] = [];
@@ -104,6 +105,28 @@ export function AnalyticsSection({ documentTypeId }: AnalyticsSectionProps) {
         weekMap.set(p.week, { weekLabel: label } as unknown as Record<string, number>);
       }
       weekMap.get(p.week)![p.categoryName] = Math.round(p.score);
+    }
+
+    // Pad empty weeks from the last data point (or range start) to today.
+    if (weekOrder.length > 0) {
+      const lastWeekStart = points.at(-1)?.weekStart;
+      if (lastWeekStart) {
+        const cursor = new Date(lastWeekStart);
+        cursor.setDate(cursor.getDate() + 7);
+        const now = new Date();
+        while (cursor <= now) {
+          const y = cursor.getFullYear();
+          const jan4 = new Date(y, 0, 4);
+          const weekNum = Math.ceil(((cursor.getTime() - jan4.getTime()) / 86400000 + jan4.getDay() + 1) / 7);
+          const weekKey = `${y}-W${String(weekNum).padStart(2, '0')}`;
+          if (!weekMap.has(weekKey)) {
+            weekOrder.push(weekKey);
+            const label = cursor.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            weekMap.set(weekKey, { weekLabel: label } as unknown as Record<string, number>);
+          }
+          cursor.setDate(cursor.getDate() + 7);
+        }
+      }
     }
 
     return {

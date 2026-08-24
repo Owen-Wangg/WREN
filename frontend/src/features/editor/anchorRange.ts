@@ -116,6 +116,10 @@ function normalizeQuoteText(value: string): string {
     .trim();
 }
 
+function stripFootnoteMarkers(value: string): string {
+  return value.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 /** Map an index in whitespace-normalized text back onto the original string. */
 function rawIndexFromNormalized(raw: string, normalizedIndex: number): number {
   const isSpace = (ch: string) => /\s/.test(ch);
@@ -149,6 +153,14 @@ function findQuotedTextInBlock(
 
   const candidates = quoteSearchCandidates(fullNormalized);
 
+  // If the quote contains footnote markers [N] that aren't in the editor's
+  // text (atom footnote nodes contribute nothing to textContent), fall back to
+  // searching without them.
+  const strippedQuote = stripFootnoteMarkers(fullNormalized);
+  if (strippedQuote !== fullNormalized && strippedQuote) {
+    candidates.push(...quoteSearchCandidates(strippedQuote));
+  }
+
   for (const candidate of candidates) {
     let idx = blockNormalized.indexOf(candidate);
     let matchedCaseInsensitive = false;
@@ -159,24 +171,28 @@ function findQuotedTextInBlock(
     if (idx < 0) continue;
 
     let rawIdx = blockText.indexOf(candidate);
+    let usedNormalizedMapping = false;
     if (rawIdx < 0) {
       rawIdx = blockText.toLowerCase().indexOf(candidate.toLowerCase());
     }
     if (rawIdx < 0) {
       rawIdx = rawIndexFromNormalized(blockText, idx);
+      usedNormalizedMapping = true;
     }
 
-    let end = rawIdx + candidate.length;
-    if (candidate !== fullNormalized) {
+    let end: number;
+    if (usedNormalizedMapping || matchedCaseInsensitive) {
+      end = rawIndexFromNormalized(blockText, idx + candidate.length);
+    } else {
+      end = rawIdx + candidate.length;
+    }
+    if (candidate !== fullNormalized && candidate !== strippedQuote) {
       const stem = fullNormalized.split(' ').pop() ?? '';
       if (stem) {
         const rest = blockText.slice(end);
         const expansion = rest.match(new RegExp(`^${escapeRegExp(stem)}\\w*`, 'i'));
         if (expansion) end += expansion[0].length;
       }
-    } else if (matchedCaseInsensitive) {
-      const matchedLen = rawIndexFromNormalized(blockText, idx + candidate.length) - rawIdx;
-      if (matchedLen > 0) end = rawIdx + matchedLen;
     }
 
     return { from: contentStart + rawIdx, to: contentStart + end };

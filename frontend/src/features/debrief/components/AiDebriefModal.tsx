@@ -27,6 +27,7 @@ import { ArrowUp, CheckCircle2, Minus, Star, TrendingUp, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
+import { ApiError } from '@/services/apiClient';
 import { useDocuments, useOrganizations, useWritingTypes } from '@/features/dashboard/useDashboard';
 
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
@@ -232,9 +233,25 @@ export function AiDebriefModal({
             )}
 
             {regenerate.isError && (
-              <p role="alert" className="mb-sm text-bodySmall text-signal-critical">
-                Couldn't regenerate the AI Debrief. Please try again.
-              </p>
+              <div role="alert" className="mb-sm rounded-lg border border-signal-critical/30 bg-signal-critical/5 p-md">
+                {regenerate.error instanceof ApiError &&
+                regenerate.error.status === 429 &&
+                (regenerate.error.details as any)?.code === 'USAGE_LIMIT_REACHED' ? (
+                  <div className="flex flex-col gap-sm">
+                    <p className="text-bodySmall font-medium text-signal-critical">
+                      Debrief limit reached
+                    </p>
+                    <p className="text-bodySmall text-text-secondary">
+                      You've used all available AI Debrief generations for this document.
+                      To receive new feedback, upload a new document and try again.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-bodySmall text-signal-critical">
+                    Couldn't regenerate the AI Debrief. Please try again.
+                  </p>
+                )}
+              </div>
             )}
 
             {debrief && !debriefQuery.isLoading && !debriefQuery.isError && (
