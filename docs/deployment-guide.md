@@ -83,7 +83,7 @@ Before you deploy, you must have the following installed on your device:
 - [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) _(comes with Node)_
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) with the daemon running — required to build the Feedback Engine image and for CDK asset bundling
 
-> The AWS CDK CLI (`aws-cdk`) is a **dev dependency** of `cdk/` — you do not need a global `cdk` install. All commands below use `npx cdk`.
+> The AWS CDK CLI (`aws-cdk`) is a **dev dependency** of `cdk/` — you do not need a global `cdk` install. All commands below use `npx cdk`. The pinned version is **`2.1138.0`** (see `cdk/package.json`); Node.js v22+ is required by the project's `engines` field and by Amplify's build environment.
 
 ### People and Access
 
@@ -299,6 +299,8 @@ All naming and display settings are **CDK context** (or environment variables) �
 
 Set the GitHub values now if you're ready for hosting; otherwise leave them unset for the core deploy.
 
+> **GitHub context note:** Setting `GITHUB_OWNER`/`GITHUB_REPO` tells CDK to include the `Amplify` and `Cicd` stacks, but those stacks also require Secrets Manager entries (`wren-dev/github/token` and `wren-dev/cicd/github-pat`) that aren't created until [Post-Deployment Step 1](#step-1-connect-github-amplify-and-cicd). If you set these variables now and run `npx cdk deploy --all` before creating those secrets, the Amplify/CICD deploys will fail. The safest path: leave GitHub unset for the core deploy, then return to Step 3 and set these variables before running [Post-Deployment Step 1](#step-1-connect-github-amplify-and-cicd).
+
 <details>
 <summary>macOS/Linux</summary>
 
@@ -340,7 +342,7 @@ set GITHUB_BRANCH=main
 
 `Compute` **will fail** if this repository or the `bootstrap` tag is missing.
 
-**3.1 Create the ECR repository**
+**4.1 Create the ECR repository**
 
 Use the same prefix as your stacks (default `wren-dev`):
 
@@ -386,7 +388,7 @@ If the repository already exists, continue.
 
 > **Choosing an ECR ownership path.** If you later deploy the `Cicd` stack, it creates this same repository — do not deploy `Cicd` first and also create a conflicting repo with different settings. The reliable first-time path used in this guide is: **manual ECR create → push `bootstrap` → deploy `Compute`**. Add `Cicd` afterward only if you want the pipeline; if `Cicd` fails because the repo name is taken, keep the manual repo and skip `Cicd`, or remove the CDK-managed repo resource and keep using manual pushes. Many teams run CDK CLI deploys and skip `Cicd` entirely.
 
-**3.2 Build and push the engine image**
+**4.2 Build and push the engine image**
 
 Run this from the **repository root** (not `cdk/`):
 
@@ -537,7 +539,7 @@ _Note: The frontend should call the API Gateway URL (Amplify injects `VITE_API_B
 
 ### Step 1: Connect GitHub, Amplify, and CI/CD
 
-Skip this step if you'll only run the UI locally (see [Local Frontend Against AWS](#local-frontend-against-aws)). For a public URL, complete it.
+Skip this step if you'll only run the UI locally (see [Post-Deployment Step 3: Run the Frontend Locally](#step-3-visit-the-web-app)). For a public URL, complete it.
 
 **1.1 Create a GitHub personal access token**
 
@@ -688,7 +690,7 @@ Navigate to the Amplify URL (found in the Amplify console, or via `AmplifyDefaul
 
 **Default URL format:** `https://main.<app-id>.amplifyapp.com`
 
-#### Local Frontend Against AWS
+#### Run the Frontend Locally (without Amplify)
 
 From `frontend/`:
 
@@ -758,7 +760,7 @@ npx cdk deploy wren-dev-Config -c appName="My Coach" -c bedrockModelId="YOUR_MOD
 
 Redeploy `Compute` if Lambdas bake `BEDROCK_MODEL_ID` from synth-time config. Runtime SSM is `/wren-dev/config/bedrock-model-id`. `VITE_APP_NAME` updates on the next Amplify stack deploy + frontend rebuild.
 
-**Update only the Feedback Engine image:** build, push a new tag (or overwrite `bootstrap`), then run `lambda update-function-code` as in [Step 1.4](#step-1-connect-github-amplify-and-cicd), or let the CI/CD pipeline run on push to `main`.
+**Update only the Feedback Engine image:** build, push a new tag (or overwrite `bootstrap`), then run `lambda update-function-code` as shown in [Post-Deployment Step 1 → "Deploy CI/CD (optional)"](#step-1-connect-github-amplify-and-cicd), or let the CI/CD pipeline run on push to `main`.
 
 **Database migrations:** SQL files live in `backend/database/migrations/`. The `Database` stack's migration Lambda runs them on deploy when the custom resource updates — new files must be included in the Lambda bundle (already copied by `MigrationRunner`). After adding a migration, redeploy `wren-dev-Database`.
 
@@ -913,6 +915,34 @@ $REPO = "$ACCOUNT.dkr.ecr.ca-central-1.amazonaws.com/wren-dev-feedback-engine"
 aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.ca-central-1.amazonaws.com"
 docker build -t "${REPO}:bootstrap" backend/engine/python/
 docker push "${REPO}:bootstrap"
+
+cd cdk
+npx cdk deploy wren-dev-Config wren-dev-Vpc wren-dev-Storage wren-dev-Cognito wren-dev-Database
+npx cdk deploy wren-dev-Compute wren-dev-Api wren-dev-Observability wren-dev-CloudFrontWaf
+```
+
+</details>
+
+<details>
+<summary>Windows CMD</summary>
+
+```cmd
+git clone <YOUR_REPO_URL> WREN
+cd WREN
+npm ci
+cd cdk && npm ci && cd ..
+
+for /f %%A in ('aws sts get-caller-identity --query Account --output text') do set ACCOUNT=%%A
+cd cdk
+npx cdk bootstrap "aws://%ACCOUNT%/ca-central-1"
+npx cdk bootstrap "aws://%ACCOUNT%/us-east-1"
+cd ..
+
+aws ecr create-repository --repository-name wren-dev-feedback-engine --region ca-central-1
+set REPO=%ACCOUNT%.dkr.ecr.ca-central-1.amazonaws.com/wren-dev-feedback-engine
+aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin %ACCOUNT%.dkr.ecr.ca-central-1.amazonaws.com
+docker build -t %REPO%:bootstrap backend/engine/python/
+docker push %REPO%:bootstrap
 
 cd cdk
 npx cdk deploy wren-dev-Config wren-dev-Vpc wren-dev-Storage wren-dev-Cognito wren-dev-Database
