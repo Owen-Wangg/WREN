@@ -1,8 +1,8 @@
-# LEON User Guide
+# WREN User Guide
 
-This guide covers how to get started with **LEON** — from creating your account to using it as a **Student**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
+This guide covers how to get started with **WREN** — from creating your account to using it as a **Student**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
 
-**Names you will see:** **LEON** is the product name in the app. In the repository and AWS, the project prefix is **WREN**. The System Admin screens correspond to the `TechnicalAdmin` role in the API and database.
+**Names you will see:** **WREN** is the product name in the app. In the repository and AWS, the project prefix is **WREN**. The System Admin screens correspond to the `TechnicalAdmin` role in the API and database.
 
 ## Table of Contents
 
@@ -14,7 +14,7 @@ This guide covers how to get started with **LEON** — from creating your accoun
   - [2.1 Creating a New Document Draft](#21-creating-a-new-document-draft)
   - [2.2 Opening and Reviewing Your Document](#22-opening-and-reviewing-your-document)
   - [2.3 Using AI Debrief](#23-using-ai-debrief)
-  - [2.4 Using Ask LEON](#24-using-ask-leon)
+  - [2.4 Using Ask WREN](#24-using-ask-WREN)
   - [Quick Recap — Student](#quick-recap--student)
 - [Part 3: Department Admin Guide](#part-3-department-admin-guide)
   - [3.1 How the Department Admin Screens Are Organized](#31-how-the-department-admin-screens-are-organized)
@@ -40,7 +40,7 @@ This guide covers how to get started with **LEON** — from creating your accoun
 
 > **First time here?** Create an account first — see [1.2 Create an Account](#12-create-an-account-first-time-users-only), then return here.
 
-1. Open the LEON URL your administrator gave you (or the AWS Amplify URL).
+1. Open the WREN URL your administrator gave you (or the AWS Amplify URL).
 2. Enter the email address and password you used when creating your account.
 3. Click **Login**.
 4. You land on the dashboard for your current account view.
@@ -52,11 +52,11 @@ This guide covers how to get started with **LEON** — from creating your accoun
 1. Click **Sign Up**.
 2. Enter:
    - Your institutional email address
-   - A new password for LEON
+   - A new password for WREN
 
    Follow the password rules listed on the page (length, letters, numbers, or symbols as shown).
 
-3. After you submit, LEON sends a **verification code** to that email.
+3. After you submit, WREN sends a **verification code** to that email.
 
    **Important:** Keep the sign-up page open while you check email.
 
@@ -68,7 +68,7 @@ This guide covers how to get started with **LEON** — from creating your accoun
 
 Open your profile and select your account view. That choice sets which dashboard you see:
 
-- **Student** — drafts, AI Debrief, and Ask LEON. See [Part 2](#part-2-student-guide).
+- **Student** — drafts, AI Debrief, and Ask WREN. See [Part 2](#part-2-student-guide).
 - **Department Admin** — document types, evaluation rubrics, and type-level analytics. See [Part 3](#part-3-department-admin-guide).
 - **System Admin** — model, usage limits, departments, users, department prompts, and department analytics. See [Part 4](#part-4-system-admin-guide).
 
@@ -99,12 +99,12 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 1. From **All Documents**, click the draft you want to open. The editor shows a continuous document on the right and a side panel on the left.
 2. The document is not split into pages on screen. Headers and footers sit at the top and bottom of the draft. The **Contents** panel shows the draft version, word count, and an estimated printed page count (US Letter). Heading 1–3 styles build an outline; click a heading to jump to it.
 3. Hover or drag the scrollbar to see an estimated printed page, for example **Page 2 of 17**. That is how the document is expected to paginate on preview or export, not a live page break in the editor.
-4. The left icon rail switches the panel between **Contents**, **Ask LEON**, and **AI Debrief**.
-<img width="1912" height="829" alt="Editor with Ask LEON and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
+4. The left icon rail switches the panel between **Contents**, **Ask WREN**, and **AI Debrief**.
+<img width="1912" height="829" alt="Editor with Ask WREN and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
 
 **Other options in this view:**
 
-- **Upload New Draft** — use this if you edited the file in another program and need LEON to review the updated version.
+- **Upload New Draft** — use this if you edited the file in another program and need WREN to review the updated version.
 <img width="960" height="412" alt="Upload New Draft" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
 - **Export** — download as DOCX or PDF. You can optionally include the AI Debrief on PDF, or open a US Letter **Preview** first.
 <img width="959" height="412" alt="Export" src="https://github.com/user-attachments/assets/d31b8995-9545-4531-8c9e-04411dbd8c70" />
@@ -120,16 +120,16 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 <img width="959" height="416" alt="Previous AI Debrief reports" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
 4. Click a quoted passage in the debrief to highlight it in the document.
 
-LEON coaches with questions. It does not rewrite your essay.
+WREN coaches with questions. It does not rewrite your essay.
 
-### 2.4 Using Ask LEON
+### 2.4 Using Ask WREN
 
-1. Click **Ask LEON** (the LEON icon) on the left rail.
+1. Click **Ask WREN** (the WREN icon) on the left rail.
 2. Ask questions about the debrief, your draft, or writing craft (clarity, organization, tone, and similar).
 3. Click a quoted phrase in a reply to jump to that passage.
-<img width="958" height="412" alt="Ask LEON chat" src="https://github.com/user-attachments/assets/0b5d2ba7-27b3-4c33-a726-e6882021007e" />
+<img width="958" height="412" alt="Ask WREN chat" src="https://github.com/user-attachments/assets/0b5d2ba7-27b3-4c33-a726-e6882021007e" />
 
-Ask LEON will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.
+Ask WREN will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.
 
 ### Quick Recap — Student
 
@@ -139,7 +139,7 @@ Ask LEON will not write or rewrite your sentences, fact-check legal or technical
 | Log in | Login → email/password |
 | Start a new draft | Student Dashboard → New Document → department → document type → upload .docx or .pdf → Activate Editor |
 | Review AI feedback | Open document → AI Debrief |
-| Ask questions about your draft | Open document → Ask LEON |
+| Ask questions about your draft | Open document → Ask WREN |
 | Update a draft | Editor → Upload New Draft |
 | Save a copy | Editor → Export (DOCX or PDF) |
 
@@ -230,13 +230,13 @@ After you choose **System Admin** as your account view (see [1.3](#13-choosing-y
 2. Choose the active Bedrock model from the allowed list.
 3. Click **Save**.
 
-Model changes apply immediately to new AI Debrief and Ask LEON calls. Existing debriefs are unchanged. Different models can differ in quality, cost, and latency.
+Model changes apply immediately to new AI Debrief and Ask WREN calls. Existing debriefs are unchanged. Different models can differ in quality, cost, and latency.
 
 ### 4.3 Setting Usage Limits
 
 1. Expand **Usage Limits**.
 2. Set lifetime maxima for:
-   - Ask LEON messages per document
+   - Ask WREN messages per document
    - AI Debrief generations per document
    - Document uploads
    - Drafts per document
