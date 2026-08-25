@@ -96,9 +96,11 @@ As a **Student**, once you've logged in and are on your **Student Dashboard**, y
 4. Choose your document type — for example, **Legal Memorandum**.
 5. Give your draft a name.
 6. Click **Choose File** and select the DOCX file from your computer that you want to upload.
+
 <img width="956" height="368" alt="image" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
-7. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
-8. After uploading, you will be taken to the following page:
+
+8. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
+9. After uploading, you will be taken to the following page:
 <img width="956" height="415" alt="image" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
 
 ### 2.2 Opening and Reviewing Your Document
@@ -122,7 +124,7 @@ As a **Student**, once you've logged in and are on your **Student Dashboard**, y
 
 1. Click **Regenerate** to generate a new AI Debrief report on your document.
 <img width="956" height="413" alt="image" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
-3. To view a previously generated report, click the **drop-down arrow** and select an earlier draft's report from the list.
+2. To view a previously generated report, click the **drop-down arrow** and select an earlier draft's report from the list.
 <img width="959" height="416" alt="image" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
 
 ### 2.4 Using Ask LEON
