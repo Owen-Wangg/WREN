@@ -9,9 +9,9 @@ The product display name is **LEON**. AWS resources and this repository use the 
 
 ## Architecture
 
-![Architecture Diagram](./wren_arch_diagram_final.drawio%20%281%29.png)
+![Architecture Diagram](./WREN_ARCHITECTURE_DIAGRAM.drawio.png)
 
-Editable source: [`wren-architecture-diagram.drawio.xml`](./wren-architecture-diagram.drawio.xml). Feedback-job detail: [`wren-feedback-pipeline.drawio.png`](./wren-feedback-pipeline.drawio.png).
+Numbered variant: [Architecture Diagram (numbered)](./WREN_ARCHITECTURE_DIAGRAM_NUMBERED.png). Feedback-job detail: [Feedback Pipeline Diagram](./WREN_FEEDBACK_PIPELINE_DIAGRAM.png) (editable source: [`wren-feedback-pipeline.drawio.xml`](./wren-feedback-pipeline.drawio.xml)).
 
 1. Browser traffic can reach the REST API through **Amazon CloudFront** in `us-east-1`, where **AWS WAF** (managed rule groups plus a per-IP rate limit) and **AWS Shield Standard** apply. CloudFront redirects HTTP to HTTPS and attaches security headers. The SPA itself is hosted on **AWS Amplify**. Callers may also use the API Gateway stage URL directly (that path is authenticated but is **not** behind this WAF).
 
@@ -139,7 +139,7 @@ Grouping for document types and Department Admins. Not a tenant that owns users.
 
 #### `document_type` table
 
-Configurable writing type (data, not a hardcoded enum).
+Configurable document type (data, not a hardcoded enum).
 
 | Column Name | Description |
 | --- | --- |

@@ -1,6 +1,6 @@
 # LEON (WREN) — AWS Deployment Guide
 
-This guide deploys the LEON legal writing coach platform (internal codename **WREN**) into an AWS account using the CDK app in `cdk/`. AWS resource names use the `wren` project prefix; **LEON** is the user-facing display name shown in the UI and emails. Follow the steps in order — commands are given for **bash (macOS/Linux)**, **PowerShell**, and **Windows CMD** where the syntax differs.
+This guide deploys the LEON writing coach (repository and AWS prefix **WREN**) into an AWS account using the CDK app in `cdk/`. AWS resource names use the `wren` project prefix; **LEON** is the user-facing display name shown in the UI and emails. Follow the numbered steps in order — commands are given for **bash (macOS/Linux)**, **PowerShell**, and **Windows CMD** where the syntax differs.
 
 ## Table of Contents
 
@@ -24,10 +24,10 @@ This guide deploys the LEON legal writing coach platform (internal codename **WR
     - [Step 4: Build and Push the Feedback Engine Image](#step-4-build-and-push-the-feedback-engine-image)
     - [Step 5: CDK Deployment](#step-5-cdk-deployment)
   - [Post-Deployment](#post-deployment)
-    - [Step 1: Connect GitHub, Amplify, and CI/CD](#step-1-connect-github-amplify-and-cicd)
-    - [Step 2: Configure the First Administrator](#step-2-configure-the-first-administrator)
-    - [Step 3: Visit the Web App](#step-3-visit-the-web-app)
-    - [Step 4: Confirm the Application Is Running](#step-4-confirm-the-application-is-running)
+    - [Step 6: Connect GitHub, Amplify, and CI/CD](#step-6-connect-github-amplify-and-cicd)
+    - [Step 7: Configure the First Administrator](#step-7-configure-the-first-administrator)
+    - [Step 8: Open the Web App](#step-8-open-the-web-app)
+    - [Step 9: Confirm the Application Is Running](#step-9-confirm-the-application-is-running)
   - [Day-2 Operations](#day-2-operations)
   - [Troubleshooting](#troubleshooting)
     - [Common Issues](#common-issues)
@@ -77,7 +77,7 @@ Before you deploy, you must have the following installed on your device:
 
 - [git](https://git-scm.com/downloads)
 - An [AWS Account](https://aws.amazon.com/account/) with permission to create IAM, VPC, RDS, Lambda, API Gateway, Cognito, CloudFront, WAF, Amplify, Bedrock, and KMS resources
-- A [GitHub Account](https://github.com/) — only required for hosted frontend / CI-CD (see [Step 1: Connect GitHub, Amplify, and CI/CD](#step-1-connect-github-amplify-and-cicd))
+- A [GitHub Account](https://github.com/) — only required for hosted frontend / CI-CD (see [Step 6: Connect GitHub, Amplify, and CI/CD](#step-6-connect-github-amplify-and-cicd))
 - [AWS CLI](https://aws.amazon.com/cli/) _(v2.0.0+ required)_
 - [Node.js](https://nodejs.org/en/learn/getting-started/how-to-install-nodejs) _(v22.x+ required)_
 - [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) _(comes with Node)_
@@ -87,7 +87,7 @@ Before you deploy, you must have the following installed on your device:
 
 ### People and Access
 
-For a hosted frontend or CI/CD pipeline you'll also need a GitHub repository this account can read (fork or the original), plus a GitHub personal access token (PAT) — covered in [Step 1: Connect GitHub, Amplify, and CI/CD](#step-1-connect-github-amplify-and-cicd).
+For a hosted frontend or CI/CD pipeline you'll also need a GitHub repository this account can read (fork or the original), plus a GitHub personal access token (PAT) — covered in [Step 6: Connect GitHub, Amplify, and CI/CD](#step-6-connect-github-amplify-and-cicd).
 
 ### Cost and Time Expectations
 
@@ -299,7 +299,7 @@ All naming and display settings are **CDK context** (or environment variables) �
 
 Set the GitHub values now if you're ready for hosting; otherwise leave them unset for the core deploy.
 
-> **GitHub context note:** Setting `GITHUB_OWNER`/`GITHUB_REPO` tells CDK to include the `Amplify` and `Cicd` stacks, but those stacks also require Secrets Manager entries (`wren-dev/github/token` and `wren-dev/cicd/github-pat`) that aren't created until [Post-Deployment Step 1](#step-1-connect-github-amplify-and-cicd). If you set these variables now and run `npx cdk deploy --all` before creating those secrets, the Amplify/CICD deploys will fail. The safest path: leave GitHub unset for the core deploy, then return to Step 3 and set these variables before running [Post-Deployment Step 1](#step-1-connect-github-amplify-and-cicd).
+> **GitHub context note:** Setting `GITHUB_OWNER`/`GITHUB_REPO` tells CDK to include the `Amplify` and `Cicd` stacks, but those stacks also require Secrets Manager entries (`wren-dev/github/token` and `wren-dev/cicd/github-pat`) that aren't created until [Step 6](#step-6-connect-github-amplify-and-cicd). If you set these variables now and run `npx cdk deploy --all` before creating those secrets, the Amplify/CICD deploys will fail. The safest path: leave GitHub unset for the core deploy, then return to Step 3 and set these variables before running [Step 6](#step-6-connect-github-amplify-and-cicd).
 
 <details>
 <summary>macOS/Linux</summary>
@@ -537,11 +537,11 @@ _Note: The frontend should call the API Gateway URL (Amplify injects `VITE_API_B
 
 ## Post-Deployment
 
-### Step 1: Connect GitHub, Amplify, and CI/CD
+### Step 6: Connect GitHub, Amplify, and CI/CD
 
-Skip this step if you'll only run the UI locally (see [Post-Deployment Step 3: Run the Frontend Locally](#step-3-visit-the-web-app)). For a public URL, complete it.
+Skip this step if you'll only run the UI locally (see [Step 8: Open the Web App](#step-8-open-the-web-app)). For a public URL, complete it.
 
-**1.1 Create a GitHub personal access token**
+**6.1 Create a GitHub personal access token**
 
 Create a **classic** PAT with:
 
@@ -552,7 +552,7 @@ See GitHub's [guide to creating a classic personal access token](https://docs.gi
 
 **Once you create a token, note down its value** — you'll store it in Secrets Manager, not in git.
 
-**1.2 Store secrets in AWS**
+**6.2 Store secrets in AWS**
 
 Names must match the CDK app (default prefix `wren-dev`):
 
@@ -617,7 +617,7 @@ If a secret already exists, update it instead:
 aws secretsmanager put-secret-value --secret-id "wren-dev/github/token" --secret-string "YOUR_GITHUB_PAT" --region ca-central-1
 ```
 
-**1.3 Deploy Amplify (required for hosted UI)**
+**6.3 Deploy Amplify (required for hosted UI)**
 
 From `cdk/`:
 
@@ -650,7 +650,7 @@ aws cloudformation describe-stacks --stack-name wren-dev-Amplify --region ca-cen
 
 > Amplify tracks branches **`main`** and **`develop`**. If your default branch is not `main`, pass `-c githubBranch=...` for the pipeline and add/rename the Amplify branch in the console or in `cdk/lib/stacks/AmplifyStack.ts`.
 
-**1.4 Deploy CI/CD (optional)**
+**6.4 Deploy CI/CD (optional)**
 
 The pipeline builds the Python engine image, pushes it to ECR, and updates the `Compute` Lambda.
 
@@ -676,7 +676,7 @@ aws lambda update-function-code \
   --region ca-central-1
 ```
 
-### Step 2: Configure the First Administrator
+### Step 7: Configure the First Administrator
 
 1. Open the Amplify URL and **sign up** with email.
 2. Enter the verification code from email (Cognito).
@@ -684,7 +684,7 @@ aws lambda update-function-code \
 
 > The `SystemAdmin` Cognito group is only used to seed **TechnicalAdmin** in the database on first login. After that, roles live in Postgres. If the user already logged in without the group, they'll be a normal user — fix by assigning the admin role in the app (once a Technical Admin exists) or by updating the corresponding row in the database.
 
-### Step 3: Visit the Web App
+### Step 8: Open the Web App
 
 Navigate to the Amplify URL (found in the Amplify console, or via `AmplifyDefaultDomain` above) to see the application running.
 
@@ -719,14 +719,14 @@ npm ci
 npm run dev
 ```
 
-### Step 4: Confirm the Application Is Running
+### Step 9: Confirm the Application Is Running
 
 Work through this checklist:
 
 1. Amplify URL loads the SPA (not a 404 on refresh — SPA rewrite is configured).
 2. Sign-up / sign-in with Cognito succeeds.
 3. After login, the dashboard loads (API authorizer + database are reachable).
-4. As Technical Admin, open admin configuration if your build exposes it.
+4. As System Admin (TechnicalAdmin), open **System Configuration** (model and usage limits).
 5. Upload or create a document and request feedback — the job is queued on SQS, and the Python engine Lambda must succeed.
 6. If debrief realtime is enabled, AppSync subscriptions should connect; otherwise the UI falls back to polling.
 
@@ -760,7 +760,7 @@ npx cdk deploy wren-dev-Config -c appName="My Coach" -c bedrockModelId="YOUR_MOD
 
 Redeploy `Compute` if Lambdas bake `BEDROCK_MODEL_ID` from synth-time config. Runtime SSM is `/wren-dev/config/bedrock-model-id`. `VITE_APP_NAME` updates on the next Amplify stack deploy + frontend rebuild.
 
-**Update only the Feedback Engine image:** build, push a new tag (or overwrite `bootstrap`), then run `lambda update-function-code` as shown in [Post-Deployment Step 1 → "Deploy CI/CD (optional)"](#step-1-connect-github-amplify-and-cicd), or let the CI/CD pipeline run on push to `main`.
+**Update only the Feedback Engine image:** build, push a new tag (or overwrite `bootstrap`), then run `lambda update-function-code` as shown in [Step 6.4](#step-6-connect-github-amplify-and-cicd), or let the CI/CD pipeline run on push to `main`.
 
 **Database migrations:** SQL files live in `backend/database/migrations/`. The `Database` stack's migration Lambda runs them on deploy when the custom resource updates — new files must be included in the Lambda bundle (already copied by `MigrationRunner`). After adding a migration, redeploy `wren-dev-Database`.
 

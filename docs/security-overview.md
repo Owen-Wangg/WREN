@@ -24,7 +24,7 @@ The product display name is **LEON**. AWS resources and this repository use the 
 
 ## 1. Introduction
 
-LEON is an AI writing coach that gives **Socratic feedback** (questions, never rewrites) on student drafts. Writers compose or upload documents, request an AI Debrief, and revise across drafts. Department admins configure writing types, evaluation criteria, and prompts. This document summarizes the security measures used to protect user data, enforce least-privilege access, and keep the coaching service available.
+LEON is an AI writing coach that gives **Socratic feedback** (questions, never rewrites) on student drafts. Writers compose or upload documents, request an AI Debrief, and revise across drafts. Department admins configure document types, evaluation criteria, and prompts. This document summarizes the security measures used to protect user data, enforce least-privilege access, and keep the coaching service available.
 
 ### 1.1 Security Principles
 

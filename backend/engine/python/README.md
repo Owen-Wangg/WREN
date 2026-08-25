@@ -1,12 +1,12 @@
 # `wren_engine` — pure-logic Draft engine
 
 Deterministic, dependency-free **Python 3.12** logic for WREN Writing Coach:
-the **Diff Engine** (this task), plus the forthcoming **Anchor Service** and
-**Progress Tracker**. Built entirely on the standard library (`difflib`), it runs
-in-region with no cloud calls and no per-Draft cost.
+the **Diff Engine**, **Anchor Service**, **Progress Tracker**, prompt assembly,
+and Bedrock invocation used by the Feedback Engine. Diff and anchor logic is
+built on the standard library (`difflib`) and runs with no cloud calls.
 
-Design reference: `design.md` "Diff Engine, Anchor Service, Progress Tracker
-(Python 3.12)"; requirements: `requirements.md` Requirement 10 (REQ-DRAFT-DIFF-01).
+Design reference: `docs/specs/wren-writing-coach/design.md` (Diff Engine, Anchor
+Service, Progress Tracker); requirements: REQ-DRAFT-DIFF-01.
 
 ## Diff Engine (Requirement 10 / REQ-DRAFT-DIFF-01)
 

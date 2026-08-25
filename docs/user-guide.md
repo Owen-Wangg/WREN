@@ -1,6 +1,8 @@
 # LEON User Guide
 
-This guide covers everything you need to get started with LEON — from creating your account to using LEON as a **Student**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
+This guide covers how to get started with **LEON** — from creating your account to using it as a **Student**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
+
+**Names you will see:** **LEON** is the product name in the app. In the repository and AWS, the project prefix is **WREN**. The System Admin screens correspond to the `TechnicalAdmin` role in the API and database.
 
 ## Table of Contents
 
@@ -17,20 +19,18 @@ This guide covers everything you need to get started with LEON — from creating
 - [Part 3: Department Admin Guide](#part-3-department-admin-guide)
   - [3.1 How the Department Admin Screens Are Organized](#31-how-the-department-admin-screens-are-organized)
   - [3.2 Opening a Document Type](#32-opening-a-document-type)
-  - [3.3 Setting Up Evaluation Settings](#33-setting-up-evaluation-settings)
+  - [3.3 Setting Up the Evaluation Rubric](#33-setting-up-the-evaluation-rubric)
   - [3.4 Reviewing Analytics](#34-reviewing-analytics)
   - [Quick Reference — Department Admin](#quick-reference--department-admin)
-  - [Tips for Department Admins](#tips-for-department-admins)
 - [Part 4: System Admin Guide](#part-4-system-admin-guide)
   - [4.1 How the System Admin Screens Are Organized](#41-how-the-system-admin-screens-are-organized)
   - [4.2 Model Configuration](#42-model-configuration)
   - [4.3 Setting Usage Limits](#43-setting-usage-limits)
   - [4.4 Creating New Departments](#44-creating-new-departments)
   - [4.5 Managing Departments](#45-managing-departments)
-  - [4.6 Department-Level Prompt Management](#46-department-level-prompt-management)
-  - [4.7 Reviewing Platform Analytics](#47-reviewing-platform-analytics)
+  - [4.6 Department Prompt](#46-department-prompt)
+  - [4.7 Reviewing Department Analytics](#47-reviewing-department-analytics)
   - [Quick Reference — System Admin](#quick-reference--system-admin)
-  - [Tips for System Admins](#tips-for-system-admins)
 
 ---
 
@@ -38,309 +38,251 @@ This guide covers everything you need to get started with LEON — from creating
 
 ### 1.1 Log In
 
-> **First time here?** You need to create an account before you can log in — see [1.2 Create an Account](#12-create-an-account-first-time-users-only) first, then return here.
+> **First time here?** Create an account first — see [1.2 Create an Account](#12-create-an-account-first-time-users-only), then return here.
 
-1. Navigate to your LEON application URL (provided by your administrator or found in the AWS Amplify console).
+1. Open the LEON URL your administrator gave you (or the AWS Amplify URL).
 2. Enter the email address and password you used when creating your account.
 3. Click **Login**.
-4. Once logged in, you will land on your dashboard.
+4. You land on the dashboard for your current account view.
 
 ### 1.2 Create an Account (First-Time Users Only)
 
-**Note:** Only follow these steps if you have never created an account before. If you already have an account, skip to [1.1 Log In](#11-log-in).
+**Note:** Skip this section if you already have an account and go to [1.1 Log In](#11-log-in).
 
 1. Click **Sign Up**.
-2. You will be taken to a new page where you will enter:
-   - UBC email address
+2. Enter:
+   - Your institutional email address
    - A new password for LEON
 
-   Make sure your password follows the password rules listed on this page (for example, it may need a certain number of letters, numbers, or symbols).
+   Follow the password rules listed on the page (length, letters, numbers, or symbols as shown).
 
-3. After submitting your email and password, LEON will send a **verification code** to the email address you provided.
+3. After you submit, LEON sends a **verification code** to that email.
 
-   **Important:** Do not close the LEON sign-up page while you check your email. Keep it open in the background.
+   **Important:** Keep the sign-up page open while you check email.
 
-4. Log in to your email account and find this verification code. Write it down or keep the email open.
-5. Return to the LEON sign-up page and enter the verification code you were emailed.
-6. Once submitted, your account has been created and is ready to use. Continue to [1.1 Log In](#11-log-in).
-
-_Tip: If you don't receive your verification code email within a few minutes, check your spam or junk folder before requesting a new one._
+4. Find the code in your inbox (check spam if it does not arrive within a few minutes).
+5. Return to the sign-up page and enter the code.
+6. Your account is ready. Continue to [1.1 Log In](#11-log-in).
 
 ### 1.3 Choosing Your Account View
 
-Open your profile and select your account view. This determines which dashboard you land on:
+Open your profile and select your account view. That choice sets which dashboard you see:
 
-- Choose **Student** to access assignments, submit documents, and receive AI-generated debriefs — see [Part 2: Student Guide](#part-2-student-guide).
-- Choose **Department Admin** to configure document types, define evaluation criteria, and view analytics — see [Part 3: Department Admin Guide](#part-3-department-admin-guide).
-- Choose **System Admin** to configure the AI model, set platform-wide usage limits, create and manage departments, and view platform-wide analytics — see [Part 4: System Admin Guide](#part-4-system-admin-guide).
+- **Student** — drafts, AI Debrief, and Ask LEON. See [Part 2](#part-2-student-guide).
+- **Department Admin** — document types, evaluation rubrics, and type-level analytics. See [Part 3](#part-3-department-admin-guide).
+- **System Admin** — model, usage limits, departments, users, department prompts, and department analytics. See [Part 4](#part-4-system-admin-guide).
 
-You can switch between views at any time from your profile.
+You can switch views from your profile at any time if your account holds more than one role.
 
 ---
 
 ## Part 2: Student Guide
 
-As a **Student**, once you've logged in and are on your **Student Dashboard**, you will see:
+On the **Student Dashboard** you will see your existing drafts, or an empty state if you have not created one yet.
 
-- Any drafts you have previously uploaded
-- If no drafts exist yet, you will need to create a new one (see below)
-
-<img width="957" height="395" alt="image" src="https://github.com/user-attachments/assets/a0050ec6-575d-48fe-bc46-d5aecbdb2107" />
+<img width="957" height="395" alt="Student dashboard" src="https://github.com/user-attachments/assets/a0050ec6-575d-48fe-bc46-d5aecbdb2107" />
 
 ### 2.1 Creating a New Document Draft
 
-1. From the Student Dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
-<img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
-2. Click **New Document**.
-3. Select your department.
-4. Choose your document type — for example, **Legal Memorandum**.
-5. Give your draft a name.
-6. Click **Choose File** and select the DOCX file from your computer that you want to upload.
-<img width="956" height="368" alt="image" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
-7. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
-8. After uploading, you will be taken to the following page:
-<img width="956" height="415" alt="image" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
+1. From the Student Dashboard, click **New Document** (top right, next to **All Documents**).
+<img width="1914" height="790" alt="New Document on the student dashboard" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
+2. Select your department.
+3. Choose your document type (for example, Legal Memorandum).
+4. Give the document a name.
+5. Choose a file from your computer. Prefer a **.docx** Word file so fonts, headings, lists, tables, and images come through more accurately. **PDF** is supported, including many scanned files, but layout is best-effort.
+<img width="956" height="368" alt="File upload on new document" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
+6. Click **Activate Editor**. You open in the editor with that draft loaded. The same document also appears under **All Documents**.
+<img width="956" height="415" alt="Editor after activating a new document" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
 
 ### 2.2 Opening and Reviewing Your Document
-1. On the side of the screen, you'll see a panel with more information about two tools:
-   - **AI Debrief**
-   - **LEON**
-<img width="1912" height="829" alt="Screenshot 2026-08-25 095652" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
 
-2. Click the **LEON and AI Debrief** symbols to activate these tools.
+1. From **All Documents**, click the draft you want to open. The editor shows a continuous document on the right and a side panel on the left.
+2. The document is not split into pages on screen. Headers and footers sit at the top and bottom of the draft. The **Contents** panel shows the draft version, word count, and an estimated printed page count (US Letter). Heading 1–3 styles build an outline; click a heading to jump to it.
+3. Hover or drag the scrollbar to see an estimated printed page, for example **Page 2 of 17**. That is how the document is expected to paginate on preview or export, not a live page break in the editor.
+4. The left icon rail switches the panel between **Contents**, **Ask LEON**, and **AI Debrief**.
+<img width="1912" height="829" alt="Editor with Ask LEON and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
 
-**Other options available in this view:**
+**Other options in this view:**
 
-- **Upload a new draft** — use this if changes were made to your document in another editor and you need LEON to review the updated version.
-<img width="960" height="412" alt="image" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
-- **Export** — use this to download your document after changes have been made.
-<img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/d31b8995-9545-4531-8c9e-04411dbd8c70" />
-- **Adjust the panel** — click on the grey bar on the right side of the AI debrief to expand or minimize the panel.
-<img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/544ace4d-b433-437f-8472-14376b80b177" />
+- **Upload New Draft** — use this if you edited the file in another program and need LEON to review the updated version.
+<img width="960" height="412" alt="Upload New Draft" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
+- **Export** — download as DOCX or PDF. You can optionally include the AI Debrief on PDF, or open a US Letter **Preview** first.
+<img width="959" height="412" alt="Export" src="https://github.com/user-attachments/assets/d31b8995-9545-4531-8c9e-04411dbd8c70" />
+- **Close** the side panel (or drag the divider) if you want more space for the document.
+<img width="959" height="412" alt="Resize or close the side panel" src="https://github.com/user-attachments/assets/544ace4d-b433-437f-8472-14376b80b177" />
 
 ### 2.3 Using AI Debrief
 
-1. Click **Regenerate** to generate a new AI Debrief report on your document.
-<img width="956" height="413" alt="image" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
-3. To view a previously generated report, click the **drop-down arrow** and select an earlier draft's report from the list.
-<img width="959" height="416" alt="image" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
+1. Click **AI Debrief** on the left rail. The panel shows your latest report.
+2. Click **Regenerate** to save any inline edits and generate a new debrief.
+<img width="956" height="413" alt="Regenerate AI Debrief" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
+3. To open an earlier report, use the drop-down and pick a previous draft’s debrief.
+<img width="959" height="416" alt="Previous AI Debrief reports" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
+4. Click a quoted passage in the debrief to highlight it in the document.
+
+LEON coaches with questions. It does not rewrite your essay.
 
 ### 2.4 Using Ask LEON
 
-1. Click the **LEON** tab to switch views.
-2. Here you can chat directly with LEON to:
-   - Ask detailed questions about your document
-   - Track your progress and see how much work has been completed as you make changes
-<img width="958" height="412" alt="image" src="https://github.com/user-attachments/assets/0b5d2ba7-27b3-4c33-a726-e6882021007e" />
+1. Click **Ask LEON** (the LEON icon) on the left rail.
+2. Ask questions about the debrief, your draft, or writing craft (clarity, organization, tone, and similar).
+3. Click a quoted phrase in a reply to jump to that passage.
+<img width="958" height="412" alt="Ask LEON chat" src="https://github.com/user-attachments/assets/0b5d2ba7-27b3-4c33-a726-e6882021007e" />
+
+Ask LEON will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.
 
 ### Quick Recap — Student
 
-| Task | Where to Go |
+| Task | Where to go |
 | --- | --- |
-| Create an account | Sign Up → enter email/password → verify via email code |
-| Log in | Login → enter email/password |
-| Start a new draft | Student Dashboard → New Document → select department → document type → upload DOCX |
-| Review AI feedback | Open document → Open LEON and AI Debrief → AI Debrief tab |
-| Ask questions about your document | Open document → Ask LEON tab |
-| Update a draft | Editor screen → Upload a new draft |
-| Save a copy | Editor screen → Download |
+| Create an account | Sign Up → email/password → verify the email code |
+| Log in | Login → email/password |
+| Start a new draft | Student Dashboard → New Document → department → document type → upload .docx or .pdf → Activate Editor |
+| Review AI feedback | Open document → AI Debrief |
+| Ask questions about your draft | Open document → Ask LEON |
+| Update a draft | Editor → Upload New Draft |
+| Save a copy | Editor → Export (DOCX or PDF) |
 
 ---
 
 ## Part 3: Department Admin Guide
 
-As a **Department Admin**, you configure document types, define evaluation criteria, and view analytics. Follow the steps below in order the first time through; after that, use this part as a quick reference.
+As a **Department Admin**, you configure document types and evaluation criteria for the department(s) you administer, and you review aggregate analytics. Student-facing debriefs are generated against the rubric you save.
 
-Once you've selected **Department Admin** as your account view (see [1.3 Choosing Your Account View](#13-choosing-your-account-view)), you'll land on your Department Admin dashboard.
+After you choose **Department Admin** as your account view (see [1.3](#13-choosing-your-account-view)), you land on the Department Admin dashboard.
 
 ### 3.1 How the Department Admin Screens Are Organized
 
-Before diving into the steps, here's where things live on the platform:
+- **Profile** — switch account view (Student / Department Admin / System Admin, depending on your roles).
+<img width="944" height="410" alt="Switch account view from profile" src="https://github.com/user-attachments/assets/60265c0f-df66-4185-ac91-986725b99043" />
+- **Dashboard** — document types for the department you are managing. If you administer more than one department, a selector on the banner switches which department you are editing. **Create New Document Type** is on the right.
+<img width="943" height="412" alt="Department Admin dashboard" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
+- **Document type** — opens when you select a type. Two areas: **Evaluation Rubric** and **Analytics**.
+<img width="950" height="413" alt="Document type Evaluation Rubric and Analytics" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
+- **Evaluation Rubric** — **Document Context** (purpose, common mistakes, additional background, citation guide) and **Evaluation Criteria** (categories the AI should use). Click **Save Rubric** when you are done; this screen does not autosave.
+<img width="935" height="409" alt="Evaluation Rubric categories" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
+- **Analytics** — student improvement trends, AI Debrief helpfulness (aggregate yes/no ratings), and section applicability. Figures are aggregates, not per-student scores.
+<img width="950" height="407" alt="Document type analytics" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
 
-- **Profile** — click your profile to switch your account view between Student and Department Admin.
-<img width="944" height="410" alt="image" src="https://github.com/user-attachments/assets/60265c0f-df66-4185-ac91-986725b99043" />
-- **Dashboard** — the main screen after choosing Department Admin. Your existing document types are listed here, with the **Create New Document Type** button on the right side of the screen.
-<img width="943" height="412" alt="image" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
-- **Document Controls** — opens when you select or create a document type. It's organized as two tabs: **Evaluation** and **Analytics**.
-- <img width="950" height="413" alt="image" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
-- **Inside Evaluation Settings** — **General Information** sits at the top, followed by your list of **Categories**. Clicking a category opens its configuration form.
-<img width="935" height="409" alt="image" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
-- **Inside Analytics** — **Student Improvement Trends** appears first, followed by **Ai Debrief Helpfulness** and **Feedback Section Applicability**
-<img width="950" height="407" alt="image" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
+Student access for a department (open vs locked) is controlled by a System Admin, not from this dashboard.
 
-### 3.2 Setting Up Evaluation Settings
+### 3.2 Opening a Document Type
 
-**Enter general document type information**
+1. Confirm the banner shows the department you want to manage.
+2. To work with an existing type, click it in the list.
+3. To add one, click **Create New Document Type**, enter a name, and click **Create**.
+4. You can delete a type only when no documents still use it.
 
-1. Go to the **General Information** section.
-2. Enter the document type name (e.g., "Legal Memo").
-3. Enter a description of the document's purpose and expected content.
-4. Add any other reference information relevant to the document type.
+Either create or select takes you into that type. Then choose **Evaluation Rubric** or **Analytics**.
 
-**Select or create evaluation categories**
+### 3.3 Setting Up the Evaluation Rubric
 
-1. Select an existing category to open its configuration form, or
-2. Click **Create Category** to add a new one (e.g., "Tone," "Structure," "Citations").
+**Document Context**
 
-**Configure each category**
+1. Expand **Document Context**.
+2. Fill in **Purpose**, **Common mistakes to avoid**, and **Additional background**.
+3. Optionally choose a **Citation guide** (for example McGill Guide) so the AI evaluates references consistently.
 
-1. Click into a category (e.g., "Tone").
-2. Fill in the form with the requirements the AI should evaluate against for this document type — for example, what tone is expected in a legal memo.
-3. Your changes save automatically as you go, so you can leave and return without losing progress.
+**Evaluation Criteria**
 
-### 3.3 Reviewing Analytics
+1. Default categories (Tone, Organisation, Citations, and similar) are created for a new type. Select the ones this type should use.
+2. Expand a selected criterion to define what it means for this document type. Organisation criteria can use a framework such as IRAC, CREAC, point-first, or a custom description.
+3. Add a custom criterion if you need one that is not in the defaults.
+4. Click **Save Rubric**.
 
-**Check usage**
+### 3.4 Reviewing Analytics
 
-View how users are interacting with this document type overall — submissions, completion, and engagement over time.
+Open **Analytics** for the document type.
 
-**Check student improvement**
+- **Student improvement** — how debrief-related signals change over time (date-range presets or custom range).
+- **AI Debrief helpfulness** — aggregate student ratings (helpful / not helpful) and optional comments.
+- **Section applicability** — whether feedback sections applied to the draft, in aggregate.
 
-View how AI debriefs for this document type have changed over time, so you can see whether students are improving.
-
-**Check AI Debrief quality**
-
-1. Review the overall helpfulness score — an aggregate rating of how helpful the AI debriefs have been.
-2. Review category-level detail — yes/no useful indicators tied to each evaluation category you configured in [3.3 Setting Up Evaluation Settings](#33-setting-up-evaluation-settings) (e.g., "Was the tone feedback useful? Yes/No").
+These views do not change your rubric. Use them to see whether criteria and prompts are working as intended.
 
 ### Quick Reference — Department Admin
 
-| Action | What Happens |
+| Action | What happens |
 | --- | --- |
-| Select account view | Choose Student or Department Admin from your profile |
-| Land on dashboard | Department Admin dashboard opens |
-| Open document type | Select an existing one, or click Create New Document Type |
-| Choose a tab | Click Evaluation Settings or Analytics |
-| Set up evaluation | Enter general info, select/create categories, then fill in each category's form (autosaves) |
-| Check analytics | Review usage, student improvement, debrief helpfulness, and category yes/no results |
-
-### Tips for Department Admins
-
-- You can define different evaluation categories for each document type — nothing is hard-coded.
-- Student-facing AI debriefs are generated against whatever criteria you set up in Evaluation Settings.
-- Analytics reflects activity for the document type but doesn't change your evaluation setup.
-- Since Evaluation Settings saves as you go, feel free to step away mid-setup and pick back up later.
+| Switch department | Use the department selector on the dashboard banner (if you administer more than one) |
+| Create a document type | Create New Document Type → name → Create |
+| Open a type | Click it in the list |
+| Set coaching rules | Evaluation Rubric → Document Context + criteria → Save Rubric |
+| Check results | Analytics for that document type |
 
 ---
 
 ## Part 4: System Admin Guide
 
-As a **System Admin**, you sit above the department level: you control which AI model powers LEON, set usage limits, create and manage departments, promote users to Department Admin, and review platform-wide analytics. Follow the steps below in order the first time through; after that, use this part as a quick reference.
+As a **System Admin**, you sit above the department level: you choose the Bedrock model, set platform usage limits, create departments, manage users and access, edit department-level prompts, and review department analytics.
 
-Once you've selected **System Admin** as your account view (see [1.3 Choosing Your Account View](#13-choosing-your-account-view)), you'll land on your System Admin dashboard.
+After you choose **System Admin** as your account view (see [1.3](#13-choosing-your-account-view)), you land on **System Configuration** and the department list.
 
 ### 4.1 How the System Admin Screens Are Organized
 
-Before diving into the steps, here's where things live on the platform:
-
-- **Profile** — click your profile to switch your account view between Student, Department Admin, and System Admin.
-- **Dashboard** — the main screen after choosing System Admin. Your list of departments is shown here, alongside **System Settings**.
-- **System Settings** — contains **Model Configuration** and **Usage Limits**, which apply platform-wide unless overridden at the department level.
-- **Department Controls** — opens when you select or create a department. It's organized into three areas: **Users**, **Prompt Settings**, and **Analytics**.
-- **Inside Users** — the list of active users in the department, where you can promote roles or lock the department from student access.
-- **Inside Prompt Settings** — **Department Context** sits at the top, followed by **Writing Standards**, then **Restricted Topics**.
-- **Inside Analytics** — **Active Users** appears first, followed by **Documents Generated**, then **Debriefs Generated**.
+- **Profile** — switch account view.
+- **Dashboard** — **Model Configuration** and **Usage Limits** at the top, then the list of departments.
+- **Department** — opens when you select a department: **Lock / Open** student access, **Manage Users**, **Manage Department Prompt**, and **View Analytics**.
 
 ### 4.2 Model Configuration
 
-1. Go to **System Admin Dashboard → System Settings → Model Configuration**.
-2. Review the list of available AI models.
-3. Select the model you want to set as the platform default.
-4. Click **Save Changes**.
+1. On the System Admin dashboard, expand **Model Configuration**.
+2. Choose the active Bedrock model from the allowed list.
+3. Click **Save**.
 
-**Notes:**
-
-- Model changes apply platform-wide unless your instance supports per-department overrides.
-- Consider testing a new model with a small pilot group before rolling it out broadly, since output style and quality can shift between models.
-- Changing models does not affect historical debriefs or documents already generated.
+Model changes apply immediately to new AI Debrief and Ask LEON calls. Existing debriefs are unchanged. Different models can differ in quality, cost, and latency.
 
 ### 4.3 Setting Usage Limits
 
-1. Go to **System Admin Dashboard → System Settings → Usage Limits**.
-2. Set limits for:
-   - **AI Debriefs allowed** — the maximum number of debriefs a user or department can generate in a given period.
-   - **Documents allowed** — the maximum number of documents a user or department can create or process in a given period.
-3. Choose whether limits apply platform-wide or per department.
-4. Click **Save Changes**.
+1. Expand **Usage Limits**.
+2. Set lifetime maxima for:
+   - Ask LEON messages per document
+   - AI Debrief generations per document
+   - Document uploads
+   - Drafts per document
+3. Click **Save Changes**.
 
-**Notes:**
-
-- Limits help control cost and prevent misuse.
-- Consider setting conservative defaults for new departments and increasing them as usage patterns become clear.
+These limits apply to all users in all departments. They are not per-calendar-period quotas.
 
 ### 4.4 Creating New Departments
 
-1. Go to **System Admin Dashboard → Departments → Create New Department**.
-2. Enter the department name and a short description.
-3. Assign an initial Department Admin (optional — can be done later from Users, see [4.5 Managing Departments](#45-managing-departments)).
-4. Set initial usage limits, or leave them at the platform default (see [4.3 Setting Usage Limits](#43-setting-usage-limits)).
-5. Click **Create Department**.
-
-**Notes:**
-
-- Once created, a department appears in the department list and can be opened as described in [4.5 Managing Departments](#45-managing-departments).
-- Departments generally can't be merged after creation, so plan your structure before creating many of them.
+1. On the dashboard, click **Create New Department** (or the equivalent create control on the department list).
+2. Enter a department name.
+3. Create the department, then open it to appoint Department Admins and set the prompt (see [4.5](#45-managing-departments) and [4.6](#46-department-prompt)).
 
 ### 4.5 Managing Departments
 
-1. Go to **System Admin Dashboard → Departments** and select the department you want to manage.
-2. Click **Users** to:
-   - View the list of currently active users in the department.
-   - Select a user to promote or change their role — for example, promoting a Student to **Department Admin**.
-   - Deactivate or remove a user if needed.
-3. Click **Lock Department Access** to prevent students from logging in or using platform features while keeping admin/staff access intact. Use this for maintenance, review periods, or restructuring.
-4. Click **Save Changes** after any update.
+1. Select a department from the list.
+2. Use **Lock** / **Open** to control whether students can self-serve document types in that department. Locked departments typically require an access grant. Locking does not delete data.
+3. Open **Manage Users** to search users, edit roles (**Student**, **DepartmentAdmin**, **TechnicalAdmin**), and appoint a Department Admin for this department.
+4. Role changes take effect on the next authorized request.
 
-**Notes:**
+### 4.6 Department Prompt
 
-- Role promotions typically take effect immediately.
-- Locking a department does not delete data — it only restricts student-level access until unlocked.
+1. Open the department → **Manage Department Prompt**.
+2. Fill in:
+   - **Department Context** — who the writers are and what the program is
+   - **Writing Standards** — citation style, register, formatting
+   - **Restricted Topics** — subjects the coach should avoid or flag
+3. Click **Save Prompt**.
 
-### 4.6 Department-Level Prompt Management
+These instructions apply across document types in that department. Per-type detail still lives in the Department Admin Evaluation Rubric.
 
-1. Go to **System Admin Dashboard → Departments → [Department Name] → Prompt Settings**.
-2. Configure the following:
-   - **Department Context** — background information the AI should always consider for this department (e.g., subject area, program level, institutional norms).
-   - **Writing Standards** — style, tone, formatting, and citation requirements the AI should follow when generating documents or debriefs for this department.
-   - **Restricted Topics** — a list of topics, terms, or content areas the AI should avoid or flag when interacting with this department's users.
-3. Save changes.
-4. Optionally, test the configuration by generating a sample document or debrief before rolling it out.
+### 4.7 Reviewing Department Analytics
 
-**Notes:**
+1. Open the department → **View Analytics**.
+2. Review totals for documents, drafts, and active users, plus breakdown by document type and usage over time.
 
-- These settings apply only to the selected department; other departments are unaffected.
-- Restricted topics should be reviewed periodically to reflect current policy or curriculum needs.
-
-### 4.7 Reviewing Platform Analytics
-
-1. Go to **System Admin Dashboard → Departments → [Department Name] → Analytics** (or a platform-wide analytics view, if available).
-2. Review key metrics, including:
-   - **Active Users** — number of users who have logged in or used the platform within a selected time range.
-   - **Documents Generated** — total document creation volume over time.
-   - **Debriefs Generated** — total AI debrief volume over time.
-3. Use date-range filters to compare activity across weeks, months, or terms.
-4. Export data if you need to share it outside the platform.
-
-**Notes:**
-
-- Analytics are useful for identifying underused departments (candidates for training/support) or heavily used ones (candidates for higher usage limits).
-- Reviewing analytics alongside Usage Limits (see [4.3 Setting Usage Limits](#43-setting-usage-limits)) helps keep costs predictable.
+Figures are aggregates. They do not include per-student scores.
 
 ### Quick Reference — System Admin
 
-| Action | Where to Go |
+| Action | Where to go |
 | --- | --- |
-| Choose AI model | System Settings → Model Configuration |
-| Set debrief/document limits | System Settings → Usage Limits |
-| Create a department | Departments → Create New Department |
-| Promote or manage users | Departments → [Department] → Users |
-| Lock student access | Departments → [Department] → Lock Department Access |
-| Set department context, writing standards, restricted topics | Departments → [Department] → Prompt Settings |
-| Review platform analytics | Departments → [Department] → Analytics |
-
-### Tips for System Admins
-
-- Model and usage limit changes made in System Settings apply platform-wide unless a department has its own override.
-- Give each department its own Prompt Settings so evaluation and debrief behavior reflects that department's actual standards.
-- Use Lock Department Access instead of deleting a department when you just need to pause student activity temporarily.
-- Check Analytics regularly alongside Usage Limits to catch departments approaching their document or debrief caps before users are blocked.
+| Choose AI model | Dashboard → Model Configuration |
+| Set usage limits | Dashboard → Usage Limits |
+| Create a department | Dashboard → create department |
+| Promote or manage users | Department → Manage Users |
+| Lock or open student access | Department → Lock / Open |
+| Set department context and standards | Department → Manage Department Prompt |
+| Review department analytics | Department → View Analytics |
