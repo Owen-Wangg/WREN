@@ -12,6 +12,7 @@ import { ArrowUp, CheckCircle2, ChevronDown, Minus, Star, TrendingUp } from 'luc
 import { useEffect, useRef, useState } from 'react';
 
 import { AiDisclaimerNotice } from '@/components/ui';
+import { ApiError } from '@/services/apiClient';
 import { useDocuments, useOrganizations, useWritingTypes } from '@/features/dashboard/useDashboard';
 
 import { FeedbackHelpfulnessPrompt } from './FeedbackHelpfulnessPrompt';
@@ -138,11 +139,14 @@ export interface SidebarDebriefPanelProps {
   readonly generationError?: string;
   /** Feedback item id of the quote currently highlighted in the editor. */
   readonly activeQuoteId?: string;
+  /** True when the editor could not resolve the highlighted quote to an exact span. */
+  readonly highlightFailed?: boolean;
   /** Called when student clicks a quoted text to highlight it in the document. */
   readonly onQuoteClick?: (selection: {
     feedbackItemId: string;
     anchorId?: string;
     quotedText?: string;
+    resolvedHighlight?: { paragraphIndex: number; startOffset: number; endOffset: number };
   }) => void;
 }
 
@@ -157,6 +161,7 @@ export function SidebarDebriefPanel({
   onGenerationFailed,
   generationError,
   activeQuoteId,
+  highlightFailed,
   onQuoteClick,
 }: SidebarDebriefPanelProps) {
   const { data: documents } = useDocuments();
@@ -281,6 +286,10 @@ export function SidebarDebriefPanel({
 
   const debrief = debriefQuery.data;
   const regenerating = isSavingThenRegen || regenerate.isPending || isAwaitingDebrief;
+  const isUsageLimitReached =
+    regenerate.error instanceof ApiError &&
+    regenerate.error.status === 429 &&
+    (regenerate.error.details as any)?.code === 'USAGE_LIMIT_REACHED';
 
   const generatingStep = useGeneratingStep(regenerating);
   const hasFeedback = (debrief?.items.length ?? 0) > 0;
@@ -435,7 +444,7 @@ export function SidebarDebriefPanel({
           <button
             type="button"
             onClick={() => void runRegenerate()}
-            disabled={regenerating || isGenerating || debriefQuery.isLoading || !isDocumentReady}
+            disabled={regenerating || isGenerating || debriefQuery.isLoading || !isDocumentReady || isUsageLimitReached}
             className={`inline-flex min-w-[7.25rem] items-center justify-center rounded-md px-sm py-xs text-body font-sans font-semibold text-accent-primary hover:bg-accent-primary/10 disabled:cursor-not-allowed transition-colors ${
               showRegenDots ? '' : 'disabled:opacity-50'
             }`}
@@ -554,9 +563,25 @@ export function SidebarDebriefPanel({
         )}
 
         {regenerate.isError && (
-          <p role="alert" className="mb-md text-body text-signal-critical">
-            Couldn't regenerate. Please try again.
-          </p>
+          <div role="alert" className="mb-md rounded-lg border border-signal-critical/30 bg-signal-critical/5 p-md">
+            {regenerate.error instanceof ApiError &&
+            regenerate.error.status === 429 &&
+            (regenerate.error.details as any)?.code === 'USAGE_LIMIT_REACHED' ? (
+              <div className="flex flex-col gap-sm">
+                <p className="text-body font-medium text-signal-critical">
+                  Debrief limit reached
+                </p>
+                <p className="text-bodySmall text-text-secondary">
+                  You've used all available AI Debrief generations for this document.
+                  To receive new feedback, upload a new document and try again.
+                </p>
+              </div>
+            ) : (
+              <p className="text-body text-signal-critical">
+                Couldn't regenerate. Please try again.
+              </p>
+            )}
+          </div>
         )}
         {generationError && !regenerating && !isGenerating && (
           <p role="alert" className="mb-md text-body text-signal-critical">
@@ -779,6 +804,7 @@ export function SidebarDebriefPanel({
                                           feedbackItemId: item.id,
                                           anchorId: item.currentAnchorId,
                                           quotedText: item.quotedText,
+                                          resolvedHighlight: item.resolvedHighlight ?? undefined,
                                         })
                                       }
                                       role="button"
@@ -797,6 +823,11 @@ export function SidebarDebriefPanel({
                                     >
                                       &ldquo;{item.quotedText}&rdquo;
                                     </blockquote>
+                                    {highlightFailed && activeQuoteId === item.id && (
+                                      <p className="text-caption text-text-muted italic mt-xs">
+                                        Exact location unavailable, scrolled to approximate area
+                                      </p>
+                                    )}
                                   </div>
                                 )}
                               </li>
@@ -835,6 +866,7 @@ export function SidebarDebriefPanel({
                                           feedbackItemId: item.id,
                                           anchorId: item.currentAnchorId,
                                           quotedText: item.quotedText,
+                                          resolvedHighlight: item.resolvedHighlight ?? undefined,
                                         })
                                       }
                                       role="button"
@@ -853,6 +885,11 @@ export function SidebarDebriefPanel({
                                     >
                                       &ldquo;{item.quotedText}&rdquo;
                                     </blockquote>
+                                    {highlightFailed && activeQuoteId === item.id && (
+                                      <p className="text-caption text-text-muted italic mt-xs">
+                                        Exact location unavailable, scrolled to approximate area
+                                      </p>
+                                    )}
                                   </div>
                                 )}
                                 <CitationDisplay citationReferenceId={item.citationReferenceId} />

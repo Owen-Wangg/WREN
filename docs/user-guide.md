@@ -75,15 +75,19 @@ As a **Student**, once you've logged in and are on your **Student Dashboard**, y
 - Any drafts you have previously uploaded
 - If no drafts exist yet, you will need to create a new one (see below)
 
+<img width="957" height="395" alt="image" src="https://github.com/user-attachments/assets/a0050ec6-575d-48fe-bc46-d5aecbdb2107" />
+
 ### 2.1 Creating a New Document Draft
 
 1. From the Student Dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
-2. Click **New Document**.
-3. Select the **Law Department**.
-4. Choose your document type — for example, **Legal Memorandum**.
-5. Give your draft a name.
-6. Click **Choose File** and select the DOCX file from your computer that you want to upload.
-7. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
+<img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
+3. Click **New Document**.
+4. Select the **Law Department**.
+6. Choose your document type — for example, **Legal Memorandum**.
+7. Give your draft a name.
+8. Click **Choose File** and select the DOCX file from your computer that you want to upload.
+<img width="956" height="368" alt="image" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
+10. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
 
 ### 2.2 Opening and Reviewing Your Document
 
