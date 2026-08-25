@@ -138,7 +138,7 @@ if (result.action === 'GUARDRAIL_INTERVENED') {
 - Empty/whitespace text → skip.
 - `GUARDRAIL_INTERVENED` → `PromptInjectionError` (`code: PROMPT_INJECTION_DETECTED`) → HTTP **400**, no mutation.
 - Bedrock/IAM errors **propagate** → HTTP **500**; still no write if the check ran before persist.
-- Unlike Knowledge Bridge, there is no `ACTION_ANONYMIZED` path and no continue-with-redacted-text.
+- There is no `ACTION_ANONYMIZED` path and no continue-with-redacted-text behavior; blocked prompts always result in an error response.
 
 **Applied to (before DB write):**
 
