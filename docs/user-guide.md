@@ -92,43 +92,46 @@ As a **Student**, once you've logged in and are on your **Student Dashboard**, y
 
 1. From the Student Dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
 <img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
-3. Click **New Document**.
-4. Select the **Law Department**.
-6. Choose your document type — for example, **Legal Memorandum**.
-7. Give your draft a name.
-8. Click **Choose File** and select the DOCX file from your computer that you want to upload.
+2. Click **New Document**.
+3. Select the **Law Department**.
+4. Choose your document type — for example, **Legal Memorandum**.
+5. Give your draft a name.
+6. Click **Choose File** and select the DOCX file from your computer that you want to upload.
 <img width="956" height="368" alt="image" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
-10. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
+7. After uploading, you will be taken to the following page:
+<img width="956" height="415" alt="image" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
 
 ### 2.2 Opening and Reviewing Your Document
-
-1. From **My Documents**, click on the draft you want to open. This will bring up the **preview and editor** view.
-2. On the side of the screen, you'll see a panel with more information about two tools:
+1. On the side of the screen, you'll see a panel with more information about two tools:
    - **AI Debrief**
-   - **Ask LEON**
-3. Click **Open LEON and AI Debrief** underneath the panel to activate these tools.
+   - **LEON**
+<img width="1912" height="829" alt="Screenshot 2026-08-25 095652" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
+
+2. Click the **LEON and AI Debrief** symbols to activate these tools.
 
 **Other options available in this view:**
 
 - **Upload a new draft** — use this if changes were made to your document in another editor and you need LEON to review the updated version.
-- **Download** — use this to download your document after changes have been made.
-- **Minimize the panel** — click the arrow on the right side of the panel to collapse it if you want more screen space.
+<img width="960" height="412" alt="image" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
+- **Export** — use this to download your document after changes have been made.
+<img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/d31b8995-9545-4531-8c9e-04411dbd8c70" />
+- **Adjust the panel** — click on the grey bar on the right side of the AI debrief to expand or minimize the panel.
+<img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/544ace4d-b433-437f-8472-14376b80b177" />
 
 ### 2.3 Using AI Debrief
 
-Once you click **Open LEON and AI Debrief**, the panel will open with **AI Debrief** shown first at the top.
-
 1. Click **Regenerate** to generate a new AI Debrief report on your document.
-2. To view a previously generated report, click the **drop-down arrow** and select an earlier draft's report from the list.
+<img width="956" height="413" alt="image" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
+3. To view a previously generated report, click the **drop-down arrow** and select an earlier draft's report from the list.
+<img width="959" height="416" alt="image" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
 
 ### 2.4 Using Ask LEON
 
-At the top of the panel, you'll see two tabs: **AI Debrief** and **Ask LEON**.
-
-1. Click the **Ask LEON** tab to switch views.
+1. Click the **LEON** tab to switch views.
 2. Here you can chat directly with LEON to:
    - Ask detailed questions about your document
    - Track your progress and see how much work has been completed as you make changes
+<img width="958" height="412" alt="image" src="https://github.com/user-attachments/assets/0b5d2ba7-27b3-4c33-a726-e6882021007e" />
 
 ### Quick Recap — Student
 
@@ -155,24 +158,17 @@ Once you've selected **Department Admin** as your account view (see [1.3 Choosin
 Before diving into the steps, here's where things live on the platform:
 
 - **Profile** — click your profile to switch your account view between Student and Department Admin.
+<img width="944" height="410" alt="image" src="https://github.com/user-attachments/assets/60265c0f-df66-4185-ac91-986725b99043" />
 - **Dashboard** — the main screen after choosing Department Admin. Your existing document types are listed here, with the **Create New Document Type** button on the right side of the screen.
-- **Document Controls** — opens when you select or create a document type. It's organized as two tabs: **Evaluation Settings** and **Analytics**.
+<img width="943" height="412" alt="image" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
+- **Document Controls** — opens when you select or create a document type. It's organized as two tabs: **Evaluation** and **Analytics**.
+- <img width="950" height="413" alt="image" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
 - **Inside Evaluation Settings** — **General Information** sits at the top, followed by your list of **Categories**. Clicking a category opens its configuration form.
-- **Inside Analytics** — **Usage** appears first, followed by **Student Improvement**, then **AI Debrief Quality** (an overall helpfulness score plus yes/no results broken out by category).
+<img width="935" height="409" alt="image" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
+- **Inside Analytics** — **Student Improvement Trends** appears first, followed by **Ai Debrief Helpfulness** and **Feedback Section Applicability**
+<img width="950" height="407" alt="image" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
 
-### 3.2 Opening a Document Type
-
-From the dashboard, do one of the following:
-
-1. To work with an existing document type: select it from the Admin Dashboard list.
-2. To start a new one: click **Create New Document Type**, located on the right side of the screen.
-
-Either action takes you into **Document Controls** for that document type. Inside Document Controls, pick one of two tabs:
-
-1. Click **Evaluation Settings** to define what the document type is and how it should be evaluated.
-2. Click **Analytics** to review usage data and AI debrief performance.
-
-### 3.3 Setting Up Evaluation Settings
+### 3.2 Setting Up Evaluation Settings
 
 **Enter general document type information**
 
@@ -192,7 +188,7 @@ Either action takes you into **Document Controls** for that document type. Insid
 2. Fill in the form with the requirements the AI should evaluate against for this document type — for example, what tone is expected in a legal memo.
 3. Your changes save automatically as you go, so you can leave and return without losing progress.
 
-### 3.4 Reviewing Analytics
+### 3.3 Reviewing Analytics
 
 **Check usage**
 
