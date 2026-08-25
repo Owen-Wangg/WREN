@@ -1,4 +1,4 @@
-# LEON — Project Modification Guide
+# WREN — Project Modification Guide
 
 This guide covers practical modifications developers commonly need: theming, branding, authentication, API extensions, frontend, LLM configuration, migrations, document ingest, the Feedback Engine, usage limits, encryption, and deployment.
 
@@ -13,7 +13,7 @@ Related docs:
 - [Database migrations](../backend/database/migrations/README.md)
 - [CDK package](../cdk/README.md)
 
-The product display name is **LEON**. AWS resources and this repository use the prefix **WREN**.
+The product display name is **WREN**. AWS resources and this repository use the prefix **WREN**.
 
 ---
 
@@ -96,7 +96,7 @@ Users sign in with **Amazon Cognito** (email + password, optional MFA). There is
 
 | Role | Typical access |
 | --- | --- |
-| `Student` | Own documents, debriefs, Ask LEON, notifications |
+| `Student` | Own documents, debriefs, Ask WREN, notifications |
 | `DepartmentAdmin` | Catalog/config for administered departments |
 | `TechnicalAdmin` | Platform config, usage policy, model id, user search, roles |
 
@@ -254,7 +254,7 @@ There is no shared marketing `Footer.tsx`. Landing copy is `frontend/src/pages/u
 
 ## Configuring LLM Models
 
-Debrief and Ask LEON call **Amazon Bedrock**. The model id is configuration, not a hardcoded string in orchestration logic.
+Debrief and Ask WREN call **Amazon Bedrock**. The model id is configuration, not a hardcoded string in orchestration logic.
 
 | Mechanism | Path / API |
 | --- | --- |
@@ -318,7 +318,7 @@ Lifetime caps are stored in Postgres (`platform_usage_policy`) and enforced in t
 
 | Limit | Typical meaning |
 | --- | --- |
-| `messageLimit` | Ask LEON / user messages |
+| `messageLimit` | Ask WREN / user messages |
 | `debriefGenerationLimit` | AI Debrief jobs |
 | `documentUploadLimit` | Uploads |
 | `draftsPerDocumentLimit` | Draft versions per document |
@@ -454,7 +454,7 @@ CORS on the **API** is currently `Access-Control-Allow-Origin: *` in `ApiStack.t
 - **Debrief never finishes:** Feedback Engine + Bedrock model access; DLQ alarm; queue depth. Poll `/feedback/status` if AppSync is unset.
 - **CORS in the browser:** Gateway 401/403 include CORS headers; raw API URL is not behind WAF — use CloudFront for edge rules.
 - **Theme lint failures:** Move hex/`px` into `frontend/src/styles/tokens/` and `theme.css`.
-- **Display-name CI:** Don’t put `"LEON"` as a quoted product string in new source; use `appConfig` / CDK `appName`.
+- **Display-name CI:** Don’t put `"WREN"` as a quoted product string in new source; use `appConfig` / CDK `appName`.
 - **Logging:** CloudWatch is the primary debug surface. Do not log JWTs or full draft bodies.
 
 **API Gateway throttling:** 100 req/s, 200 burst. WAF rate limit (CloudFront): 2000 req / 5 min / IP.
