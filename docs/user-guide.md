@@ -180,7 +180,7 @@ Before diving into the steps, here's where things live on the platform:
 
 <img width="935" height="409" alt="image" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
 
-- **Inside Analytics** — **Student Improvement Trends** appears first, followed by **Ai Debrief Helpfulness** and **Feedback Section Applicability**
+- **Inside Analytics** — **Student Improvement Trends** appears first, followed by **AI Debrief Helpfulness** and **Feedback Section Applicability**
 
 <img width="950" height="407" alt="image" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
 
@@ -192,10 +192,14 @@ Before diving into the steps, here's where things live on the platform:
 2. Enter a description of the document's purpose and expected content.
 3. Add any other reference information relevant to the document type.
 
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/7ee641f9-4749-404e-b308-146254404519" />
+
 **Select or create evaluation criteria**
 
 1. Select an existing category to open its configuration form, or
 2. Click **add custom criterion** to add a new one.
+
+<img width="859" height="401" alt="image" src="https://github.com/user-attachments/assets/47d93e8b-8b9d-404f-acac-57c5fd833046" />
 
 **Configure each category**
 
@@ -203,16 +207,23 @@ Before diving into the steps, here's where things live on the platform:
 2. Fill in the form with the requirements the AI should evaluate against for this document type — for example, what does clarity look like for an appellate factum?
 3. Your changes save automatically as you go, so you can leave and return without losing progress.
 
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/c62f4476-d14e-4155-a50f-2ea6e1d7d27d" />
+
 ### 3.3 Reviewing Analytics
 
 **Check student improvement**
 
 View whether students addressed the feedback flagged their previous drafts.
 
+<img width="706" height="399" alt="image" src="https://github.com/user-attachments/assets/d7558de7-dc06-495a-bd37-558cf0a87078" />
+<img width="544" height="122" alt="image" src="https://github.com/user-attachments/assets/8712c5ea-ffa1-4817-853f-fae22da2fe25" />
+
 **Check AI Debrief quality**
 
 1. Review the Helpfulness Breakdown - which provides a visual to see what percentage of feedback was both helpful and not helpful
 2. Review Feedback Section Applicability — applicable/not applicable indicators tied to each evaluation category you configured in [3.3 Setting Up Evaluation Settings](#33-setting-up-evaluation-settings) (e.g., "Was the tone feedback useful? Yes/No").
+
+<img width="1447" height="685" alt="image" src="https://github.com/user-attachments/assets/d70c2cf6-a983-4eb5-8d1f-c5f29e50a9a4" />
 
 ### Quick Reference — Department Admin
 
