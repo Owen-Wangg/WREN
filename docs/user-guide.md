@@ -91,10 +91,15 @@ As a **Student**, once you've logged in and are on your **Student Dashboard**, y
 
 1. From the Student Dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
 <img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
+
 2. Click **New Document**.
+
 3. Select your department.
+
 4. Choose your document type — for example, **Legal Memorandum**.
+
 5. Give your draft a name.
+
 6. Click **Choose File** and select the DOCX file from your computer that you want to upload.
 
 <img width="956" height="368" alt="image" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
