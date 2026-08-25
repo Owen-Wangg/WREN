@@ -85,7 +85,7 @@ export {
   revokeAccessGrant,
 } from './accessGrantService';
 export { requireCapability } from './capabilityGuard';
-export { AuthorizationError, NotFoundError } from './errors';
+export { AuthorizationError, ConflictError, NotFoundError } from './errors';
 export type { QueryExecutor } from './db';
 export {
   pseudonymForActor,

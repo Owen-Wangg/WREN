@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronDown, Trash2 } from 'lucide-react';
 
 import { useActiveDepartment } from '@/features/department-admin/ActiveDepartmentContext';
-import { listDocumentTypes, createDocumentType } from '@/features/department-admin/departmentAdminApi';
+import { listDocumentTypes, createDocumentType, deleteDocumentType } from '@/features/department-admin/departmentAdminApi';
 import { ApiError } from '@/services';
 
 function createErrorMessage(error: unknown): string {
@@ -23,6 +23,24 @@ function createErrorMessage(error: unknown): string {
   return 'Failed to create document type. Please try again.';
 }
 
+function deleteErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+    if (error.status === 409) {
+      return 'This document type cannot be deleted while documents still use it. Delete those documents first.';
+    }
+    if (error.status === 403) {
+      return 'You do not have permission to delete this document type.';
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return 'Failed to delete document type. Please try again.';
+}
+
 export function DepartmentAdminDashboard() {
   const navigate = useNavigate();
   const {
@@ -34,7 +52,18 @@ export function DepartmentAdminDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateDocType, setShowCreateDocType] = useState(false);
   const [newDocTypeName, setNewDocTypeName] = useState('');
+  const [docTypeToDelete, setDocTypeToDelete] = useState<{ id: string; name: string } | null>(null);
   const queryClient = useQueryClient();
+
+  const deleteDocTypeMutation = useMutation({
+    mutationFn: (documentTypeId: string) => deleteDocumentType(documentTypeId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['dept-admin-document-types', activeDepartment?.id],
+      });
+      setDocTypeToDelete(null);
+    },
+  });
 
   const createDocTypeMutation = useMutation({
     mutationFn: (name: string) => createDocumentType(activeDepartment!.id, { name }),
@@ -161,6 +190,7 @@ export function DepartmentAdminDashboard() {
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    setDocTypeToDelete({ id: docType.id, name: docType.name });
                   }}
                   className="p-1 text-gray-400 hover:text-red-500 transition hover:bg-gray-100 rounded"
                 >
@@ -187,6 +217,45 @@ export function DepartmentAdminDashboard() {
           ))}
         </div>
       </div>
+
+      {docTypeToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">Delete Document Type</h2>
+            <p className="mb-4 text-sm text-gray-600">
+              Are you sure you want to delete{' '}
+              <span className="font-semibold">{docTypeToDelete.name}</span>? This action cannot be
+              undone. Types that still have submitted documents cannot be deleted until those
+              documents are removed.
+            </p>
+            {deleteDocTypeMutation.isError && (
+              <p className="mb-4 text-sm text-red-600">
+                {deleteErrorMessage(deleteDocTypeMutation.error)}
+              </p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setDocTypeToDelete(null);
+                  deleteDocTypeMutation.reset();
+                }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteDocTypeMutation.isPending}
+                onClick={() => deleteDocTypeMutation.mutate(docTypeToDelete.id)}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteDocTypeMutation.isPending ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCreateDocType && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

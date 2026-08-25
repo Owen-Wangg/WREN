@@ -1,8 +1,8 @@
 /**
  * Error types for the Admin_Service.
  *
- * These make the two ways a privileged operation can fail explicit and
- * distinguishable by callers (the API layer maps them to 403 / 404):
+ * These make the ways a privileged operation can fail explicit and
+ * distinguishable by callers (the API layer maps them to 403 / 404 / 409):
  *
  *   - {@link AuthorizationError} — the actor's capability check failed. It MUST
  *     be thrown BEFORE any mutation, so a denied actor never changes state
@@ -10,6 +10,9 @@
  *     capability matrix.
  *   - {@link NotFoundError} — the targeted Department / Document Type does not
  *     exist (raised only after the authorization check has passed).
+ *   - {@link ConflictError} — the mutation is authorized but cannot proceed
+ *     because related records still exist (for example a Document Type with
+ *     submitted Documents, which Postgres RESTRICTs).
  */
 
 /** Thrown when the capability matrix denies an operation (deny-with-no-mutation). */
@@ -25,6 +28,16 @@ export class NotFoundError extends Error {
   public constructor(message: string) {
     super(message);
     this.name = 'NotFoundError';
+  }
+}
+
+/** Thrown when a mutation is blocked by existing related records. */
+export class ConflictError extends Error {
+  public readonly code = 'CONFLICT' as const;
+
+  public constructor(message: string) {
+    super(message);
+    this.name = 'ConflictError';
   }
 }
 

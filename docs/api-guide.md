@@ -21,8 +21,8 @@ The product display name is **LEON**. AWS resources, CDK stacks, and this reposi
 - [Analytics Endpoints](#analytics-endpoints)
 - [Notification Endpoints](#notification-endpoints)
 - [Admin Config Endpoints](#admin-config-endpoints)
-- [AppSync Realtime](#appsync-realtime)
 - [Security Considerations](#security-considerations)
+- [AppSync Realtime](#appsync-realtime)
 - [Troubleshooting](#troubleshooting)
 
 ## Authentication

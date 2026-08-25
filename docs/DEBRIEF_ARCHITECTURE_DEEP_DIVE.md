@@ -74,7 +74,7 @@ This decoupling ensures API Gateway never times out regardless of how long the A
 
 ### 2.2 Feedback Engine Processing
 
-The Feedback Engine Lambda (Python 3.12, 5-minute timeout) receives SQS events and runs `process_feedback_request()`:
+The Feedback Engine Lambda (Python 3.12, 15-minute timeout) receives SQS events and runs `process_feedback_request()`:
 
 | Step | Function | What it does |
 |------|----------|--------------|

@@ -58,7 +58,7 @@ IAM roles on Lambdas grant only the AWS APIs each function needs (S3, Bedrock, S
 
 Relational schema is applied by forward-only SQL in `backend/database/migrations/` (see [migrations README](../backend/database/migrations/README.md)). Names below are **current** (after the V4 rename: `organization` → `department`, `writing_type` → `document_type`).
 
-There is no checked-in ER PNG equivalent to Knowledge Bridge’s `db-diagram.png`. The tables and FKs in this section are the source of truth.
+No ER diagram is provided in this repository. The tables and FKs in this section are the source of truth.
 
 ### Non-Postgres stores
 
