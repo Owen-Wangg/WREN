@@ -158,50 +158,54 @@ Once you've selected **Department Admin** as your account view (see [1.3 Choosin
 Before diving into the steps, here's where things live on the platform:
 
 - **Profile** — click your profile to switch your account view between Student and Department Admin.
+  
 <img width="944" height="410" alt="image" src="https://github.com/user-attachments/assets/60265c0f-df66-4185-ac91-986725b99043" />
+
 - **Dashboard** — the main screen after choosing Department Admin. Your existing document types are listed here, with the **Create New Document Type** button on the right side of the screen.
+  
 <img width="943" height="412" alt="image" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
+
 - **Document Controls** — opens when you select or create a document type. It's organized as two tabs: **Evaluation** and **Analytics**.
-- <img width="950" height="413" alt="image" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
+  
+<img width="950" height="413" alt="image" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
+
 - **Inside Evaluation Settings** — **General Information** sits at the top, followed by your list of **Categories**. Clicking a category opens its configuration form.
+
 <img width="935" height="409" alt="image" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
+
 - **Inside Analytics** — **Student Improvement Trends** appears first, followed by **Ai Debrief Helpfulness** and **Feedback Section Applicability**
+
 <img width="950" height="407" alt="image" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
 
 ### 3.2 Setting Up Evaluation Settings
 
-**Enter general document type information**
+**Entering document type information**
 
-1. Go to the **General Information** section.
-2. Enter the document type name (e.g., "Legal Memo").
-3. Enter a description of the document's purpose and expected content.
-4. Add any other reference information relevant to the document type.
+1. Go to the **document context** section.
+2. Enter a description of the document's purpose and expected content.
+3. Add any other reference information relevant to the document type.
 
-**Select or create evaluation categories**
+**Select or create evaluation criteria**
 
 1. Select an existing category to open its configuration form, or
-2. Click **Create Category** to add a new one (e.g., "Tone," "Structure," "Citations").
+2. Click **add custom criterion** to add a new one.
 
 **Configure each category**
 
-1. Click into a category (e.g., "Tone").
-2. Fill in the form with the requirements the AI should evaluate against for this document type — for example, what tone is expected in a legal memo.
+1. Click into a category (e.g., "Clarity").
+2. Fill in the form with the requirements the AI should evaluate against for this document type — for example, what does clarity look like for an appellate factum?
 3. Your changes save automatically as you go, so you can leave and return without losing progress.
 
 ### 3.3 Reviewing Analytics
 
-**Check usage**
-
-View how users are interacting with this document type overall — submissions, completion, and engagement over time.
-
 **Check student improvement**
 
-View how AI debriefs for this document type have changed over time, so you can see whether students are improving.
+View whether students addressed the feedback flagged their previous drafts.
 
 **Check AI Debrief quality**
 
-1. Review the overall helpfulness score — an aggregate rating of how helpful the AI debriefs have been.
-2. Review category-level detail — yes/no useful indicators tied to each evaluation category you configured in [3.3 Setting Up Evaluation Settings](#33-setting-up-evaluation-settings) (e.g., "Was the tone feedback useful? Yes/No").
+1. Review the Helpfulness Breakdown - which provides a visual to see what percentage of feedback was both helpful and not helpful
+2. Review Feedback Section Applicability — applicable/not applicable indicators tied to each evaluation category you configured in [3.3 Setting Up Evaluation Settings](#33-setting-up-evaluation-settings) (e.g., "Was the tone feedback useful? Yes/No").
 
 ### Quick Reference — Department Admin
 
