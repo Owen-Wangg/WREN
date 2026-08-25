@@ -119,10 +119,15 @@ As a **Student**, once you've logged in and are on your **Student Dashboard**, y
 **Other options available in this view:**
 
 - **Upload a new draft** — use this if changes were made to your document in another editor and you need LEON to review the updated version.
+  
 <img width="960" height="412" alt="image" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
+
 - **Export** — use this to download your document after changes have been made.
+
 <img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/d31b8995-9545-4531-8c9e-04411dbd8c70" />
+
 - **Adjust the panel** — click on the grey bar on the right side of the AI debrief to expand or minimize the panel.
+
 <img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/544ace4d-b433-437f-8472-14376b80b177" />
 
 ### 2.3 Using AI Debrief
