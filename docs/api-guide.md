@@ -550,7 +550,7 @@ Get feedback items and anchors for a draft (defaults to latest).
 }
 ```
 
-`kind` is `inline` or `structural`. Anchor `state` is `active` or `removed`. Resolution status on progress is `resolved`, `partially_resolved`, `still_unresolved`, `removed`, or `unchanged`.
+`kind` is `inline`, `structural`, or `strength`. Anchor `state` is `active` or `removed`. Resolution status on progress is `resolved`, `partially_resolved`, `still_unresolved`, `removed`, or `unchanged`.
 
 **Example (cURL):**
 
@@ -665,7 +665,7 @@ Record a student’s helpful/not-helpful rating for a debrief. Stored anonymousl
 
 ```json
 {
-  "environmentId": "uuid",
+  "documentId": "uuid",
   "draftId": "uuid",
   "helpful": false,
   "comment": "The questions did not match this assignment."
@@ -674,7 +674,7 @@ Record a student’s helpful/not-helpful rating for a debrief. Stored anonymousl
 
 **Parameters:**
 
-- `environmentId` (uuid, required): Document ID
+- `documentId` (uuid, required): Document ID
 - `helpful` (boolean, required)
 - `draftId` (uuid, optional): Draft the debrief was generated against
 - `comment` (string, optional): Max 1000 characters
@@ -687,7 +687,7 @@ Record a student’s helpful/not-helpful rating for a debrief. Stored anonymousl
 curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-helpfulness" \
   -H "Authorization: Bearer eyJraWQiOiJ..." \
   -H "Content-Type: application/json" \
-  -d '{"environmentId":"uuid","helpful":true}'
+  -d '{"documentId":"uuid","helpful":true}'
 ```
 
 ---
@@ -700,7 +700,7 @@ Fetch the owning student’s per-section applicable/not-applicable votes.
 
 **Query Parameters:**
 
-- `environmentId` (uuid, required): Document ID
+- `documentId` (uuid, required): Document ID
 - `draftId` (uuid, required): Draft ID
 
 **Response:** `200 OK`
@@ -716,7 +716,7 @@ Fetch the owning student’s per-section applicable/not-applicable votes.
 **Example (cURL):**
 
 ```bash
-curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-section-applicability?environmentId=uuid&draftId=uuid" \
+curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-section-applicability?documentId=uuid&draftId=uuid" \
   -H "Authorization: Bearer eyJraWQiOiJ..."
 ```
 
@@ -732,7 +732,7 @@ Upsert a vote for one error-category section. Toggling replaces the previous vot
 
 ```json
 {
-  "environmentId": "uuid",
+  "documentId": "uuid",
   "draftId": "uuid",
   "errorCategoryId": "uuid",
   "applicable": false
@@ -747,7 +747,7 @@ Upsert a vote for one error-category section. Toggling replaces the previous vot
 curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-section-applicability" \
   -H "Authorization: Bearer eyJraWQiOiJ..." \
   -H "Content-Type: application/json" \
-  -d '{"environmentId":"uuid","draftId":"uuid","errorCategoryId":"uuid","applicable":true}'
+  -d '{"documentId":"uuid","draftId":"uuid","errorCategoryId":"uuid","applicable":true}'
 ```
 
 ---

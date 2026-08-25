@@ -219,4 +219,4 @@
 
 ---
 
-*This taxonomy is a reference implementation for a legal writing Writing Domain. Other Organizations will define their own error categories. The platform must treat these as configurable data, not a hardcoded enum.*
+*This taxonomy is a reference implementation for a legal writing Document Type. Other Departments will define their own error categories. The platform must treat these as configurable data, not a hardcoded enum.*

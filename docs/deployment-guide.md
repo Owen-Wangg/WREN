@@ -830,7 +830,7 @@ Redeploy `Compute` if Lambdas bake `BEDROCK_MODEL_ID` from synth-time config. Ru
 
 - Solution: Stale local change to spec injection — deploy the current `ApiStack` `resolveSpec()` code and don't reintroduce string-injection of `Fn::Sub`.
 
-_More historical deploy bugs (already fixed in this repo) are listed in [deployment-fixes.md](./deployment-fixes.md)._
+_The issues listed above represent the most common historical deploy bugs encountered in this repo, all of which have been resolved._
 
 ---
 
