@@ -27,7 +27,7 @@ The product display name is **LEON**. AWS resources, CDK stacks, and this reposi
 
 ## Authentication
 
-All REST endpoints require authentication except CORS `OPTIONS` preflight. The SPA signs in through Amazon Cognito and sends a JWT in the `Authorization` header.
+All REST endpoints require authentication except CORS `OPTIONS` preflight. The React web app signs in through Amazon Cognito and sends a JWT in the `Authorization` header.
 
 Authorization is enforced in two layers:
 
@@ -43,7 +43,7 @@ The authorizer result is cached for **30 seconds**. Downstream services parse `r
 The frontend uses the Cognito access token as `Authorization: Bearer {token}`. The authorizer prefers access tokens and falls back to ID tokens.
 
 ```javascript
-// JavaScript example using amazon-cognito-identity-js (as the SPA does)
+// JavaScript example using amazon-cognito-identity-js (as the React web app does)
 const session = await authService.getSession(); // or CognitoUser.getSession
 const token = session.getAccessToken().getJwtToken();
 ```
@@ -80,7 +80,7 @@ API Gateway stage URL (CDK output `ApiEndpoint`):
 https://{api-id}.execute-api.{region}.amazonaws.com/{stage}
 ```
 
-Default data-plane region is `ca-central-1`. Default stage is the environment name (typically `dev`, not `prod`).
+Default data-plane Region is set by CDK context (see the [deployment guide](./deployment-guide.md)). Default stage is the environment name (typically `dev`, not `prod`).
 
 Replace `{api-id}`, `{region}`, and `{stage}` with values from the AWS Console or:
 
@@ -88,7 +88,7 @@ Replace `{api-id}`, `{region}`, and `{stage}` with values from the AWS Console o
 aws cloudformation describe-stacks --stack-name wren-dev-Api --region ca-central-1 --query "Stacks[0].Outputs"
 ```
 
-CloudFront (`DistributionDomainName` from `wren-dev-CloudFrontWaf` in `us-east-1`) fronts the API as an alternate hostname. The SPA’s `VITE_API_BASE_URL` is normally the API Gateway stage URL.
+CloudFront (`DistributionDomainName` from the CloudFront/WAF stack) fronts the API as an alternate hostname. The React web app’s `VITE_API_BASE_URL` is normally the API Gateway stage URL.
 
 All REST paths are under `/v1`.
 

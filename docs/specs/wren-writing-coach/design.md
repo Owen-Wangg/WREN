@@ -31,7 +31,7 @@ The authoritative UI reference is the Student (writer) flow (Figma slides 1–11
 ```mermaid
 graph TB
     subgraph Client["Browser (React 19 + Vite, Amplify Hosting)"]
-        UI[Student / Department Admin / Technical Admin SPAs]
+        UI[Student / Department Admin / Technical Admin web apps]
     end
 
     subgraph Edge["Edge"]

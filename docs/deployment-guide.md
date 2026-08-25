@@ -47,23 +47,23 @@ This guide deploys the LEON writing coach (repository and AWS prefix **WREN**) i
 - **Amazon Bedrock** for writing feedback (Feedback Engine container Lambda)
 - Database schema applied automatically via a migration Lambda
 
-Default naming uses project `wren` and environment `dev`, so stacks are named `wren-dev-<Concern>` (e.g. `wren-dev-Vpc`). Persistent data lives in **`ca-central-1`**; the CloudFront/WAF stack always deploys to **`us-east-1`**.
+Default naming uses project `wren` and environment `dev`, so stacks are named `wren-dev-<Concern>` (e.g. `wren-dev-Vpc`). The **data-plane Region** is CDK context `region` (examples in this guide use `ca-central-1`; override with `-c region=...`). **Amazon CloudFront is a global CDN** — it is not “the API in us-east-1.” The `CloudFrontWaf` *CloudFormation stack* is created in `us-east-1` because AWS manages CloudFront-scoped WAF web ACLs there. That stack does not store student drafts or chat history.
 
 ## Architecture at a Glance
 
-| Stack | Region | Role |
+| Stack | Where it deploys | Role |
 | --- | --- | --- |
-| `Config` | `ca-central-1` | SSM parameters (display name, Bedrock model id) and a Bedrock Guardrail |
-| `Vpc` | `ca-central-1` | Three-tier VPC, NAT gateway, VPC endpoints, flow logs |
-| `Storage` | `ca-central-1` | S3 buckets (documents, reference material) and DynamoDB conversation table |
-| `Cognito` | `ca-central-1` | User pool, SPA client, `SystemAdmin` group |
-| `Database` | `ca-central-1` | RDS PostgreSQL 16.13 (`db.t3.medium`), RDS Proxy, schema migrations |
-| `Cicd` | `ca-central-1` | ECR repo + CodePipeline (only if GitHub owner/repo are set) |
-| `Compute` | `ca-central-1` | All Lambdas, SQS queues, AppSync (realtime) |
-| `Api` | `ca-central-1` | REST API Gateway from `cdk/lib/openapi.yaml` |
-| `Observability` | `ca-central-1` | CloudWatch log retention and alarms |
-| `CloudFrontWaf` | **`us-east-1`** | CloudFront distribution + CLOUDFRONT-scoped WAF |
-| `Amplify` | `ca-central-1` | Frontend hosting (only if GitHub owner/repo are set) |
+| `Config` | Data-plane Region | SSM Parameter Store (display name, Bedrock model id) and a Bedrock Guardrail |
+| `Vpc` | Data-plane Region | Three-tier VPC, NAT gateway, VPC endpoints, flow logs |
+| `Storage` | Data-plane Region | S3 buckets (documents, reference material) and DynamoDB conversation table |
+| `Cognito` | Data-plane Region | User pool, app client, `SystemAdmin` group |
+| `Database` | Data-plane Region | RDS PostgreSQL 16.13 (`db.t3.medium`), RDS Proxy, schema migrations |
+| `Cicd` | Data-plane Region | ECR repo + CodePipeline (only if GitHub owner/repo are set) |
+| `Compute` | Data-plane Region | Named Lambdas (Document, Admin, Audit, Feedback Orchestrator, Feedback Engine, Notification, authorizers), SQS, AppSync |
+| `Api` | Data-plane Region | REST API Gateway from `cdk/lib/openapi.yaml` |
+| `Observability` | Data-plane Region | CloudWatch log retention and alarms |
+| `CloudFrontWaf` | `us-east-1` (WAF control plane for CloudFront scope) | CloudFront distribution + CloudFront-scoped WAF |
+| `Amplify` | Data-plane Region | Frontend hosting (only if GitHub owner/repo are set) |
 
 > **Deploy order matters.** `Compute` looks up an existing ECR repository named `{stackPrefix}-feedback-engine` and an image tagged `bootstrap`. Create that repo and push that tag **before** deploying `Compute` — see [Step 4: Build and Push the Feedback Engine Image](#step-4-build-and-push-the-feedback-engine-image).
 >
@@ -233,7 +233,7 @@ How Node workspaces, uv/pip pins, and the Feedback Engine image relate: [Depende
 
 ### Step 2: Bootstrap CDK (Two Regions)
 
-CloudFront/WAF lives in `us-east-1`, so **both** regions need a CDK bootstrap stack. Run this from `cdk/` **after** `npm ci` in that directory.
+AWS requires a CDK bootstrap in the **data-plane Region** and in **`us-east-1`** (only because the CloudFront-scoped WAF stack is created there). CloudFront itself remains a global CDN. Run this from `cdk/` **after** `npm ci` in that directory.
 
 <details>
 <summary>macOS/Linux</summary>
@@ -501,12 +501,12 @@ _Note: `--all` still skips Amplify/CI-CD without GitHub settings, but it **will*
 | `wren-dev-Config` | SSM parameters and Bedrock Guardrail |
 | `wren-dev-Vpc` | VPC, subnets, NAT gateway, VPC endpoints, flow logs |
 | `wren-dev-Storage` | S3 buckets and DynamoDB conversation table |
-| `wren-dev-Cognito` | User pool, SPA client, `SystemAdmin` group |
+| `wren-dev-Cognito` | User pool, app client, `SystemAdmin` group |
 | `wren-dev-Database` | RDS PostgreSQL 16.13, RDS Proxy, schema migrations |
 | `wren-dev-Compute` | Lambdas, SQS queues, AppSync (realtime) |
 | `wren-dev-Api` | REST API Gateway |
 | `wren-dev-Observability` | CloudWatch log retention and alarms |
-| `wren-dev-CloudFrontWaf` | CloudFront distribution + WAF (`us-east-1`) |
+| `wren-dev-CloudFrontWaf` | CloudFront distribution + CloudFront-scoped WAF (stack in `us-east-1`) |
 | `wren-dev-Cicd` | ECR repo + CodePipeline (GitHub context only) |
 | `wren-dev-Amplify` | Frontend hosting (GitHub context only) |
 
@@ -723,7 +723,7 @@ npm run dev
 
 Work through this checklist:
 
-1. Amplify URL loads the SPA (not a 404 on refresh — SPA rewrite is configured).
+1. Amplify URL loads the React web app (not a 404 on refresh — the rewrite to `index.html` is configured).
 2. Sign-up / sign-in with Cognito succeeds.
 3. After login, the dashboard loads (API authorizer + database are reachable).
 4. As System Admin (TechnicalAdmin), open **System Configuration** (model and usage limits).

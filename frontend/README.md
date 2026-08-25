@@ -1,7 +1,7 @@
 # WREN Writing Coach — Frontend (`frontend/`)
 
 React 19 + TypeScript (strict) + Vite 7 + Tailwind CSS 4 + shadcn/ui (Radix)
-single-page application for the WREN Writing Coach platform.
+web app for the WREN Writing Coach platform.
 
 ## Stack
 
@@ -65,4 +65,4 @@ validates responses against a Zod schema at the boundary.
 
 Set `VITE_USE_LIVE_API=true` (plus API and Cognito `VITE_*` values) to call a
 deployed API Gateway. The default local setting uses an in-memory mock so the
-SPA can run without a backend.
+web app can run without a backend.
