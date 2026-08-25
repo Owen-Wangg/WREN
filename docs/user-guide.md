@@ -330,13 +330,14 @@ Before diving into the steps, here's where things live on the platform:
 
 1. Go to **System Admin Dashboard → Departments** and select the department you want to manage.
 <img width="936" height="381" alt="image" src="https://github.com/user-attachments/assets/14cff36a-00bc-4265-8c91-4074eb697c56" />
-3. Click **Users** to:
+
+2. Click **Users** to:
    - View the list of currently active users in the department.
    - Select a user to promote or change their role — for example, promoting a Student to **Department Admin**.
    - Deactivate or remove a user if needed.
-4. Click **Lock Department Access** to prevent students from logging in or using platform features while keeping admin/staff access intact. Use this for maintenance, review periods, or restructuring.
+3. Click **Lock Department Access** to prevent students from logging in or using platform features while keeping admin/staff access intact. Use this for maintenance, review periods, or restructuring.
 
-5. Click **Save Changes** after any update.
+<img width="1864" height="805" alt="names_emails_only_blurred" src="https://github.com/user-attachments/assets/09497a94-13f9-4f70-ae40-61b8c14de4ef" />
 
 **Notes:**
 
@@ -345,13 +346,16 @@ Before diving into the steps, here's where things live on the platform:
 
 ### 4.6 Department-Level Prompt Management
 
-1. Go to **System Admin Dashboard → Departments → [Department Name] → Prompt Settings**.
+1. Go to **System Admin Dashboard → Departments → [Department Name] → Manage Department Prompt**.
+
 2. Configure the following:
    - **Department Context** — background information the AI should always consider for this department (e.g., subject area, program level, institutional norms).
    - **Writing Standards** — style, tone, formatting, and citation requirements the AI should follow when generating documents or debriefs for this department.
    - **Restricted Topics** — a list of topics, terms, or content areas the AI should avoid or flag when interacting with this department's users.
-3. Save changes.
+3. Save prompt.
 4. Optionally, test the configuration by generating a sample document or debrief before rolling it out.
+
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/c739a17c-7454-493e-b3f5-2e526a76cff6" />
 
 **Notes:**
 
@@ -360,13 +364,14 @@ Before diving into the steps, here's where things live on the platform:
 
 ### 4.7 Reviewing Platform Analytics
 
-1. Go to **System Admin Dashboard → Departments → [Department Name] → Analytics** (or a platform-wide analytics view, if available).
+1. Go to **System Admin Dashboard → Departments → [Department Name] → View Analytics** (or a platform-wide analytics view, if available).
 2. Review key metrics, including:
    - **Active Users** — number of users who have logged in or used the platform within a selected time range.
-   - **Documents Generated** — total document creation volume over time.
-   - **Debriefs Generated** — total AI debrief volume over time.
-3. Use date-range filters to compare activity across weeks, months, or terms.
-4. Export data if you need to share it outside the platform.
+   - **Total Documents** — total document creation volume over time.
+   - **Total Drafts** — total AI debrief volume over time.
+
+<img width="911" height="302" alt="image" src="https://github.com/user-attachments/assets/539979ef-8a54-41a8-bfc3-764fc87d4b43" />
+<img width="725" height="296" alt="image" src="https://github.com/user-attachments/assets/3b319c83-71de-4e06-8862-42ef7101baa6" />
 
 **Notes:**
 
