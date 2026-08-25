@@ -36,7 +36,7 @@ import {
 
 import { requireCapability } from './capabilityGuard';
 import type { QueryExecutor } from './db';
-import { NotFoundError } from './errors';
+import { ConflictError, NotFoundError } from './errors';
 
 /** Raw `document_type` row (snake_case columns from PostgreSQL). */
 interface DocumentTypeRow {
@@ -261,6 +261,22 @@ async function countDocuments(documentTypeId: string, db: QueryExecutor): Promis
   return rows[0]?.count ?? 0;
 }
 
+function isPgForeignKeyViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: unknown }).code === '23503'
+  );
+}
+
+function documentsStillAttachedMessage(documentCount: number): string {
+  if (documentCount === 1) {
+    return 'Cannot delete this document type because 1 document still uses it. Delete that document first.';
+  }
+  return `Cannot delete this document type because ${documentCount} documents still use it. Delete those documents first.`;
+}
+
 /**
  * Report the impact of removing a Document Type — count of Documents — BEFORE
  * any deletion, so the caller can present an explicit confirmation describing
@@ -295,12 +311,12 @@ export async function getDocumentTypeDeletionImpact(
 /**
  * Delete a Document Type catalog record (`DepartmentAdmin` for administered
  * Departments). Returns `true` when a row was removed, `false` when no
- * Document Type had that id. Callers MUST first call
- * {@link getDocumentTypeDeletionImpact} and obtain explicit confirmation when
- * it reports Documents (Requirement 30.5); this function itself performs no
- * impact check and simply attempts the delete — a Document Type that still
- * scopes Documents is RESTRICTed at the DB level and the delete will
- * fail/reject accordingly.
+ * Document Type had that id.
+ *
+ * Submitted Documents RESTRICT deletion at the DB level. This function checks
+ * that count first and throws {@link ConflictError} instead of letting Postgres
+ * surface as an unhandled 500. Catalog children (config, content types, error
+ * categories, grants) cascade; Documents do not.
  */
 export async function deleteDocumentType(
   actor: AuthContext,
@@ -317,9 +333,23 @@ export async function deleteDocumentType(
     scope: { kind: 'documentType', documentTypeId: id, departmentId },
   });
 
-  const rows = await db.query<{ id: string }>(
-    'DELETE FROM document_type WHERE id = $1 RETURNING id',
-    [id],
-  );
-  return rows.length > 0;
+  const documentCount = await countDocuments(id, db);
+  if (documentCount > 0) {
+    throw new ConflictError(documentsStillAttachedMessage(documentCount));
+  }
+
+  try {
+    const rows = await db.query<{ id: string }>(
+      'DELETE FROM document_type WHERE id = $1 RETURNING id',
+      [id],
+    );
+    return rows.length > 0;
+  } catch (error) {
+    if (isPgForeignKeyViolation(error)) {
+      throw new ConflictError(
+        'Cannot delete this document type because related records still reference it.',
+      );
+    }
+    throw error;
+  }
 }

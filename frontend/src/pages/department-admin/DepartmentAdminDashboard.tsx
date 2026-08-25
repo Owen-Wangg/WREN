@@ -23,6 +23,24 @@ function createErrorMessage(error: unknown): string {
   return 'Failed to create document type. Please try again.';
 }
 
+function deleteErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+    if (error.status === 409) {
+      return 'This document type cannot be deleted while documents still use it. Delete those documents first.';
+    }
+    if (error.status === 403) {
+      return 'You do not have permission to delete this document type.';
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return 'Failed to delete document type. Please try again.';
+}
+
 export function DepartmentAdminDashboard() {
   const navigate = useNavigate();
   const {
@@ -207,11 +225,12 @@ export function DepartmentAdminDashboard() {
             <p className="mb-4 text-sm text-gray-600">
               Are you sure you want to delete{' '}
               <span className="font-semibold">{docTypeToDelete.name}</span>? This action cannot be
-              undone.
+              undone. Types that still have submitted documents cannot be deleted until those
+              documents are removed.
             </p>
             {deleteDocTypeMutation.isError && (
               <p className="mb-4 text-sm text-red-600">
-                Failed to delete document type. Please try again.
+                {deleteErrorMessage(deleteDocTypeMutation.error)}
               </p>
             )}
             <div className="flex justify-end gap-3">
