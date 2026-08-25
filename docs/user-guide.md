@@ -1,6 +1,6 @@
 # LEON User Guide
 
-This guide covers everything you need to get started with LEON — from creating your account to using LEON as a **Student** or as a **Department Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
+This guide covers everything you need to get started with LEON — from creating your account to using LEON as a **Student**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
 
 ## Table of Contents
 
@@ -21,6 +21,16 @@ This guide covers everything you need to get started with LEON — from creating
   - [3.4 Reviewing Analytics](#34-reviewing-analytics)
   - [Quick Reference — Department Admin](#quick-reference--department-admin)
   - [Tips for Department Admins](#tips-for-department-admins)
+- [Part 4: System Admin Guide](#part-4-system-admin-guide)
+  - [4.1 How the System Admin Screens Are Organized](#41-how-the-system-admin-screens-are-organized)
+  - [4.2 Model Configuration](#42-model-configuration)
+  - [4.3 Setting Usage Limits](#43-setting-usage-limits)
+  - [4.4 Creating New Departments](#44-creating-new-departments)
+  - [4.5 Managing Departments](#45-managing-departments)
+  - [4.6 Department-Level Prompt Management](#46-department-level-prompt-management)
+  - [4.7 Reviewing Platform Analytics](#47-reviewing-platform-analytics)
+  - [Quick Reference — System Admin](#quick-reference--system-admin)
+  - [Tips for System Admins](#tips-for-system-admins)
 
 ---
 
@@ -63,6 +73,7 @@ Open your profile and select your account view. This determines which dashboard 
 
 - Choose **Student** to access assignments, submit documents, and receive AI-generated debriefs — see [Part 2: Student Guide](#part-2-student-guide).
 - Choose **Department Admin** to configure document types, define evaluation criteria, and view analytics — see [Part 3: Department Admin Guide](#part-3-department-admin-guide).
+- Choose **System Admin** to configure the AI model, set platform-wide usage limits, create and manage departments, and view platform-wide analytics — see [Part 4: System Admin Guide](#part-4-system-admin-guide).
 
 You can switch between views at any time from your profile.
 
@@ -213,3 +224,127 @@ View how AI debriefs for this document type have changed over time, so you can s
 - Student-facing AI debriefs are generated against whatever criteria you set up in Evaluation Settings.
 - Analytics reflects activity for the document type but doesn't change your evaluation setup.
 - Since Evaluation Settings saves as you go, feel free to step away mid-setup and pick back up later.
+
+---
+
+## Part 4: System Admin Guide
+
+As a **System Admin**, you sit above the department level: you control which AI model powers LEON, set usage limits, create and manage departments, promote users to Department Admin, and review platform-wide analytics. Follow the steps below in order the first time through; after that, use this part as a quick reference.
+
+Once you've selected **System Admin** as your account view (see [1.3 Choosing Your Account View](#13-choosing-your-account-view)), you'll land on your System Admin dashboard.
+
+### 4.1 How the System Admin Screens Are Organized
+
+Before diving into the steps, here's where things live on the platform:
+
+- **Profile** — click your profile to switch your account view between Student, Department Admin, and System Admin.
+- **Dashboard** — the main screen after choosing System Admin. Your list of departments is shown here, alongside **System Settings**.
+- **System Settings** — contains **Model Configuration** and **Usage Limits**, which apply platform-wide unless overridden at the department level.
+- **Department Controls** — opens when you select or create a department. It's organized into three areas: **Users**, **Prompt Settings**, and **Analytics**.
+- **Inside Users** — the list of active users in the department, where you can promote roles or lock the department from student access.
+- **Inside Prompt Settings** — **Department Context** sits at the top, followed by **Writing Standards**, then **Restricted Topics**.
+- **Inside Analytics** — **Active Users** appears first, followed by **Documents Generated**, then **Debriefs Generated**.
+
+### 4.2 Model Configuration
+
+1. Go to **System Admin Dashboard → System Settings → Model Configuration**.
+2. Review the list of available AI models.
+3. Select the model you want to set as the platform default.
+4. Click **Save Changes**.
+
+**Notes:**
+
+- Model changes apply platform-wide unless your instance supports per-department overrides.
+- Consider testing a new model with a small pilot group before rolling it out broadly, since output style and quality can shift between models.
+- Changing models does not affect historical debriefs or documents already generated.
+
+### 4.3 Setting Usage Limits
+
+1. Go to **System Admin Dashboard → System Settings → Usage Limits**.
+2. Set limits for:
+   - **AI Debriefs allowed** — the maximum number of debriefs a user or department can generate in a given period.
+   - **Documents allowed** — the maximum number of documents a user or department can create or process in a given period.
+3. Choose whether limits apply platform-wide or per department.
+4. Click **Save Changes**.
+
+**Notes:**
+
+- Limits help control cost and prevent misuse.
+- Consider setting conservative defaults for new departments and increasing them as usage patterns become clear.
+
+### 4.4 Creating New Departments
+
+1. Go to **System Admin Dashboard → Departments → Create New Department**.
+2. Enter the department name and a short description.
+3. Assign an initial Department Admin (optional — can be done later from Users, see [4.5 Managing Departments](#45-managing-departments)).
+4. Set initial usage limits, or leave them at the platform default (see [4.3 Setting Usage Limits](#43-setting-usage-limits)).
+5. Click **Create Department**.
+
+**Notes:**
+
+- Once created, a department appears in the department list and can be opened as described in [4.5 Managing Departments](#45-managing-departments).
+- Departments generally can't be merged after creation, so plan your structure before creating many of them.
+
+### 4.5 Managing Departments
+
+1. Go to **System Admin Dashboard → Departments** and select the department you want to manage.
+2. Click **Users** to:
+   - View the list of currently active users in the department.
+   - Select a user to promote or change their role — for example, promoting a Student to **Department Admin**.
+   - Deactivate or remove a user if needed.
+3. Click **Lock Department Access** to prevent students from logging in or using platform features while keeping admin/staff access intact. Use this for maintenance, review periods, or restructuring.
+4. Click **Save Changes** after any update.
+
+**Notes:**
+
+- Role promotions typically take effect immediately.
+- Locking a department does not delete data — it only restricts student-level access until unlocked.
+
+### 4.6 Department-Level Prompt Management
+
+1. Go to **System Admin Dashboard → Departments → [Department Name] → Prompt Settings**.
+2. Configure the following:
+   - **Department Context** — background information the AI should always consider for this department (e.g., subject area, program level, institutional norms).
+   - **Writing Standards** — style, tone, formatting, and citation requirements the AI should follow when generating documents or debriefs for this department.
+   - **Restricted Topics** — a list of topics, terms, or content areas the AI should avoid or flag when interacting with this department's users.
+3. Save changes.
+4. Optionally, test the configuration by generating a sample document or debrief before rolling it out.
+
+**Notes:**
+
+- These settings apply only to the selected department; other departments are unaffected.
+- Restricted topics should be reviewed periodically to reflect current policy or curriculum needs.
+
+### 4.7 Reviewing Platform Analytics
+
+1. Go to **System Admin Dashboard → Departments → [Department Name] → Analytics** (or a platform-wide analytics view, if available).
+2. Review key metrics, including:
+   - **Active Users** — number of users who have logged in or used the platform within a selected time range.
+   - **Documents Generated** — total document creation volume over time.
+   - **Debriefs Generated** — total AI debrief volume over time.
+3. Use date-range filters to compare activity across weeks, months, or terms.
+4. Export data if you need to share it outside the platform.
+
+**Notes:**
+
+- Analytics are useful for identifying underused departments (candidates for training/support) or heavily used ones (candidates for higher usage limits).
+- Reviewing analytics alongside Usage Limits (see [4.3 Setting Usage Limits](#43-setting-usage-limits)) helps keep costs predictable.
+
+### Quick Reference — System Admin
+
+| Action | Where to Go |
+| --- | --- |
+| Choose AI model | System Settings → Model Configuration |
+| Set debrief/document limits | System Settings → Usage Limits |
+| Create a department | Departments → Create New Department |
+| Promote or manage users | Departments → [Department] → Users |
+| Lock student access | Departments → [Department] → Lock Department Access |
+| Set department context, writing standards, restricted topics | Departments → [Department] → Prompt Settings |
+| Review platform analytics | Departments → [Department] → Analytics |
+
+### Tips for System Admins
+
+- Model and usage limit changes made in System Settings apply platform-wide unless a department has its own override.
+- Give each department its own Prompt Settings so evaluation and debrief behavior reflects that department's actual standards.
+- Use Lock Department Access instead of deleting a department when you just need to pause student activity temporarily.
+- Check Analytics regularly alongside Usage Limits to catch departments approaching their document or debrief caps before users are blocked.
