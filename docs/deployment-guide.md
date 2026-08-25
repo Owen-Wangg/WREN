@@ -1,10 +1,10 @@
-# LEON (WREN) — AWS Deployment Guide
+# WREN — AWS Deployment Guide
 
-This guide deploys the LEON writing coach (repository and AWS prefix **WREN**) into an AWS account using the CDK app in `cdk/`. AWS resource names use the `wren` project prefix; **LEON** is the user-facing display name shown in the UI and emails. Follow the numbered steps in order — commands are given for **bash (macOS/Linux)**, **PowerShell**, and **Windows CMD** where the syntax differs.
+This guide deploys the WREN writing coach (repository and AWS prefix **WREN**) into an AWS account using the CDK app in `cdk/`. AWS resource names use the `wren` project prefix; **LEON** is the user-facing display name shown in the UI and emails. Follow the numbered steps in order — commands are given for **bash (macOS/Linux)**, **PowerShell**, and **Windows CMD** where the syntax differs.
 
 ## Table of Contents
 
-- [LEON (WREN) — AWS Deployment Guide](#leon-wren--aws-deployment-guide)
+- [WREN — AWS Deployment Guide](#wren--aws-deployment-guide)
   - [Table of Contents](#table-of-contents)
   - [What You'll Have When You're Done](#what-youll-have-when-youre-done)
   - [Architecture at a Glance](#architecture-at-a-glance)
