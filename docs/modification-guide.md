@@ -414,7 +414,7 @@ Full first-time order, Bedrock, ECR, Amplify, and first admin: [deployment-guide
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev      # Vite
 npm run build    # tsc -b && vite build
 npm run lint

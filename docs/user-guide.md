@@ -38,13 +38,12 @@ This guide covers everything you need to get started with LEON — from creating
 
 ### 1.1 Log In
 
-1. Follow this link: [https://main.d3o73k8qli0i78.amplifyapp.com/](https://main.d3o73k8qli0i78.amplifyapp.com/)
-2. Enter the username and password provided below:
-   - Username: `ubcallard`
-   - Password: `Cloud@123`
+> **First time here?** You need to create an account before you can log in — see [1.2 Create an Account](#12-create-an-account-first-time-users-only) first, then return here.
+
+1. Navigate to your LEON application URL (provided by your administrator or found in the AWS Amplify console).
+2. Enter the email address and password you used when creating your account.
 3. Click **Login**.
-4. Enter the email address and password you used to create your account.
-5. Once logged in, you will land on your dashboard.
+4. Once logged in, you will land on your dashboard.
 
 ### 1.2 Create an Account (First-Time Users Only)
 
@@ -92,13 +91,13 @@ As a **Student**, once you've logged in and are on your **Student Dashboard**, y
 
 1. From the Student Dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
 <img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
-3. Click **New Document**.
-4. Select the **Law Department**.
-6. Choose your document type — for example, **Legal Memorandum**.
-7. Give your draft a name.
-8. Click **Choose File** and select the DOCX file from your computer that you want to upload.
+2. Click **New Document**.
+3. Select your department.
+4. Choose your document type — for example, **Legal Memorandum**.
+5. Give your draft a name.
+6. Click **Choose File** and select the DOCX file from your computer that you want to upload.
 <img width="956" height="368" alt="image" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
-10. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
+7. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
 
 ### 2.2 Opening and Reviewing Your Document
 
@@ -136,7 +135,7 @@ At the top of the panel, you'll see two tabs: **AI Debrief** and **Ask LEON**.
 | --- | --- |
 | Create an account | Sign Up → enter email/password → verify via email code |
 | Log in | Login → enter email/password |
-| Start a new draft | Student Dashboard → New Document → Law Department → document type → upload DOCX |
+| Start a new draft | Student Dashboard → New Document → select department → document type → upload DOCX |
 | Review AI feedback | Open document → Open LEON and AI Debrief → AI Debrief tab |
 | Ask questions about your document | Open document → Ask LEON tab |
 | Update a draft | Editor screen → Upload a new draft |
