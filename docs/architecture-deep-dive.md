@@ -1,9 +1,9 @@
 # Architecture Deep Dive
 
-**Project:** LEON (WREN Writing Coach)
+**Project:** WREN Writing Coach
 **Last Updated:** August 2026
 
-The product display name is **LEON**. AWS resources and this repository use the prefix **WREN**. This document walks the deployed platform and the PostgreSQL schema after all numbered migrations. For the debrief/diff/anchor pipeline in more detail, see [DEBRIEF_ARCHITECTURE_DEEP_DIVE.md](./DEBRIEF_ARCHITECTURE_DEEP_DIVE.md).
+The product display name is **WREN**. AWS resources and this repository use the prefix **WREN**. This document walks the deployed platform and the PostgreSQL schema after all numbered migrations. For the debrief/diff/anchor pipeline in more detail, see [DEBRIEF_ARCHITECTURE_DEEP_DIVE.md](./DEBRIEF_ARCHITECTURE_DEEP_DIVE.md).
 
 This architecture is **region-portable**. Persistent data stays in whichever AWS Region you deploy (no cross-region replication of RDS, S3, or DynamoDB by default). CloudFront is a global CDN; it is not a regional data store. Region-specific deploy steps belong in the [deployment guide](./deployment-guide.md), not in this narrative.
 
@@ -23,7 +23,7 @@ There is no generic “API Services” function. REST routes in OpenAPI integrat
 | **Document** | REST + SQS ingest | Document/draft CRUD, presigned S3 upload, PDF OCR via Textract |
 | **Admin** | REST | Departments, document types, prompts, users/roles, platform usage policy; Bedrock prompt-attack scan on save |
 | **Audit** | REST | Activity events and aggregate analytics |
-| **Feedback Orchestrator** | REST | **AI Debrief:** accept request, return 202, enqueue SQS. **Ask LEON:** chat turns via Bedrock + DynamoDB |
+| **Feedback Orchestrator** | REST | **AI Debrief:** accept request, return 202, enqueue SQS. **Ask WREN:** chat turns via Bedrock + DynamoDB |
 | **Feedback Engine** | SQS, container image from ECR | Load prompts, invoke Bedrock, no-ghostwriting guardrail, write `feedback_item` / `anchor` |
 | **Diff / Anchor / Progress** | Invoked from engine | Diff drafts, remap anchors, resolution judge |
 | **Notification** | SQS (from SNS) | Render notification catalog templates, write `notification` rows, publish AppSync |
@@ -42,7 +42,7 @@ There is no generic “API Services” function. REST routes in OpenAPI integrat
 
 7. Requesting an AI Debrief hits the **Feedback Orchestrator**, which returns **202** and enqueues **Amazon SQS**. The **Feedback Engine** (Python 3.12 container Lambda, up to 15 minutes) loads type/department prompts, wraps student text in an untrusted-data block, invokes **Amazon Bedrock**, applies the no-ghostwriting output guardrail, writes `feedback_item` / `anchor` rows, and may run a **resolution judge** against prior items. A **DLQ** catches poison messages.
 
-8. **Ask LEON** conversations are stored in **Amazon DynamoDB** (partition key `sessionId`, TTL), not in chat_session SQL tables. REST `GET`/`POST /v1/documents/{id}/ask-wren` (Feedback Orchestrator) reads and appends turns.
+8. **Ask WREN** conversations are stored in **Amazon DynamoDB** (partition key `sessionId`, TTL), not in chat_session SQL tables. REST `GET`/`POST /v1/documents/{id}/ask-wren` (Feedback Orchestrator) reads and appends turns.
 
 9. Department Admins configure document types, error categories, and prompts in RDS. Technical Admins set **platform usage policy** (lifetime caps and optional `bedrock_model_id`). The active Bedrock model id is also stored in **AWS Systems Manager Parameter Store**. Admin-submitted prompt fields are scanned with a Bedrock **PROMPT_ATTACK** Guardrail before save ([bedrock-guardrails.md](./bedrock-guardrails.md)).
 
@@ -64,7 +64,7 @@ There is no generic “API Services” function. REST routes in OpenAPI integrat
 | Sign-in | Amplify (React web app) → Cognito → `GET /v1/auth/me` |
 | Draft / upload | API Gateway → Document Lambda → S3 / RDS; Textract worker for PDF |
 | AI Debrief | Feedback Orchestrator → SQS → Feedback Engine → Bedrock → RDS; AppSync `onDebriefReady` |
-| Ask LEON | Feedback Orchestrator Lambda → Bedrock → DynamoDB (`GET`/`POST /v1/documents/{id}/ask-wren`) |
+| Ask WREN | Feedback Orchestrator Lambda → Bedrock → DynamoDB (`GET`/`POST /v1/documents/{id}/ask-wren`) |
 | Admin config | Admin Lambda → RDS; `ApplyGuardrail` on prompt fields |
 | Notifications | SNS → SQS → Notification Lambda → RDS + AppSync |
 
@@ -84,7 +84,7 @@ No ER diagram is provided in this repository. The tables and FKs in this section
 | --- | --- |
 | S3 documents bucket | Upload objects, draft bytes (`draft.s3_key`) |
 | S3 reference bucket | Reference material files |
-| DynamoDB `{prefix}-ConversationHistory` | Ask LEON messages (`sessionId`, `ttl`) |
+| DynamoDB `{prefix}-ConversationHistory` | Ask WREN messages (`sessionId`, `ttl`) |
 | Cognito | Passwords, MFA, `SystemAdmin` group — not app roles after first login |
 | Systems Manager Parameter Store | Bedrock model id and other non-secret runtime config |
 
@@ -392,7 +392,7 @@ Single row (`id = 1`). Technical Admin configurable.
 | Column Name | Description |
 | --- | --- |
 | `id` | Always `1` |
-| `message_limit` | Ask LEON / message cap |
+| `message_limit` | Ask WREN / message cap |
 | `debrief_generation_limit` | Debrief jobs per policy |
 | `document_upload_limit` | Document uploads |
 | `drafts_per_document_limit` | Draft versions per document |
