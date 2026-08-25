@@ -46,7 +46,7 @@ Node Lambdas are `NodejsFunction`s. esbuild runs with `projectRoot` = monorepo r
 
 If a new npm package must stay unbundled (native addons, worker files), add it to that `nodeModules` array in `cdk/lib/stacks/ComputeStack.ts`.
 
-Do **not** mark `@wren/db-node` as an esbuild `externalModule` unless you also ship a layer — that combination failed at runtime on the first deploy (see `docs/deployment-fixes.md`).
+Do **not** mark `@wren/db-node` as an esbuild `externalModule` unless you also ship a layer — that combination failed at runtime on the first deploy.
 
 ### Frontend
 

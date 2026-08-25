@@ -340,7 +340,7 @@ Poll async PDF ingest (Textract) for a document.
 }
 ```
 
-`status` is one of `pending`, `queued`, `processing`, `completed`, `failed`.
+`status` is one of `queued`, `processing`, `completed`, `failed`.
 
 **Example (cURL):**
 
