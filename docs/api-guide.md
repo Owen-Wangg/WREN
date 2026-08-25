@@ -1,8 +1,8 @@
-# LEON REST API Documentation
+# WREN REST API Documentation
 
-This document provides comprehensive documentation for the LEON (WREN) REST API, including endpoint descriptions, authentication requirements, request/response formats, and example usage.
+REST API for WREN (project prefix **WREN**): endpoints, authentication, request and response shapes, and examples.
 
-The product display name is **LEON**. AWS resources, CDK stacks, and this repository use the project prefix **WREN**. The contract used to deploy API Gateway lives in [`cdk/lib/openapi.yaml`](../cdk/lib/openapi.yaml). Shared Zod/TypeScript DTOs live in [`types/`](../types/README.md).
+The product display name is **WREN**. AWS resources, CDK stacks, and this repository use the project prefix **WREN**. The contract used to deploy API Gateway lives in [`cdk/lib/openapi.yaml`](../cdk/lib/openapi.yaml). Shared Zod/TypeScript DTOs live in [`types/`](../types/README.md). In the UI, the `TechnicalAdmin` role is labeled **System Admin**.
 
 ## Table of Contents
 
@@ -13,7 +13,7 @@ The product display name is **LEON**. AWS resources, CDK stacks, and this reposi
 - [Auth Endpoints](#auth-endpoints)
 - [Document Endpoints](#document-endpoints)
 - [Feedback Endpoints](#feedback-endpoints)
-- [Ask LEON Endpoints](#ask-leon-endpoints)
+- [Ask WREN Endpoints](#ask-WREN-endpoints)
 - [Department Endpoints](#department-endpoints)
 - [Document Type Endpoints](#document-type-endpoints)
 - [User and Role Endpoints](#user-and-role-endpoints)
@@ -27,7 +27,7 @@ The product display name is **LEON**. AWS resources, CDK stacks, and this reposi
 
 ## Authentication
 
-All REST endpoints require authentication except CORS `OPTIONS` preflight. The SPA signs in through Amazon Cognito and sends a JWT in the `Authorization` header.
+All REST endpoints require authentication except CORS `OPTIONS` preflight. The React web app signs in through Amazon Cognito and sends a JWT in the `Authorization` header.
 
 Authorization is enforced in two layers:
 
@@ -43,7 +43,7 @@ The authorizer result is cached for **30 seconds**. Downstream services parse `r
 The frontend uses the Cognito access token as `Authorization: Bearer {token}`. The authorizer prefers access tokens and falls back to ID tokens.
 
 ```javascript
-// JavaScript example using amazon-cognito-identity-js (as the SPA does)
+// JavaScript example using amazon-cognito-identity-js (as the React web app does)
 const session = await authService.getSession(); // or CognitoUser.getSession
 const token = session.getAccessToken().getJwtToken();
 ```
@@ -64,7 +64,7 @@ There is no implicit role hierarchy. Authority is the explicit capability matrix
 
 | Role | Typical access |
 | --- | --- |
-| `Student` | Own documents, drafts, debriefs, Ask LEON, ratings, notifications, list of own access grants |
+| `Student` | Own documents, drafts, debriefs, Ask WREN, ratings, notifications, list of own access grants |
 | `DepartmentAdmin` | Catalog and config for administered departments, department user lists, usage overrides, scoped analytics |
 | `TechnicalAdmin` | Platform operations: departments, usage policy, Bedrock model, user search, role assignment, notification types, platform analytics |
 
@@ -80,7 +80,7 @@ API Gateway stage URL (CDK output `ApiEndpoint`):
 https://{api-id}.execute-api.{region}.amazonaws.com/{stage}
 ```
 
-Default data-plane region is `ca-central-1`. Default stage is the environment name (typically `dev`, not `prod`).
+Default data-plane Region is set by CDK context (see the [deployment guide](./deployment-guide.md)). Default stage is the environment name (typically `dev`, not `prod`).
 
 Replace `{api-id}`, `{region}`, and `{stage}` with values from the AWS Console or:
 
@@ -88,7 +88,7 @@ Replace `{api-id}`, `{region}`, and `{stage}` with values from the AWS Console o
 aws cloudformation describe-stacks --stack-name wren-dev-Api --region ca-central-1 --query "Stacks[0].Outputs"
 ```
 
-CloudFront (`DistributionDomainName` from `wren-dev-CloudFrontWaf` in `us-east-1`) fronts the API as an alternate hostname. The SPA’s `VITE_API_BASE_URL` is normally the API Gateway stage URL.
+CloudFront (`DistributionDomainName` from the CloudFront/WAF stack) fronts the API as an alternate hostname. The React web app’s `VITE_API_BASE_URL` is normally the API Gateway stage URL.
 
 All REST paths are under `/v1`.
 
@@ -340,7 +340,7 @@ Poll async PDF ingest (Textract) for a document.
 }
 ```
 
-`status` is one of `pending`, `queued`, `processing`, `completed`, `failed`.
+`status` is one of `queued`, `processing`, `completed`, `failed`.
 
 **Example (cURL):**
 
@@ -550,7 +550,7 @@ Get feedback items and anchors for a draft (defaults to latest).
 }
 ```
 
-`kind` is `inline` or `structural`. Anchor `state` is `active` or `removed`. Resolution status on progress is `resolved`, `partially_resolved`, `still_unresolved`, `removed`, or `unchanged`.
+`kind` is `inline`, `structural`, or `strength`. Anchor `state` is `active` or `removed`. Resolution status on progress is `resolved`, `partially_resolved`, `still_unresolved`, `removed`, or `unchanged`.
 
 **Example (cURL):**
 
@@ -665,7 +665,7 @@ Record a student’s helpful/not-helpful rating for a debrief. Stored anonymousl
 
 ```json
 {
-  "environmentId": "uuid",
+  "documentId": "uuid",
   "draftId": "uuid",
   "helpful": false,
   "comment": "The questions did not match this assignment."
@@ -674,7 +674,7 @@ Record a student’s helpful/not-helpful rating for a debrief. Stored anonymousl
 
 **Parameters:**
 
-- `environmentId` (uuid, required): Document ID
+- `documentId` (uuid, required): Document ID
 - `helpful` (boolean, required)
 - `draftId` (uuid, optional): Draft the debrief was generated against
 - `comment` (string, optional): Max 1000 characters
@@ -687,7 +687,7 @@ Record a student’s helpful/not-helpful rating for a debrief. Stored anonymousl
 curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-helpfulness" \
   -H "Authorization: Bearer eyJraWQiOiJ..." \
   -H "Content-Type: application/json" \
-  -d '{"environmentId":"uuid","helpful":true}'
+  -d '{"documentId":"uuid","helpful":true}'
 ```
 
 ---
@@ -700,7 +700,7 @@ Fetch the owning student’s per-section applicable/not-applicable votes.
 
 **Query Parameters:**
 
-- `environmentId` (uuid, required): Document ID
+- `documentId` (uuid, required): Document ID
 - `draftId` (uuid, required): Draft ID
 
 **Response:** `200 OK`
@@ -716,7 +716,7 @@ Fetch the owning student’s per-section applicable/not-applicable votes.
 **Example (cURL):**
 
 ```bash
-curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-section-applicability?environmentId=uuid&draftId=uuid" \
+curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-section-applicability?documentId=uuid&draftId=uuid" \
   -H "Authorization: Bearer eyJraWQiOiJ..."
 ```
 
@@ -732,7 +732,7 @@ Upsert a vote for one error-category section. Toggling replaces the previous vot
 
 ```json
 {
-  "environmentId": "uuid",
+  "documentId": "uuid",
   "draftId": "uuid",
   "errorCategoryId": "uuid",
   "applicable": false
@@ -747,14 +747,14 @@ Upsert a vote for one error-category section. Toggling replaces the previous vot
 curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-section-applicability" \
   -H "Authorization: Bearer eyJraWQiOiJ..." \
   -H "Content-Type: application/json" \
-  -d '{"environmentId":"uuid","draftId":"uuid","errorCategoryId":"uuid","applicable":true}'
+  -d '{"documentId":"uuid","draftId":"uuid","errorCategoryId":"uuid","applicable":true}'
 ```
 
 ---
 
-# Ask LEON Endpoints
+# Ask WREN Endpoints
 
-Conversations are anchored to a document + draft (DynamoDB). Replies are Socratic, not rewrites. The product UI label is Ask LEON; the path is `/ask-wren`.
+Conversations are anchored to a document + draft (DynamoDB). Replies are Socratic, not rewrites. The product UI label is Ask WREN; the path is `/ask-wren`.
 
 ## Get Conversation
 

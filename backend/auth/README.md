@@ -8,9 +8,7 @@ REQ-SEC-AUTHDECOUPLE-01 / REQ-SEC-ROLE-01 (design "Request / Authorization Flow"
 
 The identity provider proves **authentication only**. The single fact that
 crosses from authentication into authorization is the opaque token **subject**
-(`sub`). Everything the platform authorizes on — roles, Organization/Writing-Type
-scopes, and Access Grants — is read from Postgres, which is the single source of
-truth.
+(`sub`). Everything the platform authorizes on — roles, department scopes, and Access Grants — is read from Postgres, which is the single source of truth.
 
 - `tokenVerifier.ts` verifies signature / issuer / expiry with `aws-jwt-verify`
   and returns **only** the subject. IdP groups/claims/attributes are discarded
@@ -19,7 +17,7 @@ truth.
   parameterized queries against `app_user`, `role_assignment`, and `access_grant`
   (Requirement 37.2, 37.5; SQL injection safe per Requirement 39.2).
 - `authorizer.ts` emits a coarse, cacheable IAM policy plus a serialized
-  authorization context (roles, scopes, Writing-Type assignments, grants) that
+  authorization context (roles, department scopes, grants) that
   each downstream service **re-checks** against the specific operation (dual
   enforcement, Requirement 36.1/36.2).
 
@@ -36,15 +34,13 @@ provider only means swapping the `TokenVerifier` implementation (Requirement 37.
 | `src/config.ts` | non-secret Cognito pool/client env resolution |
 
 The `AuthContext` type lives in `@wren/types` (single source of truth) so
-Document/Admin/Config services (tasks 3.3 / 3.5) import the same shape.
+Document, Admin, and Notification services import the same shape.
 
-## CDK integration seam
+## CDK integration
 
-The `Api` stack (a later task) wires `handler` from this package as a
-`TokenAuthorizer`, passing the Cognito ids via the environment variables in
-`AUTHORIZER_ENV_KEYS` and the `DB_SECRET_ARN` / RDS Proxy env consumed by
-`@wren/db-node`. Until then the handler and identity-mapping module are fully
-importable, typed, and unit-tested.
+The `Api` stack wires `handler` from this package as a `TokenAuthorizer`, passing
+Cognito ids via `AUTHORIZER_ENV_KEYS` and the `DB_SECRET_ARN` / RDS Proxy env
+consumed by `@wren/db-node`.
 
 ## Test / typecheck
 

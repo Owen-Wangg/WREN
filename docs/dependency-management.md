@@ -2,12 +2,12 @@
 
 ## Overview
 
-This document explains how **Node.js** and **Python** dependencies are declared, pinned, and shipped in LEON (WREN). There is **no AWS Glue job** and no SharePoint ingestion Python shell.
+This document explains how **Node.js** and **Python** dependencies are declared, pinned, and shipped in WREN.
 
 | Workload | Language | How dependencies are installed |
 | --- | --- | --- |
 | Shared types, auth, admin, document, feedback, notification | Node 22 | npm workspaces + root `package-lock.json`; CDK **esbuild** bundles Lambdas |
-| Frontend SPA | Node (Vite) | `frontend/package.json` + `frontend/package-lock.json` |
+| Frontend (React web app) | Node (Vite) | `frontend/package.json` + `frontend/package-lock.json` |
 | CDK app | Node | `cdk/package.json` + `cdk/package-lock.json` |
 | Feedback Engine | Python 3.12 **container** | `pip install` in `backend/engine/python/Dockerfile` from a uv-compiled lockfile |
 | Diff / Anchor / Progress Lambda | Python 3.12 zip | **Standard library only** — no `requirements.txt` on the function |
@@ -46,7 +46,7 @@ Node Lambdas are `NodejsFunction`s. esbuild runs with `projectRoot` = monorepo r
 
 If a new npm package must stay unbundled (native addons, worker files), add it to that `nodeModules` array in `cdk/lib/stacks/ComputeStack.ts`.
 
-Do **not** mark `@wren/db-node` as an esbuild `externalModule` unless you also ship a layer — that combination failed at runtime on the first deploy (see `docs/deployment-fixes.md`).
+Do **not** mark `@wren/db-node` as an esbuild `externalModule` unless you also ship a layer — that combination failed at runtime on the first deploy.
 
 ### Frontend
 

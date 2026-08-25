@@ -1,41 +1,59 @@
 # Architecture Deep Dive
 
-**Project:** LEON (WREN Writing Coach)  
+**Project:** WREN Writing Coach
 **Last Updated:** August 2026
 
-The product display name is **LEON**. AWS resources and this repository use the prefix **WREN**. This document walks the deployed platform and the PostgreSQL schema after all numbered migrations. For the debrief/diff/anchor pipeline in more detail, see [DEBRIEF_ARCHITECTURE_DEEP_DIVE.md](./DEBRIEF_ARCHITECTURE_DEEP_DIVE.md).
+The product display name is **WREN**. AWS resources and this repository use the prefix **WREN**. This document walks the deployed platform and the PostgreSQL schema after all numbered migrations. For the debrief/diff/anchor pipeline in more detail, see [DEBRIEF_ARCHITECTURE_DEEP_DIVE.md](./DEBRIEF_ARCHITECTURE_DEEP_DIVE.md).
+
+This architecture is **region-portable**. Persistent data stays in whichever AWS Region you deploy (no cross-region replication of RDS, S3, or DynamoDB by default). CloudFront is a global CDN; it is not a regional data store. Region-specific deploy steps belong in the [deployment guide](./deployment-guide.md), not in this narrative.
 
 ---
 
 ## Architecture
 
-![Architecture Diagram](./wren_arch_diagram_final.drawio%20%281%29.png)
+![Architecture Diagram](./WREN_ARCHITECTURE_DIAGRAM.drawio.png)
 
-Editable source: [`wren-architecture-diagram.drawio.xml`](./wren-architecture-diagram.drawio.xml). Feedback-job detail: [`wren-feedback-pipeline.drawio.png`](./wren-feedback-pipeline.drawio.png).
 
-1. Browser traffic can reach the REST API through **Amazon CloudFront** in `us-east-1`, where **AWS WAF** (managed rule groups plus a per-IP rate limit) and **AWS Shield Standard** apply. CloudFront redirects HTTP to HTTPS and attaches security headers. The SPA itself is hosted on **AWS Amplify**. Callers may also use the API Gateway stage URL directly (that path is authenticated but is **not** behind this WAF).
+There is no generic “API Services” function. REST routes in OpenAPI integrate to the Lambdas below. If you are looking for AI Debrief, start with **Feedback Orchestrator** (enqueue) and **Feedback Engine** (Bedrock + persist).
 
-2. Users sign in with **Amazon Cognito** (email and password; optional MFA). There is no Microsoft Entra federation in the default stack. First login provisions an `app_user` (default **Student**). The Cognito **`SystemAdmin`** group seeds **TechnicalAdmin** on first login only; afterward **PostgreSQL** (`role_assignment`) is the authorization source of truth.
+| Function | Kind | Business logic |
+| --- | --- | --- |
+| **Authorizer** | REST | Verify Cognito JWT; map `sub` to `app_user`; attach roles, department scopes, access grants |
+| **AppSync Authorizer** | GraphQL | Same identity mapping for realtime subscriptions |
+| **Document** | REST + SQS ingest | Document/draft CRUD, presigned S3 upload, PDF OCR via Textract |
+| **Admin** | REST | Departments, document types, prompts, users/roles, platform usage policy; Bedrock prompt-attack scan on save |
+| **Audit** | REST | Activity events and aggregate analytics |
+| **Feedback Orchestrator** | REST | **AI Debrief:** accept request, return 202, enqueue SQS. **Ask WREN:** chat turns via Bedrock + DynamoDB |
+| **Feedback Engine** | SQS, container image from ECR | Load prompts, invoke Bedrock, no-ghostwriting guardrail, write `feedback_item` / `anchor` |
+| **Diff / Anchor / Progress** | Invoked from engine | Diff drafts, remap anchors, resolution judge |
+| **Notification** | SQS (from SNS) | Render notification catalog templates, write `notification` rows, publish AppSync |
 
-3. The React app talks to **API Gateway** (OpenAPI `SpecRestApi`, stage typically `dev` in `ca-central-1`) for CRUD and coaching APIs. A **Lambda authorizer** verifies the JWT and attaches roles, department scopes, and access grants. Each service Lambda **re-checks** capabilities and document ownership. Realtime debrief-ready and notification events use **AWS AppSync** (GraphQL subscriptions over WebSocket), not API Gateway WebSockets. If AppSync is unset, the UI polls REST status endpoints.
+1. The **React web app** is hosted on **AWS Amplify**. Optional API traffic can pass through **Amazon CloudFront** (global CDN), where **AWS WAF** (managed rule groups plus a per-IP rate limit) and **AWS Shield Standard** apply. CloudFront redirects HTTP to HTTPS and attaches security headers. Callers may also use the API Gateway stage URL directly; that path is authenticated but is **not** behind this WAF. There is no Lambda@Edge and no CloudFront Functions in this stack.
+
+2. Users sign in with **Amazon Cognito** (email and password; optional MFA). Access and ID tokens expire after a configured lifetime (refresh tokens last longer); that is session duration, not request throttling. First login provisions an `app_user` (default **Student**). The Cognito **`SystemAdmin`** group seeds **TechnicalAdmin** on first login only; afterward **PostgreSQL** (`role_assignment`) is the authorization source of truth.
+
+3. The React web app talks to **API Gateway** (OpenAPI `SpecRestApi`) for CRUD and coaching APIs. Stage **throttling** is configured on API Gateway (sustained rate and burst). A **Lambda authorizer** verifies the JWT and attaches roles, department scopes, and access grants. Each service Lambda **re-checks** capabilities and document ownership. Realtime debrief-ready and notification events use **AWS AppSync** (GraphQL subscriptions over WebSocket), not API Gateway WebSockets. If AppSync is unset, the UI polls REST status endpoints.
 
 4. Application Lambdas run in **private VPC subnets** and reach PostgreSQL through **RDS Proxy** with TLS (`rds.force_ssl`). Each Lambda uses a dedicated Postgres role and Secrets Manager secret (`wren_document`, `wren_admin`, `wren_feedback_engine`, and so on).
 
-5. **Amazon RDS PostgreSQL 16** (isolated subnets, storage encrypted) is the system of record for users, departments, documents, immutable drafts, Socratic feedback, analytics aggregates, and in-app notifications. **pgvector** is enabled for possible embeddings; coaching itself is **not** SharePoint RAG.
+5. **Amazon RDS PostgreSQL 16** (isolated subnets, storage encrypted) is the system of record for users, departments, documents, immutable drafts, Socratic feedback, analytics aggregates, and in-app notifications. **pgvector** is enabled so embeddings can be stored later. Coaching is generated from the student's submitted draft plus department/type prompts
 
 6. Writers upload `.docx`/`.pdf` via a **presigned S3 POST** (KMS, 15-minute expiry) or paste in the TipTap editor. The **Document Lambda** persists a document and draft (segments + TipTap JSON). PDFs that need OCR are queued; **Amazon Textract** extracts text. Clients poll ingest status. Bytes live in the documents bucket; reference material uses a second bucket.
 
 7. Requesting an AI Debrief hits the **Feedback Orchestrator**, which returns **202** and enqueues **Amazon SQS**. The **Feedback Engine** (Python 3.12 container Lambda, up to 15 minutes) loads type/department prompts, wraps student text in an untrusted-data block, invokes **Amazon Bedrock**, applies the no-ghostwriting output guardrail, writes `feedback_item` / `anchor` rows, and may run a **resolution judge** against prior items. A **DLQ** catches poison messages.
 
-8. **Ask LEON** conversations are stored in **Amazon DynamoDB** (partition key `sessionId`, TTL), not in chat_session SQL tables. REST `GET`/`POST /v1/documents/{id}/ask-wren` reads and appends turns.
+8. **Ask WREN** conversations are stored in **Amazon DynamoDB** (partition key `sessionId`, TTL), not in chat_session SQL tables. REST `GET`/`POST /v1/documents/{id}/ask-wren` (Feedback Orchestrator) reads and appends turns.
 
-9. Department Admins configure document types, error categories, and prompts in RDS. Technical Admins set **platform usage policy** (lifetime caps + optional `bedrock_model_id`) and the Bedrock model SSM parameter. Admin-submitted prompt fields are scanned with a Bedrock **PROMPT_ATTACK** Guardrail before save ([bedrock-guardrails.md](./bedrock-guardrails.md)).
+9. Department Admins configure document types, error categories, and prompts in RDS. Technical Admins set **platform usage policy** (lifetime caps and optional `bedrock_model_id`). The active Bedrock model id is also stored in **AWS Systems Manager Parameter Store**. Admin-submitted prompt fields are scanned with a Bedrock **PROMPT_ATTACK** Guardrail before save ([bedrock-guardrails.md](./bedrock-guardrails.md)).
 
-10. When a debrief finishes, producers publish to an **SNS** topic. The **Notification Lambda** renders catalog templates, writes `notification` rows, and pushes AppSync events. Override expiry can be scanned on an EventBridge schedule.
+10. When a debrief finishes, producers publish to an **SNS** topic inside the notification grouping. The **Notification Lambda** (same grouping: SNS → SQS → Lambda) renders catalog templates, writes `notification` rows, and pushes AppSync events. Override expiry can be scanned on an EventBridge schedule.
 
 11. Helpfulness ratings and section applicability votes are stored **without `user_id`** for aggregate analytics. **Activity events** are append-only and have **no FK** to documents, so they survive document deletion (pseudonymous actor ids).
 
-12. Edge/API throttling, Cognito token lifetime, and usage caps (`429 USAGE_LIMIT_REACHED`) protect capacity. Persistent data stays in **`ca-central-1`**.
+12. Request capacity and product quotas are separate from login sessions:
+    - **AWS WAF** on CloudFront can rate-limit by IP (edge protection, not Lambda@Edge).
+    - **API Gateway throttling** (stage / method) limits request rate to protect backends.
+    - **Application usage caps** (`platform_usage_policy`, `usage_limit`, `usage_counter`) enforce product limits such as debrief generations or uploads; the client sees `429 USAGE_LIMIT_REACHED`.
 
 ---
 
@@ -43,10 +61,10 @@ Editable source: [`wren-architecture-diagram.drawio.xml`](./wren-architecture-di
 
 | Path | Components |
 | --- | --- |
-| Sign-in | Amplify SPA → Cognito → `GET /v1/auth/me` |
+| Sign-in | Amplify (React web app) → Cognito → `GET /v1/auth/me` |
 | Draft / upload | API Gateway → Document Lambda → S3 / RDS; Textract worker for PDF |
 | AI Debrief | Feedback Orchestrator → SQS → Feedback Engine → Bedrock → RDS; AppSync `onDebriefReady` |
-| Ask LEON | Feedback Orchestrator Lambda → Bedrock → DynamoDB (`GET`/`POST /v1/documents/{id}/ask-wren`) |
+| Ask WREN | Feedback Orchestrator Lambda → Bedrock → DynamoDB (`GET`/`POST /v1/documents/{id}/ask-wren`) |
 | Admin config | Admin Lambda → RDS; `ApplyGuardrail` on prompt fields |
 | Notifications | SNS → SQS → Notification Lambda → RDS + AppSync |
 
@@ -66,8 +84,9 @@ No ER diagram is provided in this repository. The tables and FKs in this section
 | --- | --- |
 | S3 documents bucket | Upload objects, draft bytes (`draft.s3_key`) |
 | S3 reference bucket | Reference material files |
-| DynamoDB `{prefix}-ConversationHistory` | Ask LEON messages (`sessionId`, `ttl`) |
+| DynamoDB `{prefix}-ConversationHistory` | Ask WREN messages (`sessionId`, `ttl`) |
 | Cognito | Passwords, MFA, `SystemAdmin` group — not app roles after first login |
+| Systems Manager Parameter Store | Bedrock model id and other non-secret runtime config |
 
 ---
 
@@ -139,7 +158,7 @@ Grouping for document types and Department Admins. Not a tenant that owns users.
 
 #### `document_type` table
 
-Configurable writing type (data, not a hardcoded enum).
+Configurable document type (data, not a hardcoded enum).
 
 | Column Name | Description |
 | --- | --- |
@@ -373,11 +392,11 @@ Single row (`id = 1`). Technical Admin configurable.
 | Column Name | Description |
 | --- | --- |
 | `id` | Always `1` |
-| `message_limit` | Ask LEON / message cap |
+| `message_limit` | Ask WREN / message cap |
 | `debrief_generation_limit` | Debrief jobs per policy |
 | `document_upload_limit` | Document uploads |
 | `drafts_per_document_limit` | Draft versions per document |
-| `bedrock_model_id` | Optional runtime model id (`us.` CRIS prefix) |
+| `bedrock_model_id` | Optional runtime Bedrock model or inference-profile id |
 | `updated_at` | Last update |
 
 #### `user_lifetime_usage` table

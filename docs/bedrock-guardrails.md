@@ -1,6 +1,6 @@
 # Bedrock Guardrails Implementation
 
-This document explains how Amazon Bedrock Guardrails are created in CDK, stored, and enforced at runtime in LEON (WREN). It covers customization, testing, monitoring, and how this Bedrock resource relates to the **separate** no-ghostwriting checks that are not Bedrock Guardrails.
+This document explains how Amazon Bedrock Guardrails are created in CDK, stored, and enforced at runtime in WREN. It covers customization, testing, monitoring, and how this Bedrock resource relates to the **separate** no-ghostwriting checks that are not Bedrock Guardrails.
 
 ---
 
@@ -8,16 +8,16 @@ This document explains how Amazon Bedrock Guardrails are created in CDK, stored,
 
 ### What is Amazon Bedrock?
 
-Amazon Bedrock is a fully managed service that provides access to foundation models through a single API. In this project, Bedrock powers AI Debrief and Ask LEON (Socratic coaching on student drafts).
+Amazon Bedrock is a fully managed service that provides access to foundation models through a single API. In this project, Bedrock powers AI Debrief and Ask WREN (Socratic coaching on student drafts).
 
 **Learn more:** https://docs.aws.amazon.com/bedrock/
 
 ### How this project uses LLMs
 
-LEON uses Bedrock models to:
+WREN uses Bedrock models to:
 
 - Generate **Socratic feedback** (questions, never rewrites) on a specific draft
-- Support **Ask LEON** follow-up questions about that draft
+- Support **Ask WREN** follow-up questions about that draft
 - Optionally list inference profiles for the Technical Admin model picker
 
 The model id is configuration (`/{stackPrefix}/config/bedrock-model-id`, default `us.anthropic.claude-sonnet-4-6`). That is **InvokeModel**, not Guardrails.
@@ -138,7 +138,7 @@ if (result.action === 'GUARDRAIL_INTERVENED') {
 - Empty/whitespace text → skip.
 - `GUARDRAIL_INTERVENED` → `PromptInjectionError` (`code: PROMPT_INJECTION_DETECTED`) → HTTP **400**, no mutation.
 - Bedrock/IAM errors **propagate** → HTTP **500**; still no write if the check ran before persist.
-- Unlike Knowledge Bridge, there is no `ACTION_ANONYMIZED` path and no continue-with-redacted-text.
+- There is no `ACTION_ANONYMIZED` path and no continue-with-redacted-text behavior; blocked prompts always result in an error response.
 
 **Applied to (before DB write):**
 
@@ -149,7 +149,7 @@ if (result.action === 'GUARDRAIL_INTERVENED') {
 
 `typePromptText` is also scanned by **`assertGhostwritingFree`** (regex) **before** `ApplyGuardrail`. That is application logic, not Bedrock.
 
-**Not applied to:** student paste/upload, Ask LEON messages, Feedback Engine `InvokeModel` payloads, or LLM responses.
+**Not applied to:** student paste/upload, Ask WREN messages, Feedback Engine `InvokeModel` payloads, or LLM responses.
 
 ### IAM and permissions
 
@@ -323,7 +323,7 @@ See [security-overview.md](./security-overview.md) §7 and [modification-guide.m
 
 ## Glossary
 
-- **Bedrock foundation model:** Model invoked with `InvokeModel` for debrief / Ask LEON (Claude via inference profile by default).
+- **Bedrock foundation model:** Model invoked with `InvokeModel` for debrief / Ask WREN (Claude via inference profile by default).
 - **Bedrock Guardrail:** `AWS::Bedrock::Guardrail` evaluated with `ApplyGuardrail`. In this repo: prompt-attack on **admin config text** only.
 - **DRAFT:** Working Guardrail version used by CDK/Lambda; not a numbered published snapshot.
 - **PROMPT_ATTACK:** Content-policy filter for jailbreak / instruction-override attempts.

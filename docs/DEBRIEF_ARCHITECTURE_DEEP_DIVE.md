@@ -234,7 +234,7 @@ Prior draft's feedback items
                                           └──────────────────────┘
                                                     │
                                                     ▼
-                                          "resolved" | "partial" | "unresolved"
+                                          "resolved" | "partially_resolved" | "still_unresolved"
 ```
 
 ### 5.3 What the Judge Receives
@@ -447,7 +447,7 @@ All data structures use `@dataclass(frozen=True, slots=True)`:
 
 The 29-second API Gateway hard limit is sidestepped entirely:
 1. POST endpoint enqueues to SQS and returns 202 immediately (<1s)
-2. Heavy workload runs asynchronously on SQS-triggered Lambda (5-min timeout)
+2. Heavy workload runs asynchronously on SQS-triggered Lambda (15-min timeout)
 3. Frontend polls a lightweight status endpoint every 2.5 seconds
 4. Each individual HTTP request completes well under 1 second
 
@@ -489,7 +489,7 @@ The 29-second API Gateway hard limit is sidestepped entirely:
 │ document     │───▶│ draft           │───▶│ feedback_item            │
 │ - id (PK)    │    │ - id (PK)       │    │ - id (PK)                │
 │ - owner_id   │    │ - document_id   │    │ - error_category_id (FK) │
-│ - doc_type_id│    │ - segments (JSON)│    │ - kind (inline/structural)│
+│ - doc_type_id│    │ - segments (JSON)│    │ - kind (inline/structural/strength)│
 └──────────────┘    │ - version_number│    │ - question_text          │
                     │ - word_count    │    │ - quoted_text            │
                     └─────────────────┘    │ - source_draft_id (FK)   │

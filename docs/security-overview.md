@@ -1,10 +1,8 @@
 # Security Overview
 
-**Project:** LEON (WREN Writing Coach)
+**Project:** WREN Writing Coach
 **Document Type:** Public Security Architecture Overview
 **Last Updated:** August 2026
-
-The product display name is **LEON**. AWS resources and this repository use the project prefix **WREN**.
 
 ---
 
@@ -24,7 +22,7 @@ The product display name is **LEON**. AWS resources and this repository use the 
 
 ## 1. Introduction
 
-LEON is an AI writing coach that gives **Socratic feedback** (questions, never rewrites) on student drafts. Writers compose or upload documents, request an AI Debrief, and revise across drafts. Department admins configure writing types, evaluation criteria, and prompts. This document summarizes the security measures used to protect user data, enforce least-privilege access, and keep the coaching service available.
+WREN is an AI writing coach that gives **Socratic feedback** (questions, never rewrites) on student drafts. Writers compose or upload documents, request an AI Debrief, and revise across drafts. Department admins configure document types, evaluation criteria, and prompts. This document summarizes the security measures used to protect user data, enforce least-privilege access, and keep the coaching service available.
 
 ### 1.1 Security Principles
 
@@ -35,7 +33,7 @@ LEON is an AI writing coach that gives **Socratic feedback** (questions, never r
 | **Encryption Everywhere** | TLS in transit; encryption at rest on RDS, S3, and DynamoDB |
 | **Zero Trust** | Every API call is authenticated; privileged operations are re-checked in the handler |
 | **No Ghostwriting** | Prompts, model output, and API DTOs are forbidden from carrying replacement prose |
-| **Data Residency** | Persistent application data stays in `ca-central-1` |
+| **Data Residency** | Persistent application data stays in the AWS Region you deploy; no cross-region replicas by default |
 
 ---
 
@@ -54,14 +52,14 @@ LEON is an AI writing coach that gives **Socratic feedback** (questions, never r
 ║                                                                 ║
 ║   ┌─────────────────┐  ┌─────────────────┐  ┌───────────────┐   ║
 ║   │   CloudFront    │  │    AWS WAF      │  │ Shield Std.   │   ║
-║   │   CDN + TLS     │  │  (us-east-1)    │  │ (with CF)     │   ║
+║   │   CDN + TLS     │  │  (on CloudFront)│  │ (with CF)     │   ║
 ║   └─────────────────┘  └─────────────────┘  └───────────────┘   ║
-║   Amplify hosts the React SPA (Cognito sign-in)                 ║
+║   Amplify hosts the React web app (Cognito sign-in)             ║
 ╚══════════════════════════════╤══════════════════════════════════╝
                                │
                                ▼
 ╔═════════════════════════════════════════════════════════════════╗
-║                      APPLICATION LAYER  (ca-central-1)          ║
+║                      APPLICATION LAYER                           ║
 ║                                                                 ║
 ║   ┌─────────────────────────────────────────────────────────┐   ║
 ║   │              API Gateway  (REST, OpenAPI)               │   ║
@@ -108,7 +106,7 @@ LEON is an AI writing coach that gives **Socratic feedback** (questions, never r
 | Layer | Components | Security Controls |
 |-------|------------|-------------------|
 | **Edge** | CloudFront, WAF, Shield Standard | TLS redirect, managed WAF rules, per-IP rate limit, security headers |
-| **Application** | Amplify SPA, API Gateway, Cognito, Lambdas, AppSync | JWT auth, dual authorization, schema validation, ownership checks |
+| **Application** | Amplify React web app, API Gateway, Cognito, Lambdas, AppSync | JWT auth, dual authorization, schema validation, ownership checks |
 | **Data** | RDS, RDS Proxy, S3, DynamoDB, Secrets Manager, SSM | Encryption, isolated subnets, per-service DB roles, block public access |
 | **AI/ML** | Bedrock, Textract, Feedback Engine | Delimited untrusted student text, no-ghostwriting guards, prompt-attack scan on admin prompts |
 
@@ -120,7 +118,7 @@ LEON is an AI writing coach that gives **Socratic feedback** (questions, never r
 
 All users authenticate with **Amazon Cognito** (email alias, SRP and password flows). There is no anonymous REST access except CORS `OPTIONS` preflight. Self-signup is enabled; email verification uses a one-time code. Account recovery is **email only**. MFA is **optional**.
 
-Cognito tokens: access and ID tokens are valid for **1 hour**; refresh tokens for **30 days**. The SPA sends `Authorization: Bearer {accessToken}` on REST calls. AppSync realtime subscriptions use the **ID** token.
+Cognito tokens: access and ID tokens are valid for **1 hour**; refresh tokens for **30 days**. The React web app sends `Authorization: Bearer {accessToken}` on REST calls. AppSync realtime subscriptions use the **ID** token.
 
 ```
 ╔═════════════════════════════════════════════════════════════════╗
@@ -129,7 +127,7 @@ Cognito tokens: access and ID tokens are valid for **1 hour**; refresh tokens fo
 ║                                                                 ║
 ║   ┌──────────────────────┐                                      ║
 ║   │   Amazon Cognito     │                                      ║
-║   │   User Pool (SPA)    │                                      ║
+║   │   User Pool          │                                      ║
 ║   │                      │                                      ║
 ║   │  · Email + password  │                                      ║
 ║   │  · Optional MFA      │                                      ║
@@ -198,7 +196,7 @@ Configured on the Cognito user pool:
                    Handler capability + ownership
 ```
 
-WAF is associated with the **CloudFront** distribution (`us-east-1`). Clients that call the **API Gateway URL directly** are authenticated but are **not** behind this WAF. Prefer `DistributionDomainName` (or restrict the API origin) for edge protection.
+WAF is associated with the **CloudFront** distribution. Clients that call the **API Gateway URL directly** are authenticated but are **not** behind this WAF. Prefer `DistributionDomainName` (or restrict the API origin) for edge protection. There is no Lambda@Edge.
 
 ### 4.2 WAF Rules
 
@@ -236,7 +234,7 @@ REST API details: [`docs/api-guide.md`](./api-guide.md).
 
 ### 5.1 VPC Architecture
 
-Three-tier VPC (`10.0.0.0/16`, two AZs) in `ca-central-1`:
+Three-tier VPC (`10.0.0.0/16`, two AZs) in the data-plane Region:
 
 ```
 ╔═════════════════════════════════════════════════════════════════╗
@@ -306,7 +304,7 @@ Three-tier VPC (`10.0.0.0/16`, two AZs) in `ca-central-1`:
 | Admin prompts & taxonomy | Internal | Department-scoped; save-time ghostwriting + Bedrock prompt-attack checks |
 | Reference material | Internal | Separate S3 bucket, KMS, not public |
 
-Persistent stores are provisioned in **`ca-central-1`**. CloudFront/WAF in `us-east-1` is an edge control plane, not a replica of student content. Stack tests forbid S3 CRR, DynamoDB global tables, and RDS cross-region replicas.
+Persistent stores are provisioned in the **data-plane Region** chosen at deploy time. CloudFront is a global CDN (WAF is associated with the distribution). That is not a replica of student content. Stack tests forbid S3 CRR, DynamoDB global tables, and RDS cross-region replicas.
 
 ### 6.2 Encryption at Rest
 
@@ -515,7 +513,7 @@ WAF block rate is visible in WAF CloudWatch metrics; there is no dedicated “WA
 | **Rate Limiting** | Enabled | WAF (CloudFront) + API Gateway throttling |
 | **GenAI / ghostwriting** | Enabled | Delimited untrusted input, save-time + output guardrails, DTO ban |
 | **Prompt injection (admin)** | Enabled | Bedrock `PROMPT_ATTACK` on admin prompt fields |
-| **Data residency** | Enabled | Persistent data in `ca-central-1`; no cross-region replicas |
+| **Data residency** | Enabled | Persistent data in the deployed Region; no cross-region replicas |
 | **PII redaction in Bedrock** | Not a product control | No KBA-style PII anonymization filter on student text |
 | **CORS lock-down** | Partial | Currently `*`; tighten for production |
 | **WAF on raw API URL** | Partial | WAF protects CloudFront, not the execute-api hostname |
