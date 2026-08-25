@@ -858,6 +858,12 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: Document type still has submitted documents or other blocking references
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
       x-amazon-apigateway-integration:
         type: aws_proxy
         httpMethod: POST

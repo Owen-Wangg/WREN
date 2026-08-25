@@ -7,7 +7,7 @@
  * control (no INHERIT), deletion-impact reporting, and capability enforcement
  * (a disallowed actor is denied with no mutation).
  */
-import { AuthorizationError, NotFoundError } from './errors';
+import { AuthorizationError, ConflictError, NotFoundError } from './errors';
 import { FakeDb } from './fakeDb';
 import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
 import {
@@ -298,5 +298,22 @@ describe('deleteDocumentType', () => {
     db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'Keep' });
     await expect(deleteDocumentType(techAdminContext(), 'dt-1', db)).resolves.toBe(true);
     expect(db.documentTypes.has('dt-1')).toBe(false);
+  });
+
+  it('rejects deletion when Documents still use the type, with no mutation', async () => {
+    const db = new FakeDb();
+    seedDepartment(db);
+    db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'In use' });
+    db.seedDocument({ id: 'doc-1', document_type_id: 'dt-1' });
+    db.seedDocument({ id: 'doc-2', document_type_id: 'dt-1' });
+
+    await expect(deleteDocumentType(deptAdminContext([DEPT]), 'dt-1', db)).rejects.toThrow(
+      ConflictError,
+    );
+    await expect(deleteDocumentType(deptAdminContext([DEPT]), 'dt-1', db)).rejects.toThrow(
+      /2 documents still use it/i,
+    );
+    expect(db.documentTypes.has('dt-1')).toBe(true);
+    expect(db.mutationCount).toBe(0);
   });
 });
