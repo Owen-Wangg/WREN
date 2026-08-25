@@ -277,10 +277,12 @@ Before diving into the steps, here's where things live on the platform:
 
 ### 4.2 Model Configuration
 
-1. Go to **System Admin Dashboard → System Settings → Model Configuration**.
+1. Go to **System Admin Dashboard → System Configuration → Model Configuration**.
 2. Review the list of available AI models.
 3. Select the model you want to set as the platform default.
-4. Click **Save Changes**.
+4. Click **Save**.
+
+<img width="910" height="385" alt="image" src="https://github.com/user-attachments/assets/b9ec4bef-0b50-4b22-9c22-aaab06e8ee62" />
 
 **Notes:**
 
@@ -290,12 +292,14 @@ Before diving into the steps, here's where things live on the platform:
 
 ### 4.3 Setting Usage Limits
 
-1. Go to **System Admin Dashboard → System Settings → Usage Limits**.
+1. Go to **System Admin Dashboard → System Configuration → Usage Limits**.
 2. Set limits for:
    - **AI Debriefs allowed** — the maximum number of debriefs a user or department can generate in a given period.
    - **Documents allowed** — the maximum number of documents a user or department can create or process in a given period.
 3. Choose whether limits apply platform-wide or per department.
 4. Click **Save Changes**.
+
+<img width="931" height="413" alt="image" src="https://github.com/user-attachments/assets/4e046f13-c2c6-4150-8bcc-68c60f85a331" />
 
 **Notes:**
 
@@ -305,25 +309,34 @@ Before diving into the steps, here's where things live on the platform:
 ### 4.4 Creating New Departments
 
 1. Go to **System Admin Dashboard → Departments → Create New Department**.
-2. Enter the department name and a short description.
-3. Assign an initial Department Admin (optional — can be done later from Users, see [4.5 Managing Departments](#45-managing-departments)).
-4. Set initial usage limits, or leave them at the platform default (see [4.3 Setting Usage Limits](#43-setting-usage-limits)).
-5. Click **Create Department**.
+
+<img width="936" height="381" alt="image" src="https://github.com/user-attachments/assets/14cff36a-00bc-4265-8c91-4074eb697c56" />
+
+3. Enter the department name.
+
+<img width="892" height="375" alt="image" src="https://github.com/user-attachments/assets/cd9e8bfd-554e-484d-9754-affc81143f29" />
+
+5. Assign an initial Department Admin by clicking on the pen symbol on the right of a user's name and selecting department admin  (optional — can be done later from Users, see [4.5 Managing Departments](#45-managing-departments)).
+
+<img width="628" height="742" alt="image" src="https://github.com/user-attachments/assets/8b8715d7-ea2e-4f61-9a1e-f08e26443295" />
 
 **Notes:**
 
 - Once created, a department appears in the department list and can be opened as described in [4.5 Managing Departments](#45-managing-departments).
 - Departments generally can't be merged after creation, so plan your structure before creating many of them.
+- Set initial usage limits, or leave them at the platform default (see [4.3 Setting Usage Limits](#43-setting-usage-limits)).
 
 ### 4.5 Managing Departments
 
 1. Go to **System Admin Dashboard → Departments** and select the department you want to manage.
-2. Click **Users** to:
+<img width="936" height="381" alt="image" src="https://github.com/user-attachments/assets/14cff36a-00bc-4265-8c91-4074eb697c56" />
+3. Click **Users** to:
    - View the list of currently active users in the department.
    - Select a user to promote or change their role — for example, promoting a Student to **Department Admin**.
    - Deactivate or remove a user if needed.
-3. Click **Lock Department Access** to prevent students from logging in or using platform features while keeping admin/staff access intact. Use this for maintenance, review periods, or restructuring.
-4. Click **Save Changes** after any update.
+4. Click **Lock Department Access** to prevent students from logging in or using platform features while keeping admin/staff access intact. Use this for maintenance, review periods, or restructuring.
+
+5. Click **Save Changes** after any update.
 
 **Notes:**
 
