@@ -1,5 +1,7 @@
 # WREN AI Debrief, Diff Engine, and Resolution Tracking — Architecture Document
 
+Platform-wide request paths and the full PostgreSQL catalog are in [architecture-deep-dive.md](./architecture-deep-dive.md). This document focuses on the Feedback Engine, diff/anchors, and resolution tracking.
+
 ---
 
 ## Table of Contents
@@ -377,16 +379,18 @@ A composite progress score (0–100) reflecting the full coaching loop, not just
 
 | Lambda | Runtime | Timeout | Memory | Trigger |
 |--------|---------|---------|--------|---------|
-| Feedback Orchestrator | Node.js 22 | 60s | 512MB | API Gateway |
-| Feedback Engine | Python 3.12 (ECR container) | 5 min | 1024MB | SQS (batch=1, maxConcurrency=10) |
-| Document Service | Node.js 22 | 60s | 512MB | API Gateway |
+| Feedback Orchestrator | Node.js 22 | 60s | 512MB | API Gateway (also Ask LEON) |
+| Feedback Engine | Python 3.12 (ECR container) | 15 min | 1024MB | SQS (batch=1, maxConcurrency=10) |
+| Document Service | Node.js 22 | 3 min | 2048MB | API Gateway + ingest SQS |
 | Admin Service | Node.js 22 | 30s | 512MB | API Gateway |
+
+Values from `cdk/lib/stacks/ComputeStack.ts`.
 
 ### 9.2 Queue Configuration
 
 | Setting | Value | Rationale |
 |---------|-------|-----------|
-| Visibility timeout | 300s | Must exceed engine Lambda timeout (300s) |
+| Feedback queue visibility timeout | 16 minutes | Must exceed engine Lambda timeout (15 min) |
 | DLQ max receive count | 3 | Retry 3x before dead-lettering |
 | DLQ retention | 14 days | Time to investigate failures |
 
