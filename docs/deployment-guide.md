@@ -61,7 +61,7 @@ Default naming uses project `wren` and environment `dev`, so stacks are named `w
 | `Cicd` | `ca-central-1` | ECR repo + CodePipeline (only if GitHub owner/repo are set) |
 | `Compute` | `ca-central-1` | All Lambdas, SQS queues, AppSync (realtime) |
 | `Api` | `ca-central-1` | REST API Gateway from `cdk/lib/openapi.yaml` |
-| `Observability` | `ca-central-1` | CloudWatch dashboards and alarms |
+| `Observability` | `ca-central-1` | CloudWatch log retention and alarms |
 | `CloudFrontWaf` | **`us-east-1`** | CloudFront distribution + CLOUDFRONT-scoped WAF |
 | `Amplify` | `ca-central-1` | Frontend hosting (only if GitHub owner/repo are set) |
 
@@ -228,6 +228,8 @@ cd ..
 ```
 
 _Note: If `npm ci` fails with a lockfile mismatch, use `npm install` in the same directories instead._
+
+How Node workspaces, uv/pip pins, and the Feedback Engine image relate: [Dependency Management Guide](./dependency-management.md).
 
 ### Step 2: Bootstrap CDK (Two Regions)
 
@@ -501,7 +503,7 @@ _Note: `--all` still skips Amplify/CI-CD without GitHub settings, but it **will*
 | `wren-dev-Database` | RDS PostgreSQL 16.13, RDS Proxy, schema migrations |
 | `wren-dev-Compute` | Lambdas, SQS queues, AppSync (realtime) |
 | `wren-dev-Api` | REST API Gateway |
-| `wren-dev-Observability` | CloudWatch dashboards and alarms |
+| `wren-dev-Observability` | CloudWatch log retention and alarms |
 | `wren-dev-CloudFrontWaf` | CloudFront distribution + WAF (`us-east-1`) |
 | `wren-dev-Cicd` | ECR repo + CodePipeline (GitHub context only) |
 | `wren-dev-Amplify` | Frontend hosting (GitHub context only) |
