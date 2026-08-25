@@ -166,7 +166,7 @@ Before diving into the steps, here's where things live on the platform:
 
 - **Profile** — click your profile to switch your account view between Student and Department Admin.
   
-<img width="944" height="410" alt="image" src="https://github.com/user-attachments/assets/60265c0f-df66-4185-ac91-986725b99043" />
+<img width="1870" height="813" alt="image" src="https://github.com/user-attachments/assets/529f9101-fb8e-4dd8-9e32-9d36953b4ce4" />
 
 - **Dashboard** — the main screen after choosing Department Admin. Your existing document types are listed here, with the **Create New Document Type** button on the right side of the screen.
   
