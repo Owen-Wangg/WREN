@@ -18,6 +18,7 @@ The product display name is **LEON**. AWS resources and this repository use the 
 6. [Data Protection](#6-data-protection)
 7. [GenAI Security](#7-genai-security)
 8. [Monitoring & Compliance](#8-monitoring--compliance)
+9. [Security Contact](#9-security-contact)
 
 ---
 
