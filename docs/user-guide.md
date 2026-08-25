@@ -256,11 +256,23 @@ Once you've selected **System Admin** as your account view (see [1.3 Choosing Yo
 Before diving into the steps, here's where things live on the platform:
 
 - **Profile** — click your profile to switch your account view between Student, Department Admin, and System Admin.
-- **Dashboard** — the main screen after choosing System Admin. Your list of departments is shown here, alongside **System Settings**.
-- **System Settings** — contains **Model Configuration** and **Usage Limits**, which apply platform-wide unless overridden at the department level.
-- **Department Controls** — opens when you select or create a department. It's organized into three areas: **Users**, **Prompt Settings**, and **Analytics**.
+
+<img width="1870" height="813" alt="image" src="https://github.com/user-attachments/assets/529f9101-fb8e-4dd8-9e32-9d36953b4ce4" />
+
+- **Dashboard** — the main screen after choosing System Admin. Your list of departments is shown here, alongside **Usage Limits** and **Model Configuration**.
+
+<img width="944" height="297" alt="image" src="https://github.com/user-attachments/assets/04c3dd29-6923-433b-9e4d-211c27c67975" />
+<img width="917" height="310" alt="image" src="https://github.com/user-attachments/assets/fa25a40d-91a0-4b9f-a1b6-16faaab5cf35" />
+
+- **Department Controls** — opens when you select or create a department. It's organized into three areas: **Users**, **Manage Department Prompt**, and **View Analytics**.
 - **Inside Users** — the list of active users in the department, where you can promote roles or lock the department from student access.
-- **Inside Prompt Settings** — **Department Context** sits at the top, followed by **Writing Standards**, then **Restricted Topics**.
+
+<img width="1867" height="810" alt="image" src="https://github.com/user-attachments/assets/f37e9e4d-f13a-4149-8f11-03550340dc3a" />
+
+
+- **Inside Manage Department Prompt** — **Department Context** sits at the top, followed by **Writing Standards**, then **Restricted Topics**.
+
+
 - **Inside Analytics** — **Active Users** appears first, followed by **Documents Generated**, then **Debriefs Generated**.
 
 ### 4.2 Model Configuration
