@@ -92,6 +92,7 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 5. Choose a file from your computer. Prefer a **.docx** Word file so fonts, headings, lists, tables, and images come through more accurately. **PDF** is supported, including many scanned files, but layout is best-effort.
 <img width="956" height="368" alt="File upload on new document" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
 6. Click **Activate Editor**. You open in the editor with that draft loaded. The same document also appears under **All Documents**.
+<img width="956" height="415" alt="Editor after activating a new document" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
 
 ### 2.2 Opening and Reviewing Your Document
 
@@ -99,18 +100,24 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 2. The document is not split into pages on screen. Headers and footers sit at the top and bottom of the draft. The **Contents** panel shows the draft version, word count, and an estimated printed page count (US Letter). Heading 1–3 styles build an outline; click a heading to jump to it.
 3. Hover or drag the scrollbar to see an estimated printed page, for example **Page 2 of 17**. That is how the document is expected to paginate on preview or export, not a live page break in the editor.
 4. The left icon rail switches the panel between **Contents**, **Ask LEON**, and **AI Debrief**.
+<img width="1912" height="829" alt="Editor with Ask LEON and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
 
 **Other options in this view:**
 
 - **Upload New Draft** — use this if you edited the file in another program and need LEON to review the updated version.
+<img width="960" height="412" alt="Upload New Draft" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
 - **Export** — download as DOCX or PDF. You can optionally include the AI Debrief on PDF, or open a US Letter **Preview** first.
+<img width="959" height="412" alt="Export" src="https://github.com/user-attachments/assets/d31b8995-9545-4531-8c9e-04411dbd8c70" />
 - **Close** the side panel (or drag the divider) if you want more space for the document.
+<img width="959" height="412" alt="Resize or close the side panel" src="https://github.com/user-attachments/assets/544ace4d-b433-437f-8472-14376b80b177" />
 
 ### 2.3 Using AI Debrief
 
 1. Click **AI Debrief** on the left rail. The panel shows your latest report.
 2. Click **Regenerate** to save any inline edits and generate a new debrief.
+<img width="956" height="413" alt="Regenerate AI Debrief" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
 3. To open an earlier report, use the drop-down and pick a previous draft’s debrief.
+<img width="959" height="416" alt="Previous AI Debrief reports" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
 4. Click a quoted passage in the debrief to highlight it in the document.
 
 LEON coaches with questions. It does not rewrite your essay.
@@ -120,6 +127,7 @@ LEON coaches with questions. It does not rewrite your essay.
 1. Click **Ask LEON** (the LEON icon) on the left rail.
 2. Ask questions about the debrief, your draft, or writing craft (clarity, organization, tone, and similar).
 3. Click a quoted phrase in a reply to jump to that passage.
+<img width="958" height="412" alt="Ask LEON chat" src="https://github.com/user-attachments/assets/0b5d2ba7-27b3-4c33-a726-e6882021007e" />
 
 Ask LEON will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.
 
@@ -146,10 +154,15 @@ After you choose **Department Admin** as your account view (see [1.3](#13-choosi
 ### 3.1 How the Department Admin Screens Are Organized
 
 - **Profile** — switch account view (Student / Department Admin / System Admin, depending on your roles).
+<img width="944" height="410" alt="Switch account view from profile" src="https://github.com/user-attachments/assets/60265c0f-df66-4185-ac91-986725b99043" />
 - **Dashboard** — document types for the department you are managing. If you administer more than one department, a selector on the banner switches which department you are editing. **Create New Document Type** is on the right.
+<img width="943" height="412" alt="Department Admin dashboard" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
 - **Document type** — opens when you select a type. Two areas: **Evaluation Rubric** and **Analytics**.
+<img width="950" height="413" alt="Document type Evaluation Rubric and Analytics" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
 - **Evaluation Rubric** — **Document Context** (purpose, common mistakes, additional background, citation guide) and **Evaluation Criteria** (categories the AI should use). Click **Save Rubric** when you are done; this screen does not autosave.
+<img width="935" height="409" alt="Evaluation Rubric categories" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
 - **Analytics** — student improvement trends, AI Debrief helpfulness (aggregate yes/no ratings), and section applicability. Figures are aggregates, not per-student scores.
+<img width="950" height="407" alt="Document type analytics" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
 
 Student access for a department (open vs locked) is controlled by a System Admin, not from this dashboard.
 
