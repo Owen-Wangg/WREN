@@ -10,7 +10,7 @@ single-page application for the WREN Writing Coach platform.
 - **React Query** (`@tanstack/react-query`) for server state.
 - **React Hook Form + Zod** for forms and API-boundary validation.
 - **React Router** for routing, **lucide-react** for icons.
-- `@` path alias → `./src`; shared domain contract from `@wren/types` (task 1.2).
+- `@` path alias → `./src`; shared domain contract from `@wren/types`.
 
 ## Scripts
 
@@ -28,13 +28,14 @@ npm test          # vitest run
 ```
 src/
   app/            # providers (React Query client, router shell)
-  components/ui/  # shared shadcn/ui primitives (task 17.2+)
+  components/ui/  # shared shadcn/ui primitives
   config/         # env.ts — the single application-config source (Req 53.2)
-  features/       # <feature>/components — auth, dashboard, editor, debrief …
+  features/       # auth, dashboard, editor, debrief, ask-wren, admin, notifications
   forms/          # useZodForm — React Hook Form + Zod
   hooks/          # queryKeys and shared hooks
   lib/            # cn() and small utilities
-  services/       # the single Cognito-aware API client (+ mock until convergence)
+  pages/          # route-level screens (student, department admin, system admin)
+  services/       # Cognito-aware API client (live or mock)
   styles/         # index.css, theme.css, and tokens/ (single source of truth)
   test/           # vitest setup
 ```
@@ -58,8 +59,10 @@ hardcoded in the source.
 
 ## API access
 
-Every network call goes through the single shared client in `src/services`,
-which attaches the Cognito bearer token, normalizes errors into `ApiError`, and
-validates every response against a Zod schema at the boundary. Until the backend
-converges, `apiClient` resolves to a mock that returns `@wren/types`-shaped
-fixtures held to the same schema contract.
+Every network call goes through the shared client in `src/services`, which
+attaches the Cognito bearer token, normalizes errors into `ApiError`, and
+validates responses against a Zod schema at the boundary.
+
+Set `VITE_USE_LIVE_API=true` (plus API and Cognito `VITE_*` values) to call a
+deployed API Gateway. The default local setting uses an in-memory mock so the
+SPA can run without a backend.

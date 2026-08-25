@@ -1,6 +1,6 @@
 # Sample Error Taxonomy — Legal Writing Reference Implementation
 
-> **Scope:** This file is a steering reference for the platform's feedback engine. It defines a sample legal-writing error taxonomy for use as a **reference implementation of one Writing Domain only**. It is not exhaustive and must not be treated as the only domain the platform supports. Field Experts in other Organizations will define their own taxonomies.
+> **Scope:** Sample legal-writing error taxonomy for the Feedback Engine. It is a **reference for one document type**, not the only domain the platform supports. Department Admins define taxonomies per document type.
 >
 > **Internal use only:** The "correct version" entries in each example are for the AI's internal reference — to understand what it is detecting — and must **never** be shown to the User. The platform surfaces only a Socratic question or error-type flag.
 

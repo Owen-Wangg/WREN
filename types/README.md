@@ -1,27 +1,29 @@
 # `@wren/types` — shared domain contract
 
 Single source of truth for the platform's core domain types and runtime
-validation schemas (frontend steering §7: shared types live in `/types`). Both
-the backend (CDK / Node Lambdas) and the frontend import these so the API
-contract is defined exactly once.
+validation schemas. Backend Node Lambdas and the frontend import these so the
+API contract is defined once.
 
 ## What's here
 
-TypeScript types + [Zod](https://zod.dev) schemas for the core entities:
+TypeScript types plus [Zod](https://zod.dev) schemas. Names below match the
+current V4 model (`Student` / `DepartmentAdmin` / `TechnicalAdmin`,
+`department`, `document_type`).
 
 | Entity | Notes |
 | --- | --- |
-| `Role` | `User` \| `Field Expert` \| `Org Owner` \| `Admin` (Requirement 1.1) |
-| `AccessState` / `WritingTypeAccessState` | `OPEN` \| `LOCKED` (+ `INHERIT` for a Writing Type) |
-| `WritingType` | Configurable, self-selectable writing type (design's "Writing Domain") |
-| `Document`, `DocumentStatus` | Owned by a global User, scoped to a Writing Type |
+| `Role` | `Student` \| `DepartmentAdmin` \| `TechnicalAdmin` |
+| `AccessState` | `OPEN` \| `LOCKED` |
+| `Department` | Grouping of document types and Department Admins; not a user tenant |
+| `DocumentType` | Configurable catalog entry students select when creating a document |
+| `Document`, `DocumentStatus` | Owned by a user, scoped to a document type |
 | `Draft`, `Segment` | Immutable, monotonically versioned drafts |
 | `FeedbackItem`, `FeedbackKind` | Socratic feedback — **never** carries replacement prose |
 | `ResolutionStatus` | `resolved` \| `partially_resolved` \| `still_unresolved` \| `removed` \| `unchanged` |
-| `Anchor`, `AnchorState` | Ties feedback to a text span, re-mapped across drafts |
-| `AccessGrant`, `GrantScope` | Associates a global User with a LOCKED scope |
-| `Override`, `OverrideBounds` | Temporary, Writing-Type-scoped usage override |
-| `ActivityEvent` | Actor–Verb–Object event, independent of document content |
+| `Anchor`, `AnchorState` | Ties feedback to a text span, remapped across drafts |
+| `AccessGrant`, `GrantScope` | Associates a user with a LOCKED scope |
+| `Override`, `OverrideBounds` | Temporary usage override |
+| `ActivityEvent` | Actor–verb–object event, independent of document content |
 
 ## No-ghostwriting invariant (REQ-CORE-NOGHOST-01)
 

@@ -1,8 +1,8 @@
 # LEON REST API Documentation
 
-This document provides comprehensive documentation for the LEON (WREN) REST API, including endpoint descriptions, authentication requirements, request/response formats, and example usage.
+REST API for LEON (project prefix **WREN**): endpoints, authentication, request and response shapes, and examples.
 
-The product display name is **LEON**. AWS resources, CDK stacks, and this repository use the project prefix **WREN**. The contract used to deploy API Gateway lives in [`cdk/lib/openapi.yaml`](../cdk/lib/openapi.yaml). Shared Zod/TypeScript DTOs live in [`types/`](../types/README.md).
+The product display name is **LEON**. AWS resources, CDK stacks, and this repository use the project prefix **WREN**. The contract used to deploy API Gateway lives in [`cdk/lib/openapi.yaml`](../cdk/lib/openapi.yaml). Shared Zod/TypeScript DTOs live in [`types/`](../types/README.md). In the UI, the `TechnicalAdmin` role is labeled **System Admin**.
 
 ## Table of Contents
 
