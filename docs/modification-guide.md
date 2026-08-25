@@ -40,7 +40,7 @@ The product display name is **LEON**. AWS resources and this repository use the 
 
 ## Modifying Colors and Styles
 
-The SPA uses **Tailwind CSS 4** and a **token-first** theme. Raw hex colors and raw `px` font sizes are forbidden in component `.tsx` files. ESLint rule `wren/no-raw-design-values` fails lint on violations.
+The React web app uses **Tailwind CSS 4** and a **token-first** theme. Raw hex colors and raw `px` font sizes are forbidden in component `.tsx` files. ESLint rule `wren/no-raw-design-values` fails lint on violations.
 
 **Single source of truth**
 
@@ -104,7 +104,7 @@ Bootstrap a Technical Admin by adding the Cognito user to the **`SystemAdmin`** 
 
 Key files:
 
-- `cdk/lib/stacks/CognitoStack.ts` — user pool, SPA client, password policy, `SystemAdmin` group
+- `cdk/lib/stacks/CognitoStack.ts` — user pool, app client, password policy, `SystemAdmin` group
 - `backend/auth/src/authorizer.ts` — JWT verify + identity mapping
 - `backend/auth/src/capabilityMatrix.ts` — per-operation allow/deny
 - `frontend/src/features/auth/` — Cognito session, token provider
@@ -120,8 +120,8 @@ Local UI: `VITE_USE_LIVE_API=false` (default) uses an in-memory mock and **does 
 The pool is currently **native Cognito** (email/password). To add Microsoft Entra ID, Okta, or another OIDC/SAML IdP:
 
 1. In `cdk/lib/stacks/CognitoStack.ts`, add a `CfnUserPoolIdentityProvider` (OIDC or SAML) with issuer, client id/secret, and attribute mapping (`email`, `sub`).
-2. Attach the provider to the SPA client (`supportedIdentityProviders`).
-3. Register callback URLs on the IdP: Amplify app URL + Cognito hosted-UI / SPA callback.
+2. Attach the provider to the Cognito app client (`supportedIdentityProviders`).
+3. Register callback URLs on the IdP: Amplify app URL + Cognito hosted-UI / web-app callback.
 4. Update `frontend/src/features/auth/cognitoAuthService.ts` to start the federated flow (hosted UI or `signInWithRedirect`) using the provider name you registered.
 5. Keep authorization in **Postgres**. Do not grant `TechnicalAdmin` from IdP groups on every request. Optionally map a single bootstrap group the same way `SystemAdmin` is used today (`backend/auth/src/provisionUser.ts`).
 6. Redeploy Cognito (and Amplify if callback URLs change).
@@ -143,7 +143,7 @@ This API is **spec-first**. Routes are declared in `cdk/lib/openapi.yaml` and de
 2. If the operation is privileged, add a `Capability` in `types/src/authorization.ts` and map it in `backend/auth/src/capabilityMatrix.ts`. Call `requireCapability` before any mutation.
 3. Add request/response Zod schemas in `types/` if the payload is a domain DTO. Never add a `replacementProse` field.
 4. Add the path/method to `cdk/lib/openapi.yaml` with `x-amazon-apigateway-integration` pointing at the same `Fn::Sub` ARN as sibling routes (`AdminFunctionArn`, `DocumentFunctionArn`, …).
-5. Call the API from the SPA only through `frontend/src/services` (`ApiClient`), validating the response with Zod.
+5. Call the API from the React web app only through `frontend/src/services` (`ApiClient`), validating the response with Zod.
 6. Redeploy: `npx cdk deploy wren-dev-Api` (and `wren-dev-Compute` if handler code changed).
 
 Example OpenAPI stub:
@@ -271,12 +271,12 @@ aws ssm put-parameter \
   --value "us.anthropic.claude-sonnet-4-6" \
   --type String \
   --overwrite \
-  --region ca-central-1
+  --region <your-data-plane-region>
 ```
 
 **Rules when updating:**
 
-- Prefer `us.` cross-region inference profile ids (CRIS). Account Bedrock access must include that model in `ca-central-1` (and related CRIS regions).
+- Prefer cross-region inference profile ids when your account uses them. Enable the model in the **data-plane Region** (and any regions the profile requires).
 - Compute IAM already allows `bedrock:InvokeModel` on `inference-profile/us.anthropic.*`, `us.meta.*`, and corresponding foundation-model ARNs (`crisBedrockInvokeResources` in `ComputeStack.ts`). A new **family** (for example Amazon Titan) needs an IAM update there.
 - Feedback Engine also receives `BEDROCK_MODEL_ID` at deploy time; runtime code should prefer SSM / DB (`platform_usage_policy.bedrock_model_id`). After a model change, confirm the engine logs the id you expect.
 - Admin prompt fields use a separate Bedrock **Guardrail** (`PROMPT_ATTACK`) from the Config stack. Details: [bedrock-guardrails.md](./bedrock-guardrails.md).
@@ -333,7 +333,7 @@ Lifetime caps are stored in Postgres (`platform_usage_policy`) and enforced in t
 
 ## Document Ingest and OCR
 
-There is **no SharePoint Glue crawler**. Writers upload `.docx` / `.pdf` or paste in the editor.
+Writers upload `.docx` / `.pdf` or paste in the editor.
 
 Flow:
 

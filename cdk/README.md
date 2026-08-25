@@ -2,7 +2,7 @@
 
 AWS CDK v2 (TypeScript) for the LEON writing coach platform (internal project name **WREN**).
 
-Stacks are named `${stackPrefix}-<Concern>` (default `wren-dev-Vpc`, `wren-dev-Compute`, …). Persistent resources stay in **`ca-central-1`**. CloudFront + WAF always deploy to **`us-east-1`**.
+Stacks are named `${stackPrefix}-<Concern>` (default `wren-dev-Vpc`, `wren-dev-Compute`, …). Persistent resources stay in the **CDK `region`** (default `ca-central-1` in examples; override with `-c region=...`). CloudFront is a global CDN. The `CloudFrontWaf` stack is created in **`us-east-1`** because AWS manages CloudFront-scoped WAF there — not because student data is stored in that Region.
 
 **Full first-time AWS rollout** (Bedrock access, ECR `bootstrap` image, stack order, Amplify, first admin): **[docs/deployment-guide.md](../docs/deployment-guide.md)**.
 
@@ -24,7 +24,7 @@ cd cdk
 npm ci
 ```
 
-Bootstrap **after** `npm ci` in `cdk/`, in **both** regions:
+Bootstrap **after** `npm ci` in `cdk/`, in the **data-plane Region** and in **`us-east-1`** (CloudFront-scoped WAF control plane):
 
 ```bash
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
@@ -62,17 +62,17 @@ Stacks are tagged: `Project` = stack prefix, `Application` = display name, `Envi
 
 | Stack id | Region | What it creates |
 | --- | --- | --- |
-| `{prefix}-Config` | `ca-central-1` | SSM (app name, model id) + Bedrock Guardrail |
-| `{prefix}-Vpc` | `ca-central-1` | Three-tier VPC, NAT, VPC endpoints, flow logs |
-| `{prefix}-Storage` | `ca-central-1` | S3 + DynamoDB conversation table |
-| `{prefix}-Cognito` | `ca-central-1` | User pool, SPA client, `SystemAdmin` group |
-| `{prefix}-Database` | `ca-central-1` | RDS PostgreSQL 16.13, RDS Proxy, migrations |
-| `{prefix}-Compute` | `ca-central-1` | Lambdas, SQS, AppSync |
-| `{prefix}-Api` | `ca-central-1` | REST API from `lib/openapi.yaml` |
-| `{prefix}-Observability` | `ca-central-1` | CloudWatch dashboards / alarms |
-| `{prefix}-CloudFrontWaf` | **`us-east-1`** | CloudFront + CLOUDFRONT WAF |
-| `{prefix}-Cicd` | `ca-central-1` | ECR + CodePipeline (**skipped** without GitHub owner/repo) |
-| `{prefix}-Amplify` | `ca-central-1` | Frontend hosting (**skipped** without GitHub owner/repo) |
+| `{prefix}-Config` | Data-plane Region | SSM Parameter Store (app name, model id) + Bedrock Guardrail |
+| `{prefix}-Vpc` | Data-plane Region | Three-tier VPC, NAT, VPC endpoints, flow logs |
+| `{prefix}-Storage` | Data-plane Region | S3 + DynamoDB conversation table |
+| `{prefix}-Cognito` | Data-plane Region | User pool, app client, `SystemAdmin` group |
+| `{prefix}-Database` | Data-plane Region | RDS PostgreSQL 16.13, RDS Proxy, migrations |
+| `{prefix}-Compute` | Data-plane Region | Document, Admin, Audit, Feedback Orchestrator, Feedback Engine, Notification, authorizers; SQS; AppSync |
+| `{prefix}-Api` | Data-plane Region | REST API from `lib/openapi.yaml` |
+| `{prefix}-Observability` | Data-plane Region | CloudWatch dashboards / alarms |
+| `{prefix}-CloudFrontWaf` | `us-east-1` (WAF scope constraint) | CloudFront + CloudFront-scoped WAF |
+| `{prefix}-Cicd` | Data-plane Region | ECR + CodePipeline (**skipped** without GitHub owner/repo) |
+| `{prefix}-Amplify` | Data-plane Region | Frontend hosting (**skipped** without GitHub owner/repo) |
 
 **Deploy order:** Config → Vpc → Storage → Cognito → Database → (ECR image) → Compute → Api → Observability → CloudFrontWaf → Amplify / Cicd.
 
