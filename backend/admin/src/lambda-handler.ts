@@ -10,6 +10,7 @@ import {
   listDocumentTypes,
   listAllDocumentTypes,
   createDocumentType,
+  deleteDocumentType,
   setDocumentTypeAccessState,
   getDocumentType,
 } from './documentTypeService';
@@ -131,6 +132,9 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
     }
     if (resource === '/v1/document-types' && httpMethod === 'POST') {
       return await wrapHandler(() => handleCreateDocumentType(event));
+    }
+    if (resource === '/v1/document-types/{documentTypeId}' && httpMethod === 'DELETE') {
+      return await wrapHandler(() => handleDeleteDocumentType(event));
     }
     if (resource === '/v1/document-types/{documentTypeId}/content-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListContentTypes(event));
@@ -664,6 +668,20 @@ async function handleCreateDocumentType(event: any): Promise<APIGatewayProxyResu
   return {
     statusCode: 201,
     body: JSON.stringify(documentType),
+  };
+}
+
+async function handleDeleteDocumentType(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.pathParameters || {};
+  const deleted = await deleteDocumentType(actor, documentTypeId, db);
+  if (!deleted) {
+    throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
+  }
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ documentTypeId }),
   };
 }
 
