@@ -54,6 +54,27 @@ function parseAuthContext(event: any) {
   };
 }
 
+/**
+ * All REST routes in this Lambda are Student feedback workflows. Require the
+ * Student role in production code; ownership checks remain the second boundary.
+ */
+function studentAccessFailure(event: any): APIGatewayProxyResult | null {
+  const actor = parseAuthContext(event);
+  if (!actor.userId) {
+    return withCors({
+      statusCode: 401,
+      body: JSON.stringify({ code: 'UNAUTHORIZED', message: 'Authentication required' }),
+    });
+  }
+  if (!actor.roles.includes('Student')) {
+    return withCors({
+      statusCode: 403,
+      body: JSON.stringify({ code: 'PERMISSION_DENIED', message: 'Student role required' }),
+    });
+  }
+  return null;
+}
+
 async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>, event?: any): Promise<APIGatewayProxyResult> {
   try {
     return withCors(await fn());
@@ -435,6 +456,8 @@ export const handler: APIGatewayProxyHandler = async (event, context): Promise<A
   freezeEventLoopOnReturn(context);
   try {
     const { httpMethod, resource } = event;
+    const accessFailure = studentAccessFailure(event);
+    if (accessFailure) return accessFailure;
 
     if (resource === '/v1/documents/{documentId}/feedback' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetFeedback(event));

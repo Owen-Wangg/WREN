@@ -96,13 +96,14 @@ export class CognitoStack extends Stack {
     // -----------------------------------------------------------------------
     // Cognito Groups
     // -----------------------------------------------------------------------
-    // SystemAdmin group: adding an existing user here before their first login
-    // seeds them as TechnicalAdmin in the DB. After that the DB is the
-    // sole source of truth — Cognito group membership is never re-consulted.
+    // SystemAdmin is an eligibility signal, not an authorization grant. The
+    // Compute stack must also carry an exact subject allowlist, and only a
+    // genuinely new app_user can receive TechnicalAdmin during provisioning.
+    // Group membership alone never grants or changes an application role.
     new cognito.CfnUserPoolGroup(this, 'SystemAdminGroup', {
       userPoolId: this.userPool.userPoolId,
       groupName: 'SystemAdmin',
-      description: 'Bootstrap group: members are provisioned as TechnicalAdmin on first login.',
+      description: 'Bootstrap eligibility only; requires an exact configured subject and a genuinely new app user.',
     });
 
     // -----------------------------------------------------------------------

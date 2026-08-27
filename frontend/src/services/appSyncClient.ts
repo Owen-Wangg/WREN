@@ -4,9 +4,8 @@
  * Manually implements the AppSync graphql-ws protocol over raw WebSocket —
  * no Amplify client, no third-party GraphQL library.
  *
- * Auth: Cognito idToken read from the `cognito_session` localStorage key
- * written by CognitoAuthService, passed as a base64+encodeURIComponent header
- * in the WebSocket URL query string.
+ * Auth: a fresh Cognito idToken is requested from CognitoAuthService and passed
+ * as a base64+encodeURIComponent header in the WebSocket URL query string.
  *
  * When VITE_APPSYNC_URL is absent subscribeToAppSync() throws immediately
  * and the caller falls through to the polling fallback.

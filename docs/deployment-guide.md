@@ -292,6 +292,7 @@ All naming and display settings are **CDK context** (or environment variables) �
 | `environmentName` | `dev` (also in `cdk/cdk.json`) | `dev` / `staging` / `prod` |
 | `stackPrefix` | `{projectName}-{environmentName}` | e.g. `wren-dev` |
 | `bedrockModelId` | `us.anthropic.claude-sonnet-4-6` | Bedrock model |
+| `technicalAdminBootstrapSubject` | unset (**disabled**) | Temporary exact Cognito `sub` allowlist for the first TechnicalAdmin; remove immediately after verified bootstrap |
 | `region` | `ca-central-1` | Data-plane region (not taken from your AWS CLI default region) |
 | `githubOwner` | unset | GitHub org or user (enables Amplify + CI/CD) |
 | `githubRepo` | unset | Repository name |
@@ -678,11 +679,101 @@ aws lambda update-function-code \
 
 ### Step 7: Configure the First Administrator
 
-1. Open the Amplify URL and **sign up** with email.
-2. Enter the verification code from email (Cognito).
-3. In **AWS Console → Cognito → User pools → `wren-dev-pool` → Groups → `SystemAdmin`**, add that user **before they log in for the first time**.
+TechnicalAdmin bootstrap is **off by default**. It succeeds only when all three conditions are true on the first application login: the verified Cognito `sub` exactly matches temporary CDK context `technicalAdminBootstrapSubject`, the user belongs to `SystemAdmin`, and no `app_user` exists for either that subject or email. Group membership alone never grants an application role.
 
-> The `SystemAdmin` Cognito group is only used to seed **TechnicalAdmin** in the database on first login. After that, roles live in Postgres. If the user already logged in without the group, they'll be a normal user — fix by assigning the admin role in the app (once a Technical Admin exists) or by updating the corresponding row in the database.
+1. Open the Amplify URL, **sign up**, and enter the email verification code. **Do not log in yet.**
+2. Retrieve the new user's Cognito `Username` and exact `sub`, then add that username to `SystemAdmin`.
+
+<details>
+<summary>macOS/Linux</summary>
+
+```bash
+ADMIN_EMAIL="admin@example.com"
+POOL_ID=$(aws ssm get-parameter --name /wren-dev/auth/user-pool-id --region ca-central-1 --query Parameter.Value --output text)
+ADMIN_USERNAME=$(aws cognito-idp list-users --user-pool-id "$POOL_ID" --region ca-central-1 --filter "email = \"$ADMIN_EMAIL\"" --query "Users[0].Username" --output text)
+ADMIN_SUBJECT=$(aws cognito-idp list-users --user-pool-id "$POOL_ID" --region ca-central-1 --filter "email = \"$ADMIN_EMAIL\"" --query "Users[0].Attributes[?Name=='sub'].Value | [0]" --output text)
+aws cognito-idp admin-add-user-to-group --user-pool-id "$POOL_ID" --username "$ADMIN_USERNAME" --group-name SystemAdmin --region ca-central-1
+```
+
+</details>
+
+<details>
+<summary>PowerShell</summary>
+
+```powershell
+$AdminEmail = "admin@example.com"
+$PoolId = aws ssm get-parameter --name /wren-dev/auth/user-pool-id --region ca-central-1 --query Parameter.Value --output text
+$User = (aws cognito-idp list-users --user-pool-id $PoolId --region ca-central-1 --filter "email = `"$AdminEmail`"" --max-results 1 | ConvertFrom-Json).Users[0]
+$AdminUsername = $User.Username
+$AdminSubject = ($User.Attributes | Where-Object Name -eq "sub").Value
+aws cognito-idp admin-add-user-to-group --user-pool-id $PoolId --username $AdminUsername --group-name SystemAdmin --region ca-central-1
+```
+
+</details>
+
+<details>
+<summary>Windows CMD</summary>
+
+```cmd
+set ADMIN_EMAIL=admin@example.com
+for /f %%A in ('aws ssm get-parameter --name /wren-dev/auth/user-pool-id --region ca-central-1 --query Parameter.Value --output text') do set POOL_ID=%%A
+aws cognito-idp list-users --user-pool-id %POOL_ID% --region ca-central-1 --filter "email = \"%ADMIN_EMAIL%\"" --max-results 1 --output json
+
+rem Copy Users[0].Username and the Attributes entry named sub from the output.
+set ADMIN_USERNAME=PASTE_USERNAME_HERE
+set ADMIN_SUBJECT=PASTE_SUB_VALUE_HERE
+aws cognito-idp admin-add-user-to-group --user-pool-id %POOL_ID% --username %ADMIN_USERNAME% --group-name SystemAdmin --region ca-central-1
+```
+
+</details>
+
+&nbsp;
+
+3. From the repository root, temporarily enable the exact-subject allowlist and redeploy **Compute only**:
+
+<details>
+<summary>macOS/Linux</summary>
+
+```bash
+cd cdk
+npx cdk deploy wren-dev-Compute -c technicalAdminBootstrapSubject="$ADMIN_SUBJECT"
+```
+
+</details>
+
+<details>
+<summary>PowerShell</summary>
+
+```powershell
+cd cdk
+npx cdk deploy wren-dev-Compute -c technicalAdminBootstrapSubject=$AdminSubject
+```
+
+</details>
+
+<details>
+<summary>Windows CMD</summary>
+
+```cmd
+cd cdk
+npx cdk deploy wren-dev-Compute -c technicalAdminBootstrapSubject=%ADMIN_SUBJECT%
+```
+
+</details>
+
+&nbsp;
+
+4. Log in to the application **once** with that account. This first login creates the genuinely new `app_user` and assigns `TechnicalAdmin`.
+5. Verify the bootstrap before disabling it: open **System Configuration** and confirm its protected data loads successfully. If it does not, stop and use the troubleshooting note below; repeated logins or changing Cognito groups cannot escalate an existing application user.
+6. Remove the temporary context by redeploying Compute **without** `technicalAdminBootstrapSubject`:
+
+```bash
+npx cdk deploy wren-dev-Compute
+```
+
+This command is identical in bash, PowerShell, and Windows CMD. Confirm the deployment reports an update to the authorizer Lambda. Future users, including `SystemAdmin` group members, now provision as `Student` unless an application administrator assigns another role through the application.
+
+> **Do not leave the context enabled.** The exact subject check limits exposure, but removing it and redeploying Compute restores the secure default-off state. Do not substitute an email, Cognito username, or group name for the exact `sub` value.
 
 ### Step 8: Open the Web App
 
@@ -816,7 +907,7 @@ Redeploy `Compute` if Lambdas bake `BEDROCK_MODEL_ID` from synth-time config. Ru
 
 **Issue: User is not Technical Admin**
 
-- Solution: They weren't in `SystemAdmin` before first login — add them to the group before first login, or fix the role directly in the database.
+- Solution: All bootstrap gates must be present on the genuinely first application login: exact `technicalAdminBootstrapSubject`, `SystemAdmin` membership, and no existing subject/email row. Do not keep retrying or leave bootstrap enabled; remove the context and redeploy Compute. Assign the role through the application once a Technical Admin exists, or follow your controlled database recovery procedure.
 
 **Issue: `cdk deploy` puts resources in the wrong region**
 
@@ -953,4 +1044,8 @@ npx cdk deploy wren-dev-Compute wren-dev-Api wren-dev-Observability wren-dev-Clo
 
 &nbsp;
 
+<<<<<<< HEAD
+Then create GitHub secrets, deploy `wren-dev-Amplify`, and follow the secure default-off exact-subject bootstrap procedure in [Step 7](#step-7-configure-the-first-administrator).
+=======
 Then create GitHub secrets, deploy `wren-dev-Amplify`, sign up, and add the user to Cognito group `SystemAdmin` before first login.
+>>>>>>> 18bc76be7d2e76c951a43fd8db9bb1ee9461b9f4

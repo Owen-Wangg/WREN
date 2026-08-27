@@ -14,13 +14,14 @@ import {
   fetchContentTypes,
   fetchDocumentTypesForDepartment,
   fetchDocuments,
+  fetchMetadataFields,
   fetchOrganizations,
   fetchWritingTypes,
   requestAccess,
 } from './dashboardApi';
 
 import type { AccessRequestAck, AccessRequestInput, ContentType, OrganizationAccess, WritingType } from './dashboardTypes';
-import type { AccessGrant, Document } from '@wren/types';
+import type { AccessGrant, CustomMetadataField, Document } from '@wren/types';
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 
 import { queryKeys } from '@/hooks/queryKeys';
@@ -55,6 +56,19 @@ export function useDocumentTypes(
     queryKey: [...queryKeys.writingTypes(), 'department', departmentId] as const,
     queryFn: () => fetchDocumentTypesForDepartment(client, departmentId),
     enabled: !!departmentId,
+  });
+}
+
+/** Custom metadata fields for a Document Type (New Document wizard). */
+export function useMetadataFields(
+  documentTypeId: string,
+  client: HttpClient = apiClient,
+): UseQueryResult<CustomMetadataField[]> {
+  return useQuery({
+    queryKey: queryKeys.metadataFields(documentTypeId),
+    queryFn: () => fetchMetadataFields(client, documentTypeId),
+    enabled: !!documentTypeId,
+    staleTime: 60_000,
   });
 }
 

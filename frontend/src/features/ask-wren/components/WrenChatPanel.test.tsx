@@ -45,9 +45,13 @@ describe('WrenChatPanel', () => {
       ).not.toBeInTheDocument();
     }
 
-    // The only buttons in the whole panel are "Send" — no rewrite-adjacent action.
-    const buttons = screen.getAllByRole('button');
-    expect(buttons.map((button) => button.textContent)).toEqual(['Send']);
+    // The remaining actions are the disclaimer dismissal and message send controls.
+    expect(
+      screen.getByRole('button', { name: 'Dismiss disclaimer' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Send message' }),
+    ).toBeInTheDocument();
   });
 
   it('scopes sent messages to the provided draftId and shows the draft version', async () => {
@@ -64,13 +68,13 @@ describe('WrenChatPanel', () => {
       />,
     );
 
-    expect(screen.getByText(/draft version 3/i)).toBeInTheDocument();
+    expect(screen.getByText('Draft v3')).toBeInTheDocument();
 
     await user.type(
       screen.getByLabelText('Ask Writing Coach a question about this draft'),
       'Is my thesis clear?',
     );
-    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
 
     await waitFor(() => expect(sendMessageSpy).toHaveBeenCalledTimes(1));
     expect(sendMessageSpy).toHaveBeenCalledWith(
@@ -93,7 +97,7 @@ describe('WrenChatPanel', () => {
       screen.getByLabelText('Ask Writing Coach a question about this draft'),
       'fix my intro',
     );
-    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
 
     const wrenReply = await screen.findByText(/what makes you say/i);
     expect(wrenReply).toBeInTheDocument();

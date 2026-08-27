@@ -173,6 +173,9 @@ export class ComputeStack extends Stack {
         ...dbEnv(secrets.wren_authorizer),
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
+        ...(config.technicalAdminBootstrapSubject
+          ? { TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT: config.technicalAdminBootstrapSubject }
+          : {}),
       },
       bundling: sharedBundling,
     });

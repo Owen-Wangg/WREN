@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { App } from "aws-cdk-lib";
+import { App, aws_iam as iam } from "aws-cdk-lib";
 import { resolveAppConfig, stackName } from "../lib/config.js";
 import { applyStandardTags } from "../lib/tags.js";
 import { ConfigStack } from "../lib/stacks/ConfigStack.js";
@@ -108,6 +108,38 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   userPoolClientId: cognitoStack.userPoolClientId,
   promptGuardrailId: configStack.parameters.promptGuardrailIdParameter.stringValue,
 });
+
+// Permissions boundary for every IAM role the Compute stack creates
+// (Fix_Commit C5 — Requirement 2 criterion 1, Requirement 6 criteria 1-2).
+//
+// PRECONDITION: the managed policy `${stackPrefix}-compute-boundary` MUST already
+// exist in the target account. It is owned by the Cicd stack
+// (`createComputeBoundaryPolicy`) and lands in the account only when a human runs
+// `cdk deploy ${stackPrefix}-Cicd` (Fix_Commit C4). A Compute deploy that runs
+// before that fails with a missing-policy error from IAM.
+//
+// The boundary is referenced by its CONSTRUCTED ARN, never by
+// `cicdStack.computeBoundaryPolicyArn`: a real cross-stack reference would emit an
+// `Fn::ImportValue` into the Compute template, and the Cicd stack is synthesized
+// only when GitHub context is supplied — so that reference would break synth
+// whenever the context is absent, and would impose a Cicd-before-Compute deploy
+// order the pipeline cannot express. The attachment itself is UNCONDITIONAL: the
+// Cicd stack is conditional, the boundary on the runtime roles is not.
+//
+// The account segment comes from `computeStack.account` rather than
+// `config.env.account`, which is `process.env.CDK_DEFAULT_ACCOUNT` and is
+// undefined for an environment-agnostic synth (that would render
+// `arn:aws:iam::undefined:policy/...`). `Stack.account` gives the literal account
+// when it is known and the `AWS::AccountId` pseudo parameter when it is not —
+// the same convention `CicdStack.deriveComputeDeployScopes` follows for the
+// matching ARN literal on the deploy-role side.
+iam.PermissionsBoundary.of(computeStack).apply(
+  iam.ManagedPolicy.fromManagedPolicyArn(
+    computeStack,
+    "ComputeBoundaryRef",
+    CicdStack.boundaryPolicyArnFor(computeStack.account, config.stackPrefix),
+  ),
+);
 
 // API Gateway stack (depends on Compute for Lambda function ARNs).
 // `crossRegionReferences` lets the us-east-1 CloudFront/WAF stack consume this

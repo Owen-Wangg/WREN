@@ -18,6 +18,7 @@
  * assignments. Route guards use database roles; RoleContext uses `activeRole`.
  */
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { z } from 'zod';
 import { authService } from './defaultAuthService';
 import type { AuthSession } from './authService';
 
@@ -26,6 +27,15 @@ import type { Role } from '@wren/types';
 const ROLE_OVERRIDE_KEY = 'wren_role_override';
 
 const ROLE_PRIORITY: Role[] = ['TechnicalAdmin', 'DepartmentAdmin', 'Student'];
+
+const authUserSchema = z.object({
+  userId: z.string().min(1),
+  email: z.string().min(1),
+  firstName: z.string().nullish().transform((value) => value ?? ''),
+  lastName: z.string().nullish().transform((value) => value ?? ''),
+  roles: z.array(z.enum(['Student', 'DepartmentAdmin', 'TechnicalAdmin'])),
+  administeredDepartmentIds: z.array(z.string().min(1)).optional().default([]),
+});
 
 function readStoredRoleOverride(): Role | null {
   try {
@@ -91,26 +101,28 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
   // Restore session and fetch user from DATABASE on mount
   useEffect(() => {
     const restoreSession = async () => {
-      const stored = localStorage.getItem('cognito_session');
-      if (stored) {
-        try {
-          const session = JSON.parse(stored) as AuthSession;
-          setSession(session);
-
-          // CRITICAL: Fetch user identity from DATABASE
-          const userFromDb = await fetchUserIdentity(apiBaseUrl, session.accessToken);
+      try {
+        // Ask Cognito for the current session rather than trusting the copied
+        // access token in localStorage. getSession validates and refreshes it.
+        const accessToken = await authService.getAccessToken();
+        if (accessToken) {
+          // CRITICAL: Fetch user identity from DATABASE with the current token.
+          const userFromDb = await fetchUserIdentity(apiBaseUrl, accessToken);
           if (userFromDb) {
             setUser(userFromDb);
             setIsAuthenticated(true);
           } else {
-            localStorage.removeItem('cognito_session');
+            authService.signOut();
           }
-        } catch (error) {
-          console.error('Session restore failed:', error);
-          localStorage.removeItem('cognito_session');
+        } else {
+          setSession(null);
         }
+      } catch (error) {
+        console.error('Session restore failed:', error);
+        authService.signOut();
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
     restoreSession();
@@ -219,22 +231,14 @@ async function fetchUserIdentity(apiBaseUrl: string, accessToken: string): Promi
       return null;
     }
 
-    const data = await response.json();
-
-    // Validate response
-    if (!data.userId || !Array.isArray(data.roles)) {
-      console.error('Invalid user response from /v1/auth/me:', data);
+    const data: unknown = await response.json();
+    const result = authUserSchema.safeParse(data);
+    if (!result.success) {
+      console.error('Invalid user response from /v1/auth/me:', result.error.issues);
       return null;
     }
 
-    return {
-      userId: data.userId,
-      email: data.email,
-      firstName: data.firstName ?? '',
-      lastName: data.lastName ?? '',
-      roles: data.roles,
-      administeredDepartmentIds: data.administeredDepartmentIds || [],
-    };
+    return result.data;
   } catch (error) {
     console.error('Failed to fetch user identity:', error);
     return null;

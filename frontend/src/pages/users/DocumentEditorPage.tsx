@@ -538,6 +538,11 @@ export function DocumentEditorPage() {
         setIsPollingIngest(true);
         return;
       }
+      if (result.kind === 'ingestFailed') {
+        setIsPollingIngest(false);
+        setIngestError(result.message);
+        return;
+      }
       const draft = result.draft;
       if (isTipTapDoc(draft.content)) {
         setCurrentContent(sanitizeTipTapContent(draft.content as JSONContent));

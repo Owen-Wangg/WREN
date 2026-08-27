@@ -1,0 +1,31 @@
+{
+  "Action": [
+    "iam:AttachRolePolicy",
+    "iam:CreateRole",
+    "iam:DeleteRole",
+    "iam:DeleteRolePolicy",
+    "iam:DetachRolePolicy",
+    "iam:GetRole",
+    "iam:GetRolePolicy",
+    "iam:ListAttachedRolePolicies",
+    "iam:ListRolePolicies",
+    "iam:PassRole",
+    "iam:PutRolePolicy",
+    "iam:TagRole",
+    "iam:UntagRole",
+    "iam:UpdateAssumeRolePolicy",
+    "iam:UpdateRole"
+  ],
+  "Condition": {
+    "StringEqualsIfExists": {
+      "iam:PassedToService": [
+        "lambda.amazonaws.com",
+        "appsync.amazonaws.com",
+        "events.amazonaws.com"
+      ]
+    }
+  },
+  "Effect": "Allow",
+  "Resource": "arn:aws:iam::123456789012:role/*",
+  "Sid": "IamForLambdaRoles"
+}
