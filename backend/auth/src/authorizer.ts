@@ -8,14 +8,19 @@
  *      scopes + Access Grants by querying Postgres (the authz source of truth).
  *   3. If no app_user exists yet, provision one (default Student role) using
  *      Cognito profile attributes for email/name — still never using IdP groups.
- *   4. Emit an IAM policy plus an authorization context (roles, administered
- *      Departments, grants) that downstream services consume and
+ *   4. Emit a stage-wide IAM Allow plus authorization context (roles,
+ *      administered Departments, grants) that downstream services consume and
  *      RE-CHECK against the specific operation (dual enforcement).
  *
- * The authorizer produces a COARSE, cacheable allow across the API stage; the
- * fine-grained per-operation decision is made inside each service. The IdP is
- * used only to prove identity — no groups/claims/attributes influence the
- * decision (Requirement 37.3).
+ * The only group-based exception is a default-off first-login bootstrap: an
+ * exact configured Cognito subject must also carry SystemAdmin, and the app
+ * user must be genuinely new. Existing and email-relinked users cannot escalate.
+ *
+ * The authorizer produces a COARSE stage-wide allow; REST authorizer caching is
+ * disabled in `cdk/lib/openapi.yaml`, so roles/grants are loaded from the DB on
+ * every request. Fine-grained per-operation decisions remain the responsibility
+ * of each service. The IdP is used only to prove identity — token groups are not
+ * used after the explicitly documented first-login bootstrap below.
  *
  * Heavy runtime dependencies (`@wren/db-node`, the Cognito verifier) are loaded
  * lazily by the default deps provider so the module stays cheaply importable and
@@ -167,6 +172,8 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
           firstName: profile.firstName,
           lastName: profile.lastName,
           groups,
+          technicalAdminBootstrapSubject:
+            process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT?.trim() || undefined,
         });
         context = await mapSubjectToAuthContext(subject, db);
         if (!context) {
@@ -188,8 +195,9 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
       if (error instanceof Error && error.message === UNAUTHORIZED) {
         throw error;
       }
-      // Do not remap identity/DB failures to 401 — API Gateway caches authorizer
-      // results by token, so a transient mapping error would lock the user out.
+      // Keep verified-identity infrastructure failures distinct from bad
+      // credentials: callers should receive a retryable 5xx, not a misleading
+      // 401 that prompts them to repeatedly re-enter valid credentials.
       console.error('Authorizer failed after token present:', error);
       throw error;
     }

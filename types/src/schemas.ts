@@ -335,7 +335,7 @@ export const documentSchema = z
     documentTypeId: idSchema,
     contentTypeId: idSchema.nullable().optional(),
     name: z.string().min(1),
-    /** DepartmentAdmin-defined custom metadata field values (e.g. "Writing Topic"). */
+    /** DepartmentAdmin-defined custom metadata values keyed by field id. */
     metadata: z.record(z.string(), z.string()),
     status: documentStatusSchema,
     createdAt: isoDateTimeSchema,
@@ -352,13 +352,10 @@ export type Document = z.infer<typeof documentSchema>;
  * `contentTypeId` is optional at creation; `metadata` carries any
  * DepartmentAdmin-defined custom field values captured at submission.
  */
-export const createDocumentSourceSchema = z
-  .object({
-    kind: z.enum(['file', 'paste']),
-    text: z.string().optional(),
-    key: z.string().optional(),
-  })
-  .strict();
+export const createDocumentSourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('file'), key: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('paste'), text: z.string().min(1) }).strict(),
+]);
 export type CreateDocumentSource = z.infer<typeof createDocumentSourceSchema>;
 
 /** Loose TipTap document JSON (type: "doc"). Not fully schema-validated. */
@@ -378,9 +375,11 @@ export const createDocumentInputSchema = z
     source: createDocumentSourceSchema,
     /** Optional client-parsed TipTap JSON; server derives segments when present. */
     content: tipTapDocSchema.optional(),
+    /** Explicit OCR override accepted by the current PDF ingestion pipeline. */
+    ocrEngine: z.literal('textract').optional(),
   })
   .strict();
-export type CreateDocumentInput = z.infer<typeof createDocumentInputSchema>;
+export type CreateDocumentInput = z.input<typeof createDocumentInputSchema>;
 
 /* -------------------------------------------------------------------------- */
 /* Draft (Requirement 8 — immutable, monotonically versioned)                  */

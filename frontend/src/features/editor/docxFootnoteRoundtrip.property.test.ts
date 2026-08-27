@@ -51,11 +51,18 @@ function flattenText(content: unknown): string {
   return parts.join(' ');
 }
 
-/** Text without characters that would confuse OOXML paragraph splitting or citation-field regexes. */
+/** Printable text without XML controls or characters used by citation-field parsing. */
+const safeBodyTextCharacters = [
+  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
+  ' ', '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '-', '_',
+];
 const safeBodyTextArb = fc
-  .string({ minLength: 1, maxLength: 60 })
-  .map((s) => s.replace(/[\r\n"“”]/g, ' ').trim())
-  .filter((s) => s.length > 0);
+  .array(fc.constantFrom(...safeBodyTextCharacters), {
+    minLength: 1,
+    maxLength: 60,
+  })
+  .map((characters) => characters.join('').trim())
+  .filter((text) => text.length > 0);
 
 const fixtureArb: fc.Arbitrary<FootnoteFixture> = fc.record({
   bodyText: safeBodyTextArb,

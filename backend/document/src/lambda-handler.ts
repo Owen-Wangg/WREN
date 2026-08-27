@@ -10,8 +10,9 @@ import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { v4 as uuid } from 'uuid';
 import { resolveAccess } from '@wren/auth';
-import type { AccessGrant, TipTapDoc } from '@wren/types';
+import type { AccessGrant, CustomMetadataField, TipTapDoc } from '@wren/types';
 import {
+  createDocumentInputSchema,
   isTipTapDoc,
   stripAiMarksFromTipTapContent,
   tipTapContentToSegments,
@@ -29,12 +30,14 @@ import { ingestUpload } from './ingestion.js';
 import { enforceSizeLimit } from './sizeLimit.js';
 import { overSizeLimitHttpResponse } from './patchDraftSizeLimit.js';
 import { gateSubmission } from './submissionGating.js';
+import { validateDocumentMetadata } from './metadataGating.js';
 import { createDraftRevision } from './draftVersioning.js';
 import { DbDraftRepository } from './draftRepository.js';
 import {
   enqueueIngestJob,
   getLatestIngestStatus,
   insertQueuedIngestJob,
+  markIngestJobFailed,
   shouldIngestPdfAsync,
 } from './ingestJob.js';
 import {
@@ -50,7 +53,7 @@ import {
 
 const docxExtractor = new MammothDocxExtractor();
 
-function parseOcrEngineFromBody(body: Record<string, unknown>): string {
+function parseOcrEngineFromBody(body: { readonly ocrEngine?: unknown }): string {
   const raw = body.ocrEngine;
   return resolveOcrEngine(typeof raw === 'string' ? raw : null);
 }
@@ -87,7 +90,7 @@ function parseAuthContext(event: any) {
 async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<APIGatewayProxyResult> {
   try {
     return withCors(await fn());
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error:', error);
     if (error instanceof UsageLimitReachedError) {
       return withCors({
@@ -95,12 +98,36 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
         body: JSON.stringify({ code: error.code, message: error.message }),
       });
     }
+
+    if (error instanceof SyntaxError) {
+      return withCors({
+        statusCode: 400,
+        body: JSON.stringify({ code: 'BAD_REQUEST', message: 'Request body must be valid JSON' }),
+      });
+    }
+
+    const candidateStatus =
+      typeof error === 'object' && error !== null &&
+      'statusCode' in error && typeof error.statusCode === 'number'
+        ? error.statusCode
+        : 500;
+    const statusCode =
+      Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus < 600
+        ? candidateStatus
+        : 500;
+    const code =
+      statusCode === 403 ? 'PERMISSION_DENIED'
+        : statusCode === 404 ? 'NOT_FOUND'
+          : statusCode >= 500 ? 'INTERNAL_ERROR'
+            : 'BAD_REQUEST';
+    const safeMessage =
+      statusCode < 500 && error instanceof Error
+        ? error.message
+        : 'Internal server error';
+
     return withCors({
-      statusCode: error.statusCode || 500,
-      body: JSON.stringify({
-        code: error.statusCode === 403 ? 'PERMISSION_DENIED' : error.statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR',
-        message: error.message || 'Internal server error',
-      }),
+      statusCode,
+      body: JSON.stringify({ code, message: safeMessage }),
     });
   }
 }
@@ -413,17 +440,24 @@ async function readS3ObjectBytes(key: string): Promise<Buffer> {
 async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const body = event.body ? JSON.parse(event.body) : {};
-  const documentTypeId = body.documentTypeId as string | undefined;
-  const name = typeof body.name === 'string' ? body.name.trim() : '';
-  let contentTypeId = (body.contentTypeId as string | null | undefined) ?? null;
-  const metadata =
-    body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
-      ? (body.metadata as Record<string, string>)
-      : {};
-  const source = body.source as
-    | { kind?: string; text?: string; key?: string }
-    | undefined;
+  const rawBody: unknown = event.body ? JSON.parse(event.body) : {};
+  const parsedBody = createDocumentInputSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'Document request body is invalid',
+      }),
+    };
+  }
+
+  const body = parsedBody.data;
+  const documentTypeId = body.documentTypeId;
+  const name = body.name.trim();
+  let contentTypeId = body.contentTypeId ?? null;
+  const metadata = body.metadata;
+  const source = body.source;
   const tipTapContent = parseRequestTipTapContent(body.content);
   if (tipTapContent) {
     const rejected = rejectUnsafeTipTap(tipTapContent, 'content');
@@ -505,9 +539,47 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  // Required custom-metadata gating is deferred: the student New Document
-  // flow does not collect metadata fields (Department → Document Type →
-  // Name → Upload only). Persist any metadata the client does send.
+  const metadataRows = await db.query<{
+    id: string;
+    document_type_id: string;
+    label: string;
+    required: boolean;
+  }>(
+    `SELECT id, document_type_id, label, required
+     FROM custom_metadata_field
+     WHERE document_type_id = $1
+     ORDER BY label ASC`,
+    [documentTypeId],
+  );
+  const metadataFields: CustomMetadataField[] = metadataRows.map((row) => ({
+    id: row.id,
+    documentTypeId: row.document_type_id,
+    label: row.label,
+    required: row.required,
+  }));
+  const metadataValidation = validateDocumentMetadata(metadataFields, metadata);
+  if (metadataValidation.status === 'invalid-metadata-fields') {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'INVALID_METADATA_FIELDS',
+        message: 'Document metadata contains fields not configured for this document type.',
+        unknownMetadataFieldIds: metadataValidation.unknownMetadataFieldIds,
+      }),
+    };
+  }
+
+  if (metadataValidation.status === 'missing-required-fields') {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'REQUIRED_METADATA_MISSING',
+        message: `Complete required fields: ${metadataValidation.missingRequiredFieldLabels.join(', ')}.`,
+        missingRequiredFieldIds: metadataValidation.missingRequiredFieldIds,
+        missingRequiredFieldLabels: metadataValidation.missingRequiredFieldLabels,
+      }),
+    };
+  }
 
   if (contentTypeId) {
     const contentTypeRows = await db.query(
@@ -595,44 +667,70 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     }
   }
 
-  await reserveDocumentUpload(actor.userId, db);
-
   if (asyncPdf) {
-    const insertQuery = `
-      INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at, draft_create_count)
-      VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
-      RETURNING id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
-    `;
-    const rows = await db.query(insertQuery, [
-      actor.userId,
-      documentTypeId,
-      contentTypeId,
-      name,
-      JSON.stringify(metadata),
-      'Still Drafting',
-    ]);
-    const documentId = (rows[0] as { id: string }).id;
-    const job = await insertQueuedIngestJob(db, {
-      documentId,
-      s3Key: asyncPdf.key,
-      fileName: asyncPdf.fileName,
-      ocrEngine,
+    const created = await db.transaction(async (tx) => {
+      await reserveDocumentUpload(actor.userId, tx);
+      const rows = await tx.query<any>(
+        `INSERT INTO document (
+           owner_user_id, document_type_id, content_type_id, name, metadata,
+           status, created_at, draft_create_count
+         ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
+         RETURNING id, owner_user_id, document_type_id, content_type_id,
+                   name, metadata, status, created_at`,
+        [
+          actor.userId,
+          documentTypeId,
+          contentTypeId,
+          name,
+          JSON.stringify(metadata),
+          'Still Drafting',
+        ],
+      );
+      const documentId = rows[0].id as string;
+      const job = await insertQueuedIngestJob(tx, {
+        documentId,
+        s3Key: asyncPdf.key,
+        fileName: asyncPdf.fileName,
+        ocrEngine,
+      });
+      return { rows, documentId, job };
     });
-    await enqueueIngestJob({
-      jobId: job.id,
-      documentId,
-      s3Key: asyncPdf.key,
-      fileName: asyncPdf.fileName,
-      userId: actor.userId,
-      sizeLimitWords,
-      ocrEngine,
-    });
+
+    try {
+      await enqueueIngestJob({
+        jobId: created.job.id,
+        documentId: created.documentId,
+        s3Key: asyncPdf.key,
+        fileName: asyncPdf.fileName,
+        userId: actor.userId,
+        sizeLimitWords,
+        ocrEngine,
+      });
+    } catch (enqueueError) {
+      try {
+        await markIngestJobFailed(db, created.job.id, 'Failed to enqueue document ingestion');
+      } catch (statusError) {
+        console.error('Failed to record document ingest enqueue failure', {
+          jobId: created.job.id,
+          enqueueError,
+          statusError,
+        });
+      }
+      return {
+        statusCode: 201,
+        body: JSON.stringify({
+          ...toDocumentDto(created.rows[0]),
+          ingestStatus: 'failed',
+          ingestJobId: created.job.id,
+        }),
+      };
+    }
     return {
       statusCode: 201,
       body: JSON.stringify({
-        ...toDocumentDto(rows[0]),
+        ...toDocumentDto(created.rows[0]),
         ingestStatus: 'queued',
-        ingestJobId: job.id,
+        ingestJobId: created.job.id,
       }),
     };
   }
@@ -701,48 +799,60 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     if (overLimit) return overLimit;
   }
 
-  const insertQuery = `
-    INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at, draft_create_count)
-    VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
-    RETURNING id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
-  `;
-  const rows = await db.query(insertQuery, [
-    actor.userId,
+  const created = await db.transaction(async (tx) => {
+    await reserveDocumentUpload(actor.userId, tx);
+    const rows = await tx.query<any>(
+      `INSERT INTO document (
+         owner_user_id, document_type_id, content_type_id, name, metadata,
+         status, created_at, draft_create_count
+       ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
+       RETURNING id, owner_user_id, document_type_id, content_type_id,
+                 name, metadata, status, created_at`,
+      [
+        actor.userId,
+        documentTypeId,
+        contentTypeId,
+        name,
+        JSON.stringify(metadata),
+        'Still Drafting',
+      ],
+    );
+    const documentId = rows[0].id as string;
+    const draftRepo = new DbDraftRepository(tx);
+    await createDraftRevision(
+      {
+        documentId,
+        segments,
+        wordCount:
+          (storedContent
+            ? wordCountFromTipTapContent(storedContent)
+            : sizeResult.measuredWords) + headerFooterWords,
+        s3Key,
+        ...(storedContent ? { content: storedContent } : {}),
+        ...(ingestResult.header ? { header: ingestResult.header } : {}),
+        ...(ingestResult.footer ? { footer: ingestResult.footer } : {}),
+        ...(typeof ingestResult.ocrConfidence === 'number'
+          ? { ocrConfidence: ingestResult.ocrConfidence }
+          : {}),
+      },
+      draftRepo,
+    );
+    return { rows, documentId };
+  });
+
+  // Analytics counters are intentionally best-effort and outside the atomic
+  // user-visible document/draft transaction.
+  await updateDepartmentUserCounter(
     documentTypeId,
-    contentTypeId,
-    name,
-    JSON.stringify(metadata),
-    'Still Drafting',
-  ]);
-  const document = rows[0] as { id: string };
-  const documentId = document.id;
-
-  // Maintain department active-user counter (non-fatal if it fails).
-  await updateDepartmentUserCounter(documentTypeId, actor.userId, documentId, 1, db);
-
-  const draftRepo = new DbDraftRepository(db);
-  await createDraftRevision(
-    {
-      documentId,
-      segments,
-      wordCount:
-        (storedContent
-          ? wordCountFromTipTapContent(storedContent)
-          : sizeResult.measuredWords) + headerFooterWords,
-      s3Key,
-      ...(storedContent ? { content: storedContent } : {}),
-      ...(ingestResult.header ? { header: ingestResult.header } : {}),
-      ...(ingestResult.footer ? { footer: ingestResult.footer } : {}),
-      ...(typeof ingestResult.ocrConfidence === 'number'
-        ? { ocrConfidence: ingestResult.ocrConfidence }
-        : {}),
-    },
-    draftRepo,
+    actor.userId,
+    created.documentId,
+    1,
+    db,
   );
 
   return {
     statusCode: 201,
-    body: JSON.stringify(toDocumentDto(rows[0])),
+    body: JSON.stringify(toDocumentDto(created.rows[0])),
   };
 }
 
@@ -1061,8 +1171,6 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
-  await reserveDraftCreate(documentId, db);
-
   const documentTypeId = docRows[0].document_type_id as string;
   const dtRows = await db.query(
     `SELECT size_limit_words FROM document_type WHERE id = $1`,
@@ -1122,21 +1230,54 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       await clearOrphanUploadTag(key);
 
       if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
-        const job = await insertQueuedIngestJob(db, {
-          documentId: documentId as string,
-          s3Key: key,
-          fileName,
-          ocrEngine,
+        const job = await db.transaction(async (tx) => {
+          const locked = await tx.query<{ owner_user_id: string }>(
+            'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
+            [documentId],
+          );
+          if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
+            throw Object.assign(new Error('Document not found'), { statusCode: 404 });
+          }
+          await reserveDraftCreate(documentId, tx);
+          return insertQueuedIngestJob(tx, {
+            documentId: documentId as string,
+            s3Key: key,
+            fileName,
+            ocrEngine,
+          });
         });
-        await enqueueIngestJob({
-          jobId: job.id,
-          documentId: documentId as string,
-          s3Key: key,
-          fileName,
-          userId: actor.userId,
-          sizeLimitWords,
-          ocrEngine,
-        });
+        try {
+          await enqueueIngestJob({
+            jobId: job.id,
+            documentId: documentId as string,
+            s3Key: key,
+            fileName,
+            userId: actor.userId,
+            sizeLimitWords,
+            ocrEngine,
+          });
+        } catch (enqueueError) {
+          const errorMessage =
+            'The upload was saved, but PDF processing could not be queued. Please try again.';
+          try {
+            await markIngestJobFailed(db, job.id, 'Failed to enqueue draft ingestion');
+          } catch (statusError) {
+            console.error('Failed to record draft ingest enqueue failure', {
+              jobId: job.id,
+              enqueueError,
+              statusError,
+            });
+          }
+          return {
+            statusCode: 202,
+            body: JSON.stringify({
+              ingestStatus: 'failed',
+              jobId: job.id,
+              documentId,
+              errorMessage,
+            }),
+          };
+        }
         return {
           statusCode: 202,
           body: JSON.stringify({
@@ -1255,22 +1396,33 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     wordCount += headerFooterWords;
   }
 
-  const draftRepo = new DbDraftRepository(db);
-  const { draft } = await createDraftRevision(
-    {
-      documentId: documentId as string,
-      segments: normalizedSegments,
-      wordCount,
-      s3Key,
-      ...(storedContent ? { content: storedContent } : {}),
-      ...(storedHeader ? { header: storedHeader } : {}),
-      ...(storedFooter ? { footer: storedFooter } : {}),
-      ...(typeof storedOcrConfidence === 'number'
-        ? { ocrConfidence: storedOcrConfidence }
-        : {}),
-    },
-    draftRepo,
-  );
+  const draft = await db.transaction(async (tx) => {
+    const locked = await tx.query<{ owner_user_id: string }>(
+      'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
+      [documentId],
+    );
+    if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
+      throw Object.assign(new Error('Document not found'), { statusCode: 404 });
+    }
+    await reserveDraftCreate(documentId, tx);
+    const draftRepo = new DbDraftRepository(tx);
+    const result = await createDraftRevision(
+      {
+        documentId: documentId as string,
+        segments: normalizedSegments,
+        wordCount,
+        s3Key,
+        ...(storedContent ? { content: storedContent } : {}),
+        ...(storedHeader ? { header: storedHeader } : {}),
+        ...(storedFooter ? { footer: storedFooter } : {}),
+        ...(typeof storedOcrConfidence === 'number'
+          ? { ocrConfidence: storedOcrConfidence }
+          : {}),
+      },
+      draftRepo,
+    );
+    return result.draft;
+  });
 
   return {
     statusCode: 201,

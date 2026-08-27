@@ -61,7 +61,7 @@ LEON is an AI writing coach that gives **Socratic feedback** (questions, never r
                                │
                                ▼
 ╔═════════════════════════════════════════════════════════════════╗
-║                      APPLICATION LAYER                           ║
+║                      APPLICATION LAYER                          ║
 ║                                                                 ║
 ║   ┌─────────────────────────────────────────────────────────┐   ║
 ║   │              API Gateway  (REST, OpenAPI)               │   ║
@@ -93,7 +93,7 @@ LEON is an AI writing coach that gives **Socratic feedback** (questions, never r
                                │
                                ▼
 ╔═════════════════════════════════════════════════════════════════╗
-║                         AI / ML LAYER                           ║
+║                         AI LAYER                                ║
 ║                                                                 ║
 ║   ┌─────────────────┐  ┌─────────────────┐  ┌───────────────┐   ║
 ║   │    Bedrock      │  │  Guardrail      │  │   Textract    │   ║
@@ -532,7 +532,8 @@ Related documents:
 
 - [REST API Documentation](./api-guide.md)
 - [Deployment Guide](./deployment-guide.md)
-- [Architecture Deep Dive](./DEBRIEF_ARCHITECTURE_DEEP_DIVE.md)
+- [Architecture Deep Dive](./architecture-deep-dive.md)
+- [Debrief / Diff / Anchor Pipeline](./DEBRIEF_ARCHITECTURE_DEEP_DIVE.md)
 - [Bedrock Guardrails](./bedrock-guardrails.md)
 - OpenAPI: `cdk/lib/openapi.yaml`
 

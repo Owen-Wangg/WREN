@@ -29,10 +29,10 @@ describe('SignupForm', () => {
     await user.type(screen.getByLabelText('First name'), 'Ada');
     await user.type(screen.getByLabelText('Last name'), 'Lovelace');
     await user.type(screen.getByLabelText('Email'), 'ada@example.com');
-    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'ValidPassword1!');
     await user.type(
       screen.getByLabelText('Confirm password'),
-      'different123',
+      'DifferentPassword1!',
     );
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
@@ -49,13 +49,16 @@ describe('SignupForm', () => {
     await user.type(screen.getByLabelText('First name'), 'Ada');
     await user.type(screen.getByLabelText('Last name'), 'Lovelace');
     await user.type(screen.getByLabelText('Email'), 'ada@example.com');
-    await user.type(screen.getByLabelText('Password'), 'password123');
-    await user.type(screen.getByLabelText('Confirm password'), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'ValidPassword1!');
+    await user.type(
+      screen.getByLabelText('Confirm password'),
+      'ValidPassword1!',
+    );
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
     await vi.waitFor(() => {
       expect(onSuccess).toHaveBeenCalledWith(
-        expect.objectContaining({ confirmationRequired: false }),
+        expect.objectContaining({ confirmationRequired: true }),
       );
     });
   });
@@ -69,10 +72,10 @@ describe('SignupForm', () => {
       await user.type(screen.getByLabelText('First name'), 'Ada');
       await user.type(screen.getByLabelText('Last name'), 'Lovelace');
       await user.type(screen.getByLabelText('Email'), 'dup@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText('Password'), 'ValidPassword1!');
       await user.type(
         screen.getByLabelText('Confirm password'),
-        'password123',
+        'ValidPassword1!',
       );
       await user.click(
         screen.getByRole('button', { name: 'Create account' }),

@@ -52,7 +52,12 @@ const writerProgressSummaryArb: fc.Arbitrary<WriterProgressSummaryModel> = fc.re
   // reflectsDraftVersion ≥ 2 so the component actually renders content.
   reflectsDraftVersion: fc.integer({ min: 2, max: 100 }),
   headline: fc.string({ minLength: 1, maxLength: 120 }),
-  patterns: fc.array(progressPatternArb, { minLength: 0, maxLength: 5 }),
+  // React list keys model stable pattern IDs, so generated IDs must be unique.
+  patterns: fc.uniqueArray(progressPatternArb, {
+    minLength: 0,
+    maxLength: 5,
+    selector: (pattern) => pattern.id,
+  }),
 });
 
 /* -------------------------------------------------------------------------- */
@@ -81,31 +86,20 @@ const FORBIDDEN_PATTERNS: RegExp[] = [
 /* -------------------------------------------------------------------------- */
 
 /**
- * Extract the text the component itself contributes by removing all
- * user-provided input strings from the rendered textContent. What remains is
- * the component's own labels, headings, and structural text.
+ * Extract the text the component itself contributes by cloning the rendered
+ * subtree and removing the structurally known input nodes. This avoids string
+ * subtraction bugs when one generated fragment is a substring of another.
  */
-function extractComponentOwnText(
-  fullText: string,
-  summary: WriterProgressSummaryModel,
-): string {
-  // Collect all user-provided strings that are passed through as-is.
-  const inputFragments = [
-    summary.headline,
-    ...summary.patterns.map((p) => p.description),
-    ...summary.patterns.map((p) => p.categoryLabel),
-  ];
+function extractComponentOwnText(root: Element): string {
+  const clone = root.cloneNode(true) as Element;
+  clone.querySelector(':scope > p')?.remove();
 
-  let remaining = fullText;
-  for (const fragment of inputFragments) {
-    // Remove first occurrence of each input fragment.
-    const idx = remaining.indexOf(fragment);
-    if (idx !== -1) {
-      remaining = remaining.slice(0, idx) + remaining.slice(idx + fragment.length);
-    }
+  for (const pattern of clone.querySelectorAll('li')) {
+    pattern.querySelector(':scope > span > span:last-child')?.remove();
+    pattern.querySelector(':scope > p')?.remove();
   }
 
-  return remaining;
+  return clone.textContent ?? '';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -124,8 +118,6 @@ describe('WriterProgressSummary — Property 19: no numeric scoring', () => {
         // Component renders when reflectsDraftVersion >= 2 (guaranteed by our arb).
         expect(root).not.toBeNull();
 
-        const textContent = root!.textContent ?? '';
-
         // The draft version attribute must be present as a data attribute…
         expect(root).toHaveAttribute(
           'data-reflects-draft-version',
@@ -133,7 +125,7 @@ describe('WriterProgressSummary — Property 19: no numeric scoring', () => {
         );
 
         // Extract what the COMPONENT itself contributes (not user-provided input).
-        const componentOwnText = extractComponentOwnText(textContent, summary);
+        const componentOwnText = extractComponentOwnText(root!);
 
         // The component's own text must not contain forbidden scoring patterns.
         for (const pattern of FORBIDDEN_PATTERNS) {
@@ -166,10 +158,9 @@ describe('WriterProgressSummary — Property 19: no numeric scoring', () => {
         );
 
         // The version number must not appear as visible body text added by the
-        // component itself. We verify structurally: strip all user-provided input
-        // strings and check what the component contributes.
-        const textContent = root!.textContent ?? '';
-        const componentOwnText = extractComponentOwnText(textContent, summary);
+        // component itself. We verify structurally by removing all rendered
+        // user-input nodes and checking what the component contributes.
+        const componentOwnText = extractComponentOwnText(root!);
         const versionStr = String(summary.reflectsDraftVersion);
 
         // If the version number appears as a standalone token in the component's

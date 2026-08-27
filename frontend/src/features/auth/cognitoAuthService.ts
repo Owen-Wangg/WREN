@@ -1,7 +1,8 @@
 /**
  * Cognito-backed implementation of AuthService.
  * Uses amazon-cognito-identity-js SDK for direct Cognito authentication.
- * Tokens are cached in memory across the app lifetime.
+ * Cognito's SDK owns session refresh/storage; this service does not persist an
+ * additional copy of access, ID, or refresh tokens.
  */
 import {
   CognitoUserPool,
@@ -56,7 +57,6 @@ export class CognitoAuthService implements AuthService {
         onSuccess: (session) => {
           this.currentUser = user;
           const tokens = this.extractSessionFromCognitoSession(session);
-          this.persistSession(tokens);
           resolve(tokens);
         },
         onFailure: (error) => {
@@ -134,18 +134,7 @@ export class CognitoAuthService implements AuthService {
     return new Promise((resolve) => {
       this.currentUser!.getSession((error: any, session: any) => {
         if (error || !session.isValid()) { resolve(null); return; }
-        const idToken: string = session.getIdToken().getJwtToken();
-        // Keep cognito_session in sync so any direct localStorage readers
-        // also have a fresh token.
-        try {
-          const raw = localStorage.getItem('cognito_session');
-          if (raw) {
-            const stored = JSON.parse(raw) as Record<string, unknown>;
-            stored['idToken'] = idToken;
-            localStorage.setItem('cognito_session', JSON.stringify(stored));
-          }
-        } catch { /* non-fatal */ }
-        resolve(idToken);
+        resolve(session.getIdToken().getJwtToken());
       });
     });
   }
@@ -197,10 +186,6 @@ export class CognitoAuthService implements AuthService {
       refreshToken: refreshToken || null,
       expiresAt,
     };
-  }
-
-  private persistSession(session: AuthSession): void {
-    localStorage.setItem('cognito_session', JSON.stringify(session));
   }
 }
 

@@ -8,8 +8,12 @@ import { z } from 'zod';
 
 import {
   accessGrantSchema,
+  createDocumentInputSchema,
+  customMetadataFieldSchema,
   documentSchema,
   draftSchema,
+  type CreateDocumentInput,
+  type CustomMetadataField,
   type TipTapDoc,
 } from '@wren/types';
 
@@ -122,6 +126,16 @@ export async function fetchDocumentTypesForDepartment(
   );
 }
 
+/** Custom metadata fields configured for a Document Type. */
+export function fetchMetadataFields(
+  client: HttpClient,
+  documentTypeId: string,
+): Promise<CustomMetadataField[]> {
+  return client.request(`${WRITING_TYPES_PATH}/${documentTypeId}/metadata-fields`, {
+    schema: z.array(customMetadataFieldSchema),
+  });
+}
+
 /**
  * Content Types for a Document Type — GET /v1/document-types/{id}/content-types.
  * Mapped into the dashboard ContentType shape (`label` → `name`).
@@ -175,21 +189,12 @@ export function fetchDocument(client: HttpClient, documentId: string): Promise<D
 /** Creates a Document and ingests the first draft from file (S3 key) or paste. */
 export function createDocument(
   client: HttpClient,
-  input: {
-    documentTypeId: string;
-    contentTypeId?: string;
-    name: string;
-    metadata?: Record<string, string>;
-    source: { kind: 'file'; key: string } | { kind: 'paste'; text: string };
-    /** Optional TipTap JSON so rich formatting survives reload. */
-    content?: TipTapDoc;
-    /** OCR engine for PDF ingest. */
-    ocrEngine?: OcrEngineChoice;
-  },
+  input: CreateDocumentInput,
 ): Promise<Document> {
+  const body = createDocumentInputSchema.parse(input);
   return client.request(DOCUMENTS_PATH, {
     method: 'POST',
-    body: input,
+    body,
     schema: documentSchema,
   });
 }
@@ -324,15 +329,17 @@ export function patchCurrentDraft(
 const draftFromSourceResponseSchema = z.union([
   draftSchema,
   z.object({
-    ingestStatus: z.literal('queued'),
+    ingestStatus: z.enum(['queued', 'failed']),
     jobId: z.string().min(1),
     documentId: z.string().min(1),
+    errorMessage: z.string().min(1).optional(),
   }),
 ]);
 
 export type DraftFromSourceResult =
   | { kind: 'draft'; draft: Draft }
-  | { kind: 'ingestQueued'; jobId: string; documentId: string };
+  | { kind: 'ingestQueued'; jobId: string; documentId: string }
+  | { kind: 'ingestFailed'; jobId: string; documentId: string; message: string };
 
 /** Creates a new draft by server-ingesting an uploaded file (or paste). */
 export async function createDraftFromSource(
@@ -353,6 +360,16 @@ export async function createDraftFromSource(
   });
   if ('ingestStatus' in result && result.ingestStatus === 'queued') {
     return { kind: 'ingestQueued', jobId: result.jobId, documentId: result.documentId };
+  }
+  if ('ingestStatus' in result && result.ingestStatus === 'failed') {
+    return {
+      kind: 'ingestFailed',
+      jobId: result.jobId,
+      documentId: result.documentId,
+      message:
+        result.errorMessage ??
+        'The upload was saved, but PDF processing could not be queued. Please try again.',
+    };
   }
   return { kind: 'draft', draft: result as Draft };
 }

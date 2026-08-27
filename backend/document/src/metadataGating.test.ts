@@ -11,6 +11,7 @@ import type { CustomMetadataField } from '@wren/types';
 
 import {
   evaluateRequiredFields,
+  validateDocumentMetadata,
   isBlankMetadataValue,
   isDocumentCreationEnabled,
 } from './metadataGating';
@@ -126,5 +127,36 @@ describe('isDocumentCreationEnabled', () => {
     expect(isDocumentCreationEnabled([REQUIRED_TOPIC, REQUIRED_JURISDICTION], {})).toBe(
       false,
     );
+  });
+});
+
+describe('validateDocumentMetadata', () => {
+  it('rejects unknown metadata field ids before persistence', () => {
+    expect(
+      validateDocumentMetadata([REQUIRED_TOPIC], {
+        'f-topic': 'Tort',
+        'forged-field': 'unexpected',
+      }),
+    ).toEqual({
+      status: 'invalid-metadata-fields',
+      unknownMetadataFieldIds: ['forged-field'],
+    });
+  });
+
+  it('reports configured required fields that are blank', () => {
+    expect(validateDocumentMetadata([REQUIRED_TOPIC], { 'f-topic': '  ' })).toEqual({
+      status: 'missing-required-fields',
+      missingRequiredFieldIds: ['f-topic'],
+      missingRequiredFieldLabels: ['Writing Topic'],
+    });
+  });
+
+  it('accepts valid required and optional metadata values', () => {
+    expect(
+      validateDocumentMetadata([REQUIRED_TOPIC, OPTIONAL_NOTES], {
+        'f-topic': 'Tort',
+        'f-notes': '',
+      }),
+    ).toEqual({ status: 'satisfied' });
   });
 });

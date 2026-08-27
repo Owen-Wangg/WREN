@@ -74,6 +74,11 @@ export interface AppConfig {
    */
   readonly bedrockModelId: string;
   /**
+   * Optional exact Cognito subject allowed to receive TechnicalAdmin during its
+   * first application-side provisioning. Absent by default, disabling bootstrap.
+   */
+  readonly technicalAdminBootstrapSubject?: string;
+  /**
    * Prefix that drives all stack/resource naming: `${StackPrefix}-<Concern>`.
    * Defaults to `${projectName}-${environmentName}` when not explicitly
    * provided — it derives from the project name, never from {@link appName}.
@@ -102,6 +107,7 @@ function readContext(app: App, key: string): string | undefined {
  *   - `projectName`     -> defaults to `wren` (drives resource naming)
  *   - `environmentName` -> defaults to `dev`
  *   - `bedrockModelId`  -> defaults to DEFAULT_BEDROCK_MODEL_ID
+ *   - `technicalAdminBootstrapSubject` -> optional exact Cognito sub; absent disables bootstrap
  *   - `stackPrefix`     -> defaults to `${projectName}-${environmentName}`
  *
  * Override at synth/deploy time, e.g.:
@@ -113,6 +119,7 @@ export function resolveAppConfig(app: App): AppConfig {
   const projectName = readContext(app, "projectName") ?? DEFAULT_PROJECT_NAME;
   const environmentName = readContext(app, "environmentName") ?? DEFAULT_ENVIRONMENT_NAME;
   const bedrockModelId = readContext(app, "bedrockModelId") ?? DEFAULT_BEDROCK_MODEL_ID;
+  const technicalAdminBootstrapSubject = readContext(app, "technicalAdminBootstrapSubject");
   const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
 
   // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
@@ -127,6 +134,7 @@ export function resolveAppConfig(app: App): AppConfig {
     projectName,
     environmentName,
     bedrockModelId,
+    ...(technicalAdminBootstrapSubject ? { technicalAdminBootstrapSubject } : {}),
     stackPrefix,
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,

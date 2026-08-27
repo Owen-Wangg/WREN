@@ -4,7 +4,8 @@
  * flag, and the "Writing Topic" seeding helper (tasks.md product decision 1:
  * ONLY "Writing Topic" is ever seeded — "Location Reference" never is).
  *
- * No superuser fallback — TechnicalAdmin CANNOT perform educational operations.
+ * TechnicalAdmin may bootstrap this Document Type catalog through the explicit
+ * `documentType.manageCatalog` matrix entry; Students remain denied.
  */
 import {
   WRITING_TOPIC_LABEL,
@@ -87,13 +88,18 @@ describe('createCustomMetadataField (Requirement 30.3)', () => {
     expect(db.mutationCount).toBe(0);
   });
 
-  it('denies a TechnicalAdmin (not a catalog-management authority) with no mutation', async () => {
+  it('allows a TechnicalAdmin to bootstrap a catalog field', async () => {
     const db = new FakeDb();
     seedDeptAndDocumentType(db);
-    await expect(
-      createCustomMetadataField(techAdminContext(), { documentTypeId: DT, label: 'X' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+
+    const field = await createCustomMetadataField(
+      techAdminContext(),
+      { documentTypeId: DT, label: 'X' },
+      db,
+    );
+
+    expect(field).toMatchObject({ documentTypeId: DT, label: 'X', required: false });
+    expect(db.mutationCount).toBe(1);
   });
 });
 
@@ -212,7 +218,7 @@ describe('updateCustomMetadataField — required/optional flag behavior', () => 
     expect(db.customMetadataFields.get('cmf-1')!.required).toBe(false);
   });
 
-  it('denies a TechnicalAdmin with no mutation', async () => {
+  it('allows a TechnicalAdmin to update a bootstrap catalog field', async () => {
     const db = new FakeDb();
     seedDeptAndDocumentType(db);
     db.seedCustomMetadataField({
@@ -221,10 +227,16 @@ describe('updateCustomMetadataField — required/optional flag behavior', () => 
       label: 'Writing Topic',
       required: false,
     });
-    await expect(
-      updateCustomMetadataField(techAdminContext(), 'cmf-1', { required: true }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+
+    const updated = await updateCustomMetadataField(
+      techAdminContext(),
+      'cmf-1',
+      { required: true },
+      db,
+    );
+
+    expect(updated.required).toBe(true);
+    expect(db.mutationCount).toBe(1);
   });
 });
 
@@ -254,14 +266,12 @@ describe('deleteCustomMetadataField', () => {
     expect(db.customMetadataFields.has('cmf-1')).toBe(true);
   });
 
-  it('denies a TechnicalAdmin with no mutation', async () => {
+  it('allows a TechnicalAdmin to delete a bootstrap catalog field', async () => {
     const db = new FakeDb();
     seedDeptAndDocumentType(db);
     db.seedCustomMetadataField({ id: 'cmf-1', document_type_id: DT, label: 'Keep' });
-    await expect(
-      deleteCustomMetadataField(techAdminContext(), 'cmf-1', db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
-    expect(db.customMetadataFields.has('cmf-1')).toBe(true);
+
+    expect(await deleteCustomMetadataField(techAdminContext(), 'cmf-1', db)).toBe(true);
+    expect(db.customMetadataFields.has('cmf-1')).toBe(false);
   });
 });

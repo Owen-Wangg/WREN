@@ -57,7 +57,7 @@ describe('WritingEnvironmentCard', () => {
     render(<WritingEnvironmentCard document={baseDocument} onOpen={onOpen} />);
 
     await user.click(
-      screen.getByRole('button', { name: 'Charter s.8 analysis' }),
+      screen.getByRole('button', { name: 'Open Charter s.8 analysis' }),
     );
     expect(onOpen).toHaveBeenCalledWith(baseDocument);
   });

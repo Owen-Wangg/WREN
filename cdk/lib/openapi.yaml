@@ -67,9 +67,9 @@ components:
         type: token
         authorizerUri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunctionArn}/invocations"
-        # Keep TTL low so a cached Deny from before first-login provisioning
-        # does not block the newly provisioned Allow for several minutes.
-        authorizerResultTtlInSeconds: 30
+        # Authorization is resolved from the application database on every
+        # request so role/grant revocations take effect immediately.
+        authorizerResultTtlInSeconds: 0
         identitySource: method.request.header.Authorization
 
   schemas:
@@ -219,7 +219,8 @@ components:
 
     Override:
       type: object
-      required: [id, userId, documentTypeId, bounds, reason, grantedBy, expiresAt]
+      required:
+        [id, userId, documentTypeId, bounds, reason, grantedBy, expiresAt]
       properties:
         id:
           type: string
@@ -262,7 +263,17 @@ components:
 
     Document:
       type: object
-      required: [id, ownerUserId, documentTypeId, contentTypeId, name, metadata, status, createdAt]
+      required:
+        [
+          id,
+          ownerUserId,
+          documentTypeId,
+          contentTypeId,
+          name,
+          metadata,
+          status,
+          createdAt,
+        ]
       properties:
         id:
           type: string
@@ -283,8 +294,8 @@ components:
         metadata:
           type: object
           description: >-
-            DepartmentAdmin-defined custom metadata field values
-            (e.g., {"Writing Topic": "Contracts"})
+            DepartmentAdmin-defined custom metadata values keyed by the
+            corresponding CustomMetadataField id.
           additionalProperties:
             type: string
         status:
@@ -305,7 +316,8 @@ components:
 
     Draft:
       type: object
-      required: [id, documentId, versionNumber, s3Key, segments, wordCount, createdAt]
+      required:
+        [id, documentId, versionNumber, s3Key, segments, wordCount, createdAt]
       properties:
         id:
           type: string
@@ -352,7 +364,17 @@ components:
 
     Anchor:
       type: object
-      required: [id, feedbackItemId, draftId, paragraphIndex, startOffset, endOffset, contentFingerprint, state]
+      required:
+        [
+          id,
+          feedbackItemId,
+          draftId,
+          paragraphIndex,
+          startOffset,
+          endOffset,
+          contentFingerprint,
+          state,
+        ]
       properties:
         id:
           type: string
@@ -394,7 +416,16 @@ components:
 
     FeedbackItem:
       type: object
-      required: [id, documentId, errorCategoryId, kind, questionText, sourceDraftId, createdAt]
+      required:
+        [
+          id,
+          documentId,
+          errorCategoryId,
+          kind,
+          questionText,
+          sourceDraftId,
+          createdAt,
+        ]
       properties:
         id:
           type: string
@@ -1100,6 +1131,7 @@ paths:
                   type: string
                 metadata:
                   type: object
+                  description: Values keyed by CustomMetadataField id; unknown ids are rejected.
                   additionalProperties:
                     type: string
                 source:
@@ -1121,12 +1153,18 @@ paths:
                     type:
                       type: string
                       enum: [doc]
+                ocrEngine:
+                  type: string
+                  enum: [textract]
+      responses:
+        "201":
+          description: Document created, or PDF ingestion queued
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Document"
         "400":
-          description: Validation error (unsupported format, oversize, missing required fields, extraction failure)
+          description: Validation error (unsupported format, oversize, unknown or missing required metadata fields, extraction failure)
           content:
             application/json:
               schema:
@@ -1854,7 +1892,7 @@ paths:
           schema:
             type: string
             format: uuid
-            pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
         - name: draftId
           in: query
           required: true
@@ -1917,7 +1955,7 @@ paths:
           schema:
             type: string
             format: uuid
-            pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       requestBody:
         required: true
         content:
@@ -2064,6 +2102,68 @@ paths:
               schema:
                 type: string
 
+  /v1/document-types/{documentTypeId}/metadata-fields:
+    get:
+      summary: List custom metadata fields for a Document Type
+      tags: [DocumentTypes]
+      operationId: listCustomMetadataFields
+      parameters:
+        - name: documentTypeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Required and optional metadata fields for document creation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CustomMetadataField"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   /v1/document-types/{documentTypeId}/config:
     get:
       summary: Get Document Type configuration (taxonomy, conventions, prompt)
@@ -2151,7 +2251,6 @@ paths:
             Access-Control-Max-Age:
               schema:
                 type: string
-
 
   /v1/document-types/{documentTypeId}/error-categories:
     get:
@@ -2704,7 +2803,6 @@ paths:
               schema:
                 type: string
 
-
   # ==================== Feedback Helpfulness Rating ====================
   /v1/feedback-helpfulness:
     post:
@@ -3056,7 +3154,14 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [categoryId, categoryName, applicableCount, notApplicableCount, total]
+                      required:
+                        [
+                          categoryId,
+                          categoryName,
+                          applicableCount,
+                          notApplicableCount,
+                          total,
+                        ]
                       properties:
                         categoryId:
                           type: string
@@ -3863,7 +3968,6 @@ paths:
               schema:
                 type: string
 
-
   # ==================== Notifications ====================
   /v1/notifications:
     get:
@@ -4108,7 +4212,8 @@ paths:
           application/json:
             schema:
               type: object
-              required: [slug, label, targetRoles, displayTemplate, dedupStrategy]
+              required:
+                [slug, label, targetRoles, displayTemplate, dedupStrategy]
               properties:
                 slug:
                   type: string

@@ -17,6 +17,7 @@ import {
 import { listErrorCategories, createErrorCategory, updateErrorCategory, deleteErrorCategory } from './errorCategoryService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { listContentTypes } from './contentTypeService';
+import { listCustomMetadataFields } from './customMetadataFieldService';
 import { searchUsers } from './userService';
 import { assignRole, revokeRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
@@ -138,6 +139,9 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
     }
     if (resource === '/v1/document-types/{documentTypeId}/content-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListContentTypes(event));
+    }
+    if (resource === '/v1/document-types/{documentTypeId}/metadata-fields' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListCustomMetadataFields(event));
     }
     if (resource === '/v1/document-types/{documentTypeId}/error-categories' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListErrorCategories(event));
@@ -308,6 +312,20 @@ async function handleListContentTypes(event: any): Promise<APIGatewayProxyResult
   return {
     statusCode: 200,
     body: JSON.stringify(contentTypes),
+  };
+}
+
+async function handleListCustomMetadataFields(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.pathParameters || {};
+  // Students need this catalog to satisfy required fields before submission;
+  // DepartmentAdmins remain constrained to their administered departments.
+  await assertDocumentTypeReadableByActor(actor, documentTypeId, db);
+  const fields = await listCustomMetadataFields(documentTypeId, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(fields),
   };
 }
 
