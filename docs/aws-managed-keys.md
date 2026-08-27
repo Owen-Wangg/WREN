@@ -1,10 +1,10 @@
 # AWS Managed Keys Usage
 
-This document lists every place in the LEON (WREN) CDK app where encryption uses an **AWS managed key** (or SSE-S3 / SSE-SQS / SSE-SNS service defaults) rather than a **customer-managed KMS key (CMK)**, and the code changes required to bring your own key.
+This document lists every place in the WREN CDK app where encryption uses an **AWS managed key** (or SSE-S3 / SSE-SQS / SSE-SNS service defaults) rather than a **customer-managed KMS key (CMK)**, and the code changes required to bring your own key.
 
 The product display name is **LEON**. AWS resources and this repository use the prefix **WREN**. There is **no Glue job** in this project.
 
-**Already on a CMK (not covered as migrations below):** documents S3 bucket, reference S3 bucket, and the Ask LEON DynamoDB `ConversationHistory` table. Those use the storage key in `cdk/lib/constructs/StorageResources.ts` (`enableKeyRotation: true`, `RemovalPolicy.RETAIN`). Compute already calls `storageEncryptionKey.grantEncryptDecrypt` for Document, Admin, and Feedback Orchestrator.
+**Already on a CMK (not covered as migrations below):** documents S3 bucket, reference S3 bucket, and the Ask WREN DynamoDB `ConversationHistory` table. Those use the storage key in `cdk/lib/constructs/StorageResources.ts` (`enableKeyRotation: true`, `RemovalPolicy.RETAIN`). Compute already calls `storageEncryptionKey.grantEncryptDecrypt` for Document, Admin, and Feedback Orchestrator.
 
 ---
 

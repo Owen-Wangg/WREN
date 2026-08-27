@@ -87,6 +87,28 @@ function parseAuthContext(event: any) {
   };
 }
 
+/**
+ * Every route served by the Document Lambda is a writer operation. Enforce the
+ * Student role at runtime rather than relying on frontend routing or document
+ * ownership alone. Mixed-role users remain eligible through their Student role.
+ */
+function studentAccessFailure(event: any): APIGatewayProxyResult | null {
+  const actor = parseAuthContext(event);
+  if (!actor.userId) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify({ code: 'UNAUTHORIZED', message: 'Authentication required' }),
+    };
+  }
+  if (!actor.roles.includes('Student')) {
+    return {
+      statusCode: 403,
+      body: JSON.stringify({ code: 'PERMISSION_DENIED', message: 'Student role required' }),
+    };
+  }
+  return null;
+}
+
 async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<APIGatewayProxyResult> {
   try {
     return withCors(await fn());
@@ -334,6 +356,8 @@ export const handler = async (
 
   try {
     const { httpMethod, resource } = event;
+    const accessFailure = studentAccessFailure(event);
+    if (accessFailure) return withCors(accessFailure);
 
     if (resource === '/v1/documents' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocuments(event));
@@ -421,6 +445,32 @@ function normalizeGrants(raw: unknown): AccessGrant[] {
       } satisfies AccessGrant;
     })
     .filter((g): g is AccessGrant => g !== null);
+}
+
+/**
+ * Reload the relevant active grant inside the Document service. The REST
+ * authorizer also loads grants on every request, but this local query preserves
+ * dual enforcement and prevents stale or forged authorizer context from
+ * authorizing submission to a locked Department.
+ */
+async function loadActiveSubmissionGrants(
+  userId: string,
+  documentTypeId: string,
+  db: Awaited<ReturnType<typeof getDataAccess>>,
+): Promise<AccessGrant[]> {
+  const rows = await db.query<Record<string, unknown>>(
+    `SELECT id,
+            user_id AS "userId",
+            document_type_id AS "documentTypeId",
+            granted_by AS "grantedBy",
+            granted_at::text AS "grantedAt"
+     FROM access_grant
+     WHERE user_id = $1
+       AND document_type_id = $2
+       AND revoked_at IS NULL`,
+    [userId, documentTypeId],
+  );
+  return normalizeGrants(rows);
 }
 
 async function readS3ObjectBytes(key: string): Promise<Buffer> {
@@ -516,7 +566,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   const sizeLimitWords =
     typeof dtRows[0].size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
 
-  const grants = normalizeGrants(actor.grants);
+  const grants = await loadActiveSubmissionGrants(actor.userId, documentTypeId, db);
   const submissionGate = await gateSubmission(
     {
       resolveAccess: async (_userId, dtId) =>

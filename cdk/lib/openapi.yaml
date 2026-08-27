@@ -797,7 +797,7 @@ paths:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     post:
-      summary: Create a new Document Type (DepartmentAdmin only)
+      summary: Create a new Document Type (DepartmentAdmin in scope or TechnicalAdmin)
       tags: [DocumentTypes]
       operationId: createDocumentType
       requestBody:
@@ -863,7 +863,7 @@ paths:
 
   /v1/document-types/{documentTypeId}:
     delete:
-      summary: Delete a Document Type (DepartmentAdmin for administered department)
+      summary: Delete a Document Type (DepartmentAdmin in scope or TechnicalAdmin)
       tags: [DocumentTypes]
       operationId: deleteDocumentType
       parameters:
@@ -935,7 +935,7 @@ paths:
 
   /v1/document-types/{documentTypeId}/access-state:
     put:
-      summary: Set Document Type student access state (OPEN or LOCKED)
+      summary: Set the owning Department's student access state (OPEN or LOCKED; TechnicalAdmin only)
       tags: [DocumentTypes]
       operationId: setDocumentTypeAccessState
       parameters:
@@ -2192,7 +2192,7 @@ paths:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     put:
-      summary: Update Document Type configuration (DepartmentAdmin only)
+      summary: Update Document Type configuration (DepartmentAdmin in scope or TechnicalAdmin)
       tags: [Config]
       operationId: updateDocumentTypeConfig
       parameters:
@@ -2453,7 +2453,7 @@ paths:
 
   /v1/users:
     get:
-      summary: Search users (DeptAdmin/TechAdmin)
+      summary: Search users (TechnicalAdmin only)
       tags: [Users]
       operationId: searchUsers
       responses:

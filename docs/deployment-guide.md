@@ -1,10 +1,10 @@
-# LEON (WREN) — AWS Deployment Guide
+# WREN — AWS Deployment Guide
 
-This guide deploys the LEON writing coach (repository and AWS prefix **WREN**) into an AWS account using the CDK app in `cdk/`. AWS resource names use the `wren` project prefix; **LEON** is the user-facing display name shown in the UI and emails. Follow the numbered steps in order — commands are given for **bash (macOS/Linux)**, **PowerShell**, and **Windows CMD** where the syntax differs.
+This guide deploys the WREN writing coach (repository and AWS prefix **WREN**) into an AWS account using the CDK app in `cdk/`. AWS resource names use the `wren` project prefix; **LEON** is the user-facing display name shown in the UI and emails. Follow the numbered steps in order — commands are given for **bash (macOS/Linux)**, **PowerShell**, and **Windows CMD** where the syntax differs.
 
 ## Table of Contents
 
-- [LEON (WREN) — AWS Deployment Guide](#leon-wren--aws-deployment-guide)
+- [WREN — AWS Deployment Guide](#wren--aws-deployment-guide)
   - [Table of Contents](#table-of-contents)
   - [What You'll Have When You're Done](#what-youll-have-when-youre-done)
   - [Architecture at a Glance](#architecture-at-a-glance)
@@ -1044,4 +1044,8 @@ npx cdk deploy wren-dev-Compute wren-dev-Api wren-dev-Observability wren-dev-Clo
 
 &nbsp;
 
+<<<<<<< HEAD
 Then create GitHub secrets, deploy `wren-dev-Amplify`, and follow the secure default-off exact-subject bootstrap procedure in [Step 7](#step-7-configure-the-first-administrator).
+=======
+Then create GitHub secrets, deploy `wren-dev-Amplify`, sign up, and add the user to Cognito group `SystemAdmin` before first login.
+>>>>>>> 18bc76be7d2e76c951a43fd8db9bb1ee9461b9f4

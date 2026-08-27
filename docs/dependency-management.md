@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document explains how **Node.js** and **Python** dependencies are declared, pinned, and shipped in LEON (WREN).
+This document explains how **Node.js** and **Python** dependencies are declared, pinned, and shipped in WREN.
 
 | Workload | Language | How dependencies are installed |
 | --- | --- | --- |

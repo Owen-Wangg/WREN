@@ -93,6 +93,23 @@ async function lookupDepartmentId(
   return rows[0]?.department_id;
 }
 
+/** Enforce nested URL parentage before category mutation and capability checks. */
+async function assertErrorCategoryParent(
+  categoryId: string,
+  documentTypeId: string,
+  db: QueryExecutor,
+): Promise<void> {
+  const rows = await db.query<{ id: string }>(
+    'SELECT id FROM error_category WHERE id = $1 AND document_type_id = $2',
+    [categoryId, documentTypeId],
+  );
+  if (rows.length === 0) {
+    throw new NotFoundError(
+      `Error category '${categoryId}' not found for Document Type '${documentTypeId}'`,
+    );
+  }
+}
+
 export const handler: APIGatewayProxyHandler = async (event: any, context): Promise<APIGatewayProxyResult> => {
   freezeEventLoopOnReturn(context);
   // One-shot admin scripts invoked directly via `aws lambda invoke --payload '{"_script":"..."}'`
@@ -806,7 +823,8 @@ async function handleCreateErrorCategory(event: any): Promise<APIGatewayProxyRes
 async function handleUpdateErrorCategory(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { categoryId } = event.pathParameters || {};
+  const { documentTypeId, categoryId } = event.pathParameters || {};
+  await assertErrorCategoryParent(categoryId, documentTypeId, db);
   const body = event.body ? JSON.parse(event.body) : {};
   const category = await updateErrorCategory(actor, categoryId, body, db);
   return {
@@ -818,7 +836,8 @@ async function handleUpdateErrorCategory(event: any): Promise<APIGatewayProxyRes
 async function handleDeleteErrorCategory(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { categoryId } = event.pathParameters || {};
+  const { documentTypeId, categoryId } = event.pathParameters || {};
+  await assertErrorCategoryParent(categoryId, documentTypeId, db);
   await deleteErrorCategory(actor, categoryId, db);
   return {
     statusCode: 204,

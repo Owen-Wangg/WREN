@@ -1,8 +1,8 @@
-# LEON REST API Documentation
+# WREN REST API Documentation
 
-REST API for LEON (project prefix **WREN**): endpoints, authentication, request and response shapes, and examples.
+REST API for WREN (project prefix **WREN**): endpoints, authentication, request and response shapes, and examples.
 
-The product display name is **LEON**. AWS resources, CDK stacks, and this repository use the project prefix **WREN**. The contract used to deploy API Gateway lives in [`cdk/lib/openapi.yaml`](../cdk/lib/openapi.yaml). Shared Zod/TypeScript DTOs live in [`types/`](../types/README.md). In the UI, the `TechnicalAdmin` role is labeled **System Admin**.
+The product display name is **WREN**. AWS resources, CDK stacks, and this repository use the project prefix **WREN**. The contract used to deploy API Gateway lives in [`cdk/lib/openapi.yaml`](../cdk/lib/openapi.yaml). Shared Zod/TypeScript DTOs live in [`types/`](../types/README.md). In the UI, the `TechnicalAdmin` role is labeled **System Admin**.
 
 ## Table of Contents
 
@@ -13,7 +13,7 @@ The product display name is **LEON**. AWS resources, CDK stacks, and this reposi
 - [Auth Endpoints](#auth-endpoints)
 - [Document Endpoints](#document-endpoints)
 - [Feedback Endpoints](#feedback-endpoints)
-- [Ask LEON Endpoints](#ask-leon-endpoints)
+- [Ask WREN Endpoints](#ask-WREN-endpoints)
 - [Department Endpoints](#department-endpoints)
 - [Document Type Endpoints](#document-type-endpoints)
 - [User and Role Endpoints](#user-and-role-endpoints)
@@ -64,7 +64,7 @@ There is no implicit role hierarchy. Authority is the explicit capability matrix
 
 | Role | Typical access |
 | --- | --- |
-| `Student` | Own documents, drafts, debriefs, Ask LEON, ratings, notifications, list of own access grants |
+| `Student` | Own documents, drafts, debriefs, Ask WREN, ratings, notifications, list of own access grants |
 | `DepartmentAdmin` | Catalog and config for administered departments, department user lists, usage overrides, scoped analytics |
 | `TechnicalAdmin` | Platform operations: departments, usage policy, Bedrock model, user search, role assignment, notification types, platform analytics |
 
@@ -752,9 +752,9 @@ curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/fee
 
 ---
 
-# Ask LEON Endpoints
+# Ask WREN Endpoints
 
-Conversations are anchored to a document + draft (DynamoDB). Replies are Socratic, not rewrites. The product UI label is Ask LEON; the path is `/ask-wren`.
+Conversations are anchored to a document + draft (DynamoDB). Replies are Socratic, not rewrites. The product UI label is Ask WREN; the path is `/ask-wren`.
 
 ## Get Conversation
 
