@@ -162,14 +162,23 @@ After you choose **Department Admin** as your account view (see [1.3](#13-choosi
 ### 3.1 How the Department Admin Screens Are Organized
 
 - **Profile** — switch account view (Student / Department Admin / System Admin, depending on your roles).
-<img width="944" height="410" alt="Switch account view from profile" src="https://github.com/user-attachments/assets/60265c0f-df66-4185-ac91-986725b99043" />
+
+<img width="1870" height="813" alt="image" src="https://github.com/user-attachments/assets/529f9101-fb8e-4dd8-9e32-9d36953b4ce4" />
+
 - **Dashboard** — document types for the department you are managing. If you administer more than one department, a selector on the banner switches which department you are editing. **Create New Document Type** is on the right.
+
 <img width="943" height="412" alt="Department Admin dashboard" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
+
 - **Document type** — opens when you select a type. Two areas: **Evaluation Rubric** and **Analytics**.
+
 <img width="950" height="413" alt="Document type Evaluation Rubric and Analytics" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
+
 - **Evaluation Rubric** — **Document Context** (purpose, common mistakes, additional background, citation guide) and **Evaluation Criteria** (categories the AI should use). Click **Save Rubric** when you are done; this screen does not autosave.
+  
 <img width="935" height="409" alt="Evaluation Rubric categories" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
+
 - **Analytics** — student improvement trends, AI Debrief helpfulness (aggregate yes/no ratings), and section applicability. Figures are aggregates, not per-student scores.
+
 <img width="950" height="407" alt="Document type analytics" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
 
 - **Profile** — click your profile to switch your account view between Student and Department Admin.
