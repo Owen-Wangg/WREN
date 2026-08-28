@@ -3412,6 +3412,7 @@ paths:
                   - debriefGenerationLimit
                   - documentUploadLimit
                   - draftsPerDocumentLimit
+                  - maxUploadFileSizeBytes
                 properties:
                   messageLimit:
                     type: integer
@@ -3425,6 +3426,10 @@ paths:
                   draftsPerDocumentLimit:
                     type: integer
                     minimum: 1
+                  maxUploadFileSizeBytes:
+                    type: integer
+                    minimum: 1048576
+                    maximum: 1073741824
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3449,6 +3454,7 @@ paths:
                 - debriefGenerationLimit
                 - documentUploadLimit
                 - draftsPerDocumentLimit
+                - maxUploadFileSizeBytes
               properties:
                 messageLimit:
                   type: integer
@@ -3462,6 +3468,10 @@ paths:
                 draftsPerDocumentLimit:
                   type: integer
                   minimum: 1
+                maxUploadFileSizeBytes:
+                  type: integer
+                  minimum: 1048576
+                  maximum: 1073741824
       responses:
         "200":
           description: Updated lifetime usage policy
@@ -3474,6 +3484,7 @@ paths:
                   - debriefGenerationLimit
                   - documentUploadLimit
                   - draftsPerDocumentLimit
+                  - maxUploadFileSizeBytes
                 properties:
                   messageLimit:
                     type: integer
@@ -3482,6 +3493,8 @@ paths:
                   documentUploadLimit:
                     type: integer
                   draftsPerDocumentLimit:
+                    type: integer
+                  maxUploadFileSizeBytes:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -3896,7 +3909,61 @@ paths:
               schema:
                 type: string
 
-  # ==================== Upload (presigned URL) ====================
+  # ==================== Upload (presigned URL + config) ====================
+  /v1/uploads/config:
+    get:
+      summary: Get upload configuration (maximum file size) for the authenticated user
+      tags: [Documents]
+      operationId: getUploadConfig
+      responses:
+        "200":
+          description: Upload configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [maxFileSizeBytes]
+                properties:
+                  maxFileSizeBytes:
+                    type: integer
+                    description: Maximum allowed upload file size in bytes
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   /v1/uploads/presign:
     post:
       summary: Get a presigned S3 URL for document upload
@@ -3921,7 +3988,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [uploadUrl, fields, key]
+                required: [uploadUrl, fields, key, maxFileSizeBytes]
                 properties:
                   uploadUrl:
                     type: string
@@ -3931,6 +3998,9 @@ paths:
                       type: string
                   key:
                     type: string
+                  maxFileSizeBytes:
+                    type: integer
+                    description: Maximum allowed file size in bytes for this upload
         "401":
           $ref: "#/components/responses/Unauthorized"
       x-amazon-apigateway-integration:

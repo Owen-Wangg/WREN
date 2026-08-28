@@ -46,6 +46,7 @@ import {
 } from './ingestWorker.js';
 import {
   assertDocumentUploadAllowed,
+  getPlatformUsagePolicy,
   reserveDraftCreate,
   reserveDocumentUpload,
   UsageLimitReachedError,
@@ -154,7 +155,7 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
   }
 }
 
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const DEFAULT_MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const ORPHAN_UPLOAD_TAGGING =
   '<Tagging><TagSet><Tag><Key>orphan-upload</Key><Value>true</Value></Tag></TagSet></Tagging>';
 
@@ -385,6 +386,9 @@ export const handler = async (
     }
     if (resource === '/v1/uploads/presign' && httpMethod === 'POST') {
       return await wrapHandler(() => handlePresignUpload(event));
+    }
+    if (resource === '/v1/uploads/config' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetUploadConfig(event));
     }
 
     return withCors({
@@ -1508,6 +1512,9 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
 
   await assertDocumentUploadAllowed(actor.userId, db);
 
+  const policy = await getPlatformUsagePolicy(db);
+  const maxFileSizeBytes = policy.maxUploadFileSizeBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+
   const safeName = filename.replace(/[^\w.\-()+ ]+/g, '_');
   const key = `documents/${actor.userId}/uploads/${uuid()}-${safeName}`;
   const kmsKeyArn = process.env.DOCUMENTS_KMS_KEY_ARN?.trim();
@@ -1522,7 +1529,7 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
     Bucket: process.env.DOCUMENTS_BUCKET_NAME!,
     Key: key,
     Conditions: [
-      ['content-length-range', 1, MAX_UPLOAD_BYTES],
+      ['content-length-range', 1, maxFileSizeBytes],
       ['eq', '$Content-Type', contentType],
       ['eq', '$tagging', ORPHAN_UPLOAD_TAGGING],
       ...Object.entries(encryptionFields).map(
@@ -1539,7 +1546,18 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ uploadUrl: url, fields, key }),
+    body: JSON.stringify({ uploadUrl: url, fields, key, maxFileSizeBytes }),
+  };
+}
+
+async function handleGetUploadConfig(event: any): Promise<APIGatewayProxyResult> {
+  parseAuthContext(event); // ensure authenticated
+  const db = await getDataAccess();
+  const policy = await getPlatformUsagePolicy(db);
+  const maxFileSizeBytes = policy.maxUploadFileSizeBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ maxFileSizeBytes }),
   };
 }
 

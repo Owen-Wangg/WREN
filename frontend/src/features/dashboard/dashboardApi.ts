@@ -204,12 +204,14 @@ export type PresignUploadResponse = {
   uploadUrl: string;
   fields: Record<string, string>;
   key: string;
+  maxFileSizeBytes: number;
 };
 
 const presignUploadSchema = z.object({
   uploadUrl: z.string().url(),
   fields: z.record(z.string()),
   key: z.string().min(1),
+  maxFileSizeBytes: z.number().int().positive(),
 });
 
 export function getPresignedUrl(
@@ -222,6 +224,15 @@ export function getPresignedUrl(
     body: { filename, contentType },
     schema: presignUploadSchema,
   });
+}
+
+const uploadConfigSchema = z.object({
+  maxFileSizeBytes: z.number().int().positive(),
+});
+export type UploadConfig = z.infer<typeof uploadConfigSchema>;
+
+export function getUploadConfig(client: HttpClient): Promise<UploadConfig> {
+  return client.request('/v1/uploads/config', { schema: uploadConfigSchema });
 }
 
 /** POST the file to S3 using the presigned POST fields (not a raw PUT). */

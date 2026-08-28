@@ -19,6 +19,7 @@ export function SystemUsageLimitsForm({
       debriefGenerationLimit: 15,
       documentUploadLimit: 30,
       draftsPerDocumentLimit: 15,
+      maxUploadFileSizeBytes: 30 * 1024 * 1024,
     }
   );
 
@@ -135,6 +136,33 @@ export function SystemUsageLimitsForm({
           {errors.draftsPerDocumentLimit && (
             <p className="mt-1 text-sm text-red-600">
               {errors.draftsPerDocumentLimit}
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-900">
+            Max Upload File Size (MB)
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="1024"
+            value={Math.round(formData.maxUploadFileSizeBytes / (1024 * 1024))}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                maxUploadFileSizeBytes: Math.max(1, parseInt(e.target.value) || 1) * 1024 * 1024,
+              })
+            }
+            className={inputClasses}
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Minimum 1 MB, maximum 1024 MB. Applies to all document file uploads (.docx, .pdf).
+          </p>
+          {errors.maxUploadFileSizeBytes && (
+            <p className="mt-1 text-sm text-red-600">
+              {errors.maxUploadFileSizeBytes}
             </p>
           )}
         </div>

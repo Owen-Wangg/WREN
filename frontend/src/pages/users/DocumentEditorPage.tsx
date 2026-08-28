@@ -10,6 +10,7 @@ import {
   Upload,
 } from 'lucide-react';
 
+import { useUploadConfig } from '@/hooks/useUploadConfig';
 import { AnchoredFeedbackEditorContainer, HomeSidePanel } from '@/features/editor';
 import type { TableOfContentData } from '@/features/editor';
 import { createAskWrenService } from '@/features/ask-wren';
@@ -483,6 +484,8 @@ export function DocumentEditorPage() {
   });
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [fileSizeError, setFileSizeError] = useState<string | undefined>(undefined);
+  const { data: uploadConfig } = useUploadConfig();
 
   const saveDraftFromEditor = useCallback(async () => {
     // Snapshot paragraph segments the feedback engine actually reads.
@@ -565,6 +568,14 @@ export function DocumentEditorPage() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    setFileSizeError(undefined);
+    const limit = uploadConfig?.maxFileSizeBytes ?? 30 * 1024 * 1024;
+    if (file.size > limit) {
+      setFileSizeError(
+        `File exceeds the maximum allowed size of ${Math.round(limit / (1024 * 1024))} MB`,
+      );
+      return;
+    }
     resubmitDraftMutation.mutate(file);
   };
 
@@ -954,6 +965,11 @@ export function DocumentEditorPage() {
                 {resubmitDraftMutation.isPending ? 'Uploading New Draft' : 'Upload New Draft'}
               </span>
             </button>
+            {fileSizeError && (
+              <p role="alert" className="px-[2px] text-caption text-signal-critical leading-snug">
+                {fileSizeError}
+              </p>
+            )}
             <ExportMenu
               busy={exportBusy}
               error={exportError}
