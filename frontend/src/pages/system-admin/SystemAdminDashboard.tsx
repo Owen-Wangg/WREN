@@ -91,6 +91,7 @@ export function SystemAdminDashboard() {
     name: string;
     accessState?: string;
     userCount?: number;
+    archivedAt?: string | null;
   }
 
   const filteredDepartments = (departments as Department[]).filter((dept) => {
