@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Trash2, ChevronDown } from 'lucide-react';
 
 import { listDepartments, getAnalytics, getModelConfig, updateModelConfig, createDepartment, deleteDepartment, getPlatformUsageLimits, updatePlatformUsageLimits } from '@/features/system-admin/systemAdminApi';
+import { ApiError } from '@/services/apiClient';
 import { SystemUsageLimitsForm } from '@/features/system-admin/components/SystemUsageLimitsForm';
 import type { UsageLimits } from '@/features/system-admin/systemAdminSchemas';
 
@@ -60,6 +61,13 @@ export function SystemAdminDashboard() {
       void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
       setDeletingDeptId(null);
     },
+    onError: (err) => {
+      // 404 means already archived — treat as success and refresh the list
+      if (err instanceof ApiError && err.status === 404) {
+        void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+        setDeletingDeptId(null);
+      }
+    },
   });
 
   const { data: usageLimits, isLoading: usageLimitsLoading } = useQuery({
@@ -86,6 +94,7 @@ export function SystemAdminDashboard() {
   }
 
   const filteredDepartments = (departments as Department[]).filter((dept) => {
+    if (dept.archivedAt) return false;
     const matchesSearch = dept.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter = filterState === 'All' || dept.accessState === filterState;
     return matchesSearch && matchesFilter;
