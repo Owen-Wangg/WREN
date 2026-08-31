@@ -3413,6 +3413,7 @@ paths:
                   - documentUploadLimit
                   - draftsPerDocumentLimit
                   - maxUploadFileSizeBytes
+                  - maxWordCount
                 properties:
                   messageLimit:
                     type: integer
@@ -3430,6 +3431,10 @@ paths:
                     type: integer
                     minimum: 1048576
                     maximum: 1073741824
+                  maxWordCount:
+                    type: integer
+                    minimum: 100
+                    maximum: 100000
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3455,6 +3460,7 @@ paths:
                 - documentUploadLimit
                 - draftsPerDocumentLimit
                 - maxUploadFileSizeBytes
+                - maxWordCount
               properties:
                 messageLimit:
                   type: integer
@@ -3472,6 +3478,10 @@ paths:
                   type: integer
                   minimum: 1048576
                   maximum: 1073741824
+                maxWordCount:
+                  type: integer
+                  minimum: 100
+                  maximum: 100000
       responses:
         "200":
           description: Updated lifetime usage policy
@@ -3485,6 +3495,7 @@ paths:
                   - documentUploadLimit
                   - draftsPerDocumentLimit
                   - maxUploadFileSizeBytes
+                  - maxWordCount
                 properties:
                   messageLimit:
                     type: integer
@@ -3495,6 +3506,8 @@ paths:
                   draftsPerDocumentLimit:
                     type: integer
                   maxUploadFileSizeBytes:
+                    type: integer
+                  maxWordCount:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -3922,11 +3935,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [maxFileSizeBytes]
+                required: [maxFileSizeBytes, maxWordCount]
                 properties:
                   maxFileSizeBytes:
                     type: integer
                     description: Maximum allowed upload file size in bytes
+                  maxWordCount:
+                    type: integer
+                    description: Maximum allowed document word count
         "401":
           $ref: "#/components/responses/Unauthorized"
       x-amazon-apigateway-integration:

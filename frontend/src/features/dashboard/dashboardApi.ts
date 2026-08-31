@@ -228,6 +228,7 @@ export function getPresignedUrl(
 
 const uploadConfigSchema = z.object({
   maxFileSizeBytes: z.number().int().positive(),
+  maxWordCount: z.number().int().positive(),
 });
 export type UploadConfig = z.infer<typeof uploadConfigSchema>;
 

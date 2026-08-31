@@ -51,6 +51,11 @@ export interface SizeLimitOverrides {
    * default. This is the MOST specific level and wins when set.
    */
   readonly documentTypeSizeLimitWords: number | null;
+  /**
+   * The platform-level configured limit from `platform_usage_policy.max_word_count`.
+   * Falls back to `DEFAULT_SIZE_LIMIT_WORDS` when absent.
+   */
+  readonly platformSizeLimitWords?: number | null;
 }
 
 /** The document was within the effective limit; the caller may proceed. */
@@ -104,6 +109,9 @@ export function countWords(segments: readonly Segment[]): number {
 export function resolveEffectiveSizeLimitWords(overrides: SizeLimitOverrides): number {
   if (overrides.documentTypeSizeLimitWords !== null) {
     return overrides.documentTypeSizeLimitWords;
+  }
+  if (overrides.platformSizeLimitWords != null) {
+    return overrides.platformSizeLimitWords;
   }
   return DEFAULT_SIZE_LIMIT_WORDS;
 }

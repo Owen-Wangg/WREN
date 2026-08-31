@@ -1,5 +1,5 @@
 -- 0001_baseline.sql
--- Consolidated idempotent schema baseline (migr 0001-0035).
+-- Consolidated idempotent schema baseline (migr 0001-0036).
 -- Generated from pg_dump of deployed wren-dev database (2026-08-31).
 -- Safe to run against an already-migrated database.
 
@@ -8,7 +8,7 @@ SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
+SELECT pg_catalog.set_config('search_path', '', true);
 SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
@@ -1911,3 +1911,15 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.error_category (id, document_type_id, name)
 VALUES ('550e8400-e29b-41d4-a716-446655440004'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid, 'Ambiguity')
 ON CONFLICT (id) DO NOTHING;
+
+-- ===========================================================================
+-- SCHEMA ADDITIONS (from 0035_max_upload_file_size.sql, 0036_max_word_count.sql)
+-- ===========================================================================
+
+ALTER TABLE public.platform_usage_policy
+    ADD COLUMN IF NOT EXISTS max_upload_file_size_bytes bigint NOT NULL DEFAULT 31457280
+        CHECK (max_upload_file_size_bytes >= 1048576 AND max_upload_file_size_bytes <= 1073741824);
+
+ALTER TABLE public.platform_usage_policy
+    ADD COLUMN IF NOT EXISTS max_word_count integer NOT NULL DEFAULT 10000
+        CHECK (max_word_count >= 100 AND max_word_count <= 100000);

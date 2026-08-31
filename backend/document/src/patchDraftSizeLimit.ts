@@ -9,9 +9,11 @@ import { enforceSizeLimitForWordCount } from './sizeLimit';
 export function overSizeLimitHttpResponse(
   wordCount: number,
   documentTypeSizeLimitWords: number | null,
+  platformSizeLimitWords?: number | null,
 ): APIGatewayProxyResult | null {
   const sizeResult = enforceSizeLimitForWordCount(wordCount, {
     documentTypeSizeLimitWords,
+    platformSizeLimitWords,
   });
   if (sizeResult.status !== 'over-limit') {
     return null;

@@ -10,6 +10,7 @@ export const usageLimitsSchema = z.object({
   documentUploadLimit: z.number().min(1),
   draftsPerDocumentLimit: z.number().min(1),
   maxUploadFileSizeBytes: z.number().int().min(1048576).max(1073741824),
+  maxWordCount: z.number().int().min(100).max(100000),
 });
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;

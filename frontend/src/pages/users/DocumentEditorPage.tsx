@@ -845,6 +845,8 @@ export function DocumentEditorPage() {
   };
 
   const wordCount = wordCountFromEditorContent(currentContent);
+  const maxWordCount = uploadConfig?.maxWordCount ?? 10_000;
+  const isOverWordLimit = wordCount > maxWordCount;
   const estimatedPageCount = usePrintedPageEstimate(
     currentContent,
     currentHeader,
@@ -853,7 +855,9 @@ export function DocumentEditorPage() {
   const documentMeta = [
     breadcrumb !== 'Document' ? breadcrumb : null,
     `Draft v${draftVersion}`,
-    `${wordCount.toLocaleString()} words`,
+    isOverWordLimit
+      ? `${wordCount.toLocaleString()} / ${maxWordCount.toLocaleString()} words`
+      : `${wordCount.toLocaleString()} words`,
     estimatedPageCount === 1 ? '~1 page' : `~${estimatedPageCount.toLocaleString()} pages`,
   ]
     .filter(Boolean)
@@ -1128,6 +1132,16 @@ export function DocumentEditorPage() {
                   </button>
                 </p>
               )}
+            </div>
+          )}
+          {isOverWordLimit && (
+            <div
+              role="alert"
+              className="flex items-center gap-sm border-b border-border-subtle bg-signal-critical/5 px-lg py-sm"
+            >
+              <p className="text-bodySmall text-signal-critical">
+                This document exceeds the maximum word count of {maxWordCount.toLocaleString()} words. Current count: {wordCount.toLocaleString()}. Shorten the document to save.
+              </p>
             </div>
           )}
           {isPollingIngest && (

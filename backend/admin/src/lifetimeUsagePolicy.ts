@@ -22,6 +22,7 @@ interface PolicyRow {
   readonly document_upload_limit: number;
   readonly drafts_per_document_limit: number;
   readonly max_upload_file_size_bytes: number;
+  readonly max_word_count: number;
 }
 
 const DEFAULT_POLICY: PlatformUsagePolicy = {
@@ -30,6 +31,7 @@ const DEFAULT_POLICY: PlatformUsagePolicy = {
   documentUploadLimit: 30,
   draftsPerDocumentLimit: 15,
   maxUploadFileSizeBytes: 30 * 1024 * 1024,
+  maxWordCount: 10_000,
 };
 
 function toPolicy(row: PolicyRow | undefined): PlatformUsagePolicy {
@@ -40,6 +42,7 @@ function toPolicy(row: PolicyRow | undefined): PlatformUsagePolicy {
     documentUploadLimit: row.document_upload_limit,
     draftsPerDocumentLimit: row.drafts_per_document_limit,
     maxUploadFileSizeBytes: row.max_upload_file_size_bytes,
+    maxWordCount: row.max_word_count,
   });
 }
 
@@ -49,7 +52,7 @@ export async function getPlatformUsagePolicy(
 ): Promise<PlatformUsagePolicy> {
   const rows = await db.query<PolicyRow>(
     `SELECT message_limit, debrief_generation_limit, document_upload_limit,
-            drafts_per_document_limit, max_upload_file_size_bytes
+            drafts_per_document_limit, max_upload_file_size_bytes, max_word_count
      FROM platform_usage_policy WHERE id = 1`,
   );
   return toPolicy(rows[0]);
@@ -74,16 +77,18 @@ export async function updatePlatformUsagePolicy(
        document_upload_limit = $3,
        drafts_per_document_limit = $4,
        max_upload_file_size_bytes = $5,
+       max_word_count = $6,
        updated_at = now()
      WHERE id = 1
      RETURNING message_limit, debrief_generation_limit, document_upload_limit,
-               drafts_per_document_limit, max_upload_file_size_bytes`,
+               drafts_per_document_limit, max_upload_file_size_bytes, max_word_count`,
     [
       parsed.messageLimit,
       parsed.debriefGenerationLimit,
       parsed.documentUploadLimit,
       parsed.draftsPerDocumentLimit,
       parsed.maxUploadFileSizeBytes,
+      parsed.maxWordCount,
     ],
   );
 
@@ -92,14 +97,15 @@ export async function updatePlatformUsagePolicy(
     await db.query(
       `INSERT INTO platform_usage_policy (
          id, message_limit, debrief_generation_limit,
-         document_upload_limit, drafts_per_document_limit, max_upload_file_size_bytes
-       ) VALUES (1, $1, $2, $3, $4, $5)`,
+         document_upload_limit, drafts_per_document_limit, max_upload_file_size_bytes, max_word_count
+       ) VALUES (1, $1, $2, $3, $4, $5, $6)`,
       [
         parsed.messageLimit,
         parsed.debriefGenerationLimit,
         parsed.documentUploadLimit,
         parsed.draftsPerDocumentLimit,
         parsed.maxUploadFileSizeBytes,
+        parsed.maxWordCount,
       ],
     );
     return parsed;

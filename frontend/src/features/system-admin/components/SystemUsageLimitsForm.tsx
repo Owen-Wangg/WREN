@@ -20,6 +20,7 @@ export function SystemUsageLimitsForm({
       documentUploadLimit: 30,
       draftsPerDocumentLimit: 15,
       maxUploadFileSizeBytes: 30 * 1024 * 1024,
+      maxWordCount: 10_000,
     }
   );
 
@@ -164,6 +165,31 @@ export function SystemUsageLimitsForm({
             <p className="mt-1 text-sm text-red-600">
               {errors.maxUploadFileSizeBytes}
             </p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-900">
+            Max Word Count per Document
+          </label>
+          <input
+            type="number"
+            min="100"
+            max="100000"
+            value={formData.maxWordCount}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                maxWordCount: Math.max(100, parseInt(e.target.value) || 100),
+              })
+            }
+            className={inputClasses}
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Minimum 100 words, maximum 100,000 words. Applies to all document drafts. Per-document-type overrides take precedence.
+          </p>
+          {errors.maxWordCount && (
+            <p className="mt-1 text-sm text-red-600">{errors.maxWordCount}</p>
           )}
         </div>
 

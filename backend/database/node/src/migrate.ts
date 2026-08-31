@@ -45,14 +45,14 @@ export async function runMigrations(
   migrationsDir: string = DEFAULT_MIGRATIONS_DIR,
 ): Promise<string[]> {
   await sql.unsafe(
-    `CREATE TABLE IF NOT EXISTS schema_migrations (
+    `CREATE TABLE IF NOT EXISTS public.schema_migrations (
        filename   text PRIMARY KEY,
        applied_at timestamptz NOT NULL DEFAULT now()
      )`,
   );
 
   const appliedRows = (await sql.unsafe(
-    'SELECT filename FROM schema_migrations',
+    'SELECT filename FROM public.schema_migrations',
   )) as unknown as AppliedRow[];
   const applied = new Set(appliedRows.map((row) => row.filename));
 
@@ -66,7 +66,7 @@ export async function runMigrations(
     // both commit or both roll back.
     await sql.begin(async (tx) => {
       await tx.unsafe(ddl);
-      await tx.unsafe('INSERT INTO schema_migrations (filename) VALUES ($1)', [
+      await tx.unsafe('INSERT INTO public.schema_migrations (filename) VALUES ($1)', [
         filename,
       ]);
     });
