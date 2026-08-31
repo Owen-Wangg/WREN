@@ -28,6 +28,7 @@ export interface IngestQueueMessage {
   readonly fileName: string;
   readonly userId: string;
   readonly sizeLimitWords: number | null;
+  readonly platformSizeLimitWords?: number | null;
   readonly ocrEngine?: string;
 }
 
@@ -79,6 +80,7 @@ export async function processIngestQueueMessage(
       : ingestResult.segments;
     const sizeResult = enforceSizeLimit(segments, {
       documentTypeSizeLimitWords: message.sizeLimitWords,
+      platformSizeLimitWords: message.platformSizeLimitWords,
     });
     if (sizeResult.status === 'over-limit') {
       await markIngestJobFailed(db, message.jobId, sizeResult.message);
@@ -90,15 +92,16 @@ export async function processIngestQueueMessage(
     const headerFooterWords =
       (ingestResult.header ? wordCountFromTipTapContent(ingestResult.header as TipTapDoc) : 0) +
       (ingestResult.footer ? wordCountFromTipTapContent(ingestResult.footer as TipTapDoc) : 0);
-    if (headerFooterWords > 0 && message.sizeLimitWords !== null) {
+    if (headerFooterWords > 0) {
+      const effectiveLimit = sizeResult.effectiveLimitWords;
       const bodyWords = storedContent
         ? wordCountFromTipTapContent(storedContent)
         : sizeResult.measuredWords;
-      if (bodyWords + headerFooterWords > message.sizeLimitWords) {
+      if (bodyWords + headerFooterWords > effectiveLimit) {
         await markIngestJobFailed(
           db,
           message.jobId,
-          `Document exceeds the ${message.sizeLimitWords}-word limit (${bodyWords + headerFooterWords} words including header and footer).`,
+          `Document exceeds the ${effectiveLimit}-word limit (${bodyWords + headerFooterWords} words including header and footer).`,
         );
         return;
       }

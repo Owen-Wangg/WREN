@@ -46,6 +46,7 @@ import {
 } from './ingestWorker.js';
 import {
   assertDocumentUploadAllowed,
+  getPlatformUsagePolicy,
   reserveDraftCreate,
   reserveDocumentUpload,
   UsageLimitReachedError,
@@ -154,7 +155,7 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
   }
 }
 
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const DEFAULT_MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const ORPHAN_UPLOAD_TAGGING =
   '<Tagging><TagSet><Tag><Key>orphan-upload</Key><Value>true</Value></Tag></TagSet></Tagging>';
 
@@ -386,6 +387,9 @@ export const handler = async (
     if (resource === '/v1/uploads/presign' && httpMethod === 'POST') {
       return await wrapHandler(() => handlePresignUpload(event));
     }
+    if (resource === '/v1/uploads/config' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetUploadConfig(event));
+    }
 
     return withCors({
       statusCode: 404,
@@ -565,6 +569,8 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   };
   const sizeLimitWords =
     typeof dtRows[0].size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const createDocPolicy = await getPlatformUsagePolicy(db);
+  const platformWordLimit = createDocPolicy.maxWordCount;
 
   const grants = await loadActiveSubmissionGrants(actor.userId, documentTypeId, db);
   const submissionGate = await gateSubmission(
@@ -754,6 +760,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
         fileName: asyncPdf.fileName,
         userId: actor.userId,
         sizeLimitWords,
+        platformSizeLimitWords: platformWordLimit,
         ocrEngine,
       });
     } catch (enqueueError) {
@@ -823,6 +830,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     : ingestResult.segments;
   const sizeResult = enforceSizeLimit(segments, {
     documentTypeSizeLimitWords: sizeLimitWords,
+    platformSizeLimitWords: platformWordLimit,
   });
   if (sizeResult.status === 'over-limit') {
     return {
@@ -845,7 +853,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     const bodyWords = storedContent
       ? wordCountFromTipTapContent(storedContent)
       : sizeResult.measuredWords;
-    const overLimit = overSizeLimitHttpResponse(bodyWords + headerFooterWords, sizeLimitWords);
+    const overLimit = overSizeLimitHttpResponse(bodyWords + headerFooterWords, sizeLimitWords, platformWordLimit);
     if (overLimit) return overLimit;
   }
 
@@ -1128,6 +1136,7 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
   );
   const sizeLimitWords =
     typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const patchPolicy = await getPlatformUsagePolicy(db);
 
   const cleaned = stripAiMarksFromTipTapContent(tipTapContent) as TipTapDoc;
   const header = isTipTapDoc(body.header) ? (body.header as TipTapDoc) : undefined;
@@ -1147,7 +1156,7 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
     wordCountFromTipTapContent(cleaned) +
     (header ? wordCountFromTipTapContent(header) : 0) +
     (footer ? wordCountFromTipTapContent(footer) : 0);
-  const overLimit = overSizeLimitHttpResponse(wordCount, sizeLimitWords);
+  const overLimit = overSizeLimitHttpResponse(wordCount, sizeLimitWords, patchPolicy.maxWordCount);
   if (overLimit) {
     return overLimit;
   }
@@ -1228,6 +1237,8 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   );
   const sizeLimitWords =
     typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const createDraftPolicy = await getPlatformUsagePolicy(db);
+  const draftPlatformWordLimit = createDraftPolicy.maxWordCount;
 
   let s3Key = 'inline';
   let normalizedSegments: Array<{ index: number; text: string }>;
@@ -1304,6 +1315,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
             fileName,
             userId: actor.userId,
             sizeLimitWords,
+            platformSizeLimitWords: draftPlatformWordLimit,
             ocrEngine,
           });
         } catch (enqueueError) {
@@ -1383,6 +1395,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       : normalizeSegments(ingestResult.segments);
     const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
+      platformSizeLimitWords: draftPlatformWordLimit,
     });
     if (sizeResult.status === 'over-limit') {
       return {
@@ -1402,6 +1415,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     normalizedSegments = tipTapContentToSegments(tipTapContent);
     const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
+      platformSizeLimitWords: draftPlatformWordLimit,
     });
     if (sizeResult.status === 'over-limit') {
       return {
@@ -1420,6 +1434,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     wordCount = wordCountFromSegments(normalizedSegments);
     const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
+      platformSizeLimitWords: draftPlatformWordLimit,
     });
     if (sizeResult.status === 'over-limit') {
       return {
@@ -1441,7 +1456,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     (storedHeader ? wordCountFromTipTapContent(storedHeader) : 0) +
     (storedFooter ? wordCountFromTipTapContent(storedFooter) : 0);
   if (headerFooterWords > 0) {
-    const overLimit = overSizeLimitHttpResponse(wordCount + headerFooterWords, sizeLimitWords);
+    const overLimit = overSizeLimitHttpResponse(wordCount + headerFooterWords, sizeLimitWords, draftPlatformWordLimit);
     if (overLimit) return overLimit;
     wordCount += headerFooterWords;
   }
@@ -1508,6 +1523,9 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
 
   await assertDocumentUploadAllowed(actor.userId, db);
 
+  const policy = await getPlatformUsagePolicy(db);
+  const maxFileSizeBytes = policy.maxUploadFileSizeBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+
   const safeName = filename.replace(/[^\w.\-()+ ]+/g, '_');
   const key = `documents/${actor.userId}/uploads/${uuid()}-${safeName}`;
   const kmsKeyArn = process.env.DOCUMENTS_KMS_KEY_ARN?.trim();
@@ -1522,7 +1540,7 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
     Bucket: process.env.DOCUMENTS_BUCKET_NAME!,
     Key: key,
     Conditions: [
-      ['content-length-range', 1, MAX_UPLOAD_BYTES],
+      ['content-length-range', 1, maxFileSizeBytes],
       ['eq', '$Content-Type', contentType],
       ['eq', '$tagging', ORPHAN_UPLOAD_TAGGING],
       ...Object.entries(encryptionFields).map(
@@ -1539,7 +1557,18 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ uploadUrl: url, fields, key }),
+    body: JSON.stringify({ uploadUrl: url, fields, key, maxFileSizeBytes }),
+  };
+}
+
+async function handleGetUploadConfig(event: any): Promise<APIGatewayProxyResult> {
+  parseAuthContext(event); // ensure authenticated
+  const db = await getDataAccess();
+  const policy = await getPlatformUsagePolicy(db);
+  const maxFileSizeBytes = policy.maxUploadFileSizeBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ maxFileSizeBytes, maxWordCount: policy.maxWordCount }),
   };
 }
 

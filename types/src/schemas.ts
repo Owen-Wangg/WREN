@@ -1062,6 +1062,8 @@ export const platformUsagePolicySchema = z
     debriefGenerationLimit: z.number().int().positive(),
     documentUploadLimit: z.number().int().positive(),
     draftsPerDocumentLimit: z.number().int().positive(),
+    maxUploadFileSizeBytes: z.number().int().min(1048576).max(1073741824),
+    maxWordCount: z.number().int().min(100).max(100000),
   })
   .strict();
 export type PlatformUsagePolicy = z.infer<typeof platformUsagePolicySchema>;

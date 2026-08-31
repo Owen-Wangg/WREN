@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
+import { useUploadConfig } from '@/hooks/useUploadConfig';
 
 import {
   useDocumentTypes,
@@ -54,6 +55,8 @@ export function NewDocumentPage() {
   const [documentName, setDocumentName] = useState('');
   const [metadata, setMetadata] = useState<Record<string, string>>({});
   const [referenceFile, setReferenceFile] = useState<File | undefined>(undefined);
+  const [fileSizeError, setFileSizeError] = useState<string | undefined>(undefined);
+  const { data: uploadConfig } = useUploadConfig();
   const documentTypesQuery = useDocumentTypes(selectedDepartment);
   const documentTypes = documentTypesQuery.data ?? [];
   const metadataFieldsQuery = useMetadataFields(selectedDocumentType);
@@ -67,6 +70,7 @@ export function NewDocumentPage() {
     selectedDocumentType &&
     documentName.trim() &&
     referenceFile &&
+    !fileSizeError &&
     !metadataFieldsQuery.isLoading &&
     !metadataFieldsQuery.isError &&
     missingRequiredMetadata.length === 0,
@@ -350,8 +354,27 @@ export function NewDocumentPage() {
               type="file"
               accept=".docx,.pdf"
               className="rounded-md border border-border-subtle bg-surface-muted px-lg py-sm text-bodySmall text-text-primary file:mr-md file:rounded-md file:border-0 file:bg-surface-primary file:px-md file:py-xs file:text-bodySmall file:font-sans file:text-text-secondary"
-              onChange={(e) => setReferenceFile(e.target.files?.[0])}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                setFileSizeError(undefined);
+                if (file) {
+                  const limit = uploadConfig?.maxFileSizeBytes ?? 30 * 1024 * 1024;
+                  if (file.size > limit) {
+                    setFileSizeError(
+                      `File exceeds the maximum allowed size of ${Math.round(limit / (1024 * 1024))} MB`,
+                    );
+                    e.target.value = '';
+                    return;
+                  }
+                }
+                setReferenceFile(file);
+              }}
             />
+            {fileSizeError && (
+              <p role="alert" className="text-bodySmall text-signal-critical">
+                {fileSizeError}
+              </p>
+            )}
             <p className="text-caption text-text-muted leading-relaxed">
               <strong>Prefer .docx</strong> when formatting matters — fonts, colors,
               highlights, alignment, images, headings, lists, and tables survive
