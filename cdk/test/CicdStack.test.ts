@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 
-import { Match } from "aws-cdk-lib/assertions";
+import { App } from "aws-cdk-lib";
+import { Match, Template } from "aws-cdk-lib/assertions";
+
+import { CicdStack } from "../lib/stacks/CicdStack.js";
 
 import { TEST_ACCOUNT } from "./helpers.js";
 import { policyFixtures, asArray, statements } from "./support/cicdPolicyFixtures.js";
@@ -246,5 +249,52 @@ describe("Compute deploy role — recorded pre-fix baseline (REQ 7.2, 8.2)", () 
       "appsync.amazonaws.com",
       "events.amazonaws.com",
     ]);
+  });
+});
+
+
+describe("CicdStack prerequisite-only modes", () => {
+  it("creates the managed ECR repository and boundary without pipeline resources", () => {
+    const app = new App();
+    const config = synthCicd().config;
+    const stack = new CicdStack(app, "PrerequisitesOnly", {
+      env: config.env,
+      config,
+      enablePipeline: false,
+      ecrOwnership: "managed",
+    });
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs("AWS::ECR::Repository", 1);
+    template.resourceCountIs("AWS::IAM::ManagedPolicy", 1);
+    template.resourceCountIs("AWS::CodePipeline::Pipeline", 0);
+    template.resourceCountIs("AWS::CodeBuild::Project", 0);
+
+    const repositories = Object.values(template.findResources("AWS::ECR::Repository"));
+    const lifecyclePolicy = JSON.parse(
+      repositories[0]?.Properties?.LifecyclePolicy?.LifecyclePolicyText as string,
+    ) as { readonly rules: readonly { readonly selection: { readonly tagStatus: string } }[] };
+    expect(lifecyclePolicy.rules).toHaveLength(1);
+    expect(lifecyclePolicy.rules[0]?.selection).toMatchObject({
+      tagStatus: "untagged",
+      countType: "sinceImagePushed",
+      countNumber: 30,
+      countUnit: "days",
+    });
+  });
+
+  it("imports an explicitly external ECR repository without creating a conflict", () => {
+    const app = new App();
+    const config = synthCicd().config;
+    const stack = new CicdStack(app, "ExternalRepository", {
+      env: config.env,
+      config,
+      enablePipeline: false,
+      ecrOwnership: "external",
+    });
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs("AWS::ECR::Repository", 0);
+    template.resourceCountIs("AWS::IAM::ManagedPolicy", 1);
   });
 });

@@ -57,7 +57,8 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
     },
     "pre_build": {
       "commands": [
-        "npx tsc --noEmit",
+        "npm run test:ci",
+        "cd cdk && npm run typecheck && npm test -- --runInBand && cd ..",
         "aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin ",
                 {
                   "Fn::Select": [
@@ -362,7 +363,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
                 ":$CODEBUILD_RESOLVED_SOURCE_VERSION\\" > image-uri.txt",
-        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
+        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$CODEBUILD_RESOLVED_SOURCE_VERSION -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
       ]
     }
   },
@@ -1051,7 +1052,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
         },
         "ImageTagMutability": "MUTABLE",
         "LifecyclePolicy": {
-          "LifecyclePolicyText": "{"rules":[{"rulePriority":1,"description":"Keep last 10 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}}]}",
+          "LifecyclePolicyText": "{"rules":[{"rulePriority":1,"description":"Remove only untagged images after 30 days; immutable release tags remain rollback-safe","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countNumber":30,"countUnit":"days"},"action":{"type":"expire"}}]}",
         },
         "RepositoryName": "wren-test-feedback-engine",
         "RepositoryPolicyText": {

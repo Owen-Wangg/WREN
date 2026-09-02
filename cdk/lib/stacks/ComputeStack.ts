@@ -1,5 +1,5 @@
 import * as path from "path";
-import { Stack, type StackProps, Duration, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, Duration, CfnOutput, RemovalPolicy } from "aws-cdk-lib";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as ecr from "aws-cdk-lib/aws-ecr";
@@ -45,6 +45,8 @@ function crisBedrockInvokeResources(region: string, account: string): string[] {
 export interface ComputeStackProps extends StackProps {
   readonly config: AppConfig;
   readonly vpc: ec2.IVpc;
+  /** Existing Feedback Engine ECR repository owned or explicitly imported by Cicd. */
+  readonly feedbackEngineRepository: ecr.IRepository;
   /** RDS Proxy endpoint hostname (from Database stack via SSM). */
   readonly databaseProxyEndpoint: string;
   /** Per-Lambda Secrets Manager ARNs (Postgres role secrets, not dbadmin). */
@@ -142,14 +144,24 @@ export class ComputeStack extends Stack {
     // Manager (never a guessable path). CloudFormation injects the value into
     // Lambda env via a dynamic reference — activityLogService reads
     // WREN_ACTIVITY_PSEUDONYM_SALT at runtime.
-    const activityPseudonymSalt = new secretsmanager.Secret(this, "ActivityPseudonymSalt", {
-      secretName: `${config.stackPrefix}/audit/pseudonym-salt`,
-      description: "One-way salt for activity-log actor pseudonyms",
-      generateSecretString: {
-        passwordLength: 48,
-        excludePunctuation: true,
-      },
-    });
+    const activityPseudonymSaltName = `${config.stackPrefix}/audit/pseudonym-salt`;
+    const activityPseudonymSalt = config.auditPseudonymSaltOwnership === "external"
+      ? secretsmanager.Secret.fromSecretNameV2(
+        this,
+        "ActivityPseudonymSalt",
+        activityPseudonymSaltName,
+      )
+      : new secretsmanager.Secret(this, "ActivityPseudonymSalt", {
+        secretName: activityPseudonymSaltName,
+        description: "One-way salt for activity-log actor pseudonyms",
+        generateSecretString: {
+          passwordLength: 48,
+          excludePunctuation: true,
+        },
+      });
+    if (config.auditPseudonymSaltOwnership === "managed") {
+      activityPseudonymSalt.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    }
     const activitySaltEnv = {
       WREN_ACTIVITY_PSEUDONYM_SALT: activityPseudonymSalt.secretValue.unsafeUnwrap(),
     };
@@ -333,17 +345,11 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Feedback Engine Lambda (Python 3.12, container — AI workload via Bedrock)
     // -----------------------------------------------------------------------
-    const feedbackEngineRepo = ecr.Repository.fromRepositoryName(
-      this,
-      "FeedbackEngineRepo",
-      `${config.stackPrefix}-feedback-engine`,
-    );
-
     this.feedbackEngineFunction = new lambda.Function(this, "FeedbackEngineFn", {
       functionName: `${config.stackPrefix}-feedback-engine`,
       runtime: lambda.Runtime.FROM_IMAGE,
-      code: lambda.Code.fromEcrImage(feedbackEngineRepo, {
-        tagOrDigest: "bootstrap",
+      code: lambda.Code.fromEcrImage(props.feedbackEngineRepository, {
+        tagOrDigest: config.feedbackEngineImageTag,
       }),
       handler: lambda.Handler.FROM_IMAGE,
       memorySize: 1024,

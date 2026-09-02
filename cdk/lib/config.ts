@@ -73,11 +73,23 @@ export interface AppConfig {
    * backend orchestration logic. Defaults to {@link DEFAULT_BEDROCK_MODEL_ID}.
    */
   readonly bedrockModelId: string;
+  /** Immutable ECR tag used by the Feedback Engine Lambda. */
+  readonly feedbackEngineImageTag: string;
+  /**
+   * Whether Compute creates the audit pseudonym salt or reuses a salt retained
+   * by a previous protected teardown.
+   */
+  readonly auditPseudonymSaltOwnership: "managed" | "external";
   /**
    * Optional exact Cognito subject allowed to receive TechnicalAdmin during its
    * first application-side provisioning. Absent by default, disabling bootstrap.
    */
   readonly technicalAdminBootstrapSubject?: string;
+  /**
+   * Optional recipient for CloudWatch alarm notifications. The SNS email
+   * subscription remains pending until the recipient confirms it in AWS.
+   */
+  readonly alarmEmail?: string;
   /**
    * Prefix that drives all stack/resource naming: `${StackPrefix}-<Concern>`.
    * Defaults to `${projectName}-${environmentName}` when not explicitly
@@ -107,7 +119,9 @@ function readContext(app: App, key: string): string | undefined {
  *   - `projectName`     -> defaults to `wren` (drives resource naming)
  *   - `environmentName` -> defaults to `dev`
  *   - `bedrockModelId`  -> defaults to DEFAULT_BEDROCK_MODEL_ID
+ *   - `feedbackEngineImageTag` -> defaults to `bootstrap` for direct-CDK compatibility
  *   - `technicalAdminBootstrapSubject` -> optional exact Cognito sub; absent disables bootstrap
+ *   - `alarmEmail`      -> optional SNS email recipient for CloudWatch alarms
  *   - `stackPrefix`     -> defaults to `${projectName}-${environmentName}`
  *
  * Override at synth/deploy time, e.g.:
@@ -119,7 +133,13 @@ export function resolveAppConfig(app: App): AppConfig {
   const projectName = readContext(app, "projectName") ?? DEFAULT_PROJECT_NAME;
   const environmentName = readContext(app, "environmentName") ?? DEFAULT_ENVIRONMENT_NAME;
   const bedrockModelId = readContext(app, "bedrockModelId") ?? DEFAULT_BEDROCK_MODEL_ID;
+  const feedbackEngineImageTag = readContext(app, "feedbackEngineImageTag") ?? "bootstrap";
+  const auditPseudonymSaltOwnership = readContext(app, "auditPseudonymSaltOwnership") ?? "managed";
+  if (auditPseudonymSaltOwnership !== "managed" && auditPseudonymSaltOwnership !== "external") {
+    throw new Error("auditPseudonymSaltOwnership must be 'managed' or 'external'");
+  }
   const technicalAdminBootstrapSubject = readContext(app, "technicalAdminBootstrapSubject");
+  const alarmEmail = readContext(app, "alarmEmail");
   const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
 
   // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
@@ -134,7 +154,10 @@ export function resolveAppConfig(app: App): AppConfig {
     projectName,
     environmentName,
     bedrockModelId,
+    feedbackEngineImageTag,
+    auditPseudonymSaltOwnership,
     ...(technicalAdminBootstrapSubject ? { technicalAdminBootstrapSubject } : {}),
+    ...(alarmEmail ? { alarmEmail } : {}),
     stackPrefix,
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,

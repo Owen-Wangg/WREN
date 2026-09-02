@@ -2,6 +2,7 @@ import { Stack, type StackProps, Duration, RemovalPolicy } from "aws-cdk-lib";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import type { Construct } from "constructs";
 
@@ -54,6 +55,11 @@ export class ObservabilityStack extends Stack {
       topicName: `${config.stackPrefix}-alarms`,
       displayName: `${config.stackPrefix} Alarms`,
     });
+    if (config.alarmEmail !== undefined) {
+      // SNS sends a confirmation email; alarms reach a human only after the
+      // recipient accepts that subscription.
+      this.alarmTopic.addSubscription(new subscriptions.EmailSubscription(config.alarmEmail));
+    }
 
     // -------------------------------------------------------------------
     // CloudWatch Log Groups (deliberate retention)

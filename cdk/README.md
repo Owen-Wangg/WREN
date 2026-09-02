@@ -4,7 +4,7 @@ AWS CDK v2 (TypeScript) for the LEON writing coach platform (internal project na
 
 Stacks are named `${stackPrefix}-<Concern>` (default `wren-dev-Vpc`, `wren-dev-Compute`, …). Persistent resources stay in the **CDK `region`** (default `ca-central-1` in examples; override with `-c region=...`). CloudFront is a global CDN. The `CloudFrontWaf` stack is created in **`us-east-1`** because AWS manages CloudFront-scoped WAF there — not because student data is stored in that Region.
 
-**Full first-time AWS rollout** (Bedrock access, ECR `bootstrap` image, stack order, Amplify, first admin): **[docs/deployment-guide.md](../docs/deployment-guide.md)**.
+**Full first-time AWS rollout:** use `npm run deploy` from the repository root. It installs locked dependencies, verifies AWS/Bedrock/Docker, bootstraps both Regions, publishes the image, deploys stacks in order, guides first-admin setup, and runs smoke checks. Configuration and recovery details are in **[docs/deployment-guide.md](../docs/deployment-guide.md)**. Direct `npx cdk` commands in this README are advanced development/recovery operations.
 
 This package is meant to be deployable with **configuration only** — no source edits for display name, environment, or GitHub repo (REQ-NFR-OSS-01).
 
@@ -71,16 +71,25 @@ Stacks are tagged: `Project` = stack prefix, `Application` = display name, `Envi
 | `{prefix}-Api` | Data-plane Region | REST API from `lib/openapi.yaml` |
 | `{prefix}-Observability` | Data-plane Region | CloudWatch dashboards / alarms |
 | `{prefix}-CloudFrontWaf` | `us-east-1` (WAF scope constraint) | CloudFront + CloudFront-scoped WAF |
-| `{prefix}-Cicd` | Data-plane Region | ECR + CodePipeline (**skipped** without GitHub owner/repo) |
+| `{prefix}-Cicd` | Data-plane Region | ECR repo/import + Compute permissions boundary; optional CodePipeline |
 | `{prefix}-Amplify` | Data-plane Region | Frontend hosting (**skipped** without GitHub owner/repo) |
 
-**Deploy order:** Config → Vpc → Storage → Cognito → Database → (ECR image) → Compute → Api → Observability → CloudFrontWaf → Amplify / Cicd.
+**Orchestrated deploy order:** Cicd prerequisites → image publish → Config → Vpc → Storage → Cognito → Database → Compute → Api → Observability → CloudFrontWaf → Amplify → optional CodePipeline.
 
-`Compute` looks up ECR `{stackPrefix}-feedback-engine` tag **`bootstrap`**. That repo and tag must exist before Compute deploys. See the [deployment guide](../docs/deployment-guide.md).
+The orchestrator uses an immutable Feedback Engine image tag and also refreshes the compatibility `bootstrap` tag. Managed ECR expires only untagged images older than 30 days, preserving every tagged release needed for deployment or rollback. An external repository must already grant `lambda.amazonaws.com` the `ecr:GetDownloadUrlForLayer`, `ecr:BatchGetImage`, and `ecr:BatchCheckLayerAvailability` actions; the orchestrator validates that repository policy before deploying. For direct CDK deployment, the ECR repository and referenced image tag must already exist.
+
+The Compute audit pseudonym salt is retained. After a protected teardown, `npm run deploy` discovers the orphaned fixed-name secret and imports it instead of attempting to recreate it, preserving stable audit pseudonyms across redeployments. See the [deployment guide](../docs/deployment-guide.md).
 
 ## Commands
 
-Run from `cdk/`:
+Use the repository-root orchestrators for complete environments:
+
+```bash
+npm run deploy
+npm run undeploy  # protected teardown; requires exact confirmation for mutations
+```
+
+Run direct infrastructure-development commands from `cdk/`:
 
 ```bash
 npm run build       # tsc compile

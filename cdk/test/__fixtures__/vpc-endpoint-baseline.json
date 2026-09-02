@@ -1,0 +1,96 @@
+{
+  "collectedAt": "2026-09-01T12:00:00.000Z",
+  "stackPrefix": "wren-dev",
+  "region": "ca-central-1",
+  "phase": "baseline",
+  "costWindow": {
+    "start": "2026-08-01",
+    "end": "2026-09-01"
+  },
+  "vpcId": "vpc-0123456789abcdef0",
+  "endpoints": [
+    {
+      "Service": "com.amazonaws.ca-central-1.dynamodb",
+      "State": "available",
+      "PrivateDns": false,
+      "Subnets": [],
+      "RouteTables": ["rtb-private-a", "rtb-private-b"]
+    },
+    {
+      "Service": "com.amazonaws.ca-central-1.s3",
+      "State": "available",
+      "PrivateDns": false,
+      "Subnets": [],
+      "RouteTables": ["rtb-private-a", "rtb-private-b"]
+    },
+    {
+      "Service": "com.amazonaws.ca-central-1.ssm",
+      "State": "available",
+      "PrivateDns": true,
+      "Subnets": ["subnet-private-a", "subnet-private-b"],
+      "RouteTables": []
+    },
+    {
+      "Service": "com.amazonaws.ca-central-1.rds",
+      "State": "available",
+      "PrivateDns": true,
+      "Subnets": ["subnet-private-a", "subnet-private-b"],
+      "RouteTables": []
+    },
+    {
+      "Service": "com.amazonaws.ca-central-1.execute-api",
+      "State": "available",
+      "PrivateDns": true,
+      "Subnets": ["subnet-private-a", "subnet-private-b"],
+      "RouteTables": []
+    },
+    {
+      "Service": "com.amazonaws.ca-central-1.secretsmanager",
+      "State": "available",
+      "PrivateDns": true,
+      "Subnets": ["subnet-private-a", "subnet-private-b"],
+      "RouteTables": []
+    },
+    {
+      "Service": "com.amazonaws.ca-central-1.bedrock-runtime",
+      "State": "available",
+      "PrivateDns": true,
+      "Subnets": ["subnet-private-a", "subnet-private-b"],
+      "RouteTables": []
+    },
+    {
+      "Service": "com.amazonaws.vpce.ca-central-1.vpce-svc-0a268b84d32edc322",
+      "State": "available",
+      "PrivateDns": false,
+      "Subnets": ["subnet-private-a", "subnet-private-b"],
+      "RouteTables": []
+    }
+  ],
+  "natGateways": [
+    {
+      "Id": "nat-0123456789abcdef0",
+      "State": "available",
+      "Subnet": "subnet-public-a",
+      "Created": "2026-07-17T19:56:59+00:00"
+    }
+  ],
+  "flowLogs": [
+    {
+      "Id": "fl-0123456789abcdef0",
+      "Traffic": "ALL",
+      "LogGroup": "wren-dev-Vpc-NetworkFlowLogs",
+      "Status": "SUCCESS"
+    }
+  ],
+  "cloudTrails": [
+    {
+      "Name": "aws-controltower-BaselineCloudTrail",
+      "HomeRegion": "ca-central-1",
+      "LogGroup": "arn:aws:logs:ca-central-1:952783327393:log-group:aws-controltower/CloudTrailLogs:*",
+      "MultiRegion": true
+    }
+  ],
+  "costExplorer": {
+    "ResultsByTime": []
+  }
+}

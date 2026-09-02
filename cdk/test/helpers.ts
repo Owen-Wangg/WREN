@@ -24,6 +24,8 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     projectName: "wren",
     environmentName: "test",
     bedrockModelId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    feedbackEngineImageTag: "bootstrap",
+    auditPseudonymSaltOwnership: "managed",
     stackPrefix: "wren-test",
     env: { account: TEST_ACCOUNT, region: TEST_REGION },
     ...overrides,

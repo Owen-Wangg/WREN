@@ -27,7 +27,15 @@ Numbered variant: [Architecture Diagram (numbered)](docs/WREN_ARCHITECTURE_DIAGR
 
 ## Deployment Guide
 
-To deploy this solution, follow the steps in the [Deployment Guide](docs/deployment-guide.md).
+After authenticating the AWS CLI, starting Docker, enabling the configured Bedrock model, and setting the required environment variables, deploy from the repository root:
+
+```bash
+npm run deploy
+```
+
+The command installs locked root/CDK dependencies, bootstraps both required Regions, publishes the Feedback Engine image, deploys stacks in dependency order, guides first-administrator setup, and runs smoke checks. Preview AWS state without changing resources with `WREN_DRY_RUN=true npm run deploy`. Protected application teardown is `npm run undeploy`; it deliberately retains data and foundational stacks.
+
+See the [Deployment Guide](docs/deployment-guide.md) for the environment-variable reference, resumable action-required steps, CI/CD option, and teardown guarantees.
 
 Package-level CDK notes (context keys, stack list, commands) are in [`cdk/README.md`](cdk/README.md).
 

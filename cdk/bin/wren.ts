@@ -46,6 +46,14 @@ function ctxOrEnv(key: string, envVar: string): string | undefined {
   return value && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function boolCtxOrEnv(key: string, envVar: string, fallback = false): boolean {
+  const raw = ctxOrEnv(key, envVar);
+  if (raw === undefined) return fallback;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`${key}/${envVar} must be exactly 'true' or 'false'`);
+}
+
 // GitHub source configuration for Amplify hosting + the CI/CD pipeline. Read
 // from CDK context (`-c githubOwner=… -c githubRepo=… -c codestarConnectionArn=…`)
 // or the GITHUB_* environment variables — never hardcoded. When absent, the
@@ -55,6 +63,26 @@ const github = {
   repo: ctxOrEnv("githubRepo", "GITHUB_REPO"),
   branch: ctxOrEnv("githubBranch", "GITHUB_BRANCH") ?? "main",
 };
+const enableCicd = boolCtxOrEnv("enableCicd", "WREN_ENABLE_CICD");
+const ecrOwnership = ctxOrEnv("ecrOwnership", "WREN_ECR_OWNERSHIP") ?? "managed";
+if (ecrOwnership !== "managed" && ecrOwnership !== "external") {
+  throw new Error("ecrOwnership/WREN_ECR_OWNERSHIP must be 'managed' or 'external'");
+}
+if (enableCicd && (!github.owner || !github.repo)) {
+  throw new Error("GitHub owner and repository are required when CI/CD is enabled");
+}
+
+// Mandatory deployment prerequisites retain their historical Cicd stack
+// ownership. Only the pipeline resources are optional.
+const cicdStack = new CicdStack(app, stackName(config, "Cicd"), {
+  env: config.env,
+  config,
+  ecrOwnership,
+  enablePipeline: enableCicd,
+  ...(github.owner ? { repositoryOwner: github.owner } : {}),
+  ...(github.repo ? { repositoryName: github.repo } : {}),
+  branch: github.branch,
+});
 
 // Single-source application configuration (app name + Bedrock model id) is
 // published to SSM by the Config stack so backend Lambdas resolve it at runtime
@@ -98,6 +126,7 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   env: config.env,
   config,
   vpc: vpcStack.vpc,
+  feedbackEngineRepository: cicdStack.ecrRepository,
   databaseProxyEndpoint: databaseStack.proxyEndpoint,
   databaseSecretArns: databaseStack.appDbSecretArns,
   documentsBucketName: storageStack.documentsBucketName,
@@ -109,37 +138,11 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   promptGuardrailId: configStack.parameters.promptGuardrailIdParameter.stringValue,
 });
 
-// Permissions boundary for every IAM role the Compute stack creates
-// (Fix_Commit C5 — Requirement 2 criterion 1, Requirement 6 criteria 1-2).
-//
-// PRECONDITION: the managed policy `${stackPrefix}-compute-boundary` MUST already
-// exist in the target account. It is owned by the Cicd stack
-// (`createComputeBoundaryPolicy`) and lands in the account only when a human runs
-// `cdk deploy ${stackPrefix}-Cicd` (Fix_Commit C4). A Compute deploy that runs
-// before that fails with a missing-policy error from IAM.
-//
-// The boundary is referenced by its CONSTRUCTED ARN, never by
-// `cicdStack.computeBoundaryPolicyArn`: a real cross-stack reference would emit an
-// `Fn::ImportValue` into the Compute template, and the Cicd stack is synthesized
-// only when GitHub context is supplied — so that reference would break synth
-// whenever the context is absent, and would impose a Cicd-before-Compute deploy
-// order the pipeline cannot express. The attachment itself is UNCONDITIONAL: the
-// Cicd stack is conditional, the boundary on the runtime roles is not.
-//
-// The account segment comes from `computeStack.account` rather than
-// `config.env.account`, which is `process.env.CDK_DEFAULT_ACCOUNT` and is
-// undefined for an environment-agnostic synth (that would render
-// `arn:aws:iam::undefined:policy/...`). `Stack.account` gives the literal account
-// when it is known and the `AWS::AccountId` pseudo parameter when it is not —
-// the same convention `CicdStack.deriveComputeDeployScopes` follows for the
-// matching ARN literal on the deploy-role side.
-iam.PermissionsBoundary.of(computeStack).apply(
-  iam.ManagedPolicy.fromManagedPolicyArn(
-    computeStack,
-    "ComputeBoundaryRef",
-    CicdStack.boundaryPolicyArnFor(computeStack.account, config.stackPrefix),
-  ),
-);
+// The prerequisite stack is always present, so use its real managed-policy
+// reference. This creates a CloudFormation dependency instead of relying on a
+// constructed ARN whose policy may not exist yet.
+iam.PermissionsBoundary.of(computeStack).apply(cicdStack.computeBoundaryPolicy);
+computeStack.addDependency(cicdStack);
 
 // API Gateway stack (depends on Compute for Lambda function ARNs).
 // `crossRegionReferences` lets the us-east-1 CloudFront/WAF stack consume this
@@ -202,6 +205,7 @@ if (github.owner && github.repo) {
     config,
     repositoryOwner: github.owner,
     repositoryName: github.repo,
+    branch: github.branch,
     githubTokenSecretName: `${config.stackPrefix}/github/token`,
     apiEndpoint: amplifyApiEndpoint,
     cognitoUserPoolId: cognitoStack.userPoolId,
@@ -212,21 +216,6 @@ if (github.owner && github.repo) {
   // eslint-disable-next-line no-console
   console.warn(
     "[wren] Skipping Amplify stack — set -c githubOwner=<owner> -c githubRepo=<repo> (or GITHUB_OWNER/GITHUB_REPO) to enable frontend hosting.",
-  );
-}
-
-if (github.owner && github.repo) {
-  new CicdStack(app, stackName(config, "Cicd"), {
-    env: config.env,
-    config,
-    repositoryOwner: github.owner,
-    repositoryName: github.repo,
-    branch: github.branch,
-  });
-} else {
-  // eslint-disable-next-line no-console
-  console.warn(
-    "[wren] Skipping CICD stack — set githubOwner/githubRepo (or GITHUB_OWNER/GITHUB_REPO) to enable the pipeline.",
   );
 }
 
