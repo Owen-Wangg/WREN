@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "synth": "cdk synth",
-    "cdk": "cdk"
+    "cdk": "cdk",
+    "deploy:orchestrator": "tsx scripts/deploy.ts",
+    "undeploy:orchestrator": "tsx scripts/undeploy.ts"
   },
   "devDependencies": {
     "@types/node": "~26.0.1",

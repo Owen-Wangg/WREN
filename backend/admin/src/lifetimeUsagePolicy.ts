@@ -41,7 +41,7 @@ function toPolicy(row: PolicyRow | undefined): PlatformUsagePolicy {
     debriefGenerationLimit: row.debrief_generation_limit,
     documentUploadLimit: row.document_upload_limit,
     draftsPerDocumentLimit: row.drafts_per_document_limit,
-    maxUploadFileSizeBytes: row.max_upload_file_size_bytes,
+    maxUploadFileSizeBytes: Number(row.max_upload_file_size_bytes),
     maxWordCount: row.max_word_count,
   });
 }

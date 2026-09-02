@@ -14,6 +14,8 @@ export interface AmplifyStackProps extends StackProps {
   readonly repositoryOwner: string;
   /** GitHub repository name (e.g. "WREN"). */
   readonly repositoryName: string;
+  /** Source branch hosted as the production branch. */
+  readonly branch: string;
   /** GitHub OAuth token secret name in Secrets Manager. */
   readonly githubTokenSecretName: string;
   /** The API endpoint URL for the frontend to connect to. */
@@ -40,7 +42,7 @@ export interface AmplifyStackProps extends StackProps {
  */
 export class AmplifyStack extends Stack {
   public readonly amplifyApp: amplify.App;
-  public readonly mainBranch: amplify.Branch;
+  public readonly productionBranch: amplify.Branch;
 
   constructor(scope: Construct, id: string, props: AmplifyStackProps) {
     super(scope, id, props);
@@ -106,18 +108,20 @@ export class AmplifyStack extends Stack {
     this.amplifyApp.addCustomRule(amplify.CustomRule.SINGLE_PAGE_APPLICATION_REDIRECT);
 
     // -------------------------------------------------------------------
-    // Branch: main (auto-build on push)
+    // Production branch follows the configured GitHub source branch.
     // -------------------------------------------------------------------
-    this.mainBranch = this.amplifyApp.addBranch("main", {
+    this.productionBranch = this.amplifyApp.addBranch(props.branch, {
       autoBuild: true,
       stage: "PRODUCTION",
     });
 
-    // Feature branches: auto-build for PR previews.
-    this.amplifyApp.addBranch("develop", {
-      autoBuild: true,
-      stage: "DEVELOPMENT",
-    });
+    // Keep develop previews only when it is not already the production branch.
+    if (props.branch !== "develop") {
+      this.amplifyApp.addBranch("develop", {
+        autoBuild: true,
+        stage: "DEVELOPMENT",
+      });
+    }
 
     // -------------------------------------------------------------------
     // Outputs
@@ -127,8 +131,8 @@ export class AmplifyStack extends Stack {
       description: "Amplify App ID",
     });
     new CfnOutput(this, "AmplifyDefaultDomain", {
-      value: `main.${this.amplifyApp.defaultDomain}`,
-      description: "Amplify default domain for the main branch",
+      value: `${props.branch}.${this.amplifyApp.defaultDomain}`,
+      description: `Amplify default domain for the ${props.branch} branch`,
     });
   }
 }

@@ -1,6 +1,7 @@
 import { App, Stack, aws_iam as iam } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as kms from "aws-cdk-lib/aws-kms";
 
 import { APP_DB_ROLES, type AppDbRole } from "../../lib/appDbRoles.js";
@@ -31,6 +32,7 @@ export function synthCicd(): SynthResult {
   const stack = new CicdStack(app, `${config.stackPrefix}-Cicd`, {
     env: config.env,
     config,
+    enablePipeline: true,
     repositoryOwner: "test-owner",
     repositoryName: "test-repo",
     branch: "main",
@@ -66,6 +68,11 @@ export function synthCompute(): SynthResult {
     env: config.env,
     config,
     vpc,
+    feedbackEngineRepository: ecr.Repository.fromRepositoryName(
+      stubs,
+      "FeedbackEngineRepo",
+      `${config.stackPrefix}-feedback-engine`,
+    ),
     databaseProxyEndpoint: `${config.stackPrefix}-proxy.proxy-abcdefghijkl.${TEST_REGION}.rds.amazonaws.com`,
     databaseSecretArns,
     documentsBucketName: `${config.stackPrefix.toLowerCase()}-storage-documents`,

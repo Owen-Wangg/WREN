@@ -1,4 +1,4 @@
-import { Stack, type StackProps, RemovalPolicy, SecretValue, CfnCapabilities } from "aws-cdk-lib";
+import { Stack, type StackProps, RemovalPolicy, SecretValue, CfnCapabilities, Duration } from "aws-cdk-lib";
 import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
 import * as codepipelineActions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
@@ -13,12 +13,16 @@ import type { AppConfig } from "../config";
  */
 export interface CicdStackProps extends StackProps {
   readonly config: AppConfig;
-  /** GitHub repository owner. */
-  readonly repositoryOwner: string;
-  /** GitHub repository name. */
-  readonly repositoryName: string;
-  /** Branch to deploy from. */
-  readonly branch: string;
+  /** Whether this stack owns the ECR repository or imports a legacy/manual repository. */
+  readonly ecrOwnership?: "managed" | "external";
+  /** Create CodePipeline resources only when explicitly enabled. */
+  readonly enablePipeline?: boolean;
+  /** GitHub repository owner; required when enablePipeline is true. */
+  readonly repositoryOwner?: string;
+  /** GitHub repository name; required when enablePipeline is true. */
+  readonly repositoryName?: string;
+  /** Branch to deploy from; required when enablePipeline is true. */
+  readonly branch?: string;
 }
 
 /**
@@ -60,8 +64,8 @@ export interface ComputeDeployScopes {
  * (Lambda image swap) rather than minutes (full CloudFormation diff).
  */
 export class CicdStack extends Stack {
-  public readonly ecrRepository: ecr.Repository;
-  public readonly pipeline: codepipeline.Pipeline;
+  public readonly ecrRepository: ecr.IRepository;
+  public readonly pipeline?: codepipeline.Pipeline;
 
   /**
    * Fixed name of the Compute permissions-boundary managed policy this stack owns.
@@ -106,19 +110,47 @@ export class CicdStack extends Stack {
     // -------------------------------------------------------------------
     // ECR Repository (Feedback Engine container image)
     // -------------------------------------------------------------------
-    this.ecrRepository = new ecr.Repository(this, "FeedbackEngineRepo", {
-      repositoryName: `${config.stackPrefix}-feedback-engine`,
-      imageScanOnPush: true,
-      imageTagMutability: ecr.TagMutability.MUTABLE,
-      removalPolicy: RemovalPolicy.RETAIN,
-      lifecycleRules: [
-        {
-          description: "Keep last 10 images",
-          maxImageCount: 10,
-          rulePriority: 1,
-        },
-      ],
-    });
+    const repositoryName = `${config.stackPrefix}-feedback-engine`;
+    const managedRepository = props.ecrOwnership !== "external";
+    if (managedRepository) {
+      const repository = new ecr.Repository(this, "FeedbackEngineRepo", {
+        repositoryName,
+        imageScanOnPush: true,
+        imageTagMutability: ecr.TagMutability.MUTABLE,
+        removalPolicy: RemovalPolicy.RETAIN,
+        lifecycleRules: [
+          {
+            description: "Remove only untagged images after 30 days; immutable release tags remain rollback-safe",
+            tagStatus: ecr.TagStatus.UNTAGGED,
+            maxImageAge: Duration.days(30),
+            rulePriority: 1,
+          },
+        ],
+      });
+      repository.addToResourcePolicy(new iam.PolicyStatement({
+        principals: [new iam.ServicePrincipal("lambda.amazonaws.com")],
+        actions: [
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:BatchCheckLayerAvailability",
+        ],
+      }));
+      this.ecrRepository = repository;
+    } else {
+      this.ecrRepository = ecr.Repository.fromRepositoryName(
+        this,
+        "FeedbackEngineRepo",
+        repositoryName,
+      );
+    }
+
+    if (!props.enablePipeline) return;
+    const repositoryOwner = props.repositoryOwner;
+    const repositoryNameFromSource = props.repositoryName;
+    const branch = props.branch;
+    if (!repositoryOwner || !repositoryNameFromSource || !branch) {
+      throw new Error("repositoryOwner, repositoryName, and branch are required when the CI/CD pipeline is enabled");
+    }
 
     // -------------------------------------------------------------------
     // Stage 2: Build — test, build + push image, synth CDK
@@ -142,7 +174,8 @@ export class CicdStack extends Stack {
           },
           pre_build: {
             commands: [
-              "npx tsc --noEmit",
+              "npm run test:ci",
+              "cd cdk && npm run typecheck && npm test -- --runInBand && cd ..",
               // ECR login before build so the push step is ready
               `aws ecr get-login-password --region ${config.env.region} | docker login --username AWS --password-stdin ${this.ecrRepository.repositoryUri}`,
             ],
@@ -158,7 +191,7 @@ export class CicdStack extends Stack {
               // Synth with the same stackPrefix/environment as this pipeline so
               // cdk.out/${stackPrefix}-Compute.assets.json actually exists
               // (cdk.json defaults to environmentName=dev otherwise).
-              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c githubOwner=${props.repositoryOwner} -c githubRepo=${props.repositoryName} -c githubBranch=${props.branch} && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
+              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c feedbackEngineImageTag=$CODEBUILD_RESOLVED_SOURCE_VERSION -c auditPseudonymSaltOwnership=${config.auditPseudonymSaltOwnership} -c enableCicd=true -c ecrOwnership=${props.ecrOwnership ?? "managed"} -c githubOwner=${repositoryOwner} -c githubRepo=${repositoryNameFromSource} -c githubBranch=${branch} && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
             ],
           },
         },
@@ -190,17 +223,6 @@ export class CicdStack extends Stack {
     buildProject.addToRolePolicy(new iam.PolicyStatement({
       actions: ['sts:AssumeRole'],
       resources: [`arn:aws:iam::${this.account}:role/cdk-*-file-publishing-role-${this.account}-${config.env.region}`],
-    }));
-
-    // Allow the Lambda service to pull images from this repo so
-    // update-function-code and cold starts can access the image.
-    this.ecrRepository.addToResourcePolicy(new iam.PolicyStatement({
-      principals: [new iam.ServicePrincipal('lambda.amazonaws.com')],
-      actions: [
-        'ecr:GetDownloadUrlForLayer',
-        'ecr:BatchGetImage',
-        'ecr:BatchCheckLayerAvailability',
-      ],
     }));
 
     // -------------------------------------------------------------------
@@ -255,9 +277,9 @@ export class CicdStack extends Stack {
           actions: [
             new codepipelineActions.GitHubSourceAction({
               actionName: "GitHub_Source",
-              owner: props.repositoryOwner,
-              repo: props.repositoryName,
-              branch: props.branch,
+              owner: repositoryOwner,
+              repo: repositoryNameFromSource,
+              branch,
               oauthToken: SecretValue.secretsManager(`${config.stackPrefix}/cicd/github-pat`),
               output: sourceOutput,
               trigger: codepipelineActions.GitHubTrigger.WEBHOOK,
