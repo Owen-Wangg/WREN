@@ -26,3 +26,19 @@ describe('department visibility migration', () => {
     expect(migrationSql).toMatch(/idx_department_visibility_grant_department_active[\s\S]*\(department_id, granted_at, id\)/i);
   });
 });
+
+const grantMigrationSql = readFileSync(
+  join(__dirname, 'migrations', '0004_department_visibility_grant_privileges.sql'),
+  'utf8',
+);
+
+describe('department visibility grant privileges migration', () => {
+  it('grants wren_admin write/read access to department_visibility_grant', () => {
+    // 0002 created the table but granted no privileges, so the admin Lambda
+    // (connecting as wren_admin) got "permission denied", surfaced as HTTP 500
+    // on GET /v1/departments/{departmentId}/visibility-grants.
+    expect(grantMigrationSql).toMatch(
+      /GRANT[\s\S]*SELECT[\s\S]*INSERT[\s\S]*UPDATE[\s\S]*DELETE[\s\S]*ON TABLE public\.department_visibility_grant[\s\S]*TO wren_admin/i,
+    );
+  });
+});

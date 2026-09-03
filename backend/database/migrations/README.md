@@ -9,19 +9,26 @@ DDL. They are applied in lexical filename order. Summary:
 
 | File | Purpose |
 |------|---------|
-| `0001_enable_extensions.sql` | Enable `vector` (pgvector) and `pgcrypto`. |
-| `0002_initial_schema.sql` | Core relational schema. |
-| `0003_v4_terminology_migration.sql` | `organization` → `department`, `writing_type` → `document_type`, role rename. |
-| `0004`–`0032_*.sql` | Incremental features (prompts, ingest, notifications, usage, grants, …). |
+| `0001_baseline.sql` | Squashed baseline: extensions (`vector`, `pgcrypto`), the full core relational schema in V4 terminology (`department`, `document_type`, `document_type_config`, …), the Draft-immutability trigger, and the least-privilege app LOGIN roles + grants. Consolidates the former per-feature migrations `0001`–`0036`. |
+| `0002_department_visibility.sql` | Department catalog visibility state + `department_visibility_grant`. |
+| `0003_department_ask_wren_prompt.sql` | Adds the nullable `department.ask_wren_prompt` column (department-level Ask WREN coaching context). |
+| `0004_department_visibility_grant_privileges.sql` | Grants `wren_admin` SELECT/INSERT/UPDATE/DELETE on `department_visibility_grant` (0002 created the table but never granted access, causing HTTP 500 on the visibility-grants endpoint). |
+| `0005_authorizer_app_user_update_privilege.sql` | Grants `wren_authorizer` UPDATE on `app_user` so first-login provisioning (`ON CONFLICT DO UPDATE` + email relink) succeeds instead of 500-ing on `/v1/auth/me` for new users. |
 
-Filenames are applied in **lexical order**. A few prefixes are reused (for example two `0014_*` files); lexical order, not the integer alone, is what the runner uses. Do not edit an already-applied file — add a new numbered migration instead.
+Filenames are applied in **lexical order**. Do not edit an already-applied file — add a new numbered migration instead.
+
+> The earlier per-feature migrations (`0001_enable_extensions.sql`,
+> `0002_initial_schema.sql`, `0003_v4_terminology_migration.sql`,
+> `0004`–`0036_*.sql`) were consolidated into `0001_baseline.sql`. The baseline
+> already reflects the V4 terminology, so there is no separate rename migration.
 
 ## Naming
 
 The design document's historical **Writing Domain** entity is implemented as
-**`document_type`** (renamed from `writing_type` in `0003_v4_terminology_migration.sql`).
-It is data, never a hardcoded domain enumeration. Administrative groupings are
-**`department`** rows (not tenants). All identifiers use `snake_case`.
+**`document_type`**. It is data, never a hardcoded domain enumeration.
+Administrative groupings are **`department`** rows (not tenants). All identifiers
+use `snake_case`. The baseline defines these V4 names directly (the pre-V4
+`organization` / `writing_type` names no longer appear as tables).
 
 ## Schema invariants enforced here
 
@@ -56,8 +63,11 @@ blocks mutation; a re-evaluation inserts a new `(feedback_item, draft)` row).
 Apply with any PostgreSQL client over the TLS-enforced RDS Proxy endpoint, e.g.:
 
 ```bash
-psql "$DATABASE_URL?sslmode=require" -f 0001_enable_extensions.sql
-psql "$DATABASE_URL?sslmode=require" -f 0002_initial_schema.sql
+psql "$DATABASE_URL?sslmode=require" -f 0001_baseline.sql
+psql "$DATABASE_URL?sslmode=require" -f 0002_department_visibility.sql
+psql "$DATABASE_URL?sslmode=require" -f 0003_department_ask_wren_prompt.sql
+psql "$DATABASE_URL?sslmode=require" -f 0004_department_visibility_grant_privileges.sql
+psql "$DATABASE_URL?sslmode=require" -f 0005_authorizer_app_user_update_privilege.sql
 ```
 
 A programmatic migration runner is provided by the data-access layer (task 2.4):
