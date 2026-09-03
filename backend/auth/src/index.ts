@@ -54,6 +54,10 @@ export {
   isCapabilityAllowed,
 } from './capabilityMatrix';
 export {
+  canDiscoverDepartment,
+  type DepartmentVisibilityInput,
+} from './departmentVisibility';
+export {
   authorizeRoleAssignment,
   isRoleAssignmentAllowed,
   type RoleAssignmentRequest,

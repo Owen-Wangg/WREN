@@ -32,7 +32,7 @@ function mockSql(alreadyApplied: string[]): {
   begin: jest.Mock;
 } {
   const unsafe = jest.fn(async (text: string) => {
-    if (/SELECT filename FROM schema_migrations/i.test(text)) {
+    if (/SELECT filename FROM public\.schema_migrations/i.test(text)) {
       return alreadyApplied.map((filename) => ({ filename }));
     }
     return [];
@@ -78,7 +78,7 @@ describe('runMigrations — idempotent forward-only application', () => {
     await runMigrations(sql);
 
     const insertCalls = unsafe.mock.calls.filter(([text]) =>
-      /INSERT INTO schema_migrations/i.test(text as string),
+      /INSERT INTO public\.schema_migrations/i.test(text as string),
     );
     expect(insertCalls).toHaveLength(CURRENT_MIGRATIONS.length);
     for (const [text, params] of insertCalls) {

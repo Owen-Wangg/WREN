@@ -22,6 +22,7 @@ interface DepartmentRow {
   name: string;
   prompt: string | null;
   access_state: 'OPEN' | 'LOCKED';
+  visibility_state: 'VISIBLE' | 'PERMITTED_ONLY';
   archived_at: string | null;
 }
 
@@ -153,6 +154,8 @@ interface PlatformUsagePolicyRow {
   debrief_generation_limit: number;
   document_upload_limit: number;
   drafts_per_document_limit: number;
+  max_upload_file_size_bytes: number;
+  max_word_count: number;
 }
 
 /** Minimal `draft` row for deletion-retention tests. */
@@ -213,6 +216,15 @@ interface AccessGrantRow {
   revoked_at: Date | null;
 }
 
+interface DepartmentVisibilityGrantRow {
+  id: string;
+  department_id: string;
+  user_id: string;
+  granted_by: string | null;
+  granted_at: Date;
+  revoked_at: Date | null;
+}
+
 const collapse = (sql: string): string => sql.replace(/\s+/g, ' ').trim();
 
 /** Apply `col = $n` assignments from a SET clause to a mutable record. */
@@ -244,6 +256,7 @@ export class FakeDb implements QueryExecutor {
   public readonly roleAssignments = new Map<string, RoleAssignmentRow>();
   public readonly appUsers = new Map<string, AppUserRow>();
   public readonly accessGrants = new Map<string, AccessGrantRow>();
+  public readonly departmentVisibilityGrants = new Map<string, DepartmentVisibilityGrantRow>();
   public readonly errorCategories = new Map<string, ErrorCategoryRow>();
   public readonly documentTypeConfigs = new Map<string, DocumentTypeConfigRow>();
   public readonly referenceMaterials = new Map<string, ReferenceMaterialRow>();
@@ -270,6 +283,7 @@ export class FakeDb implements QueryExecutor {
       name: row.name ?? 'Seed Dept',
       prompt: row.prompt ?? null,
       access_state: row.access_state ?? 'OPEN',
+      visibility_state: row.visibility_state ?? 'VISIBLE',
       archived_at: row.archived_at ?? null,
     };
     this.departments.set(full.id, full);
@@ -358,6 +372,8 @@ export class FakeDb implements QueryExecutor {
       debrief_generation_limit: 15,
       document_upload_limit: 30,
       drafts_per_document_limit: 15,
+      max_upload_file_size_bytes: 30 * 1024 * 1024,
+      max_word_count: 10_000,
       ...overrides,
     };
     this.platformUsagePolicy = full;
@@ -440,6 +456,26 @@ export class FakeDb implements QueryExecutor {
       revoked_at: row.revoked_at ?? null,
     };
     this.accessGrants.set(full.id, full);
+    return full;
+  }
+
+  /** Seed a Department visibility grant directly for test setup. */
+  public seedDepartmentVisibilityGrant(
+    row: Partial<DepartmentVisibilityGrantRow> & {
+      id: string;
+      department_id: string;
+      user_id: string;
+    },
+  ): DepartmentVisibilityGrantRow {
+    const full: DepartmentVisibilityGrantRow = {
+      id: row.id,
+      department_id: row.department_id,
+      user_id: row.user_id,
+      granted_by: row.granted_by ?? 'seed-granter',
+      granted_at: row.granted_at ?? new Date(),
+      revoked_at: row.revoked_at ?? null,
+    };
+    this.departmentVisibilityGrants.set(full.id, full);
     return full;
   }
 
@@ -635,6 +671,7 @@ export class FakeDb implements QueryExecutor {
         name: params[1] as string,
         prompt: null,
         access_state: 'OPEN',
+        visibility_state: 'VISIBLE',
         archived_at: null,
       };
       this.departments.set(row.id, row);
@@ -648,6 +685,7 @@ export class FakeDb implements QueryExecutor {
         name: params[1] as string,
         prompt: null,
         access_state: 'OPEN',
+        visibility_state: 'VISIBLE',
         archived_at: null,
       };
       this.departments.set(row.id, row);
@@ -661,10 +699,16 @@ export class FakeDb implements QueryExecutor {
         name: params[0] as string,
         prompt: null,
         access_state: 'OPEN',
+        visibility_state: 'VISIBLE',
         archived_at: null,
       };
       this.departments.set(row.id, row);
       return [row] as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT id FROM department WHERE id = $1 AND archived_at IS NULL')) {
+      const row = this.departments.get(params[0] as string);
+      return (row && row.archived_at === null ? [{ id: row.id }] : []) as unknown as Row[];
     }
 
     if (sql.startsWith('SELECT id FROM department WHERE id = $1')) {
@@ -673,12 +717,16 @@ export class FakeDb implements QueryExecutor {
     }
 
     if (
+      sql.startsWith('SELECT id, name, prompt, access_state, visibility_state, archived_at FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt, access_state, archived_at FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt, access_state FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt FROM department WHERE id = $1')
     ) {
       const row = this.departments.get(params[0] as string);
-      return (row ? [{ ...row }] : []) as unknown as Row[];
+      const requiresActive = sql.includes('archived_at IS NULL');
+      return (row && (!requiresActive || row.archived_at === null)
+        ? [{ ...row }]
+        : []) as unknown as Row[];
     }
 
     if (
@@ -688,6 +736,32 @@ export class FakeDb implements QueryExecutor {
       const rows = [...this.departments.values()]
         .filter((r) => r.archived_at === null)
         .map((r) => ({ ...r }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return rows as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state, d.visibility_state,')) {
+      const [userId, isTechnicalAdmin, administeredDepartmentIds] = params as [
+        string,
+        boolean,
+        string[],
+      ];
+      const rows = [...this.departments.values()]
+        .filter((r) => r.archived_at === null)
+        .map((r) => ({
+          ...r,
+          active_user_count: 0,
+          viewer_can_discover:
+            r.visibility_state === 'VISIBLE' ||
+            isTechnicalAdmin ||
+            administeredDepartmentIds.includes(r.id) ||
+            [...this.departmentVisibilityGrants.values()].some(
+              (grant) =>
+                grant.department_id === r.id &&
+                grant.user_id === userId &&
+                grant.revoked_at === null,
+            ),
+        }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
     }
@@ -1121,6 +1195,129 @@ export class FakeDb implements QueryExecutor {
         }
       }
       return [] as unknown as Row[];
+    }
+
+    /* --------------------- department_visibility_grant --------------------- */
+
+    if (sql.startsWith('SELECT id FROM app_user WHERE id = $1')) {
+      const user = this.appUsers.get(params[0] as string);
+      return (user ? [{ id: user.id }] : []) as unknown as Row[];
+    }
+
+    if (sql.startsWith('INSERT INTO department_visibility_grant (department_id, user_id, granted_by)')) {
+      const [departmentId, userId, grantedBy] = params as [string, string, string];
+      const existing = [...this.departmentVisibilityGrants.values()].find(
+        (grant) =>
+          grant.department_id === departmentId &&
+          grant.user_id === userId &&
+          grant.revoked_at === null,
+      );
+      if (existing) return [] as unknown as Row[];
+      this.mutationCount += 1;
+      const row: DepartmentVisibilityGrantRow = {
+        id: this.nextId('dvg'),
+        department_id: departmentId,
+        user_id: userId,
+        granted_by: grantedBy,
+        granted_at: new Date(),
+        revoked_at: null,
+      };
+      this.departmentVisibilityGrants.set(row.id, row);
+      return [{ ...row }] as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, department_id, user_id, granted_by, granted_at, revoked_at FROM department_visibility_grant WHERE department_id = $1 AND user_id = $2 AND revoked_at IS NULL',
+      )
+    ) {
+      const [departmentId, userId] = params as [string, string];
+      const row = [...this.departmentVisibilityGrants.values()].find(
+        (grant) =>
+          grant.department_id === departmentId &&
+          grant.user_id === userId &&
+          grant.revoked_at === null,
+      );
+      return (row ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT COUNT(*)::int AS total FROM department_visibility_grant dvg')) {
+      const [departmentId, search] = params as [string, string | null];
+      const needle = search ? search.slice(1, -1).toLowerCase() : null;
+      const total = [...this.departmentVisibilityGrants.values()]
+        .filter((grant) => grant.department_id === departmentId && grant.revoked_at === null)
+        .map((grant) => this.appUsers.get(grant.user_id))
+        .filter((user): user is AppUserRow => {
+          if (!user) return false;
+          if (!needle) return true;
+          return [user.first_name, user.last_name, user.email]
+            .some((value) => value.toLowerCase().includes(needle));
+        }).length;
+      return [{ total }] as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT dvg.id, dvg.department_id, dvg.user_id,')) {
+      const [departmentId, search, limit, offset] = params as [
+        string,
+        string | null,
+        number,
+        number,
+      ];
+      const needle = search ? search.slice(1, -1).toLowerCase() : null;
+      const matches = [...this.departmentVisibilityGrants.values()]
+        .filter((grant) => grant.department_id === departmentId && grant.revoked_at === null)
+        .map((grant) => ({ grant, user: this.appUsers.get(grant.user_id) }))
+        .filter((entry): entry is { grant: DepartmentVisibilityGrantRow; user: AppUserRow } => {
+          if (!entry.user) return false;
+          if (!needle) return true;
+          return [entry.user.first_name, entry.user.last_name, entry.user.email]
+            .some((value) => value.toLowerCase().includes(needle));
+        })
+        .sort((a, b) =>
+          a.user.last_name.localeCompare(b.user.last_name) ||
+          a.user.first_name.localeCompare(b.user.first_name),
+        );
+      const total = matches.length;
+      return matches.slice(offset, offset + limit).map(({ grant, user }) => {
+        const assignments = [...this.roleAssignments.values()].filter(
+          (assignment) => assignment.user_id === user.id,
+        );
+        const roles = [...new Set(assignments.map((assignment) => assignment.role))];
+        const administers = assignments.some(
+          (assignment) =>
+            assignment.role === 'DepartmentAdmin' &&
+            (assignment.scope?.departmentId === departmentId ||
+              assignment.scope?.departmentIds?.includes(departmentId)),
+        );
+        return {
+          ...grant,
+          ...user,
+          roles,
+          administered_department_ids: administers ? [departmentId] : [],
+          total,
+        };
+      }) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith(
+        'SELECT id, department_id, user_id, granted_by, granted_at, revoked_at FROM department_visibility_grant WHERE id = $1 AND department_id = $2',
+      )
+    ) {
+      const [grantId, departmentId] = params as [string, string];
+      const row = this.departmentVisibilityGrants.get(grantId);
+      return (row && row.department_id === departmentId ? [{ ...row }] : []) as unknown as Row[];
+    }
+
+    if (sql.startsWith('UPDATE department_visibility_grant SET revoked_at = now()')) {
+      const [grantId, departmentId] = params as [string, string];
+      const row = this.departmentVisibilityGrants.get(grantId);
+      if (!row || row.department_id !== departmentId || row.revoked_at !== null) {
+        return [] as unknown as Row[];
+      }
+      this.mutationCount += 1;
+      row.revoked_at = new Date();
+      return [{ ...row }] as unknown as Row[];
     }
 
     /* ------------------------------ access_grant ---------------------------- */
@@ -1721,6 +1918,8 @@ export class FakeDb implements QueryExecutor {
         debrief_generation_limit: params[1] as number,
         document_upload_limit: params[2] as number,
         drafts_per_document_limit: params[3] as number,
+        max_upload_file_size_bytes: params[4] as number,
+        max_word_count: params[5] as number,
       };
       this.platformUsagePolicy = next;
       return [{ ...next }] as unknown as Row[];
@@ -1734,6 +1933,8 @@ export class FakeDb implements QueryExecutor {
         debrief_generation_limit: params[1] as number,
         document_upload_limit: params[2] as number,
         drafts_per_document_limit: params[3] as number,
+        max_upload_file_size_bytes: params[4] as number,
+        max_word_count: params[5] as number,
       };
       this.platformUsagePolicy = next;
       return [] as unknown as Row[];

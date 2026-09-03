@@ -134,6 +134,40 @@ export async function auditRoleOrGrantChange(
   );
 }
 
+export async function auditDepartmentVisibilityChange(
+  actor: AuthContext,
+  detail: {
+    action:
+      | 'department.visibility.updated'
+      | 'department_visibility_grant.created'
+      | 'department_visibility_grant.revoked';
+    departmentId: string;
+    grantId?: string;
+    targetUserId?: string;
+    previousState?: 'VISIBLE' | 'PERMITTED_ONLY';
+    newState?: 'VISIBLE' | 'PERMITTED_ONLY';
+  },
+  db: QueryExecutor,
+): Promise<void> {
+  const isGrant = detail.action.startsWith('department_visibility_grant.');
+  await recordActivityEvent(
+    {
+      actorUserId: actor.userId,
+      verb: detail.action,
+      objectType: isGrant ? 'DepartmentVisibilityGrant' : 'Department',
+      objectRef: detail.grantId ?? detail.departmentId,
+      departmentId: detail.departmentId,
+      context: {
+        role: actor.roles[0],
+        ...(detail.targetUserId ? { targetUserId: detail.targetUserId } : {}),
+        ...(detail.previousState ? { previousState: detail.previousState } : {}),
+        ...(detail.newState ? { newState: detail.newState } : {}),
+      },
+    },
+    db,
+  );
+}
+
 /**
  * Record an audit event for a usage-limit override grant. Requirement 54.6:
  * "log the granting actor's identity and role, the affected Student, the

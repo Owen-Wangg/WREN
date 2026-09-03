@@ -5,7 +5,21 @@
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { publishNotificationEvent } from '@wren/notification';
-import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState, listDepartmentUsers, archiveDepartment } from './departmentService';
+import {
+  listDepartments,
+  getDepartment,
+  createDepartment,
+  updateDepartmentPrompt,
+  setDepartmentAccessState,
+  setDepartmentVisibilityState,
+  listDepartmentUsers,
+  archiveDepartment,
+} from './departmentService';
+import {
+  createDepartmentVisibilityGrant,
+  listDepartmentVisibilityGrants,
+  revokeDepartmentVisibilityGrant,
+} from './departmentVisibilityGrantService';
 import {
   listDocumentTypes,
   listAllDocumentTypes,
@@ -37,6 +51,7 @@ import { AuthorizationError, NotFoundError } from './errors';
 import { assertCanListDepartmentUsers, requireCapability } from './capabilityGuard';
 import {
   auditConfigEdit,
+  auditDepartmentVisibilityChange,
   auditOverrideGrant,
   auditPromptEdit,
   auditRoleOrGrantChange,
@@ -144,6 +159,21 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
     }
     if (resource === '/v1/departments/{departmentId}/access-state' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleSetDepartmentAccessState(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/visibility-state' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleSetDepartmentVisibilityState(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/visibility-grants' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListDepartmentVisibilityGrants(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/visibility-grants' && httpMethod === 'POST') {
+      return await wrapHandler(() => handleCreateDepartmentVisibilityGrant(event));
+    }
+    if (
+      resource === '/v1/departments/{departmentId}/visibility-grants/{grantId}' &&
+      httpMethod === 'DELETE'
+    ) {
+      return await wrapHandler(() => handleRevokeDepartmentVisibilityGrant(event));
     }
     if (resource === '/v1/document-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocumentTypes(event));
@@ -258,7 +288,7 @@ async function handleGetMe(event: any): Promise<APIGatewayProxyResult> {
 async function handleListDepartments(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const departments = await listDepartments(db);
+  const departments = await listDepartments(actor, db);
   // The department `prompt` field is a TechnicalAdmin-authored system instruction
   // injected into Bedrock prompts. Strip it for non-TechnicalAdmin callers so that
   // DeptAdmins and Students cannot enumerate another department's prompt content.
@@ -429,6 +459,121 @@ async function handleSetDepartmentAccessState(event: any): Promise<APIGatewayPro
     statusCode: 200,
     body: JSON.stringify(updated),
   };
+}
+
+async function handleSetDepartmentVisibilityState(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const result = await db.transaction(async (tx) => {
+    const updated = await setDepartmentVisibilityState(actor, departmentId, body, tx);
+    if (updated.changed) {
+      await auditDepartmentVisibilityChange(
+        actor,
+        {
+          action: 'department.visibility.updated',
+          departmentId,
+          previousState: updated.previousState,
+          newState: updated.department.visibilityState,
+        },
+        tx,
+      );
+    }
+    return updated;
+  });
+  return {
+    statusCode: 200,
+    body: JSON.stringify(result.department),
+  };
+}
+
+function parseOptionalIntegerQuery(
+  raw: unknown,
+  name: string,
+  minimum: number,
+  maximum?: number,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || !/^(0|[1-9]\d*)$/.test(raw)) {
+    throw Object.assign(new Error(`${name} must be an integer`), { statusCode: 400 });
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < minimum || (maximum !== undefined && value > maximum)) {
+    const range = maximum === undefined ? `at least ${minimum}` : `between ${minimum} and ${maximum}`;
+    throw Object.assign(new Error(`${name} must be ${range}`), { statusCode: 400 });
+  }
+  return value;
+}
+
+async function handleListDepartmentVisibilityGrants(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const qs = event.queryStringParameters || {};
+  const limit = parseOptionalIntegerQuery(qs.limit, 'limit', 1, 100);
+  const offset = parseOptionalIntegerQuery(qs.offset, 'offset', 0);
+  const result = await listDepartmentVisibilityGrants(actor, departmentId, db, {
+    q: qs.q,
+    limit,
+    offset,
+  });
+  return { statusCode: 200, body: JSON.stringify(result) };
+}
+
+async function handleCreateDepartmentVisibilityGrant(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const result = await db.transaction(async (tx) => {
+    const created = await createDepartmentVisibilityGrant(actor, departmentId, body, tx);
+    if (created.changed) {
+      await auditDepartmentVisibilityChange(
+        actor,
+        {
+          action: 'department_visibility_grant.created',
+          departmentId,
+          grantId: created.grant.id,
+          targetUserId: created.grant.userId,
+        },
+        tx,
+      );
+    }
+    return created;
+  });
+  return {
+    statusCode: result.changed ? 201 : 200,
+    body: JSON.stringify(result.grant),
+  };
+}
+
+async function handleRevokeDepartmentVisibilityGrant(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId, grantId } = event.pathParameters || {};
+  const result = await db.transaction(async (tx) => {
+    const revoked = await revokeDepartmentVisibilityGrant(
+      actor,
+      departmentId,
+      grantId,
+      tx,
+    );
+    if (revoked.changed) {
+      await auditDepartmentVisibilityChange(
+        actor,
+        {
+          action: 'department_visibility_grant.revoked',
+          departmentId,
+          grantId: revoked.grant.id,
+          targetUserId: revoked.grant.userId,
+        },
+        tx,
+      );
+    }
+    return revoked;
+  });
+  return { statusCode: 200, body: JSON.stringify(result.grant) };
 }
 
 async function handleSearchUsers(event: any): Promise<APIGatewayProxyResult> {

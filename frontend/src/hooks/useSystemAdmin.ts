@@ -265,6 +265,8 @@ export function useSetUsageLimit() {
       debriefGenerationLimit: number;
       documentUploadLimit: number;
       draftsPerDocumentLimit: number;
+      maxUploadFileSizeBytes: number;
+      maxWordCount: number;
     }) => setUsageLimit(client, limits),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-admin', 'usage-limits'] });

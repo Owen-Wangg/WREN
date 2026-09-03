@@ -25,6 +25,9 @@ import {
   assertNoReplacementProse,
   containsReplacementProse,
   departmentSchema,
+  departmentVisibilityGrantSchema,
+  departmentVisibilityPermissionListSchema,
+  departmentVisibilityStateSchema,
   documentSchema,
   documentTypeSchema,
   draftSchema,
@@ -57,6 +60,45 @@ const validExamples = {
     value: {
       id: 'dept_1',
       name: 'Legal Studies',
+      visibilityState: 'VISIBLE',
+      viewerCanDiscover: true,
+    },
+  },
+  departmentVisibilityGrant: {
+    schema: departmentVisibilityGrantSchema,
+    value: {
+      id: 'visibility_grant_1',
+      departmentId: 'dept_1',
+      userId: 'user_1',
+      grantedBy: 'user_admin',
+      grantedAt: ISO,
+    },
+  },
+  departmentVisibilityPermissionList: {
+    schema: departmentVisibilityPermissionListSchema,
+    value: {
+      items: [
+        {
+          grant: {
+            id: 'visibility_grant_1',
+            departmentId: 'dept_1',
+            userId: 'user_1',
+            grantedBy: 'user_admin',
+            grantedAt: ISO,
+          },
+          user: {
+            id: 'user_1',
+            email: 'student@example.com',
+            firstName: 'Student',
+            lastName: 'One',
+            roles: ['Student'],
+            administeredDepartmentIds: [],
+          },
+        },
+      ],
+      total: 1,
+      limit: 20,
+      offset: 0,
     },
   },
   documentType: {
@@ -204,6 +246,12 @@ describe('enum schemas', () => {
     expect(() => roleSchema.parse('Instructor')).toThrow();
   });
 
+  it('accepts only canonical Department visibility states', () => {
+    expect(departmentVisibilityStateSchema.parse('VISIBLE')).toBe('VISIBLE');
+    expect(departmentVisibilityStateSchema.parse('PERMITTED_ONLY')).toBe('PERMITTED_ONLY');
+    expect(() => departmentVisibilityStateSchema.parse('HIDDEN')).toThrow();
+  });
+
   it('rejects V1 role names', () => {
     expect(() => roleSchema.parse('User')).toThrow();
     expect(() => roleSchema.parse('Field Expert')).toThrow();
@@ -225,6 +273,21 @@ describe('enum schemas', () => {
 });
 
 describe('schemas reject malformed input', () => {
+  it('requires explicit Department visibility response fields', () => {
+    expect(
+      departmentSchema.safeParse({ id: 'dept_legacy', name: 'Legacy' }).success,
+    ).toBe(false);
+  });
+
+  it('rejects an invalid Department visibility state', () => {
+    expect(() =>
+      departmentSchema.parse({
+        ...validExamples.department.value,
+        visibilityState: 'HIDDEN',
+      }),
+    ).toThrow();
+  });
+
   it('rejects an empty document name', () => {
     expect(() =>
       documentSchema.parse({ ...validExamples.document.value, name: '' }),

@@ -25,11 +25,14 @@ import {
   departmentSchema,
   updateDepartmentInputSchema,
   updateDepartmentPromptInputSchema,
+  updateDepartmentVisibilityInputSchema,
   type AuthContext,
   type CreateDepartmentInput,
   type Department,
+  type DepartmentVisibilityState,
   type UpdateDepartmentInput,
   type UpdateDepartmentPromptInput,
+  type UpdateDepartmentVisibilityInput,
 } from '@wren/types';
 
 import { requireCapability } from './capabilityGuard';
@@ -43,12 +46,14 @@ interface DepartmentRow {
   readonly name: string;
   readonly prompt: string | null;
   readonly access_state?: 'OPEN' | 'LOCKED' | null;
+  readonly visibility_state?: DepartmentVisibilityState | null;
+  readonly viewer_can_discover?: boolean | null;
   readonly active_user_count?: string | number;
   readonly archived_at?: string | null;
 }
 
 /** The columns every read/write returns, in the shared DTO's field order. */
-const RETURNING = 'id, name, prompt, access_state, archived_at';
+const RETURNING = 'id, name, prompt, access_state, visibility_state, archived_at';
 
 /** Map a raw row to the validated shared {@link Department} DTO. */
 function toDepartment(row: DepartmentRow): Department {
@@ -59,6 +64,8 @@ function toDepartment(row: DepartmentRow): Department {
     accessState: row.access_state === 'LOCKED' || row.access_state === 'OPEN'
       ? row.access_state
       : 'OPEN',
+    visibilityState: row.visibility_state === 'PERMITTED_ONLY' ? 'PERMITTED_ONLY' : 'VISIBLE',
+    viewerCanDiscover: row.viewer_can_discover ?? true,
     activeUserCount: row.active_user_count !== undefined
       ? parseInt(String(row.active_user_count), 10)
       : undefined,
@@ -101,13 +108,31 @@ export async function createDepartment(
   return toDepartment(rows[0]!);
 }
 
-/** List all Department groupings, ordered by name. */
+/**
+ * List all active Department groupings, annotated with the current viewer's
+ * discovery decision. The UI-only phase deliberately returns denied rows so
+ * clients can filter them without treating visibility as a security boundary.
+ */
 export async function listDepartments(
+  actor: AuthContext,
   db: QueryExecutor,
 ): Promise<Department[]> {
   const rows = await db.query<DepartmentRow>(
-    `SELECT d.id, d.name, d.prompt, d.access_state, d.archived_at,
-            COALESCE(ac.value, 0)::int AS active_user_count
+    `SELECT d.id, d.name, d.prompt, d.access_state, d.visibility_state, d.archived_at,
+            COALESCE(ac.value, 0)::int AS active_user_count,
+            CASE
+              WHEN d.visibility_state = 'VISIBLE' THEN true
+              WHEN $2::boolean THEN true
+              WHEN d.id = ANY($3::uuid[]) THEN true
+              WHEN EXISTS (
+                SELECT 1
+                FROM department_visibility_grant dvg
+                WHERE dvg.department_id = d.id
+                  AND dvg.user_id = $1
+                  AND dvg.revoked_at IS NULL
+              ) THEN true
+              ELSE false
+            END AS viewer_can_discover
      FROM department d
      LEFT JOIN aggregate_counter ac
        ON  ac.scope_kind    = 'department'
@@ -116,6 +141,11 @@ export async function listDepartments(
        AND ac.window_start  = '-infinity'::timestamptz
      WHERE d.archived_at IS NULL
      ORDER BY d.name ASC`,
+    [
+      actor.userId,
+      actor.roles.includes('TechnicalAdmin'),
+      actor.administeredDepartmentIds,
+    ],
   );
   return rows.map(toDepartment);
 }
@@ -274,6 +304,60 @@ export async function setDepartmentAccessState(
   );
 
   return toDepartment(row);
+}
+
+export interface DepartmentVisibilityUpdateResult {
+  readonly department: Department;
+  readonly previousState: DepartmentVisibilityState;
+  readonly changed: boolean;
+}
+
+/** Set student-catalog visibility without changing OPEN/LOCKED submission access. */
+export async function setDepartmentVisibilityState(
+  actor: AuthContext,
+  id: string,
+  input: UpdateDepartmentVisibilityInput,
+  db: QueryExecutor,
+): Promise<DepartmentVisibilityUpdateResult> {
+  requireCapability(actor, {
+    capability: 'departmentVisibility.manage',
+    scope: { kind: 'department', departmentId: id },
+  });
+  const { visibilityState } = updateDepartmentVisibilityInputSchema.parse(input);
+  // Handlers call this service inside a transaction. Locking the row serializes
+  // overlapping state requests so each caller observes the last committed state
+  // and emits at most one accurate transition audit.
+  const existingRows = await db.query<DepartmentRow>(
+    `SELECT ${RETURNING}
+     FROM department
+     WHERE id = $1 AND archived_at IS NULL
+     FOR UPDATE`,
+    [id],
+  );
+  const existingRow = existingRows[0];
+  if (!existingRow) {
+    throw new NotFoundError(`Department '${id}' not found`);
+  }
+  const existing = toDepartment({ ...existingRow, viewer_can_discover: true });
+
+  const previousState = existing.visibilityState;
+  if (previousState === visibilityState) {
+    return { department: existing, previousState, changed: false };
+  }
+
+  const rows = await db.query<DepartmentRow>(
+    `UPDATE department SET visibility_state = $2 WHERE id = $1 RETURNING ${RETURNING}`,
+    [id, visibilityState],
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new NotFoundError(`Department '${id}' not found`);
+  }
+  return {
+    department: toDepartment({ ...row, viewer_can_discover: true }),
+    previousState,
+    changed: true,
+  };
 }
 
 /**

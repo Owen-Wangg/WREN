@@ -45,6 +45,8 @@ describe('platform lifetime usage policy', () => {
       debriefGenerationLimit: 15,
       documentUploadLimit: 30,
       draftsPerDocumentLimit: 15,
+      maxUploadFileSizeBytes: 30 * 1024 * 1024,
+      maxWordCount: 10_000,
     });
   });
 
@@ -58,6 +60,8 @@ describe('platform lifetime usage policy', () => {
         debriefGenerationLimit: 5,
         documentUploadLimit: 10,
         draftsPerDocumentLimit: 8,
+        maxUploadFileSizeBytes: 30 * 1024 * 1024,
+        maxWordCount: 10_000,
       },
       db,
     );
@@ -78,6 +82,8 @@ describe('platform lifetime usage policy', () => {
           debriefGenerationLimit: 1,
           documentUploadLimit: 1,
           draftsPerDocumentLimit: 1,
+          maxUploadFileSizeBytes: 1024 * 1024,
+          maxWordCount: 100,
         },
         db,
       ),
