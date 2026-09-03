@@ -67,6 +67,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: Capability[] = [
   'usageLimit.configure',
   'usageOverride.grant',
   'user.search',
+  'departmentVisibility.manage',
   'documentType.setAccessState',
   'documentType.manageCatalog',
   'documentType.readConfig',
@@ -212,6 +213,12 @@ describe('authorizeCapability — DepartmentAdmin (educational ops in administer
       isCapabilityAllowed(
         deptAdmin,
         req('user.search', departmentScope(ADMINISTERED_DEPT)),
+      ),
+    ).toBe(false);
+    expect(
+      isCapabilityAllowed(
+        deptAdmin,
+        req('departmentVisibility.manage', departmentScope(ADMINISTERED_DEPT)),
       ),
     ).toBe(false);
   });

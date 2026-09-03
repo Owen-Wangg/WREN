@@ -12,6 +12,7 @@ import {
   getDepartment,
   listDepartments,
   renameDepartment,
+  setDepartmentVisibilityState,
 } from './departmentService';
 import { AuthorizationError, NotFoundError } from './errors';
 import { FakeDb } from './fakeDb';
@@ -35,8 +36,93 @@ describe('read Departments', () => {
     db.seedDepartment({ id: 'dept-b', name: 'Beta' });
     db.seedDepartment({ id: 'dept-a', name: 'Alpha' });
 
-    const names = (await listDepartments(db)).map((d) => d.name);
+    const names = (await listDepartments(studentContext(), db)).map((d) => d.name);
     expect(names).toEqual(['Alpha', 'Beta']);
+  });
+});
+
+describe('Department visibility decisions and mutation', () => {
+  it('returns all active Departments in one query with caller-specific discovery decisions', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: 'visible', name: 'Visible' });
+    db.seedDepartment({
+      id: 'hidden',
+      name: 'Hidden',
+      visibility_state: 'PERMITTED_ONLY',
+    });
+    let queryCount = 0;
+    const countingDb = {
+      query: async <Row>(text: string, params?: readonly unknown[]): Promise<Row[]> => {
+        queryCount += 1;
+        return db.query<Row>(text, params);
+      },
+    };
+
+    const departments = await listDepartments(studentContext(), countingDb);
+    expect(queryCount).toBe(1);
+    expect(departments).toHaveLength(2);
+    expect(departments.find((d) => d.id === 'visible')?.viewerCanDiscover).toBe(true);
+    expect(departments.find((d) => d.id === 'hidden')?.viewerCanDiscover).toBe(false);
+  });
+
+  it('allows explicit grants and automatic admin bypasses', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({
+      id: DEPT,
+      name: 'Hidden',
+      visibility_state: 'PERMITTED_ONLY',
+    });
+    db.seedDepartmentVisibilityGrant({
+      id: 'dvg-1',
+      department_id: DEPT,
+      user_id: studentContext().userId,
+    });
+
+    expect((await listDepartments(studentContext(), db))[0]?.viewerCanDiscover).toBe(true);
+    expect((await listDepartments(deptAdminContext([DEPT]), db))[0]?.viewerCanDiscover).toBe(true);
+    expect((await listDepartments(techAdminContext(), db))[0]?.viewerCanDiscover).toBe(true);
+  });
+
+  it('lets only TechnicalAdmin change visibility, locks transitions, and treats same-state updates as no-ops', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Law' });
+    const statements: string[] = [];
+    const lockingDb = {
+      query: async <Row>(text: string, params?: readonly unknown[]): Promise<Row[]> => {
+        statements.push(text);
+        return db.query<Row>(text, params);
+      },
+    };
+
+    const changed = await setDepartmentVisibilityState(
+      techAdminContext(),
+      DEPT,
+      { visibilityState: 'PERMITTED_ONLY' },
+      lockingDb,
+    );
+    expect(changed).toMatchObject({ changed: true, previousState: 'VISIBLE' });
+    expect(changed.department.visibilityState).toBe('PERMITTED_ONLY');
+    expect(statements.some((sql) => /FOR UPDATE/i.test(sql))).toBe(true);
+    const mutationCount = db.mutationCount;
+
+    const unchanged = await setDepartmentVisibilityState(
+      techAdminContext(),
+      DEPT,
+      { visibilityState: 'PERMITTED_ONLY' },
+      lockingDb,
+    );
+    expect(unchanged.changed).toBe(false);
+    expect(db.mutationCount).toBe(mutationCount);
+
+    await expect(
+      setDepartmentVisibilityState(
+        deptAdminContext([DEPT]),
+        DEPT,
+        { visibilityState: 'VISIBLE' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(mutationCount);
   });
 });
 
@@ -136,7 +222,7 @@ describe('archiveDepartment (TechnicalAdmin only — soft-delete)', () => {
     db.seedDepartment({ id: 'dept-2', name: 'Active' });
 
     await archiveDepartment(techAdminContext(), DEPT, db);
-    const names = (await listDepartments(db)).map((d) => d.name);
+    const names = (await listDepartments(studentContext(), db)).map((d) => d.name);
     expect(names).not.toContain('Retiring');
     expect(names).toContain('Active');
   });
@@ -146,6 +232,8 @@ describe('Department owns no Users (Requirement 28.1 / 28.2)', () => {
   it('the department row carries only grouping fields — no user/owner column', () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Allard' });
-    expect(Object.keys(db.departments.get(DEPT)!).sort()).toEqual(['access_state', 'archived_at', 'id', 'name', 'prompt']);
+    expect(Object.keys(db.departments.get(DEPT)!).sort()).toEqual(
+      ['access_state', 'archived_at', 'id', 'name', 'prompt', 'visibility_state'].sort(),
+    );
   });
 });

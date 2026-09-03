@@ -52,6 +52,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageLimit.configure',
   'usageOverride.grant',
   'user.search',
+  'departmentVisibility.manage',
   // Shared dept-admin UI: System Admins may bootstrap Document Types and their
   // initial taxonomy/config (same screens DepartmentAdmins use).
   // Department-wide OPEN/LOCKED is TechnicalAdmin-only.

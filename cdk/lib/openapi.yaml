@@ -88,7 +88,7 @@ components:
 
     Department:
       type: object
-      required: [id, name]
+      required: [id, name, visibilityState, viewerCanDiscover]
       properties:
         id:
           type: string
@@ -97,6 +97,81 @@ components:
           type: string
           description: Department name (mutable)
           minLength: 1
+        prompt:
+          type: string
+          nullable: true
+          description: TechnicalAdmin-authored prompt; omitted for other callers
+        accessState:
+          type: string
+          enum: [OPEN, LOCKED]
+          description: Independent submission-access state
+        visibilityState:
+          type: string
+          enum: [VISIBLE, PERMITTED_ONLY]
+          description: Student-catalog discovery state; separate from OPEN/LOCKED
+        viewerCanDiscover:
+          type: boolean
+          description: Caller-specific discovery decision used for UI-only filtering
+        activeUserCount:
+          type: integer
+          minimum: 0
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    DepartmentVisibilityGrant:
+      type: object
+      required: [id, departmentId, userId, grantedBy, grantedAt]
+      properties:
+        id:
+          type: string
+        departmentId:
+          type: string
+        userId:
+          type: string
+        grantedBy:
+          type: string
+          nullable: true
+        grantedAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    DepartmentVisibilityPermissionList:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [grant, user]
+            properties:
+              grant:
+                $ref: "#/components/schemas/DepartmentVisibilityGrant"
+              user:
+                type: object
+                required: [id, email, firstName, lastName, roles, administeredDepartmentIds]
+                properties:
+                  id: { type: string }
+                  email: { type: string, format: email }
+                  firstName: { type: string }
+                  lastName: { type: string }
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                      enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                  administeredDepartmentIds:
+                    type: array
+                    items: { type: string }
+        total: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 1 }
+        offset: { type: integer, minimum: 0 }
 
     DocumentType:
       type: object
@@ -580,6 +655,12 @@ components:
             $ref: "#/components/schemas/HelpfulnessComment"
 
   responses:
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Unauthorized:
       description: Missing or invalid authentication token
       content:
@@ -692,13 +773,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                      format: uuid
-                    name:
-                      type: string
+                  $ref: "#/components/schemas/Department"
         "401":
           $ref: "#/components/responses/Unauthorized"
       x-amazon-apigateway-integration:
@@ -3778,6 +3853,212 @@ paths:
         httpMethod: POST
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+
+  # ==================== Department visibility ====================
+  /v1/departments/{departmentId}/visibility-state:
+    put:
+      summary: Set student-catalog visibility (TechnicalAdmin only)
+      tags: [Departments]
+      operationId: setDepartmentVisibilityState
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [visibilityState]
+              properties:
+                visibilityState:
+                  type: string
+                  enum: [VISIBLE, PERMITTED_ONLY]
+      responses:
+        "200":
+          description: Updated department, or current department for an idempotent request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Department"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'PUT,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+      responses:
+        "200":
+          description: CORS response
+          headers:
+            Access-Control-Allow-Headers: { schema: { type: string } }
+            Access-Control-Allow-Methods: { schema: { type: string } }
+            Access-Control-Allow-Origin: { schema: { type: string } }
+
+  /v1/departments/{departmentId}/visibility-grants:
+    get:
+      summary: List active explicit Department visibility permissions (TechnicalAdmin only)
+      tags: [Departments]
+      operationId: listDepartmentVisibilityGrants
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: Active visibility permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentVisibilityPermissionList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    post:
+      summary: Grant explicit Department visibility (TechnicalAdmin only)
+      tags: [Departments]
+      operationId: createDepartmentVisibilityGrant
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [userId]
+              properties:
+                userId: { type: string }
+      responses:
+        "200":
+          description: Existing active permission (idempotent request)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentVisibilityGrant"
+        "201":
+          description: Created permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentVisibilityGrant"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+      responses:
+        "200":
+          description: CORS response
+          headers:
+            Access-Control-Allow-Headers: { schema: { type: string } }
+            Access-Control-Allow-Methods: { schema: { type: string } }
+            Access-Control-Allow-Origin: { schema: { type: string } }
+
+  /v1/departments/{departmentId}/visibility-grants/{grantId}:
+    delete:
+      summary: Revoke explicit Department visibility (TechnicalAdmin only)
+      tags: [Departments]
+      operationId: revokeDepartmentVisibilityGrant
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: grantId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Revoked permission, or current revoked permission for an idempotent request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentVisibilityGrant"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+      responses:
+        "200":
+          description: CORS response
+          headers:
+            Access-Control-Allow-Headers: { schema: { type: string } }
+            Access-Control-Allow-Methods: { schema: { type: string } }
+            Access-Control-Allow-Origin: { schema: { type: string } }
 
   # ==================== Department prompt ====================
   /v1/departments/{departmentId}/access-state:

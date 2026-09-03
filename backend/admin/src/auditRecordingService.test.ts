@@ -6,6 +6,7 @@ import { FakeDb } from './fakeDb';
 import { deptAdminContext, techAdminContext } from './testContexts';
 import {
   auditConfigEdit,
+  auditDepartmentVisibilityChange,
   auditGuardrailOutcome,
   auditOverrideGrant,
   auditPromptEdit,
@@ -151,6 +152,54 @@ describe('auditRoleOrGrantChange (Requirement 45.2)', () => {
     }, db);
 
     expect(db.activityEvents[0]!.verb).toBe('grant.revoked');
+  });
+});
+
+describe('auditDepartmentVisibilityChange', () => {
+  it('records state transitions without email or other user profile data', async () => {
+    const db = new FakeDb();
+    await auditDepartmentVisibilityChange(
+      techAdminContext(),
+      {
+        action: 'department.visibility.updated',
+        departmentId: 'dept-1',
+        previousState: 'VISIBLE',
+        newState: 'PERMITTED_ONLY',
+      },
+      db,
+    );
+
+    expect(db.activityEvents[0]).toMatchObject({
+      verb: 'department.visibility.updated',
+      object_type: 'Department',
+      object_ref: 'dept-1',
+      department_id: 'dept-1',
+      context: {
+        role: 'TechnicalAdmin',
+        previousState: 'VISIBLE',
+        newState: 'PERMITTED_ONLY',
+      },
+    });
+  });
+
+  it('records grant identity and target user id but no email', async () => {
+    const db = new FakeDb();
+    await auditDepartmentVisibilityChange(
+      techAdminContext(),
+      {
+        action: 'department_visibility_grant.created',
+        departmentId: 'dept-1',
+        grantId: 'grant-1',
+        targetUserId: 'user-1',
+      },
+      db,
+    );
+
+    const event = db.activityEvents[0]!;
+    expect(event.object_type).toBe('DepartmentVisibilityGrant');
+    expect(event.object_ref).toBe('grant-1');
+    expect(event.context).toMatchObject({ targetUserId: 'user-1' });
+    expect(JSON.stringify(event.context)).not.toContain('@');
   });
 });
 

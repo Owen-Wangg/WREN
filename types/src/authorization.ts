@@ -46,6 +46,8 @@ import { idSchema } from './common';
  *   TechnicalAdmin).
  * - `department.manage` — rename or remove an administered Department
  *   (DepartmentAdmin for their own Department; TechnicalAdmin).
+ * - `departmentVisibility.manage` — change student-catalog visibility and
+ *   manage explicit Department visibility grants (TechnicalAdmin only).
  * - `accessGrant.create` / `accessGrant.revoke` — create/revoke Access Grants
  *   (DepartmentAdmin within administered Departments; TechnicalAdmin).
  * - `usageLimit.configure` — configure usage limits (TechnicalAdmin only).
@@ -68,6 +70,7 @@ export const capabilitySchema = z.enum([
   'documentType.setAccessState',
   'topic.manage',
   'department.manage',
+  'departmentVisibility.manage',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageLimit.configure',

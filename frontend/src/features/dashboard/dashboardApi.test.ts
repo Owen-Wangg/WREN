@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RequestOptions } from '@/services/apiClient';
 import type { HttpClient } from '@/services';
-import { createDraftFromSource, fetchMetadataFields } from './dashboardApi';
+import { createDraftFromSource, fetchMetadataFields, fetchOrganizations } from './dashboardApi';
 
 function responseClient(response: unknown, paths: string[] = []): HttpClient {
   return {
@@ -13,6 +13,36 @@ function responseClient(response: unknown, paths: string[] = []): HttpClient {
 }
 
 describe('dashboard API metadata and ingest boundaries', () => {
+  it('preserves discoverable and hidden departments in the shared projection', async () => {
+    const paths: string[] = [];
+    const client = responseClient([
+      { id: 'department-visible', name: 'Visible', viewerCanDiscover: true },
+      { id: 'department-hidden', name: 'Hidden', viewerCanDiscover: false },
+    ], paths);
+
+    await expect(fetchOrganizations(client)).resolves.toEqual([
+      {
+        id: 'department-visible',
+        name: 'Visible',
+        accessState: 'OPEN',
+        viewerCanDiscover: true,
+      },
+      {
+        id: 'department-hidden',
+        name: 'Hidden',
+        accessState: 'OPEN',
+        viewerCanDiscover: false,
+      },
+    ]);
+    expect(paths).toEqual(['/v1/departments']);
+  });
+
+  it('rejects a department response without an explicit discovery decision', async () => {
+    const client = responseClient([{ id: 'department-1', name: 'Incomplete' }]);
+
+    await expect(fetchOrganizations(client)).rejects.toThrow();
+  });
+
   it('requests and validates the selected document type metadata fields', async () => {
     const paths: string[] = [];
     const client = responseClient([

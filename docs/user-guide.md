@@ -91,6 +91,10 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 
 3. Select your department.
 
+   **Which departments appear?** A **Visible** department appears for every student. A **Permitted users only** department appears only if a System Admin gave you an explicit visibility permission, or if your account is a Technical Admin or the Department Admin appointed to that department. This affects the **New Document** department list only; it does not remove your existing documents.
+
+   Seeing a department does not necessarily mean you can submit to every document type. **Open** allows self-service submission, while **Locked** requires a separate document-type Access Grant. If an expected department is missing, contact your System Admin.
+
 4. Choose your document type — for example, **Legal Memorandum**.
 
 5. Give your draft a name.
@@ -277,8 +281,15 @@ Before diving into the steps, here's where things live on the platform:
 <img width="944" height="297" alt="image" src="https://github.com/user-attachments/assets/04c3dd29-6923-433b-9e4d-211c27c67975" />
 <img width="917" height="310" alt="image" src="https://github.com/user-attachments/assets/fa25a40d-91a0-4b9f-a1b6-16faaab5cf35" />
 
-- **Department Controls** — opens when you select or create a department. It's organized into three areas: **Users**, **Manage Department Prompt**, and **View Analytics**.
-- **Inside Users** — the list of active users in the department, where you can promote roles or lock the department from student access.
+- **Department Controls** — opens when you select or create a department. It's organized into three areas: **Manage Users**, **Manage Department Prompt**, and **View Analytics**.
+- **Inside Manage Users** — manage participant roles and explicit department visibility permissions. Only the System Admin (`TechnicalAdmin` in the API and database) can change department visibility or these permissions.
+
+**Two independent controls:**
+
+- **Department visibility — Visible / Permitted users only:** controls whether the department appears in student catalog and New Document views.
+- **Student access — Open / Locked:** controls submission. Open requires no document-type Access Grant; Locked requires an active document-type Access Grant.
+
+Changing one control does not change the other.
 
 <img width="1867" height="810" alt="image" src="https://github.com/user-attachments/assets/f37e9e4d-f13a-4149-8f11-03550340dc3a" />
 
@@ -341,18 +352,22 @@ These limits apply to all users in all departments. They are not per-calendar-pe
 1. Go to **System Admin Dashboard → Departments** and select the department you want to manage.
 <img width="936" height="381" alt="image" src="https://github.com/user-attachments/assets/14cff36a-00bc-4265-8c91-4074eb697c56" />
 
-2. Click **Users** to:
-   - View the list of currently active users in the department.
-   - Select a user to promote or change their role — for example, promoting a Student to **Department Admin**.
-   - Deactivate or remove a user if needed.
-3. Click **Lock Department Access** to prevent students from logging in or using platform features while keeping admin/staff access intact. Use this for maintenance, review periods, or restructuring.
+2. Under **Manage Users**, you can search participants and assign or revoke roles. Assigning **Department Admin** here scopes that role to this department.
+3. Use **Student access → Open / Lock** to control submission:
+   - **Open** — no document-type Access Grant is required.
+   - **Locked** — students require an approved document-type Access Grant before submitting.
+
+   Locking does not prevent login, remove existing documents, or hide the department from the catalog.
+4. Use **Department visibility → Visible / Permitted users only** to control catalog discovery:
+   - **Visible** — shown to all students.
+   - **Permitted users only** — shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
+5. Under **Permitted users**, search the global user directory to grant or revoke explicit visibility permission. Permissions are retained while the department is Visible and automatically take effect if it is changed back to Permitted users only. Revoking an explicit permission does not remove a Technical Admin or scoped Department Admin's automatic discovery access.
 
 <img width="1864" height="805" alt="names_emails_only_blurred" src="https://github.com/user-attachments/assets/09497a94-13f9-4f70-ae40-61b8c14de4ef" />
 
-**Notes:**
+**Important:** A visibility permission controls discovery only. It does not grant submission to a Locked document type; that requires a document-type Access Grant.
 
-- Role promotions typically take effect immediately.
-- Locking a department does not delete data — it only restricts student-level access until unlocked.
+**Security limitation:** Department visibility is a UI-only discovery filter, not an authorization or confidentiality boundary. The API returns active department rows with a `viewerCanDiscover` decision and the client filters catalog and New Document views. A user calling APIs directly may still learn department metadata and, when submission access is Open, may submit if they know the relevant IDs. Do not use **Permitted users only** to protect confidential department names or data. Use **Locked** plus document-type Access Grants to enforce submission eligibility; archive a department when it must stop accepting new submissions.
 
 ### 4.6 Department-Level Prompt Management
 
@@ -400,6 +415,8 @@ Figures are aggregates. They do not include per-student scores.
 | Set usage limits | Dashboard → Usage Limits |
 | Create a department | Dashboard → create department |
 | Promote or manage users | Department → Manage Users |
-| Lock or open student access | Department → Lock / Open |
+| Control catalog discovery | Department → Department visibility → Visible / Permitted users only |
+| Manage explicit discovery | Department → Manage Users → Permitted users |
+| Control submission | Department → Student access → Open / Lock |
 | Set department context and standards | Department → Manage Department Prompt |
 | Review department analytics | Department → View Analytics |

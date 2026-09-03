@@ -1077,7 +1077,14 @@ const systemAdminMockRoutes: MockRoutes = {
 
 /** Mock departments shaped as the real backend returns them (for /v1/departments). */
 const sampleDepartments = [
-  { id: 'org-law-uuid-0001-000000000001', name: 'Law', accessState: 'OPEN' },
+  {
+    id: 'org-law-uuid-0001-000000000001',
+    name: 'Law',
+    accessState: 'OPEN',
+    visibilityState: 'VISIBLE',
+    viewerCanDiscover: true,
+    archivedAt: null,
+  },
 ];
 
 /** Mock document types shaped as the real backend returns them (for /v1/document-types). */
@@ -1142,7 +1149,14 @@ const v1MockRoutes: MockRoutes = {
   'GET /v1/departments': sampleDepartments,
   'GET /v1/document-types': sampleDocumentTypes,
   'GET /v1/document-types?departmentId=org-law-uuid-0001-000000000001': sampleDocumentTypes,
-  'POST /v1/departments': { id: 'org-new-mock-uuid-0000000001', name: 'New Department', accessState: 'OPEN' },
+  'POST /v1/departments': {
+    id: 'org-new-mock-uuid-0000000001',
+    name: 'New Department',
+    accessState: 'OPEN',
+    visibilityState: 'VISIBLE',
+    viewerCanDiscover: true,
+    archivedAt: null,
+  },
   'POST /v1/document-types': { id: 'dt-new-mock-uuid-0000000001', departmentId: 'org-law-uuid-0001-000000000001', name: 'New Document Type', accessState: 'OPEN', sizeLimitWords: null },
   'GET /v1/access-grants': sampleAccessGrants,
   'POST /v1/access-requests': { requested: true },
@@ -1349,7 +1363,14 @@ export class MockApiClient implements HttpClient {
     // Dynamic: POST /v1/departments
     if (key === 'POST /v1/departments') {
       const body = options.body as Record<string, unknown> | undefined;
-      const newDept = { id: `dept-mock-${Date.now()}`, name: body?.name ?? 'New Department', accessState: 'OPEN' as const };
+      const newDept = {
+        id: `dept-mock-${Date.now()}`,
+        name: body?.name ?? 'New Department',
+        accessState: 'OPEN' as const,
+        visibilityState: 'VISIBLE' as const,
+        viewerCanDiscover: true,
+        archivedAt: null,
+      };
       const deptList = this.routes['GET /v1/departments'] as unknown[];
       deptList.push(newDept);
       if (!options.schema) return newDept as T;
@@ -1389,6 +1410,152 @@ export class MockApiClient implements HttpClient {
         const r = options.schema.safeParse(updated);
         if (!r.success) throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, r.error.issues);
         return r.data;
+      }
+    }
+
+    // Dynamic: Department visibility state and explicit permissions.
+    {
+      const visibilityMatch = normalizedPath.match(
+        /^\/v1\/departments\/([^/]+)\/visibility-state$/,
+      );
+      if (method === 'PUT' && visibilityMatch) {
+        const departmentId = visibilityMatch[1]!;
+        const body = options.body as {
+          visibilityState?: 'VISIBLE' | 'PERMITTED_ONLY';
+        } | undefined;
+        const visibilityState =
+          body?.visibilityState === 'PERMITTED_ONLY' ? 'PERMITTED_ONLY' : 'VISIBLE';
+        const deptList = this.routes['GET /v1/departments'] as Array<{
+          id: string;
+          name: string;
+          accessState?: 'OPEN' | 'LOCKED';
+          visibilityState?: 'VISIBLE' | 'PERMITTED_ONLY';
+          viewerCanDiscover?: boolean;
+          archivedAt?: string | null;
+        }>;
+        const dept = deptList.find((item) => item.id === departmentId);
+        if (dept) {
+          dept.visibilityState = visibilityState;
+          dept.viewerCanDiscover = true;
+        }
+        const updated = {
+          id: departmentId,
+          name: dept?.name ?? 'Department',
+          accessState: dept?.accessState ?? 'OPEN',
+          visibilityState,
+          viewerCanDiscover: true,
+          archivedAt: dept?.archivedAt ?? null,
+        };
+        if (!options.schema) return updated as T;
+        const parsed = options.schema.safeParse(updated);
+        if (!parsed.success) {
+          throw new ApiError(
+            `Mock fixture for ${key} failed validation`,
+            'validation',
+            200,
+            parsed.error.issues,
+          );
+        }
+        return parsed.data;
+      }
+
+      const grantsMatch = normalizedPath.match(
+        /^\/v1\/departments\/([^/]+)\/visibility-grants(?:\?.*)?$/,
+      );
+      if (grantsMatch) {
+        const departmentId = grantsMatch[1]!;
+        const stateKey = `visibility-grants:${departmentId}`;
+        const grants = (this.routes[stateKey] ??= []) as Array<{
+          grant: {
+            id: string;
+            departmentId: string;
+            userId: string;
+            grantedBy: string | null;
+            grantedAt: string;
+            revokedAt?: string;
+          };
+          user: {
+            id: string;
+            email: string;
+            firstName: string;
+            lastName: string;
+            roles: Array<'Student' | 'DepartmentAdmin' | 'TechnicalAdmin'>;
+            administeredDepartmentIds: string[];
+          };
+        }>;
+        if (method === 'GET') {
+          const fixture = { items: grants, total: grants.length, limit: 20, offset: 0 };
+          if (!options.schema) return fixture as T;
+          const parsed = options.schema.safeParse(fixture);
+          if (!parsed.success) {
+            throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, parsed.error.issues);
+          }
+          return parsed.data;
+        }
+        if (method === 'POST') {
+          const body = options.body as { userId?: string } | undefined;
+          const userId = body?.userId ?? 'user-mock';
+          const existing = grants.find((item) => item.grant.userId === userId);
+          const grant = existing?.grant ?? {
+            id: `visibility-grant-${Date.now()}`,
+            departmentId,
+            userId,
+            grantedBy: 'user-tech-admin',
+            grantedAt: new Date().toISOString(),
+          };
+          if (!existing) {
+            grants.push({
+              grant,
+              user: {
+                id: userId,
+                email: `${userId}@example.com`,
+                firstName: 'Mock',
+                lastName: 'User',
+                roles: ['Student'],
+                administeredDepartmentIds: [],
+              },
+            });
+          }
+          if (!options.schema) return grant as T;
+          const parsed = options.schema.safeParse(grant);
+          if (!parsed.success) throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, parsed.error.issues);
+          return parsed.data;
+        }
+      }
+
+      const revokeMatch = normalizedPath.match(
+        /^\/v1\/departments\/([^/]+)\/visibility-grants\/([^/?]+)$/,
+      );
+      if (method === 'DELETE' && revokeMatch) {
+        const departmentId = revokeMatch[1]!;
+        const grantId = revokeMatch[2]!;
+        const stateKey = `visibility-grants:${departmentId}`;
+        const grants = (this.routes[stateKey] ?? []) as Array<{
+          grant: {
+            id: string;
+            departmentId: string;
+            userId: string;
+            grantedBy: string | null;
+            grantedAt: string;
+            revokedAt?: string;
+          };
+        }>;
+        const index = grants.findIndex((item) => item.grant.id === grantId);
+        const grant = index >= 0
+          ? { ...grants[index]!.grant, revokedAt: new Date().toISOString() }
+          : {
+              id: grantId,
+              departmentId,
+              userId: 'user-mock',
+              grantedBy: 'user-tech-admin',
+              grantedAt: new Date().toISOString(),
+              revokedAt: new Date().toISOString(),
+            };
+        if (index >= 0) grants.splice(index, 1);
+        if (!options.schema) return grant as T;
+        const parsed = options.schema.safeParse(grant);
+        if (!parsed.success) throw new ApiError(`Mock fixture for ${key} failed validation`, 'validation', 200, parsed.error.issues);
+        return parsed.data;
       }
     }
 
