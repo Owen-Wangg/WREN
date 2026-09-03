@@ -152,8 +152,16 @@ function serializeDepartmentPrompt(fields: DepartmentPromptFields): string {
 export function DepartmentDetailPage() {
   const { departmentId } = useParams();
   const navigate = useNavigate();
-  const { dbRoles } = useAuth();
+  const { dbRoles, user } = useAuth();
   const canManageVisibility = dbRoles.includes('TechnicalAdmin');
+  // Ask WREN prompt editing is a shared capability: TechnicalAdmins (platform
+  // scope) and DepartmentAdmins appointed to this department.
+  const canManageAskWrenPrompt = Boolean(
+    dbRoles.includes('TechnicalAdmin') ||
+    (departmentId &&
+      dbRoles.includes('DepartmentAdmin') &&
+      user?.administeredDepartmentIds.includes(departmentId)),
+  );
   const [activeTab, setActiveTab] = useState<'users' | 'prompt' | 'ask-wren' | 'analytics'>('users');
   const [editingUser, setEditingUser] = useState<EditingUser | null>(null);
   const [selectedRoles, setSelectedRoles] = useState<AssignableRole[]>([]);
@@ -535,16 +543,18 @@ export function DepartmentDetailPage() {
                   Manage Department Prompt
                 </button>
 
-                <button
-                  onClick={() => setActiveTab('ask-wren')}
-                  className={`block w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition ${
-                    activeTab === 'ask-wren'
-                      ? 'bg-gray-900 text-white'
-                      : 'text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Manage Ask Wren Prompt
-                </button>
+                {canManageAskWrenPrompt && (
+                  <button
+                    onClick={() => setActiveTab('ask-wren')}
+                    className={`block w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition ${
+                      activeTab === 'ask-wren'
+                        ? 'bg-gray-900 text-white'
+                        : 'text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    Manage Ask Wren Prompt
+                  </button>
+                )}
 
                 <button
                   onClick={() => setActiveTab('analytics')}
@@ -660,7 +670,7 @@ export function DepartmentDetailPage() {
                         htmlFor="visibility-user-search"
                         className="block text-sm font-semibold text-gray-900"
                       >
-                        Find a user to permit
+                        Find a user
                       </label>
                       <input
                         id="visibility-user-search"
@@ -724,27 +734,38 @@ export function DepartmentDetailPage() {
                                   </p>
                                 )}
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => grantVisibility(user)}
-                                disabled={
-                                  Boolean(automaticLabel) ||
-                                  isExplicit ||
-                                  directorySearchPending ||
-                                  grantVisibilityMutation.isPending ||
-                                  revokeVisibilityMutation.isPending
-                                }
-                                aria-label={`Permit ${user.firstName} ${user.lastName} to discover this department`}
-                                className="shrink-0 rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-600"
-                              >
-                                {isGranting
-                                  ? 'Granting…'
-                                  : automaticLabel
-                                    ? 'Automatic'
-                                    : isExplicit
-                                      ? 'Permitted'
-                                      : 'Grant'}
-                              </button>
+                              <div className="flex shrink-0 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(user)}
+                                  disabled={assignMutation.isPending}
+                                  aria-label={`Edit roles for ${user.firstName} ${user.lastName}`}
+                                  className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                >
+                                  Edit roles
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => grantVisibility(user)}
+                                  disabled={
+                                    Boolean(automaticLabel) ||
+                                    isExplicit ||
+                                    directorySearchPending ||
+                                    grantVisibilityMutation.isPending ||
+                                    revokeVisibilityMutation.isPending
+                                  }
+                                  aria-label={`Permit ${user.firstName} ${user.lastName} to discover this department`}
+                                  className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-600"
+                                >
+                                  {isGranting
+                                    ? 'Granting…'
+                                    : automaticLabel
+                                      ? 'Automatic'
+                                      : isExplicit
+                                        ? 'Permitted'
+                                        : 'Grant'}
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
@@ -1075,7 +1096,7 @@ export function DepartmentDetailPage() {
           )}
 
           {/* Manage Ask Wren Prompt Tab */}
-          {activeTab === 'ask-wren' && (
+          {activeTab === 'ask-wren' && canManageAskWrenPrompt && (
             <div>
               <h2 className="mb-6 text-3xl font-bold text-gray-900">Ask Wren Prompt</h2>
 

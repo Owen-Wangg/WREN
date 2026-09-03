@@ -739,6 +739,7 @@ export class FakeDb implements QueryExecutor {
     }
 
     if (
+      sql.startsWith('SELECT id, name, prompt, ask_wren_prompt, access_state, visibility_state, archived_at FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt, access_state, visibility_state, archived_at FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt, access_state, archived_at FROM department WHERE id = $1') ||
       sql.startsWith('SELECT id, name, prompt, access_state FROM department WHERE id = $1') ||
@@ -762,7 +763,10 @@ export class FakeDb implements QueryExecutor {
       return rows as unknown as Row[];
     }
 
-    if (sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state, d.visibility_state,')) {
+    if (
+      sql.startsWith('SELECT d.id, d.name, d.prompt, d.ask_wren_prompt, d.access_state, d.visibility_state,') ||
+      sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state, d.visibility_state,')
+    ) {
       const [userId, isTechnicalAdmin, administeredDepartmentIds] = params as [
         string,
         boolean,

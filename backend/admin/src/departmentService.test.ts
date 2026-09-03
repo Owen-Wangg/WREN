@@ -178,7 +178,7 @@ describe('renameDepartment (department.manage capability)', () => {
   });
 });
 
-describe('updateDepartmentAskWrenPrompt (department.manage capability)', () => {
+describe('updateDepartmentAskWrenPrompt (department.manageAskWrenPrompt capability)', () => {
   it('lets a DepartmentAdmin set the Ask WREN prompt for an administered Department', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Allard Law' });
@@ -267,14 +267,23 @@ describe('updateDepartmentAskWrenPrompt (department.manage capability)', () => {
     expect(db.mutationCount).toBe(0);
   });
 
-  it('denies a TechnicalAdmin (Ask WREN prompt is a DepartmentAdmin operation)', async () => {
+  it('lets a TechnicalAdmin set the Ask WREN prompt (platform-scoped, Technical Admin domain)', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Keep' });
 
-    await expect(
-      updateDepartmentAskWrenPrompt(techAdminContext(), DEPT, { askWrenPrompt: 'x' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+    const updated = await updateDepartmentAskWrenPrompt(
+      techAdminContext(),
+      DEPT,
+      { askWrenPrompt: 'Platform-wide coaching context for this department.' },
+      db,
+    );
+
+    expect(updated.askWrenPrompt).toBe(
+      'Platform-wide coaching context for this department.',
+    );
+    expect(db.departments.get(DEPT)!.ask_wren_prompt).toBe(
+      'Platform-wide coaching context for this department.',
+    );
   });
 
   it('throws NotFoundError when the Department does not exist', async () => {
