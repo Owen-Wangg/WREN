@@ -51,6 +51,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'documentType.manageCatalog',
   'documentType.readConfig',
   'documentType.modifyConfig',
+  'department.manageAskWrenPrompt',
   'analytics.view',
 ]);
 
@@ -60,6 +61,7 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'documentType.manageCatalog',
   'topic.manage',
   'department.manage',
+  'department.manageAskWrenPrompt',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageOverride.grant',
@@ -107,6 +109,7 @@ const ALL_CAPABILITIES: Capability[] = [
   'documentType.setAccessState',
   'topic.manage',
   'department.manage',
+  'department.manageAskWrenPrompt',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageLimit.configure',

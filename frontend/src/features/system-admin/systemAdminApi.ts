@@ -91,9 +91,10 @@ export async function updateDepartmentPrompt(departmentId: string, prompt: strin
 
 /**
  * Update a Department's Ask WREN prompt — the department-level Socratic coaching
- * context. DepartmentAdmin-scoped (distinct from {@link updateDepartmentPrompt},
- * which targets the TechnicalAdmin-owned Feedback-Engine prompt). A ghostwriting
- * or prompt-injection rejection surfaces as a 400 the caller can display.
+ * context. Editable by TechnicalAdmins (platform scope) and DepartmentAdmins for
+ * their departments (distinct from {@link updateDepartmentPrompt}, which targets
+ * the TechnicalAdmin-owned Feedback-Engine prompt). A ghostwriting or
+ * prompt-injection rejection surfaces as a 400 the caller can display.
  */
 export async function updateDepartmentAskWrenPrompt(
   departmentId: string,

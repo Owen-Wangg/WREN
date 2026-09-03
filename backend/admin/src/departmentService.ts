@@ -291,10 +291,13 @@ export async function updateDepartmentPrompt(
  * Update a Department's Ask WREN prompt text — the department-level Socratic
  * coaching context appended to Ask WREN's universal system prompt.
  *
- * DepartmentAdmin-scoped: gated by `department.manage` for the administered
- * Department (unlike {@link updateDepartmentPrompt}, which is a
- * TechnicalAdmin-only Feedback-Engine field). The two prompt surfaces are
- * independent — this never touches `department.prompt`.
+ * Gated by `department.manageAskWrenPrompt`: a DepartmentAdmin for the
+ * administered Department, or a TechnicalAdmin at platform scope (the Ask WREN
+ * prompt is surfaced within the Technical Admin domain). Distinct from
+ * `department.manage` (rename/removal, DepartmentAdmin-only) and from
+ * {@link updateDepartmentPrompt} (the TechnicalAdmin-only Feedback-Engine
+ * field). The prompt surfaces are independent — this never touches
+ * `department.prompt`.
  *
  * Both save-time guardrails run BEFORE any DB write (deny-with-no-mutation,
  * mirroring `document_type_config`): {@link assertGhostwritingFree} rejects
@@ -311,9 +314,15 @@ export async function updateDepartmentAskWrenPrompt(
   input: UpdateDepartmentAskWrenPromptInput,
   db: QueryExecutor,
 ): Promise<Department> {
+  // Shared educational-content operation: a TechnicalAdmin edits it at platform
+  // scope (the Ask WREN prompt lives in the Technical Admin domain), while a
+  // DepartmentAdmin edits it scoped to an administered Department.
+  const scope = actor.roles.includes('TechnicalAdmin')
+    ? { kind: 'platform' as const }
+    : { kind: 'department' as const, departmentId: id };
   requireCapability(actor, {
-    capability: 'department.manage',
-    scope: { kind: 'department', departmentId: id },
+    capability: 'department.manageAskWrenPrompt',
+    scope,
   });
 
   const { askWrenPrompt } = updateDepartmentAskWrenPromptInputSchema.parse(input);

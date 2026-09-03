@@ -314,6 +314,17 @@ describe('DepartmentDetailPage visibility management', () => {
 });
 
 describe('DepartmentDetailPage Ask Wren prompt tab', () => {
+  beforeEach(() => {
+    // TechnicalAdmins may now edit the Ask WREN prompt at platform scope.
+    vi.mocked(useAuth).mockReturnValue({
+      dbRoles: ['TechnicalAdmin'],
+      user: {
+        roles: ['TechnicalAdmin'],
+        administeredDepartmentIds: [] as string[],
+      },
+    } as unknown as ReturnType<typeof useAuth>);
+  });
+
   it('loads the existing Ask Wren prompt and saves an edited value', async () => {
     const user = userEvent.setup();
     apiMocks.listDepartments.mockResolvedValue([
