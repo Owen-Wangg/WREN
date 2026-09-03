@@ -10,6 +10,7 @@ import {
   getDepartment,
   createDepartment,
   updateDepartmentPrompt,
+  updateDepartmentAskWrenPrompt,
   setDepartmentAccessState,
   setDepartmentVisibilityState,
   listDepartmentUsers,
@@ -47,7 +48,8 @@ import {
 } from './lifetimeUsagePolicy';
 import type { QueryExecutor } from './db';
 import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
-import { AuthorizationError, NotFoundError } from './errors';
+import { AuthorizationError, NotFoundError, PromptInjectionError } from './errors';
+import { PromptGuardrailError } from './promptGuardrail';
 import { assertCanListDepartmentUsers, requireCapability } from './capabilityGuard';
 import {
   auditConfigEdit,
@@ -156,6 +158,9 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
     }
     if (resource === '/v1/departments/{departmentId}/prompt' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateDepartmentPrompt(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/ask-wren-prompt' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleUpdateDepartmentAskWrenPrompt(event));
     }
     if (resource === '/v1/departments/{departmentId}/access-state' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleSetDepartmentAccessState(event));
@@ -902,6 +907,45 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
     statusCode: 200,
     body: JSON.stringify(department),
   };
+}
+
+async function handleUpdateDepartmentAskWrenPrompt(
+  event: any,
+): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+
+  try {
+    const department = await updateDepartmentAskWrenPrompt(actor, departmentId, body, db);
+    await auditPromptEdit(
+      actor,
+      { departmentId, scope: 'department', guardrailOutcome: 'passed' },
+      db,
+    );
+    return {
+      statusCode: 200,
+      body: JSON.stringify(department),
+    };
+  } catch (err) {
+    // Requirement 32.6: record the edit attempt with its guardrail outcome even
+    // when the content is rejected. The error is rethrown so wrapHandler maps it
+    // to the appropriate 400 (GHOSTWRITING_DETECTED / prompt-injection).
+    if (err instanceof PromptGuardrailError || err instanceof PromptInjectionError) {
+      await auditPromptEdit(
+        actor,
+        {
+          departmentId,
+          scope: 'department',
+          guardrailOutcome: 'rejected',
+          rejectionReason: err.message,
+        },
+        db,
+      );
+    }
+    throw err;
+  }
 }
 
 async function handleListErrorCategories(event: any): Promise<APIGatewayProxyResult> {

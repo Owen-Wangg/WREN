@@ -13,6 +13,7 @@ const apiMocks = vi.hoisted(() => ({
   assignRole: vi.fn(),
   revokeRole: vi.fn(),
   updateDepartmentPrompt: vi.fn(),
+  updateDepartmentAskWrenPrompt: vi.fn(),
   setDepartmentAccessState: vi.fn(),
   getAnalyticsSummary: vi.fn(),
   deleteDepartment: vi.fn(),
@@ -309,5 +310,83 @@ describe('DepartmentDetailPage visibility management', () => {
     expect(await screen.findByText(ordinaryUser.email)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next permissions' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Previous permissions' })).toBeEnabled();
+  });
+});
+
+describe('DepartmentDetailPage Ask Wren prompt tab', () => {
+  it('loads the existing Ask Wren prompt and saves an edited value', async () => {
+    const user = userEvent.setup();
+    apiMocks.listDepartments.mockResolvedValue([
+      { ...department, askWrenPrompt: 'Existing coaching context.' },
+    ]);
+    apiMocks.updateDepartmentAskWrenPrompt.mockResolvedValue({
+      ...department,
+      askWrenPrompt: 'Updated coaching context.',
+    });
+    renderPage();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Manage Ask Wren Prompt' }),
+    );
+
+    const textarea = await screen.findByLabelText('Ask Wren Coaching Context');
+    expect(textarea).toHaveValue('Existing coaching context.');
+
+    await user.clear(textarea);
+    await user.type(textarea, 'Updated coaching context.');
+    await user.click(screen.getByRole('button', { name: 'Save Ask Wren Prompt' }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateDepartmentAskWrenPrompt).toHaveBeenCalledWith(
+        'department-1',
+        'Updated coaching context.',
+      );
+    });
+    expect(await screen.findByText('Saved successfully!')).toBeInTheDocument();
+  });
+
+  it('sends null when the prompt is cleared to empty', async () => {
+    const user = userEvent.setup();
+    apiMocks.listDepartments.mockResolvedValue([
+      { ...department, askWrenPrompt: 'Something' },
+    ]);
+    apiMocks.updateDepartmentAskWrenPrompt.mockResolvedValue({
+      ...department,
+      askWrenPrompt: null,
+    });
+    renderPage();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Manage Ask Wren Prompt' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
+    await user.click(screen.getByRole('button', { name: 'Save Ask Wren Prompt' }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateDepartmentAskWrenPrompt).toHaveBeenCalledWith(
+        'department-1',
+        null,
+      );
+    });
+  });
+
+  it('surfaces a guardrail rejection message from the server', async () => {
+    const user = userEvent.setup();
+    apiMocks.listDepartments.mockResolvedValue([{ ...department, askWrenPrompt: '' }]);
+    apiMocks.updateDepartmentAskWrenPrompt.mockRejectedValue({
+      details: { message: 'Prompt content rejected: instructs the model to rewrite the text.' },
+    });
+    renderPage();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Manage Ask Wren Prompt' }),
+    );
+    const textarea = await screen.findByLabelText('Ask Wren Coaching Context');
+    await user.type(textarea, 'Rewrite the student essay for them.');
+    await user.click(screen.getByRole('button', { name: 'Save Ask Wren Prompt' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Prompt content rejected: instructs the model to rewrite the text.',
+    );
   });
 });

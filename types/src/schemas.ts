@@ -80,6 +80,14 @@ export const departmentSchema = z
     name: z.string().min(1),
     prompt: z.string().nullable().optional(),
     /**
+     * Department-level Ask WREN coaching context, editable by a DepartmentAdmin
+     * for their administered Department(s). Appended to Ask WREN's universal
+     * system prompt as labeled context (never overriding rules). Independent of
+     * `prompt`, which feeds the Feedback Engine. NULL/absent means no department
+     * Ask WREN layer.
+     */
+    askWrenPrompt: z.string().nullable().optional(),
+    /**
      * Department-wide student access. OPEN = any student may self-select
      * document types in this department; LOCKED = grant required. Controlled
      * by TechnicalAdmin only.
@@ -135,6 +143,21 @@ export const updateDepartmentPromptInputSchema = z
   })
   .strict();
 export type UpdateDepartmentPromptInput = z.infer<typeof updateDepartmentPromptInputSchema>;
+
+/**
+ * Input to update a Department's Ask WREN prompt text (department-level Socratic
+ * coaching context). Separate from {@link updateDepartmentPromptInputSchema},
+ * which targets the Feedback-Engine `prompt`. Editable by DepartmentAdmins for
+ * their administered Department(s).
+ */
+export const updateDepartmentAskWrenPromptInputSchema = z
+  .object({
+    askWrenPrompt: z.string().nullable(),
+  })
+  .strict();
+export type UpdateDepartmentAskWrenPromptInput = z.infer<
+  typeof updateDepartmentAskWrenPromptInputSchema
+>;
 
 /* -------------------------------------------------------------------------- */
 /* DocumentType (configurable, self-selectable — design "Document Type")        */

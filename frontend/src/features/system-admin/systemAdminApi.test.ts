@@ -10,6 +10,7 @@ import {
   listDepartmentVisibilityGrants,
   revokeDepartmentVisibilityGrant,
   setDepartmentVisibilityState,
+  updateDepartmentAskWrenPrompt,
 } from './systemAdminApi';
 
 describe('systemAdminApi department visibility methods', () => {
@@ -70,6 +71,36 @@ describe('systemAdminApi department visibility methods', () => {
     expect(request).toHaveBeenCalledWith(
       '/v1/departments/department-1/visibility-grants/grant-1',
       { method: 'DELETE', schema: departmentVisibilityGrantSchema },
+    );
+  });
+
+  it('updates the Ask WREN prompt through the dedicated endpoint', async () => {
+    const request = vi.spyOn(apiClient, 'request').mockResolvedValue({} as never);
+
+    await updateDepartmentAskWrenPrompt('department-1', 'Law students writing memoranda.');
+
+    expect(request).toHaveBeenCalledWith(
+      '/v1/departments/department-1/ask-wren-prompt',
+      {
+        method: 'PUT',
+        body: { askWrenPrompt: 'Law students writing memoranda.' },
+        schema: departmentSchema,
+      },
+    );
+  });
+
+  it('clears the Ask WREN prompt by sending null', async () => {
+    const request = vi.spyOn(apiClient, 'request').mockResolvedValue({} as never);
+
+    await updateDepartmentAskWrenPrompt('department-1', null);
+
+    expect(request).toHaveBeenCalledWith(
+      '/v1/departments/department-1/ask-wren-prompt',
+      {
+        method: 'PUT',
+        body: { askWrenPrompt: null },
+        schema: departmentSchema,
+      },
     );
   });
 });

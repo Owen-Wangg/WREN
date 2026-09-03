@@ -38,6 +38,7 @@ import {
   overrideSchema,
   resolutionStatusSchema,
   roleSchema,
+  updateDepartmentAskWrenPromptInputSchema,
 } from './index';
 
 /* -------------------------------------------------------------------------- */
@@ -269,6 +270,54 @@ describe('enum schemas', () => {
     ]) {
       expect(resolutionStatusSchema.parse(status)).toBe(status);
     }
+  });
+});
+
+describe('department Ask WREN prompt schemas', () => {
+  it('accepts a Department carrying askWrenPrompt (string or null)', () => {
+    expect(
+      departmentSchema.parse({
+        ...validExamples.department.value,
+        askWrenPrompt: 'Law students writing legal memoranda.',
+      }).askWrenPrompt,
+    ).toBe('Law students writing legal memoranda.');
+
+    expect(
+      departmentSchema.parse({
+        ...validExamples.department.value,
+        askWrenPrompt: null,
+      }).askWrenPrompt,
+    ).toBeNull();
+  });
+
+  it('treats askWrenPrompt as optional (absent parses as before)', () => {
+    const parsed = departmentSchema.parse(validExamples.department.value);
+    expect(parsed.askWrenPrompt).toBeUndefined();
+  });
+
+  it('validates the update input (accepts string and null)', () => {
+    expect(
+      updateDepartmentAskWrenPromptInputSchema.parse({ askWrenPrompt: 'Some context.' })
+        .askWrenPrompt,
+    ).toBe('Some context.');
+    expect(
+      updateDepartmentAskWrenPromptInputSchema.parse({ askWrenPrompt: null }).askWrenPrompt,
+    ).toBeNull();
+  });
+
+  it('rejects a non-string, non-null askWrenPrompt', () => {
+    expect(() =>
+      updateDepartmentAskWrenPromptInputSchema.parse({ askWrenPrompt: 42 }),
+    ).toThrow();
+  });
+
+  it('rejects extra fields in the update input (strict mode)', () => {
+    expect(() =>
+      updateDepartmentAskWrenPromptInputSchema.parse({
+        askWrenPrompt: 'ok',
+        prompt: 'not allowed here',
+      }),
+    ).toThrow();
   });
 });
 

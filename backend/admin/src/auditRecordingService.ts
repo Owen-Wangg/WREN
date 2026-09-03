@@ -74,18 +74,31 @@ export async function auditPromptEdit(
   detail: {
     documentTypeId?: string;
     departmentId?: string;
-    scope: 'documentType' | 'system';
+    /**
+     * Which prompt surface was edited:
+     *  - `documentType` — Document-Type prompt config (`type_prompt_text`).
+     *  - `system`       — TechnicalAdmin-owned Feedback-Engine `department.prompt`.
+     *  - `department`   — DepartmentAdmin-owned department Ask WREN prompt
+     *                     (`department.ask_wren_prompt`).
+     */
+    scope: 'documentType' | 'system' | 'department';
     guardrailOutcome: 'passed' | 'rejected';
     rejectionReason?: string;
   },
   db: QueryExecutor,
 ): Promise<void> {
+  const objectRef =
+    detail.scope === 'system'
+      ? 'system-scaffolding'
+      : detail.scope === 'department'
+        ? `department:${detail.departmentId}`
+        : `documentType:${detail.documentTypeId}`;
   await recordActivityEvent(
     {
       actorUserId: actor.userId,
       verb: 'prompt.edited',
       objectType: 'Prompt',
-      objectRef: detail.scope === 'system' ? 'system-scaffolding' : `documentType:${detail.documentTypeId}`,
+      objectRef,
       documentTypeId: detail.documentTypeId,
       departmentId: detail.departmentId,
       context: {

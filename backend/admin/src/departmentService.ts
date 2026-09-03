@@ -24,12 +24,14 @@ import {
   createDepartmentInputSchema,
   departmentSchema,
   updateDepartmentInputSchema,
+  updateDepartmentAskWrenPromptInputSchema,
   updateDepartmentPromptInputSchema,
   updateDepartmentVisibilityInputSchema,
   type AuthContext,
   type CreateDepartmentInput,
   type Department,
   type DepartmentVisibilityState,
+  type UpdateDepartmentAskWrenPromptInput,
   type UpdateDepartmentInput,
   type UpdateDepartmentPromptInput,
   type UpdateDepartmentVisibilityInput,
@@ -38,13 +40,14 @@ import {
 import { requireCapability } from './capabilityGuard';
 import type { QueryExecutor } from './db';
 import { NotFoundError } from './errors';
-import { assertPromptInjectionFree } from './promptGuardrail';
+import { assertGhostwritingFree, assertPromptInjectionFree } from './promptGuardrail';
 
 /** Raw `department` row (snake_case columns from PostgreSQL). */
 interface DepartmentRow {
   readonly id: string;
   readonly name: string;
   readonly prompt: string | null;
+  readonly ask_wren_prompt?: string | null;
   readonly access_state?: 'OPEN' | 'LOCKED' | null;
   readonly visibility_state?: DepartmentVisibilityState | null;
   readonly viewer_can_discover?: boolean | null;
@@ -55,12 +58,24 @@ interface DepartmentRow {
 /** The columns every read/write returns, in the shared DTO's field order. */
 const RETURNING = 'id, name, prompt, access_state, visibility_state, archived_at';
 
+/**
+ * Columns returned by the Ask WREN prompt write path. Same as {@link RETURNING}
+ * plus `ask_wren_prompt` so the updated DTO reflects the new value. Kept
+ * separate so the widely-used {@link RETURNING} shape (and the many read paths
+ * that depend on it) stay unchanged.
+ */
+const RETURNING_WITH_ASK_WREN =
+  'id, name, prompt, ask_wren_prompt, access_state, visibility_state, archived_at';
+
 /** Map a raw row to the validated shared {@link Department} DTO. */
 function toDepartment(row: DepartmentRow): Department {
   return departmentSchema.parse({
     id: row.id,
     name: row.name,
     prompt: row.prompt,
+    // Only surface askWrenPrompt when the read path selected it; otherwise leave
+    // it undefined so existing reads (which don't select it) parse unchanged.
+    ...(row.ask_wren_prompt !== undefined ? { askWrenPrompt: row.ask_wren_prompt } : {}),
     accessState: row.access_state === 'LOCKED' || row.access_state === 'OPEN'
       ? row.access_state
       : 'OPEN',
@@ -263,6 +278,56 @@ export async function updateDepartmentPrompt(
   const rows = await db.query<DepartmentRow>(
     `UPDATE department SET prompt = $2 WHERE id = $1 RETURNING ${RETURNING}`,
     [id, prompt],
+  );
+
+  const row = rows[0];
+  if (!row) {
+    throw new NotFoundError(`Department '${id}' not found`);
+  }
+  return toDepartment(row);
+}
+
+/**
+ * Update a Department's Ask WREN prompt text — the department-level Socratic
+ * coaching context appended to Ask WREN's universal system prompt.
+ *
+ * DepartmentAdmin-scoped: gated by `department.manage` for the administered
+ * Department (unlike {@link updateDepartmentPrompt}, which is a
+ * TechnicalAdmin-only Feedback-Engine field). The two prompt surfaces are
+ * independent — this never touches `department.prompt`.
+ *
+ * Both save-time guardrails run BEFORE any DB write (deny-with-no-mutation,
+ * mirroring `document_type_config`): {@link assertGhostwritingFree} rejects
+ * instructions that would make Ask WREN produce replacement prose, and
+ * {@link assertPromptInjectionFree} runs the text through Bedrock Guardrails
+ * (skipped gracefully when unconfigured). A rejection leaves the previously
+ * persisted value untouched.
+ *
+ * Throws {@link NotFoundError} when the Department does not exist.
+ */
+export async function updateDepartmentAskWrenPrompt(
+  actor: AuthContext,
+  id: string,
+  input: UpdateDepartmentAskWrenPromptInput,
+  db: QueryExecutor,
+): Promise<Department> {
+  requireCapability(actor, {
+    capability: 'department.manage',
+    scope: { kind: 'department', departmentId: id },
+  });
+
+  const { askWrenPrompt } = updateDepartmentAskWrenPromptInputSchema.parse(input);
+
+  // Save-time guardrails — validated BEFORE any DB write, so a rejected save
+  // leaves the previously persisted Ask WREN prompt entirely untouched.
+  if (askWrenPrompt) {
+    assertGhostwritingFree(askWrenPrompt);
+    await assertPromptInjectionFree(askWrenPrompt);
+  }
+
+  const rows = await db.query<DepartmentRow>(
+    `UPDATE department SET ask_wren_prompt = $2 WHERE id = $1 RETURNING ${RETURNING_WITH_ASK_WREN}`,
+    [id, askWrenPrompt],
   );
 
   const row = rows[0];

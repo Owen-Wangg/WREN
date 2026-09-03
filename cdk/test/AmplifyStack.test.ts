@@ -29,4 +29,33 @@ describe("AmplifyStack configured branch", () => {
       Value: Match.objectLike({ "Fn::Join": Match.anyValue() }),
     });
   });
+
+  it("provisions main (production) and development branches with default config", () => {
+    const config = testConfig();
+    const stack = new AmplifyStack(new App(), "Amplify", {
+      env: config.env,
+      config,
+      repositoryOwner: "owner",
+      repositoryName: "repo",
+      branch: "main",
+      githubTokenSecretName: `${config.stackPrefix}/github/token`,
+      apiEndpoint: "https://api.example.test/",
+      cognitoUserPoolId: "ca-central-1_pool",
+      cognitoClientId: "client",
+      appSyncGraphqlUrl: "https://example.appsync-api.ca-central-1.amazonaws.com/graphql",
+    });
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs("AWS::Amplify::Branch", 2);
+    template.hasResourceProperties("AWS::Amplify::Branch", {
+      BranchName: "main",
+      Stage: "PRODUCTION",
+      EnableAutoBuild: true,
+    });
+    template.hasResourceProperties("AWS::Amplify::Branch", {
+      BranchName: "development",
+      Stage: "DEVELOPMENT",
+      EnableAutoBuild: true,
+    });
+  });
 });
