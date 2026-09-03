@@ -9,19 +9,30 @@ DDL. They are applied in lexical filename order. Summary:
 
 | File | Purpose |
 |------|---------|
-| `0001_enable_extensions.sql` | Enable `vector` (pgvector) and `pgcrypto`. |
-| `0002_initial_schema.sql` | Core relational schema. |
-| `0003_v4_terminology_migration.sql` | `organization` → `department`, `writing_type` → `document_type`, role rename. |
-| `0004`–`0032_*.sql` | Incremental features (prompts, ingest, notifications, usage, grants, …). |
+| `0001_baseline.sql` | Squashed baseline: extensions (`vector`, `pgcrypto`), the full core relational schema in V4 terminology (`department`, `document_type`, `document_type_config`, …), Department catalog visibility (`department.visibility_state` + `department_visibility_grant`), the nullable `department.ask_wren_prompt` column, the Draft-immutability trigger, the least-privilege app LOGIN roles + grants, and seed data (platform policy, notification-type catalog, the Law example department). |
 
-Filenames are applied in **lexical order**. A few prefixes are reused (for example two `0014_*` files); lexical order, not the integer alone, is what the runner uses. Do not edit an already-applied file — add a new numbered migration instead.
+Filenames are applied in **lexical order**. Do not edit an already-applied file — add a new numbered migration instead.
+
+> **Consolidation history.** The earlier per-feature migrations
+> (`0001_enable_extensions.sql`, `0002_initial_schema.sql`,
+> `0003_v4_terminology_migration.sql`, `0004`–`0036_*.sql`) were consolidated into
+> `0001_baseline.sql`. A later round folded the post-baseline migrations
+> `0002_department_visibility.sql`, `0003_department_ask_wren_prompt.sql`,
+> `0004_department_visibility_grant_privileges.sql`,
+> `0005_authorizer_app_user_update_privilege.sql`, and
+> `0006_seed_law_department.sql` into the same baseline. Squashing only changes
+> what a **fresh** database receives; a database that has already recorded
+> `0001_baseline.sql` in `schema_migrations` will not re-run the rewritten file,
+> so consolidation must be paired with rebuilding such environments (or applying
+> the folded statements out of band).
 
 ## Naming
 
 The design document's historical **Writing Domain** entity is implemented as
-**`document_type`** (renamed from `writing_type` in `0003_v4_terminology_migration.sql`).
-It is data, never a hardcoded domain enumeration. Administrative groupings are
-**`department`** rows (not tenants). All identifiers use `snake_case`.
+**`document_type`**. It is data, never a hardcoded domain enumeration.
+Administrative groupings are **`department`** rows (not tenants). All identifiers
+use `snake_case`. The baseline defines these V4 names directly (the pre-V4
+`organization` / `writing_type` names no longer appear as tables).
 
 ## Schema invariants enforced here
 
@@ -56,8 +67,7 @@ blocks mutation; a re-evaluation inserts a new `(feedback_item, draft)` row).
 Apply with any PostgreSQL client over the TLS-enforced RDS Proxy endpoint, e.g.:
 
 ```bash
-psql "$DATABASE_URL?sslmode=require" -f 0001_enable_extensions.sql
-psql "$DATABASE_URL?sslmode=require" -f 0002_initial_schema.sql
+psql "$DATABASE_URL?sslmode=require" -f 0001_baseline.sql
 ```
 
 A programmatic migration runner is provided by the data-access layer (task 2.4):

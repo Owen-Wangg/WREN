@@ -167,10 +167,10 @@ export async function listDepartmentVisibilityGrants(
               WHERE ra.user_id = u.id
                 AND ra.role = 'DepartmentAdmin'
                 AND (
-                  ra.scope->>'departmentId' = $1::text
-                  OR ra.scope->'departmentIds' ? $1::text
+                  ra.scope->>'departmentId' = $5
+                  OR ra.scope->'departmentIds' ? $5
                 )
-            ) THEN ARRAY[$1::text] ELSE ARRAY[]::text[] END AS administered_department_ids
+            ) THEN ARRAY[$5] ELSE ARRAY[]::text[] END AS administered_department_ids
      FROM department_visibility_grant dvg
      INNER JOIN app_user u ON u.id = dvg.user_id
      WHERE dvg.department_id = $1
@@ -181,7 +181,11 @@ export async function listDepartmentVisibilityGrants(
          OR u.email ILIKE $2)
      ORDER BY u.last_name ASC, u.first_name ASC, dvg.granted_at ASC
      LIMIT $3 OFFSET $4`,
-    [departmentId, search ? `%${search}%` : null, limit, offset],
+    // $1 is the department id in a uuid context (dvg.department_id = $1); the
+    // JSONB scope checks need it as text, so it is passed again as $5 to avoid a
+    // single placeholder being inferred as both uuid and text (which fails with
+    // "operator does not exist: uuid = text").
+    [departmentId, search ? `%${search}%` : null, limit, offset, departmentId],
   );
 
   return departmentVisibilityPermissionListSchema.parse({

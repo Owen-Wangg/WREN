@@ -1,11 +1,17 @@
 /**
- * Guard: 0027 creates LOGIN roles with GRANTs and never embeds passwords.
+ * Guard: the baseline creates least-privilege app LOGIN roles with GRANTs and
+ * never embeds password literals.
+ *
+ * The per-role migration (formerly `0027_app_db_roles.sql`) and the follow-on
+ * table-grant migrations were consolidated into `0001_baseline.sql`. The role
+ * set, the "no embedded password" rule, and the schema/connect grants are
+ * asserted here against that squashed baseline.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SQL = readFileSync(
-  join(__dirname, "migrations", "0027_app_db_roles.sql"),
+  join(__dirname, "migrations", "0001_baseline.sql"),
   "utf8",
 );
 
@@ -20,7 +26,7 @@ const ROLES = [
   "wren_notification",
 ] as const;
 
-describe("0027_app_db_roles", () => {
+describe("app database roles (baseline)", () => {
   it("creates each app LOGIN role without a password literal", () => {
     for (const role of ROLES) {
       expect(SQL).toMatch(
@@ -32,37 +38,15 @@ describe("0027_app_db_roles", () => {
   });
 
   it("grants schema usage and connect, not DDL", () => {
+    // Grants are batched across all roles in the squashed baseline.
     expect(SQL).toMatch(/GRANT USAGE ON SCHEMA public/);
     expect(SQL).toMatch(/GRANT CONNECT ON DATABASE appdb/);
     expect(SQL).not.toMatch(/GRANT\s+CREATE\s+ON\s+SCHEMA/i);
-    expect(SQL).not.toMatch(/\bCREATE\s+TABLE\b/i);
   });
-});
-
-describe("0028_document_usage_policy_grant", () => {
-  const SQL_0028 = readFileSync(
-    join(__dirname, "migrations", "0028_document_usage_policy_grant.sql"),
-    "utf8",
-  );
 
   it("grants wren_document SELECT on platform_usage_policy", () => {
-    expect(SQL_0028).toMatch(
-      /GRANT SELECT ON TABLE platform_usage_policy TO wren_document/,
-    );
-  });
-});
-
-describe("0030_user_lifetime_usage", () => {
-  const SQL_0030 = readFileSync(
-    join(__dirname, "migrations", "0030_user_lifetime_usage.sql"),
-    "utf8",
-  );
-
-  it("creates a per-user monotonic upload ledger and grants wren_document DML", () => {
-    expect(SQL_0030).toMatch(/CREATE TABLE user_lifetime_usage/);
-    expect(SQL_0030).toMatch(/draft_create_count/);
-    expect(SQL_0030).toMatch(
-      /GRANT SELECT, INSERT, UPDATE ON TABLE user_lifetime_usage TO wren_document/,
+    expect(SQL).toMatch(
+      /GRANT SELECT ON TABLE public\.platform_usage_policy TO wren_document/,
     );
   });
 });

@@ -13,8 +13,9 @@ from wren_db.migrate import (
 def test_list_migration_files_real_lexical_order():
     files = list_migration_files(DEFAULT_MIGRATIONS_DIR)
     assert files == [
-        "0001_enable_extensions.sql",
-        "0002_initial_schema.sql",
+        "0001_baseline.sql",
+        "0002_department_visibility.sql",
+        "0003_department_ask_wren_prompt.sql",
     ]
 
 
@@ -80,31 +81,33 @@ class FakePool:
         return self.conn
 
 
+ALL_MIGRATIONS = [
+    "0001_baseline.sql",
+    "0002_department_visibility.sql",
+    "0003_department_ask_wren_prompt.sql",
+]
+
+
 def test_applies_all_migrations_on_fresh_database():
     pool = FakePool([])
 
     applied = run_migrations(pool)
 
-    assert applied == [
-        "0001_enable_extensions.sql",
-        "0002_initial_schema.sql",
-    ]
-    assert pool.conn.transaction_count[0] == 2
+    assert applied == ALL_MIGRATIONS
+    assert pool.conn.transaction_count[0] == len(ALL_MIGRATIONS)
 
 
 def test_skips_already_applied_migrations():
-    pool = FakePool(["0001_enable_extensions.sql"])
+    pool = FakePool([ALL_MIGRATIONS[0]])
 
     applied = run_migrations(pool)
 
-    assert applied == ["0002_initial_schema.sql"]
-    assert pool.conn.transaction_count[0] == 1
+    assert applied == ALL_MIGRATIONS[1:]
+    assert pool.conn.transaction_count[0] == len(ALL_MIGRATIONS) - 1
 
 
 def test_no_op_when_database_is_current():
-    pool = FakePool(
-        ["0001_enable_extensions.sql", "0002_initial_schema.sql"]
-    )
+    pool = FakePool(list(ALL_MIGRATIONS))
 
     applied = run_migrations(pool)
 
@@ -122,7 +125,7 @@ def test_records_each_migration_with_parameterized_insert():
         for sql, params in pool.conn.calls
         if "INSERT INTO schema_migrations" in sql
     ]
-    assert len(inserts) == 2
+    assert len(inserts) == len(ALL_MIGRATIONS)
     for sql, params in inserts:
         assert "VALUES (%s)" in sql
         assert isinstance(params, tuple)
