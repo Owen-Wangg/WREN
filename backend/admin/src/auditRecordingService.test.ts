@@ -99,6 +99,48 @@ describe('auditPromptEdit (Requirement 32.6)', () => {
       rejectionReason: 'Contains "suggest a revised version"',
     });
   });
+
+  it('records a department Ask WREN prompt edit scoped to the department', async () => {
+    const db = new FakeDb();
+    const actor = deptAdminContext(['dept-1']);
+
+    await auditPromptEdit(actor, {
+      departmentId: 'dept-1',
+      scope: 'department',
+      guardrailOutcome: 'passed',
+    }, db);
+
+    const event = db.activityEvents[0]!;
+    expect(event.verb).toBe('prompt.edited');
+    expect(event.object_type).toBe('Prompt');
+    expect(event.object_ref).toBe('department:dept-1');
+    expect(event.department_id).toBe('dept-1');
+    expect(event.context).toMatchObject({
+      role: 'DepartmentAdmin',
+      scope: 'department',
+      guardrailOutcome: 'passed',
+    });
+  });
+
+  it('records a rejected department Ask WREN prompt edit with the reason', async () => {
+    const db = new FakeDb();
+    const actor = deptAdminContext(['dept-1']);
+
+    await auditPromptEdit(actor, {
+      departmentId: 'dept-1',
+      scope: 'department',
+      guardrailOutcome: 'rejected',
+      rejectionReason: 'Prompt content rejected: ghostwriting instruction',
+    }, db);
+
+    const event = db.activityEvents[0]!;
+    expect(event.object_ref).toBe('department:dept-1');
+    expect(event.context).toMatchObject({
+      scope: 'department',
+      guardrailOutcome: 'rejected',
+      rejectionReason: 'Prompt content rejected: ghostwriting instruction',
+    });
+  });
 });
 
 describe('auditRoleOrGrantChange (Requirement 45.2)', () => {

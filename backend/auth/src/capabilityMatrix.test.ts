@@ -224,6 +224,44 @@ describe('authorizeCapability — DepartmentAdmin (educational ops in administer
   });
 });
 
+describe('authorizeCapability — department Ask WREN prompt edit path (department.manage)', () => {
+  // The department-level Ask WREN prompt is edited under the existing
+  // `department.manage` capability: DepartmentAdmin-scoped to administered
+  // Departments, and NOT a TechnicalAdmin platform operation (unlike the
+  // Feedback-Engine `department.prompt`, which stays TechnicalAdmin-only).
+  it('allows a DepartmentAdmin within an administered Department', () => {
+    const deptAdmin = withRoles(['DepartmentAdmin'], {
+      administeredDepartmentIds: [ADMINISTERED_DEPT],
+    });
+    expect(
+      isCapabilityAllowed(deptAdmin, req('department.manage', departmentScope(ADMINISTERED_DEPT))),
+    ).toBe(true);
+  });
+
+  it('DENIES a DepartmentAdmin outside their administered Departments', () => {
+    const deptAdmin = withRoles(['DepartmentAdmin'], {
+      administeredDepartmentIds: [ADMINISTERED_DEPT],
+    });
+    expect(
+      isCapabilityAllowed(deptAdmin, req('department.manage', departmentScope(OTHER_DEPT))),
+    ).toBe(false);
+  });
+
+  it('DENIES a TechnicalAdmin (department.manage is not a platform capability)', () => {
+    const admin = withRoles(['TechnicalAdmin']);
+    expect(
+      isCapabilityAllowed(admin, req('department.manage', departmentScope(ADMINISTERED_DEPT))),
+    ).toBe(false);
+  });
+
+  it('DENIES a Student', () => {
+    const student = withRoles(['Student']);
+    expect(
+      isCapabilityAllowed(student, req('department.manage', departmentScope(ADMINISTERED_DEPT))),
+    ).toBe(false);
+  });
+});
+
 describe('authorizeCapability — Student (Requirement 36: no privileged capability)', () => {
   const student = withRoles(['Student']);
 

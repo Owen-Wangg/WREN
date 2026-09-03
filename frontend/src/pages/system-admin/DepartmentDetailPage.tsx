@@ -30,6 +30,7 @@ import {
   setDepartmentAccessState,
   setDepartmentVisibilityState,
   updateDepartmentPrompt,
+  updateDepartmentAskWrenPrompt,
 } from '@/features/system-admin/systemAdminApi';
 import {
   BarChart, Bar, LineChart, Line,
@@ -153,7 +154,7 @@ export function DepartmentDetailPage() {
   const navigate = useNavigate();
   const { dbRoles } = useAuth();
   const canManageVisibility = dbRoles.includes('TechnicalAdmin');
-  const [activeTab, setActiveTab] = useState<'users' | 'prompt' | 'analytics'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'prompt' | 'ask-wren' | 'analytics'>('users');
   const [editingUser, setEditingUser] = useState<EditingUser | null>(null);
   const [selectedRoles, setSelectedRoles] = useState<AssignableRole[]>([]);
   /** Snapshot of dept-scoped roles when the modal opened — used for assign/revoke diffs. */
@@ -183,6 +184,7 @@ export function DepartmentDetailPage() {
   const isLocked = department?.accessState === 'LOCKED';
   const isPermittedOnly = department?.visibilityState === 'PERMITTED_ONLY';
   const departmentPrompt = department?.prompt;
+  const departmentAskWrenPrompt = department?.askWrenPrompt;
 
   const { data: analyticsSummary } = useQuery({
     queryKey: ['department-analytics-summary', departmentId],
@@ -295,6 +297,26 @@ export function DepartmentDetailPage() {
   const promptMutation = useMutation({
     mutationFn: (text: string) =>
       updateDepartmentPrompt(departmentId!, text || null),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+    },
+  });
+
+  // Department-level Ask WREN coaching prompt (department.askWrenPrompt).
+  // Free-text; initialized once from the loaded department.
+  const [askWrenPromptText, setAskWrenPromptText] = useState('');
+  const [askWrenInitialized, setAskWrenInitialized] = useState(false);
+
+  useEffect(() => {
+    if (askWrenInitialized) return;
+    if (departmentAskWrenPrompt === undefined) return;
+    setAskWrenPromptText(departmentAskWrenPrompt ?? '');
+    setAskWrenInitialized(true);
+  }, [departmentAskWrenPrompt, askWrenInitialized]);
+
+  const askWrenPromptMutation = useMutation({
+    mutationFn: (text: string) =>
+      updateDepartmentAskWrenPrompt(departmentId!, text.trim() ? text : null),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
     },
@@ -511,6 +533,17 @@ export function DepartmentDetailPage() {
                   }`}
                 >
                   Manage Department Prompt
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('ask-wren')}
+                  className={`block w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition ${
+                    activeTab === 'ask-wren'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Manage Ask Wren Prompt
                 </button>
 
                 <button
@@ -1033,6 +1066,70 @@ export function DepartmentDetailPage() {
                       {getServerErrorMessage(
                         promptMutation.error,
                         'Error saving prompt — please try again.',
+                      )}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Manage Ask Wren Prompt Tab */}
+          {activeTab === 'ask-wren' && (
+            <div>
+              <h2 className="mb-6 text-3xl font-bold text-gray-900">Ask Wren Prompt</h2>
+
+              <div className="rounded-lg border border-gray-200 bg-white p-8 max-w-4xl space-y-6">
+                <p className="text-sm text-gray-600">
+                  Add department-specific context for Ask Wren, the Socratic writing coach students
+                  chat with about their draft. This shapes how Ask Wren frames its coaching questions
+                  across every document type in this department. It does not change automated feedback
+                  generation, and it never overrides Ask Wren's core coaching rules (it will still
+                  never rewrite student text).
+                </p>
+
+                <div>
+                  <label
+                    htmlFor="ask-wren-prompt"
+                    className="block text-sm font-semibold text-gray-900 mb-1"
+                  >
+                    Ask Wren Coaching Context
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Who are the writers, what discipline are they in, and what conventions should Ask
+                    Wren keep in mind when asking guiding questions?
+                  </p>
+                  <textarea
+                    id="ask-wren-prompt"
+                    value={askWrenPromptText}
+                    onChange={(e) => setAskWrenPromptText(e.target.value)}
+                    placeholder="e.g. Law students writing legal memoranda. Encourage IRAC structure and precise use of authority. Keep a formal register."
+                    className="w-full h-40 p-3 border border-gray-300 rounded-lg focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 text-sm"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    onClick={() => askWrenPromptMutation.mutate(askWrenPromptText)}
+                    disabled={askWrenPromptMutation.isPending}
+                    className="rounded-lg bg-gray-900 px-6 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {askWrenPromptMutation.isPending ? 'Saving...' : 'Save Ask Wren Prompt'}
+                  </button>
+                  <button
+                    onClick={() => setAskWrenPromptText('')}
+                    className="rounded-lg border border-gray-300 px-6 py-2 font-semibold text-gray-900 hover:bg-gray-50"
+                  >
+                    Clear
+                  </button>
+                  {askWrenPromptMutation.isSuccess && (
+                    <span className="text-green-600 font-semibold text-sm">Saved successfully!</span>
+                  )}
+                  {askWrenPromptMutation.isError && (
+                    <p role="alert" className="text-sm font-medium text-red-600">
+                      {getServerErrorMessage(
+                        askWrenPromptMutation.error,
+                        'Error saving Ask Wren prompt — please try again.',
                       )}
                     </p>
                   )}

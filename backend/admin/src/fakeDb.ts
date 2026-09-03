@@ -21,6 +21,7 @@ interface DepartmentRow {
   id: string;
   name: string;
   prompt: string | null;
+  ask_wren_prompt: string | null;
   access_state: 'OPEN' | 'LOCKED';
   visibility_state: 'VISIBLE' | 'PERMITTED_ONLY';
   archived_at: string | null;
@@ -227,6 +228,23 @@ interface DepartmentVisibilityGrantRow {
 
 const collapse = (sql: string): string => sql.replace(/\s+/g, ' ').trim();
 
+/**
+ * Project a stored `department` row to the columns a statement actually
+ * selects/returns, so the fake mirrors production column visibility. In
+ * particular `ask_wren_prompt` is a late-added column selected only by the
+ * Ask WREN write path — statements that don't name it must not leak it (they
+ * would otherwise cause `toDepartment` to surface `askWrenPrompt` on every
+ * read, diverging from the real driver).
+ */
+function projectDepartmentRow<T extends { ask_wren_prompt?: string | null }>(
+  row: T,
+  sql: string,
+): T {
+  if (sql.includes('ask_wren_prompt')) return { ...row };
+  const { ask_wren_prompt: _omitted, ...rest } = row;
+  return rest as T;
+}
+
 /** Apply `col = $n` assignments from a SET clause to a mutable record. */
 function applyAssignments(
   setClause: string,
@@ -282,6 +300,7 @@ export class FakeDb implements QueryExecutor {
       id: row.id,
       name: row.name ?? 'Seed Dept',
       prompt: row.prompt ?? null,
+      ask_wren_prompt: row.ask_wren_prompt ?? null,
       access_state: row.access_state ?? 'OPEN',
       visibility_state: row.visibility_state ?? 'VISIBLE',
       archived_at: row.archived_at ?? null,
@@ -670,6 +689,7 @@ export class FakeDb implements QueryExecutor {
         id,
         name: params[1] as string,
         prompt: null,
+        ask_wren_prompt: null,
         access_state: 'OPEN',
         visibility_state: 'VISIBLE',
         archived_at: null,
@@ -684,6 +704,7 @@ export class FakeDb implements QueryExecutor {
         id: params[0] as string,
         name: params[1] as string,
         prompt: null,
+        ask_wren_prompt: null,
         access_state: 'OPEN',
         visibility_state: 'VISIBLE',
         archived_at: null,
@@ -698,6 +719,7 @@ export class FakeDb implements QueryExecutor {
         id: this.nextId('dept'),
         name: params[0] as string,
         prompt: null,
+        ask_wren_prompt: null,
         access_state: 'OPEN',
         visibility_state: 'VISIBLE',
         archived_at: null,
@@ -725,7 +747,7 @@ export class FakeDb implements QueryExecutor {
       const row = this.departments.get(params[0] as string);
       const requiresActive = sql.includes('archived_at IS NULL');
       return (row && (!requiresActive || row.archived_at === null)
-        ? [{ ...row }]
+        ? [projectDepartmentRow(row, sql)]
         : []) as unknown as Row[];
     }
 
@@ -735,7 +757,7 @@ export class FakeDb implements QueryExecutor {
     ) {
       const rows = [...this.departments.values()]
         .filter((r) => r.archived_at === null)
-        .map((r) => ({ ...r }))
+        .map((r) => projectDepartmentRow(r, sql))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
     }
@@ -749,7 +771,7 @@ export class FakeDb implements QueryExecutor {
       const rows = [...this.departments.values()]
         .filter((r) => r.archived_at === null)
         .map((r) => ({
-          ...r,
+          ...projectDepartmentRow(r, sql),
           active_user_count: 0,
           viewer_can_discover:
             r.visibility_state === 'VISIBLE' ||
@@ -769,7 +791,7 @@ export class FakeDb implements QueryExecutor {
     if (sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state, d.archived_at,')) {
       const rows = [...this.departments.values()]
         .filter((r) => r.archived_at === null)
-        .map((r) => ({ ...r, active_user_count: 0 }))
+        .map((r) => ({ ...projectDepartmentRow(r, sql), active_user_count: 0 }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
     }
@@ -777,7 +799,7 @@ export class FakeDb implements QueryExecutor {
     if (sql.startsWith('SELECT d.id, d.name, d.prompt, d.access_state,')) {
       const rows = [...this.departments.values()]
         .filter((r) => r.archived_at === null)
-        .map((r) => ({ ...r, active_user_count: 0 }))
+        .map((r) => ({ ...projectDepartmentRow(r, sql), active_user_count: 0 }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return rows as unknown as Row[];
     }
@@ -789,7 +811,7 @@ export class FakeDb implements QueryExecutor {
       if (!row || row.archived_at !== null) return [] as unknown as Row[];
       this.mutationCount += 1;
       row.archived_at = new Date().toISOString();
-      return [{ ...row }] as unknown as Row[];
+      return [projectDepartmentRow(row, sql)] as unknown as Row[];
     }
 
     if (sql.startsWith('UPDATE department SET')) {
@@ -798,7 +820,7 @@ export class FakeDb implements QueryExecutor {
       this.mutationCount += 1;
       const setClause = sql.slice('UPDATE department SET'.length, sql.indexOf('WHERE'));
       applyAssignments(setClause, row as unknown as Record<string, unknown>, params);
-      return [{ ...row }] as unknown as Row[];
+      return [projectDepartmentRow(row, sql)] as unknown as Row[];
     }
 
     if (sql.startsWith('DELETE FROM department WHERE id = $1')) {

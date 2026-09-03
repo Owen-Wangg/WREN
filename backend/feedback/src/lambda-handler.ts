@@ -1154,6 +1154,37 @@ async function loadDocumentTypeContext(
   }
 }
 
+/**
+ * Load the department-level Ask WREN prompt for the document's owning
+ * Department, or `undefined` when unset/blank. Independent of the Feedback
+ * Engine's `department.prompt` — this reads `department.ask_wren_prompt`, the
+ * DepartmentAdmin-authored Socratic coaching context.
+ *
+ * Resilient by design (same posture as {@link loadDocumentTypeContext}): any
+ * failure returns `undefined` so Ask WREN keeps working with just the universal
+ * system prompt and document-type context.
+ */
+async function loadDepartmentAskWrenContext(
+  documentId: string,
+): Promise<string | undefined> {
+  try {
+    const db = await getDataAccess();
+    const rows = await db.query<{ ask_wren_prompt: string | null }>(
+      `SELECT dep.ask_wren_prompt
+       FROM document d
+       JOIN document_type dt ON dt.id = d.document_type_id
+       JOIN department dep ON dep.id = dt.department_id
+       WHERE d.id = $1`,
+      [documentId],
+    );
+    const value = rows[0]?.ask_wren_prompt;
+    return value && value.trim().length > 0 ? value : undefined;
+  } catch (err) {
+    console.warn('Failed to load department Ask WREN context:', err);
+    return undefined;
+  }
+}
+
 async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const documentId = parseUuidParam(event.pathParameters?.documentId);
@@ -1187,7 +1218,10 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
   const userMessageCount = (conversation?.messages ?? []).filter((m) => m.role === 'user').length;
   const policy = await getPlatformUsagePolicy(db);
 
-  const documentTypeContext = await loadDocumentTypeContext(documentId);
+  const [documentTypeContext, departmentAskWrenContext] = await Promise.all([
+    loadDocumentTypeContext(documentId),
+    loadDepartmentAskWrenContext(documentId),
+  ]);
 
   // Read model override from platform_usage_policy; fall back to env var.
   const policyRows = await db.query<{ bedrock_model_id: string | null }>(
@@ -1202,6 +1236,7 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
     userText: text,
     draftSegments: draft.segments,
     documentTypeContext,
+    departmentAskWrenContext,
     modelId,
     messageLimit: policy.messageLimit,
   });

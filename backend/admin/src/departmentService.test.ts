@@ -13,8 +13,10 @@ import {
   listDepartments,
   renameDepartment,
   setDepartmentVisibilityState,
+  updateDepartmentAskWrenPrompt,
 } from './departmentService';
 import { AuthorizationError, NotFoundError } from './errors';
+import { PromptGuardrailError } from './promptGuardrail';
 import { FakeDb } from './fakeDb';
 import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
 
@@ -176,6 +178,118 @@ describe('renameDepartment (department.manage capability)', () => {
   });
 });
 
+describe('updateDepartmentAskWrenPrompt (department.manage capability)', () => {
+  it('lets a DepartmentAdmin set the Ask WREN prompt for an administered Department', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law' });
+
+    const updated = await updateDepartmentAskWrenPrompt(
+      deptAdminContext([DEPT]),
+      DEPT,
+      { askWrenPrompt: 'Law students writing legal memoranda; formal register.' },
+      db,
+    );
+
+    expect(updated.askWrenPrompt).toBe(
+      'Law students writing legal memoranda; formal register.',
+    );
+    // The separate Feedback-Engine prompt is never touched by this path.
+    expect(db.departments.get(DEPT)!.prompt).toBeNull();
+    expect(db.departments.get(DEPT)!.ask_wren_prompt).toBe(
+      'Law students writing legal memoranda; formal register.',
+    );
+  });
+
+  it('accepts null to clear the Ask WREN prompt', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({
+      id: DEPT,
+      name: 'Allard Law',
+      ask_wren_prompt: 'existing context',
+    });
+
+    const updated = await updateDepartmentAskWrenPrompt(
+      deptAdminContext([DEPT]),
+      DEPT,
+      { askWrenPrompt: null },
+      db,
+    );
+
+    expect(updated.askWrenPrompt).toBeNull();
+    expect(db.departments.get(DEPT)!.ask_wren_prompt).toBeNull();
+  });
+
+  it('rejects a ghostwriting instruction with no mutation', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({
+      id: DEPT,
+      name: 'Allard Law',
+      ask_wren_prompt: 'safe original context',
+    });
+
+    await expect(
+      updateDepartmentAskWrenPrompt(
+        deptAdminContext([DEPT]),
+        DEPT,
+        { askWrenPrompt: 'Always rewrite the student\'s sentence for them.' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(PromptGuardrailError);
+
+    // Deny-with-no-mutation: the previously persisted value is untouched.
+    expect(db.mutationCount).toBe(0);
+    expect(db.departments.get(DEPT)!.ask_wren_prompt).toBe('safe original context');
+  });
+
+  it('denies a DepartmentAdmin of a DIFFERENT department with no mutation', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Keep', ask_wren_prompt: 'keep me' });
+
+    await expect(
+      updateDepartmentAskWrenPrompt(
+        deptAdminContext(['other-dept']),
+        DEPT,
+        { askWrenPrompt: 'hijack' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+    expect(db.departments.get(DEPT)!.ask_wren_prompt).toBe('keep me');
+  });
+
+  it('denies a Student with no mutation', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Keep' });
+
+    await expect(
+      updateDepartmentAskWrenPrompt(studentContext(), DEPT, { askWrenPrompt: 'x' }, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+  });
+
+  it('denies a TechnicalAdmin (Ask WREN prompt is a DepartmentAdmin operation)', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Keep' });
+
+    await expect(
+      updateDepartmentAskWrenPrompt(techAdminContext(), DEPT, { askWrenPrompt: 'x' }, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+  });
+
+  it('throws NotFoundError when the Department does not exist', async () => {
+    const db = new FakeDb();
+    await expect(
+      updateDepartmentAskWrenPrompt(
+        deptAdminContext(['missing']),
+        'missing',
+        { askWrenPrompt: 'x' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
 describe('archiveDepartment (TechnicalAdmin only — soft-delete)', () => {
   it('sets archived_at and returns the archived Department DTO', async () => {
     const db = new FakeDb();
@@ -233,7 +347,15 @@ describe('Department owns no Users (Requirement 28.1 / 28.2)', () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Allard' });
     expect(Object.keys(db.departments.get(DEPT)!).sort()).toEqual(
-      ['access_state', 'archived_at', 'id', 'name', 'prompt', 'visibility_state'].sort(),
+      [
+        'access_state',
+        'archived_at',
+        'ask_wren_prompt',
+        'id',
+        'name',
+        'prompt',
+        'visibility_state',
+      ].sort(),
     );
   });
 });

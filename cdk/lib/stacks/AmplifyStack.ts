@@ -115,9 +115,10 @@ export class AmplifyStack extends Stack {
       stage: "PRODUCTION",
     });
 
-    // Keep develop previews only when it is not already the production branch.
-    if (props.branch !== "develop") {
-      this.amplifyApp.addBranch("develop", {
+    // Keep the `development` branch as a DEVELOPMENT stage preview, unless it
+    // is already the configured production branch.
+    if (props.branch !== "development") {
+      this.amplifyApp.addBranch("development", {
         autoBuild: true,
         stage: "DEVELOPMENT",
       });
