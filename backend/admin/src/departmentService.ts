@@ -94,7 +94,7 @@ export async function getDepartment(
   db: QueryExecutor,
 ): Promise<Department | null> {
   const rows = await db.query<DepartmentRow>(
-    `SELECT ${RETURNING} FROM department WHERE id = $1`,
+    `SELECT ${RETURNING_WITH_ASK_WREN} FROM department WHERE id = $1`,
     [id],
   );
   const row = rows[0];
@@ -133,7 +133,7 @@ export async function listDepartments(
   db: QueryExecutor,
 ): Promise<Department[]> {
   const rows = await db.query<DepartmentRow>(
-    `SELECT d.id, d.name, d.prompt, d.access_state, d.visibility_state, d.archived_at,
+    `SELECT d.id, d.name, d.prompt, d.ask_wren_prompt, d.access_state, d.visibility_state, d.archived_at,
             COALESCE(ac.value, 0)::int AS active_user_count,
             CASE
               WHEN d.visibility_state = 'VISIBLE' THEN true
