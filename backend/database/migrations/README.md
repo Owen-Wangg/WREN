@@ -14,6 +14,7 @@ DDL. They are applied in lexical filename order. Summary:
 | `0003_department_ask_wren_prompt.sql` | Adds the nullable `department.ask_wren_prompt` column (department-level Ask WREN coaching context). |
 | `0004_department_visibility_grant_privileges.sql` | Grants `wren_admin` SELECT/INSERT/UPDATE/DELETE on `department_visibility_grant` (0002 created the table but never granted access, causing HTTP 500 on the visibility-grants endpoint). |
 | `0005_authorizer_app_user_update_privilege.sql` | Grants `wren_authorizer` UPDATE on `app_user` so first-login provisioning (`ON CONFLICT DO UPDATE` + email relink) succeeds instead of 500-ing on `/v1/auth/me` for new users. |
+| `0006_seed_law_department.sql` | Seeds the Law example department (department prompt, 5 document types, their error categories, and per-type configs). Idempotent (`ON CONFLICT DO NOTHING`, fixed UUIDs) — inserts only on a fresh database, never overwrites admin edits. |
 
 Filenames are applied in **lexical order**. Do not edit an already-applied file — add a new numbered migration instead.
 
@@ -68,6 +69,7 @@ psql "$DATABASE_URL?sslmode=require" -f 0002_department_visibility.sql
 psql "$DATABASE_URL?sslmode=require" -f 0003_department_ask_wren_prompt.sql
 psql "$DATABASE_URL?sslmode=require" -f 0004_department_visibility_grant_privileges.sql
 psql "$DATABASE_URL?sslmode=require" -f 0005_authorizer_app_user_update_privilege.sql
+psql "$DATABASE_URL?sslmode=require" -f 0006_seed_law_department.sql
 ```
 
 A programmatic migration runner is provided by the data-access layer (task 2.4):
