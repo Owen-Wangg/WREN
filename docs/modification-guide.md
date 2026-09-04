@@ -19,24 +19,35 @@ The product display name is **WREN**. AWS resources and this repository use the 
 
 ## Table of Contents
 
-- [Modifying Colors and Styles](#modifying-colors-and-styles)
-- [Display Name and Branding](#display-name-and-branding)
-- [Authentication and Authorization](#authentication-and-authorization)
-- [Using External Identity Providers (Enterprise SSO)](#using-external-identity-providers-enterprise-sso)
-- [Extending the API](#extending-the-api)
-- [Modifying Frontend Components](#modifying-frontend-components)
-- [Legal Copy, Disclaimer, and License](#legal-copy-disclaimer-and-license)
-- [Configuring LLM Models](#configuring-llm-models)
-- [Database Schema Changes (Migrations)](#database-schema-changes-migrations)
-- [Usage Limit Management](#usage-limit-management)
-- [Document Ingest and OCR](#document-ingest-and-ocr)
-- [Modifying the Feedback Engine](#modifying-the-feedback-engine)
-- [Shared Types (`@wren/types`)](#shared-types-wrentypes)
-- [Deployment and Testing](#deployment-and-testing)
-  - [Advanced deployment configuration](#advanced-deployment-configuration)
-- [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
-- [Encryption and KMS Keys](#encryption-and-kms-keys)
-- [Troubleshooting and Best Practices](#troubleshooting-and-best-practices)
+- [WREN — Project Modification Guide](#wren--project-modification-guide)
+  - [Table of Contents](#table-of-contents)
+  - [Modifying Colors and Styles](#modifying-colors-and-styles)
+  - [Display Name and Branding](#display-name-and-branding)
+  - [Authentication and Authorization](#authentication-and-authorization)
+  - [Using External Identity Providers (Enterprise SSO)](#using-external-identity-providers-enterprise-sso)
+  - [Extending the API](#extending-the-api)
+    - [Add a route on an existing Lambda](#add-a-route-on-an-existing-lambda)
+    - [Add a new Lambda](#add-a-new-lambda)
+  - [Modifying Frontend Components](#modifying-frontend-components)
+    - [Adding a page](#adding-a-page)
+    - [Local vs live API](#local-vs-live-api)
+  - [Legal Copy, Disclaimer, and License](#legal-copy-disclaimer-and-license)
+  - [Configuring LLM Models](#configuring-llm-models)
+  - [Database Schema Changes (Migrations)](#database-schema-changes-migrations)
+  - [Usage Limit Management](#usage-limit-management)
+  - [Document Ingest and OCR](#document-ingest-and-ocr)
+  - [Modifying the Feedback Engine](#modifying-the-feedback-engine)
+  - [Shared Types (`@wren/types`)](#shared-types-wrentypes)
+  - [Deployment and Testing](#deployment-and-testing)
+    - [Advanced deployment configuration](#advanced-deployment-configuration)
+      - [AWS target and application identity](#aws-target-and-application-identity)
+      - [Hosting, CI/CD, images, and ECR ownership](#hosting-cicd-images-and-ecr-ownership)
+        - [External ECR safety requirement](#external-ecr-safety-requirement)
+      - [Recovery and automation controls](#recovery-and-automation-controls)
+      - [Preview and protected teardown](#preview-and-protected-teardown)
+  - [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
+  - [Encryption and KMS Keys](#encryption-and-kms-keys)
+  - [Troubleshooting and Best Practices](#troubleshooting-and-best-practices)
 
 ---
 
@@ -425,7 +436,6 @@ npm test         # vitest
 
 **Python engine (local tests):** see `backend/engine/python/README.md`.
 
-**CI/CD:** CodePipeline + Amplify require GitHub context (`githubOwner` / `githubRepo`). Without those, deploy stacks manually.
 
 ### Advanced deployment configuration
 
@@ -450,7 +460,7 @@ Do not commit access tokens or GitHub personal access tokens to source control. 
 | Variable | Default | Use only when |
 | --- | --- | --- |
 | `WREN_ENABLE_AMPLIFY` | `true` | Running an API-only deployment with `false`. GitHub owner/repository variables become optional only when both Amplify and CI/CD are disabled. |
-| `WREN_ENABLE_CICD` | `false` | Adding or maintaining the optional CodePipeline after application smoke checks pass. The `Cicd` prerequisite stack still owns ECR and the Compute permissions boundary when this is `false`. |
+| `WREN_ENABLE_CICD` | `true` | Skipping the CodePipeline CI/CD pipeline with `false`. Enabled by default, so the standard path builds it and needs `WREN_GITHUB_TOKEN` on first setup; the `Cicd` prerequisite stack is created regardless. |
 | `WREN_ECR_OWNERSHIP` | `managed` | Reusing a verified pre-existing repository by setting `external`. New deployments should keep `managed`; ownership is never silently adopted. |
 | `WREN_ENGINE_IMAGE_TAG` | generated immutable deploy tag | Pinning an ECR image tag. Change a pinned value for each engine source release; generated tags are fresh after each successful deployment. |
 
@@ -462,7 +472,7 @@ Use `WREN_ECR_OWNERSHIP=external` only when the expected `{prefix}-feedback-engi
 
 | Variable | Default | Use only when |
 | --- | --- | --- |
-| `WREN_ADMIN_ALREADY_CONFIGURED` | `false` | Recovering a legacy environment that already has an administrator but cannot provide `WREN_ADMIN_EMAIL`. This bypasses role discovery only; it never bypasses the authenticated smoke-token requirement. |
+| `WREN_ADMIN_ALREADY_CONFIGURED` | `false` | Recovering a legacy environment that already has an administrator but cannot provide . |
 | `WREN_BOOTSTRAP_MISSING` | `true` interactively; otherwise `false` | Allowing the workflow to create missing CDK bootstrap stacks. Existing bootstraps are always discovered and reused. |
 | `WREN_REQUIRE_APPROVAL` | `broadening` interactively; otherwise `never` | Choosing the CDK approval mode: `broadening` or `never`. |
 | `WREN_NON_INTERACTIVE` | `CI=true` | Enforcing non-interactive safety behavior. It requires `WREN_EXPECTED_ACCOUNT_ID` and defaults CDK approval to `never`. |

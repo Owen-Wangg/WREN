@@ -111,7 +111,7 @@ export function parseDeploymentConfig(
   const githubBranch = value(env, "WREN_GITHUB_BRANCH") ?? "main";
   const githubToken = value(env, "WREN_GITHUB_TOKEN");
   const enableAmplify = parseBoolean(env, "WREN_ENABLE_AMPLIFY", true);
-  const enableCicd = parseBoolean(env, "WREN_ENABLE_CICD", false);
+  const enableCicd = parseBoolean(env, "WREN_ENABLE_CICD", true);
   const nonInteractive = parseBoolean(env, "WREN_NON_INTERACTIVE", env.CI === "true");
   const dryRun = parseBoolean(env, "WREN_DRY_RUN", false);
   const bootstrapMissing = parseBoolean(env, "WREN_BOOTSTRAP_MISSING", !nonInteractive);

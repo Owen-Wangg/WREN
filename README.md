@@ -27,15 +27,7 @@ Numbered variant: [Architecture Diagram (numbered)](docs/WREN_ARCHITECTURE_DIAGR
 
 ## Deployment Guide
 
-After authenticating the AWS CLI, starting Docker, enabling the configured Bedrock model, and setting the required environment variables, deploy from the repository root:
-
-```bash
-npm run deploy
-```
-
-The command installs locked root/CDK dependencies, bootstraps both required Regions, publishes the Feedback Engine image, deploys stacks in dependency order, guides first-administrator setup, and runs smoke checks. Preview AWS state without changing resources with `WREN_DRY_RUN=true npm run deploy`. Protected application teardown is `npm run undeploy`; it deliberately retains data and foundational stacks.
-
-See the [Deployment Guide](docs/deployment-guide.md) for the environment-variable reference, resumable action-required steps, CI/CD option, and teardown guarantees.
+See the [Deployment Guide](docs/deployment-guide.md) for the environment-variable reference, resumable action-required steps, default-on CI/CD pipeline, and teardown guarantees.
 
 Package-level CDK notes (context keys, stack list, commands) are in [`cdk/README.md`](cdk/README.md).
 
@@ -45,9 +37,7 @@ See the [User Guide](docs/user-guide.md) for how students and department admins 
 
 ## Document Processing
 
-Writers upload Word/PDF (or compose in the editor). The **Document** Lambda persists an immutable draft, stores files in S3, and uses **Amazon Textract** when a PDF needs OCR. A job is placed on **SQS**. The **Feedback Engine** (Python 3.12 container Lambda) diffs against the previous draft, builds a layered prompt (system scaffolding + writing-type config + untrusted student text in a delimited block), invokes **Amazon Bedrock**, writes Socratic feedback items with text anchors, and runs a resolution judge on later drafts.
-
-Ingestion and coaching run in a VPC against **RDS PostgreSQL 16** via **RDS Proxy**. Realtime debrief status can go through **AppSync**; the UI also polls. Setup (Bedrock model access, ECR `bootstrap` image, Cognito `SystemAdmin`) is in the [Deployment Guide](docs/deployment-guide.md).
+[Deployment Guide](docs/deployment-guide.md).
 
 ## Directories
 

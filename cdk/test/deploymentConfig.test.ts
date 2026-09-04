@@ -16,7 +16,7 @@ describe("deployment configuration", () => {
       environmentName: "dev",
       stackPrefix: "wren-dev",
       enableAmplify: true,
-      enableCicd: false,
+      enableCicd: true,
       ecrOwnership: "managed",
       dryRun: false,
     });
@@ -24,8 +24,13 @@ describe("deployment configuration", () => {
 
   it.each(["TRUE", "1", "yes", ""])('rejects malformed booleans except an empty value (%s)', (raw) => {
     const env = { ...github, WREN_ENABLE_CICD: raw };
-    if (raw === "") expect(parseDeploymentConfig(env).enableCicd).toBe(false);
+    if (raw === "") expect(parseDeploymentConfig(env).enableCicd).toBe(true);
     else expect(() => parseDeploymentConfig(env)).toThrow("WREN_ENABLE_CICD");
+  });
+
+  it("builds the pipeline by default and allows explicit opt-out", () => {
+    expect(parseDeploymentConfig(github).enableCicd).toBe(true);
+    expect(parseDeploymentConfig({ ...github, WREN_ENABLE_CICD: "false" }).enableCicd).toBe(false);
   });
 
   it("requires an expected account in CI and production", () => {
@@ -40,7 +45,12 @@ describe("deployment configuration", () => {
 
   it("requires GitHub source settings for hosted deployment", () => {
     expect(() => parseDeploymentConfig({})).toThrow("WREN_GITHUB_OWNER");
-    expect(parseDeploymentConfig({ WREN_ENABLE_AMPLIFY: "false" }).enableAmplify).toBe(false);
+    // CI/CD is on by default, so disabling Amplify alone still requires GitHub vars.
+    expect(() => parseDeploymentConfig({ WREN_ENABLE_AMPLIFY: "false" })).toThrow("WREN_GITHUB_OWNER");
+    // GitHub vars become optional only when both Amplify and CI/CD are disabled.
+    const bothDisabled = parseDeploymentConfig({ WREN_ENABLE_AMPLIFY: "false", WREN_ENABLE_CICD: "false" });
+    expect(bothDisabled.enableAmplify).toBe(false);
+    expect(bothDisabled.enableCicd).toBe(false);
   });
 
   it("never includes tokens in public configuration", () => {
