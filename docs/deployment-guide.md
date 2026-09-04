@@ -1,6 +1,6 @@
 # WREN — AWS Deployment Guide
 
-This guide deploys the WREN writing coach (repository and AWS prefix **WREN**) into an AWS account. AWS resource names use the `wren` project prefix; **LEON** is the user-facing display name shown in the UI and emails.
+This guide deploys the WREN writing coach into an AWS account. AWS resource names use the `wren` project prefix. The user-facing display name is set by `WREN_APP_NAME`, which defaults to `LEON` for backward compatibility; new deployments should set it to the intended display name (for example `WREN`). See [Advanced deployment configuration](#advanced-deployment-configuration).
 
 ## Table of Contents
 
@@ -15,6 +15,8 @@ This guide deploys the WREN writing coach (repository and AWS prefix **WREN**) i
   - [Deployment](#deployment)
     - [Deployment workflow implementation](#deployment-workflow-implementation)
     - [Variables for the standard deployment](#variables-for-the-standard-deployment)
+    - [Advanced deployment configuration](#advanced-deployment-configuration)
+  - [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
   - [Troubleshooting](#troubleshooting)
     - [Common Issues](#common-issues)
   - [Cleanup](#cleanup)
@@ -250,9 +252,119 @@ For the default hosted deployment, set only the following variables before the f
 | `WREN_ADMIN_EMAIL` | unset | Email address for the intended first administrator. The guided first-admin flow uses this value to pick who becomes admin. |
 | `WREN_SMOKE_ACCESS_TOKEN` | unset | The first administrator's fresh Cognito **access token**, set only for the final first-admin run (step 3 above). It proves that user authenticates as an admin so the temporary elevation can be removed, and completes the authenticated smoke checks. Copy it from the signed-in session; never commit or persist it. |
 
-All target customization, API-only hosting, CI/CD, ECR ownership, image, recovery, automation, preview, and teardown variables are in [Advanced deployment configuration](./modification-guide.md#advanced-deployment-configuration). Leave them unset for the standard path.
+All target customization, API-only hosting, CI/CD, ECR ownership, image, recovery, automation, preview, and teardown variables are in [Advanced deployment configuration](#advanced-deployment-configuration). Leave them unset for the standard path.
 
 Secrets are redacted from command errors/output. GitHub secret values are passed to AWS through temporary mode-`0600` files that are removed immediately after use.
+
+### Advanced deployment configuration
+
+This section documents environment variables for non-default deployment, recovery, automation, and teardown scenarios. For the normal hosted deployment, use only the short list in [Variables for the standard deployment](#variables-for-the-standard-deployment) and leave the variables below unset unless a scenario explicitly requires them.
+
+Do not commit access tokens or GitHub personal access tokens to source control. The deployment workflow redacts secrets from its output and removes its temporary secret files after use.
+
+#### AWS target and application identity
+
+| Variable | Default | Use only when |
+| --- | --- | --- |
+| `AWS_PROFILE` | AWS CLI default credential chain | Selecting a named AWS CLI profile or SSO session. Standard AWS credential environment variables also work. |
+| `WREN_REGION` | `ca-central-1` | Deploying the data plane outside the default Region. The CloudFront WAF stack and its second CDK bootstrap remain in `us-east-1`. |
+| `WREN_APP_NAME` | `LEON` | Changing the user-facing display name in the UI and email. The default is `LEON` for backward compatibility with existing deployments; new deployments should set this to the intended display name (for example `WREN`). |
+| `WREN_PROJECT_NAME` | `wren` | Changing the lowercase resource-name prefix component. |
+| `WREN_ENVIRONMENT` | `dev` | Deploying a distinct environment, such as `staging` or `prod`. Production deployments require `WREN_EXPECTED_ACCOUNT_ID`. |
+| `WREN_STACK_PREFIX` | `{project}-{environment}` | Supplying the derived stack prefix explicitly. Its value must exactly equal `WREN_PROJECT_NAME-WREN_ENVIRONMENT`. |
+| `WREN_BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-6` | Using an approved, available Bedrock inference profile other than the default. The workflow verifies it with a minimal invocation before deployment. |
+
+#### Hosting, CI/CD, images, and ECR ownership
+
+| Variable | Default | Use only when |
+| --- | --- | --- |
+| `WREN_ENABLE_AMPLIFY` | `true` | Running an API-only deployment with `false`. GitHub owner/repository variables become optional only when both Amplify and CI/CD are disabled. |
+| `WREN_ENABLE_CICD` | `true` | Skipping the CodePipeline CI/CD pipeline with `false`. Enabled by default, so the standard path builds it and needs `WREN_GITHUB_TOKEN` on first setup; the `Cicd` prerequisite stack is created regardless. |
+| `WREN_ECR_OWNERSHIP` | `managed` | Reusing a verified pre-existing repository by setting `external`. New deployments should keep `managed`; ownership is never silently adopted. |
+| `WREN_ENGINE_IMAGE_TAG` | generated immutable deploy tag | Pinning an ECR image tag. Change a pinned value for each engine source release; generated tags are fresh after each successful deployment. |
+
+##### External ECR safety requirement
+
+Use `WREN_ECR_OWNERSHIP=external` only when the expected `{prefix}-feedback-engine` repository already exists outside CloudFormation. Its repository policy must allow the `lambda.amazonaws.com` service principal to call `ecr:GetDownloadUrlForLayer`, `ecr:BatchGetImage`, and `ecr:BatchCheckLayerAvailability`. The workflow stops before deployment if this policy is absent or incomplete.
+
+#### Recovery and automation controls
+
+| Variable | Default | Use only when |
+| --- | --- | --- |
+| `WREN_ADMIN_ALREADY_CONFIGURED` | `false` | Recovering a legacy environment that already has an administrator but cannot complete the guided first-admin sign-in flow. |
+| `WREN_BOOTSTRAP_MISSING` | `true` interactively; otherwise `false` | Allowing the workflow to create missing CDK bootstrap stacks. Existing bootstraps are always discovered and reused. |
+| `WREN_REQUIRE_APPROVAL` | `broadening` interactively; otherwise `never` | Choosing the CDK approval mode: `broadening` or `never`. |
+| `WREN_NON_INTERACTIVE` | `CI=true` | Enforcing non-interactive safety behavior. It requires `WREN_EXPECTED_ACCOUNT_ID` and defaults CDK approval to `never`. |
+| `WREN_SKIP_INSTALL` | `false` | Skipping both `npm ci` operations only when the root and `cdk/` `node_modules` directories already exist and are known-good. |
+
+#### Preview and protected teardown
+
+| Variable | Default | Use only when |
+| --- | --- | --- |
+| `WREN_DRY_RUN` | `false` | Discovering and synthesizing deployment or teardown state without mutating AWS resources. |
+| `WREN_UNDEPLOY_CONFIRM` | unset | Authorizing `npm run undeploy`. It is ignored by `npm run deploy`. |
+
+`npm run undeploy` is deliberately protected and retains application data and foundational resources. Before it makes changes, the command prints the exact confirmation value required for `WREN_UNDEPLOY_CONFIRM`; it has the form `<account-id>/<region>/<stack-prefix>`. Set that complete value exactly, then rerun the command. See [Cleanup](#cleanup) for retained-resource behavior. Implementation details are in the [deployment workflow modules](#deployment-workflow-implementation).
+
+## Monitoring and Operational Ownership
+
+The `Observability` stack creates CloudWatch alarms and publishes every alarm to the SNS topic `${stackPrefix}-alarms`. By default, that topic has no recipient. Set the optional `alarmEmail` CDK context during deployment to create an email subscription. AWS sends a confirmation link to that address; alarms are not delivered until the recipient accepts it.
+
+This setup is portable to another AWS account. Replace the profile, stack prefix, Region, and email below with values for that deployment. Do not copy the `wren-dev` identifiers unless that is actually the new environment.
+
+```powershell
+$Profile = "my-aws-profile"
+$StackPrefix = "myproject-dev"
+$Region = "ca-central-1"
+$AlarmEmail = "oncall@example.com"
+
+cd cdk
+npx cdk deploy "$StackPrefix-Observability" `
+  --profile $Profile `
+  -c stackPrefix=$StackPrefix `
+  -c region=$Region `
+  -c alarmEmail=$AlarmEmail
+```
+
+Keep `alarmEmail` in the deployment pipeline or pass it on every future `Observability` deployment. If a later synth omits the context value, CloudFormation will remove the managed email subscription.
+
+The configured alarms are:
+
+| Signal | Alarm condition | What it can indicate |
+| --- | --- | --- |
+| Lambda errors | More than 5 errors in one 5-minute period, per monitored function | Broken dependencies, permissions, networking, or application failures |
+| Lambda throttles | More than 1 throttle in each of two 5-minute periods | Insufficient concurrency or a traffic spike |
+| Feedback queue depth | More than 50 visible messages for two 5-minute periods | Feedback processing is falling behind |
+| Feedback dead-letter queue | At least 1 visible message | A feedback job exhausted its retries and needs investigation |
+| API Gateway latency | p99 latency above 10 seconds for three 5-minute periods | Slow API integrations or downstream services |
+
+The stack sets Lambda log retention to 30 days for non-production environments and 90 days when `environmentName=prod`. Separately, the VPC stack records accepted and rejected traffic in VPC Flow Logs for 30 days. Flow Logs support investigation but do not currently send an alarm by themselves.
+
+After deploying, open the SNS confirmation email and accept it. Then verify that AWS no longer reports the subscription as `PendingConfirmation`:
+
+```powershell
+$Account = aws sts get-caller-identity --profile $Profile --query Account --output text
+$TopicArn = "arn:aws:sns:$Region:$Account:$StackPrefix-alarms"
+aws sns list-subscriptions-by-topic `
+  --profile $Profile `
+  --region $Region `
+  --topic-arn $TopicArn `
+  --query "Subscriptions[].{Protocol:Protocol,Endpoint:Endpoint,Status:SubscriptionArn}" `
+  --output table
+```
+
+After confirmation, send a harmless delivery test and verify that the recipient receives it:
+
+```powershell
+aws sns publish `
+  --profile $Profile `
+  --region $Region `
+  --topic-arn $TopicArn `
+  --subject "Monitoring delivery test" `
+  --message "SNS alarm delivery is configured for $StackPrefix."
+```
+
+Monitoring is a detection and notification control, not an automatic rollback system. During an infrastructure change, an operator must still review API Gateway 4XX/5XX metrics, RDS Proxy connection errors in application logs, VPC Flow Log rejects, and NAT gateway bytes/errors. If health regresses, follow the affected feature's rollback procedure. The repository does not configure endpoint-specific alarms or Route 53 Resolver query logging. CloudTrail may be provided centrally by AWS Organizations or Control Tower, so each new account owner must verify its event selectors, retention, and access with their platform team.
 
 ## Troubleshooting
 
