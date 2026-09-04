@@ -71,10 +71,10 @@ Stacks are tagged: `Project` = stack prefix, `Application` = display name, `Envi
 | `{prefix}-Api` | Data-plane Region | REST API from `lib/openapi.yaml` |
 | `{prefix}-Observability` | Data-plane Region | CloudWatch dashboards / alarms |
 | `{prefix}-CloudFrontWaf` | `us-east-1` (WAF scope constraint) | CloudFront + CloudFront-scoped WAF |
-| `{prefix}-Cicd` | Data-plane Region | ECR repo/import + Compute permissions boundary; optional CodePipeline |
+| `{prefix}-Cicd` | Data-plane Region | ECR repo/import + Compute permissions boundary; CodePipeline built by default (opt out with `WREN_ENABLE_CICD=false`) |
 | `{prefix}-Amplify` | Data-plane Region | Frontend hosting (**skipped** without GitHub owner/repo) |
 
-**Orchestrated deploy order:** Cicd prerequisites → image publish → Config → Vpc → Storage → Cognito → Database → Compute → Api → Observability → CloudFrontWaf → Amplify → optional CodePipeline.
+**Orchestrated deploy order:** Cicd prerequisites → image publish → Config → Vpc → Storage → Cognito → Database → Compute → Api → Observability → CloudFrontWaf → Amplify → CodePipeline (default; skipped only with `WREN_ENABLE_CICD=false`).
 
 The orchestrator uses an immutable Feedback Engine image tag and also refreshes the compatibility `bootstrap` tag. Managed ECR expires only untagged images older than 30 days, preserving every tagged release needed for deployment or rollback. An external repository must already grant `lambda.amazonaws.com` the `ecr:GetDownloadUrlForLayer`, `ecr:BatchGetImage`, and `ecr:BatchCheckLayerAvailability` actions; the orchestrator validates that repository policy before deploying. For direct CDK deployment, the ECR repository and referenced image tag must already exist.
 
