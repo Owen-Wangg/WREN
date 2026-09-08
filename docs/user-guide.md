@@ -1,36 +1,36 @@
 # WREN User Guide
 
-This guide covers how to get started with **WREN** — from creating your account to using it as a **Student**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
+This guide covers how to get started with **WREN** — from creating your account to using it as a **User**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
 
 **Names you will see:** **WREN** is the product name in the app. In the repository and AWS, the project prefix is **WREN**. The System Admin screens correspond to the `TechnicalAdmin` role in the API and database.
 
 ## Table of Contents
 
-- [Part 1: Getting Started (All Users)](#part-1-getting-started-all-users)
-  - [1.1 Log In](#11-log-in)
-  - [1.2 Create an Account (First-Time Users Only)](#12-create-an-account-first-time-users-only)
-  - [1.3 Choosing Your Account View](#13-choosing-your-account-view)
-- [Part 2: Student Guide](#part-2-student-guide)
-  - [2.1 Creating a New Document Draft](#21-creating-a-new-document-draft)
-  - [2.2 Opening and Reviewing Your Document](#22-opening-and-reviewing-your-document)
-  - [2.3 Using AI Debrief](#23-using-ai-debrief)
-  - [2.4 Using Ask WREN](#24-using-ask-WREN)
-  - [Quick Recap — Student](#quick-recap--student)
-- [Part 3: Department Admin Guide](#part-3-department-admin-guide)
-  - [3.1 How the Department Admin Screens Are Organized](#31-how-the-department-admin-screens-are-organized)
-  - [3.2 Opening a Document Type](#32-opening-a-document-type)
-  - [3.3 Setting Up the Evaluation Rubric](#33-setting-up-the-evaluation-rubric)
-  - [3.4 Reviewing Analytics](#34-reviewing-analytics)
-  - [Quick Reference — Department Admin](#quick-reference--department-admin)
-- [Part 4: System Admin Guide](#part-4-system-admin-guide)
-  - [4.1 How the System Admin Screens Are Organized](#41-how-the-system-admin-screens-are-organized)
-  - [4.2 Model Configuration](#42-model-configuration)
-  - [4.3 Setting Usage Limits](#43-setting-usage-limits)
-  - [4.4 Creating New Departments](#44-creating-new-departments)
-  - [4.5 Managing Departments](#45-managing-departments)
-  - [4.6 Department Prompt](#46-department-prompt)
-  - [4.7 Reviewing Department Analytics](#47-reviewing-department-analytics)
-  - [Quick Reference — System Admin](#quick-reference--system-admin)
+- [WREN User Guide](#wren-user-guide)
+  - [Table of Contents](#table-of-contents)
+  - [Part 1: Getting Started (All Users)](#part-1-getting-started-all-users)
+    - [1.1 Log In](#11-log-in)
+    - [1.2 Create an Account (First-Time Users Only)](#12-create-an-account-first-time-users-only)
+    - [1.3 Choosing Your Account View](#13-choosing-your-account-view)
+  - [Part 2: Writer Guide](#part-2-writer-guide)
+    - [2.1 Creating a New Document Draft](#21-creating-a-new-document-draft)
+    - [2.2 Opening and Reviewing Your Document](#22-opening-and-reviewing-your-document)
+    - [2.3 Using AI Debrief](#23-using-ai-debrief)
+    - [Quick Recap — User](#quick-recap--user)
+  - [Part 3: Department Admin Guide](#part-3-department-admin-guide)
+    - [3.1 How the Department Admin Screens Are Organized](#31-how-the-department-admin-screens-are-organized)
+    - [3.2 Configuring the Evaluation Rubric](#32-configuring-the-evaluation-rubric)
+    - [3.3 Reviewing Analytics](#33-reviewing-analytics)
+    - [Quick Reference — Department Admin](#quick-reference--department-admin)
+  - [Part 4: System Admin Guide](#part-4-system-admin-guide)
+    - [4.1 How the System Admin Screens Are Organized](#41-how-the-system-admin-screens-are-organized)
+    - [4.2 Model Configuration](#42-model-configuration)
+    - [4.3 Setting Usage Limits](#43-setting-usage-limits)
+    - [4.4 Creating New Departments](#44-creating-new-departments)
+    - [4.5 Managing Departments](#45-managing-departments)
+    - [4.6 Department-Level Prompt Management](#46-department-level-prompt-management)
+    - [4.7 Reviewing Department Analytics](#47-reviewing-department-analytics)
+    - [Quick Reference — System Admin](#quick-reference--system-admin)
 
 ---
 
@@ -68,7 +68,7 @@ This guide covers how to get started with **WREN** — from creating your accoun
 
 Open your profile and select your account view. That choice sets which dashboard you see:
 
-- **Student** — drafts, AI Debrief, and Ask WREN. See [Part 2](#part-2-student-guide).
+- **User** — drafts, AI Debrief, and Ask WREN. See [Part 2](#part-2-writer-guide).
 - **Department Admin** — document types, evaluation rubrics, and type-level analytics. See [Part 3](#part-3-department-admin-guide).
 - **System Admin** — model, usage limits, departments, users, department prompts, and department analytics. See [Part 4](#part-4-system-admin-guide).
 
@@ -76,22 +76,22 @@ You can switch views from your profile at any time if your account holds more th
 
 ---
 
-## Part 2: Student Guide
+## Part 2: Writer Guide
 
-On the **Student Dashboard** you will see your existing drafts, or an empty state if you have not created one yet.
+On the **User Dashboard** you will see your existing drafts, or an empty state if you have not created one yet.
 
-<img width="957" height="395" alt="Student dashboard" src="https://github.com/user-attachments/assets/a0050ec6-575d-48fe-bc46-d5aecbdb2107" />
+<img width="957" height="395" alt="User dashboard" src="https://github.com/user-attachments/assets/a0050ec6-575d-48fe-bc46-d5aecbdb2107" />
 
 ### 2.1 Creating a New Document Draft
 
-1. From the Student Dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
+1. From the User Dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
 <img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
 
 2. Click **New Document**.
 
 3. Select your department.
 
-   **Which departments appear?** A **Visible** department appears for every student. A **Permitted users only** department appears only if a System Admin gave you an explicit visibility permission, or if your account is a Technical Admin or the Department Admin appointed to that department. This affects the **New Document** department list only; it does not remove your existing documents.
+   **Which departments appear?** A **Visible** department appears for every user. A **Permitted users only** department appears only if a System Admin gave you an explicit visibility permission, or if your account is a Technical Admin or the Department Admin appointed to that department. This affects the **New Document** department list only; it does not remove your existing documents.
 
    Seeing a department does not necessarily mean you can submit to every document type. **Open** allows self-service submission, while **Locked** requires a separate document-type Access Grant. If an expected department is missing, contact your System Admin.
 
@@ -99,13 +99,14 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 
 5. Give your draft a name.
 
-6. Click **Choose File** and select the DOCX file from your computer that you want to upload.
+6. Click **Choose File** and select the file from your computer that you want to upload. WREN accepts **DOCX** and **PDF** files.
 
-<img width="956" height="368" alt="image" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
+<img width="956" height="368" alt="Choose a DOCX or PDF file to upload" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
 
-8. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
-9. After uploading, you will be taken to the following page:
-<img width="956" height="415" alt="image" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
+7. Click **Activate Editor** to finish creating the draft.
+
+8. You are returned to the **My Documents** page, where your newly uploaded draft is now listed, and you will be taken to the following page:
+<img width="956" height="415" alt="Newly created draft in My Documents" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
 
 ### 2.2 Opening and Reviewing Your Document
 
@@ -117,7 +118,7 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 
 **Other options in this view:**
 
-- **Upload a new draft** — use this if changes were made to your document in another editor and you need LEON to review the updated version.
+- **Upload a new draft** — use this if changes were made to your document in another editor and you need WREN to review the updated version.
   
 <img width="960" height="412" alt="image" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
 
@@ -125,16 +126,20 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 
 <img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/d31b8995-9545-4531-8c9e-04411dbd8c70" />
 
-- **Adjust the panel** — click on the grey bar on the right side of the AI debrief to expand or minimize the panel.
+- **Adjust the panel** — click on the grey bar on the right side of the AI Debrief panel to expand or minimize it.
 
 <img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/544ace4d-b433-437f-8472-14376b80b177" />
 
 ### 2.3 Using AI Debrief
 
+**Generate or view a debrief**
+
 1. Click **Regenerate** to generate a new AI Debrief report on your document.
-<img width="956" height="413" alt="image" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
+<img width="956" height="413" alt="Regenerate AI Debrief" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
 2. To view a previously generated report, click the **drop-down arrow** and select an earlier draft's report from the list.
-<img width="959" height="416" alt="image" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
+<img width="959" height="416" alt="Select an earlier debrief report" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
+
+**Ask WREN about the debrief**
 
 1. Click **Ask WREN** (the WREN icon) on the left rail.
 2. Ask questions about the debrief, your draft, or writing craft (clarity, organization, tone, and similar).
@@ -143,13 +148,13 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 
 Ask WREN will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.
 
-### Quick Recap — Student
+### Quick Recap — User
 
 | Task | Where to go |
 | --- | --- |
 | Create an account | Sign Up → email/password → verify the email code |
 | Log in | Login → email/password |
-| Start a new draft | Student Dashboard → New Document → department → document type → upload .docx or .pdf → Activate Editor |
+| Start a new draft | User Dashboard → New Document → department → document type → upload .docx or .pdf → Activate Editor |
 | Review AI feedback | Open document → AI Debrief |
 | Ask questions about your draft | Open document → Ask WREN |
 | Update a draft | Editor → Upload New Draft |
@@ -159,13 +164,15 @@ Ask WREN will not write or rewrite your sentences, fact-check legal or technical
 
 ## Part 3: Department Admin Guide
 
-As a **Department Admin**, you configure document types and evaluation criteria for the department(s) you administer, and you review aggregate analytics. Student-facing debriefs are generated against the rubric you save.
+As a **Department Admin**, you configure document types and evaluation criteria for the department(s) you administer, and you review aggregate analytics. User-facing debriefs are generated against the rubric you save.
 
 After you choose **Department Admin** as your account view (see [1.3](#13-choosing-your-account-view)), you land on the Department Admin dashboard.
 
 ### 3.1 How the Department Admin Screens Are Organized
 
-- **Profile** — switch account view (Student / Department Admin / System Admin, depending on your roles).
+This section is a map of the Department Admin area. It orients you to what each screen is for so the step-by-step instructions in [3.2](#32-configuring-the-evaluation-rubric) and [3.3](#33-reviewing-analytics) make sense. In short: the **Dashboard** is where you pick or create a document type, the **Evaluation Rubric** is where you tell the AI how to coach on that type, and **Analytics** is where you see how users are responding.
+
+- **Profile** — switch account view (User / Department Admin / System Admin, depending on your roles).
 
 <img width="1870" height="813" alt="image" src="https://github.com/user-attachments/assets/529f9101-fb8e-4dd8-9e32-9d36953b4ce4" />
 
@@ -177,78 +184,65 @@ After you choose **Department Admin** as your account view (see [1.3](#13-choosi
 
 <img width="950" height="413" alt="Document type Evaluation Rubric and Analytics" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
 
-- **Evaluation Rubric** — **Document Context** (purpose, common mistakes, additional background, citation guide) and **Evaluation Criteria** (categories the AI should use). Click **Save Rubric** when you are done; this screen does not autosave.
+- **Evaluation Rubric** — **Document Context** (purpose, common mistakes, additional background, citation guide) and **Evaluation Criteria** (categories the AI should use). Click **Save Rubric** when you are done.
   
 <img width="935" height="409" alt="Evaluation Rubric categories" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
 
-- **Analytics** — student improvement trends, AI Debrief helpfulness (aggregate yes/no ratings), and section applicability. Figures are aggregates, not per-student scores.
+- **Analytics** — user improvement trends, AI Debrief helpfulness (aggregate yes/no ratings), and section applicability. Figures are aggregates, not per-user scores.
 
 <img width="950" height="407" alt="Document type analytics" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
 
-- **Profile** — click your profile to switch your account view between Student and Department Admin.
-  
-<img width="1870" height="813" alt="image" src="https://github.com/user-attachments/assets/529f9101-fb8e-4dd8-9e32-9d36953b4ce4" />
+### 3.2 Configuring the Evaluation Rubric
 
-- **Dashboard** — the main screen after choosing Department Admin. Your existing document types are listed here, with the **Create New Document Type** button on the right side of the screen.
-  
-<img width="943" height="412" alt="image" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
+The Evaluation Rubric is where you define how the AI evaluates a specific document type. It has two parts. **Document Context** tells the AI what the document is and what good looks like — its purpose, common mistakes, background, and citation style. **Evaluation Criteria** are the named categories (clarity, structure, tone, and so on) the AI scores against. Whatever you save here is the standard every user's debrief for this document type is generated against.
 
-- **Document Controls** — opens when you select or create a document type. It's organized as two tabs: **Evaluation** and **Analytics**.
-  
-<img width="950" height="413" alt="image" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
-
-- **Inside Evaluation Settings** — **General Information** sits at the top, followed by your list of **Categories**. Clicking a category opens its configuration form.
-
-<img width="935" height="409" alt="image" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
-
-- **Inside Analytics** — **Student Improvement Trends** appears first, followed by **AI Debrief Helpfulness** and **Feedback Section Applicability**
-
-<img width="950" height="407" alt="image" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
-
-### 3.2 Opening a Document Type
-
-**Entering document type information**
-
-1. Go to the **document context** section.
-2. Enter a description of the document's purpose and expected content.
-3. Add any other reference information relevant to the document type.
-
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/7ee641f9-4749-404e-b308-146254404519" />
-
-**Select or create evaluation criteria**
-
-1. Select an existing category to open its configuration form, or
-2. Click **add custom criterion** to add a new one.
-
-<img width="859" height="401" alt="image" src="https://github.com/user-attachments/assets/47d93e8b-8b9d-404f-acac-57c5fd833046" />
+**Step 1 — Fill in Document Context**
 
 1. Expand **Document Context**.
-2. Fill in **Purpose**, **Common mistakes to avoid**, and **Additional background**.
-3. Optionally choose a **Citation guide** (for example McGill Guide) so the AI evaluates references consistently.
+2. Fill in **Purpose** (what the document is for and what good looks like), **Common mistakes to avoid**, and **Additional background**.
+3. Optionally choose a **Citation guide** (for example, the McGill Guide) so the AI evaluates references consistently.
 
-1. Click into a category (e.g., "Clarity").
+<img width="1536" height="1024" alt="Document Context fields" src="https://github.com/user-attachments/assets/7ee641f9-4749-404e-b308-146254404519" />
+
+**Step 2 — Set up Evaluation Criteria**
+
+1. Select an existing category to open its configuration form, or click **add custom criterion** to create a new one.
 2. Fill in the form with the requirements the AI should evaluate against for this document type — for example, what does clarity look like for an appellate factum?
-3. Your changes save automatically as you go, so you can leave and return without losing progress.
 
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/c62f4476-d14e-4155-a50f-2ea6e1d7d27d" />
+<img width="859" height="401" alt="Evaluation Criteria form" src="https://github.com/user-attachments/assets/47d93e8b-8b9d-404f-acac-57c5fd833046" />
+
+**Step 3 — Save**
+
+Click **Save Rubric** when you are done. This screen does not autosave, so unsaved changes are lost if you leave without saving.
+
+<img width="1536" height="1024" alt="Evaluation Criteria categories" src="https://github.com/user-attachments/assets/c62f4476-d14e-4155-a50f-2ea6e1d7d27d" />
 
 ### 3.3 Reviewing Analytics
 
-- **Student improvement** — how debrief-related signals change over time (date-range presets or custom range).
-- **AI Debrief helpfulness** — aggregate student ratings (helpful / not helpful) and optional comments.
+Analytics lets you see how well the rubric is working for a document type. It answers three questions: are users improving over time, do they find the AI Debrief helpful, and are the feedback sections you configured actually applying to real submissions. All figures are aggregates across users, not per-user scores.
+
+- If most users rate a category's feedback "not helpful," the wording in your Evaluation Rubric is probably too vague or off-target. That is a signal to go back to [3.2](#32-configuring-the-evaluation-rubric) and sharpen it.
+- If a feedback section rarely marks as applicable, it may not fit the document type — you can simplify the rubric by removing or rewording it.
+- Improvement trends over a term give you evidence to share with colleagues or leadership that users' drafts are getting stronger.
+- Comparing categories tells you which parts of the rubric are doing the most work and which need attention.
+
+Because the data is aggregated, you get this insight without inspecting anyone's individual work.
+
+**What each metric shows:**
+
+- **User improvement** — how debrief-related signals change over time (date-range presets or custom range), including whether users addressed the feedback flagged in their previous drafts.
+- **AI Debrief helpfulness** — aggregate user ratings (helpful / not helpful) and optional comments.
 - **Section applicability** — whether feedback sections applied to the draft, in aggregate.
 
-View whether students addressed the feedback flagged their previous drafts.
+<img width="706" height="399" alt="User improvement trends" src="https://github.com/user-attachments/assets/d7558de7-dc06-495a-bd37-558cf0a87078" />
+<img width="544" height="122" alt="Improvement summary" src="https://github.com/user-attachments/assets/8712c5ea-ffa1-4817-853f-fae22da2fe25" />
 
-<img width="706" height="399" alt="image" src="https://github.com/user-attachments/assets/d7558de7-dc06-495a-bd37-558cf0a87078" />
-<img width="544" height="122" alt="image" src="https://github.com/user-attachments/assets/8712c5ea-ffa1-4817-853f-fae22da2fe25" />
+**How to review AI Debrief quality:**
 
-**Check AI Debrief quality**
+1. Review the **Helpfulness Breakdown** — a visual showing what percentage of feedback users rated helpful versus not helpful.
+2. Review **Feedback Section Applicability** — applicable / not applicable indicators tied to each evaluation category you configured in [3.2 Configuring the Evaluation Rubric](#32-configuring-the-evaluation-rubric) (for example, "Was the tone feedback useful? Yes/No").
 
-1. Review the Helpfulness Breakdown - which provides a visual to see what percentage of feedback was both helpful and not helpful
-2. Review Feedback Section Applicability — applicable/not applicable indicators tied to each evaluation category you configured in [3.3 Setting Up Evaluation Settings](#33-setting-up-evaluation-settings) (e.g., "Was the tone feedback useful? Yes/No").
-
-<img width="1447" height="685" alt="image" src="https://github.com/user-attachments/assets/d70c2cf6-a983-4eb5-8d1f-c5f29e50a9a4" />
+<img width="1447" height="685" alt="Helpfulness and applicability breakdown" src="https://github.com/user-attachments/assets/d70c2cf6-a983-4eb5-8d1f-c5f29e50a9a4" />
 
 ### Quick Reference — Department Admin
 
@@ -272,7 +266,7 @@ After you choose **System Admin** as your account view (see [1.3](#13-choosing-y
 
 Before diving into the steps, here's where things live on the platform:
 
-- **Profile** — click your profile to switch your account view between Student, Department Admin, and System Admin.
+- **Profile** — click your profile to switch your account view between User, Department Admin, and System Admin.
 
 <img width="1870" height="813" alt="image" src="https://github.com/user-attachments/assets/529f9101-fb8e-4dd8-9e32-9d36953b4ce4" />
 
@@ -286,8 +280,8 @@ Before diving into the steps, here's where things live on the platform:
 
 **Two independent controls:**
 
-- **Department visibility — Visible / Permitted users only:** controls whether the department appears in student catalog and New Document views.
-- **Student access — Open / Locked:** controls submission. Open requires no document-type Access Grant; Locked requires an active document-type Access Grant.
+- **Department visibility — Visible / Permitted users only:** controls whether the department appears in user catalog and New Document views.
+- **User access — Open / Locked:** controls submission. Open requires no document-type Access Grant; Locked requires an active document-type Access Grant.
 
 Changing one control does not change the other.
 
@@ -314,6 +308,13 @@ Model changes apply immediately to new AI Debrief and Ask WREN calls. Existing d
 
 ### 4.3 Setting Usage Limits
 
+Usage Limits cap how many AI Debriefs and documents can be generated in a given period. Each debrief and Ask WREN interaction is a call to a paid AI model.
+
+- **Cost control.** AI usage bills per call. Setting a ceiling keeps spend predictable and protects against a runaway bill from unexpectedly heavy use.
+- **Encouraging thoughtful use.** When debriefs are not unlimited, users tend to treat each one as meaningful — revising the draft before regenerating rather than clicking repeatedly. 
+
+You can apply limits platform-wide or per department, so a high-volume department can get more headroom than others. Start conservative; you can always raise a limit if users legitimately hit it.
+
 1. Go to **System Admin Dashboard → System Configuration → Usage Limits**.
 2. Set limits for:
    - **AI Debriefs allowed** — the maximum number of debriefs a user or department can generate in a given period.
@@ -333,11 +334,11 @@ These limits apply to all users in all departments. They are not per-calendar-pe
 
 <img width="936" height="381" alt="image" src="https://github.com/user-attachments/assets/14cff36a-00bc-4265-8c91-4074eb697c56" />
 
-3. Enter the department name.
+2. Enter the department name.
 
 <img width="892" height="375" alt="image" src="https://github.com/user-attachments/assets/cd9e8bfd-554e-484d-9754-affc81143f29" />
 
-5. Assign an initial Department Admin by clicking on the pen symbol on the right of a user's name and selecting department admin  (optional — can be done later from Users, see [4.5 Managing Departments](#45-managing-departments)).
+3. Assign an initial Department Admin by clicking the pen symbol to the right of a user's name and selecting **Department Admin** (optional — can be done later from Manage Users, see [4.5 Managing Departments](#45-managing-departments)).
 
 <img width="628" height="742" alt="image" src="https://github.com/user-attachments/assets/8b8715d7-ea2e-4f61-9a1e-f08e26443295" />
 
@@ -353,13 +354,13 @@ These limits apply to all users in all departments. They are not per-calendar-pe
 <img width="936" height="381" alt="image" src="https://github.com/user-attachments/assets/14cff36a-00bc-4265-8c91-4074eb697c56" />
 
 2. Under **Manage Users**, you can search participants and assign or revoke roles. Assigning **Department Admin** here scopes that role to this department.
-3. Use **Student access → Open / Lock** to control submission:
+3. Use **User access → Open / Lock** to control submission:
    - **Open** — no document-type Access Grant is required.
-   - **Locked** — students require an approved document-type Access Grant before submitting.
+   - **Locked** — users require an approved document-type Access Grant before submitting.
 
    Locking does not prevent login, remove existing documents, or hide the department from the catalog.
 4. Use **Department visibility → Visible / Permitted users only** to control catalog discovery:
-   - **Visible** — shown to all students.
+   - **Visible** — shown to all users.
    - **Permitted users only** — shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
 5. Under **Permitted users**, search the global user directory to grant or revoke explicit visibility permission. Permissions are retained while the department is Visible and automatically take effect if it is changed back to Permitted users only. Revoking an explicit permission does not remove a Technical Admin or scoped Department Admin's automatic discovery access.
 
@@ -371,41 +372,32 @@ These limits apply to all users in all departments. They are not per-calendar-pe
 
 ### 4.6 Department-Level Prompt Management
 
-1. Go to **System Admin Dashboard → Departments → [Department Name] → Manage Department Prompt**.
+The department prompt sets instructions the AI applies across every document type in the department. Use it for guidance that should hold department-wide — who the writers are, the standards they follow, and topics the AI should avoid — rather than criteria specific to one document type (those live in the Department Admin Evaluation Rubric, see [3.2](#32-configuring-the-evaluation-rubric)).
 
+1. Go to **System Admin Dashboard → Departments → [Department Name] → Manage Department Prompt**.
 2. Configure the following:
-   - **Department Context** — background information the AI should always consider for this department (e.g., subject area, program level, institutional norms).
+   - **Department Context** — background the AI should always consider for this department (e.g., subject area, program level, institutional norms).
    - **Writing Standards** — style, tone, formatting, and citation requirements the AI should follow when generating documents or debriefs for this department.
-   - **Restricted Topics** — a list of topics, terms, or content areas the AI should avoid or flag when interacting with this department's users.
-3. Save prompt.
+   - **Restricted Topics** — topics, terms, or content areas the AI should avoid or flag when interacting with this department's users.
+3. Click **Save Prompt**.
 4. Optionally, test the configuration by generating a sample document or debrief before rolling it out.
 
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/c739a17c-7454-493e-b3f5-2e526a76cff6" />
+<img width="1536" height="1024" alt="Manage Department Prompt fields" src="https://github.com/user-attachments/assets/c739a17c-7454-493e-b3f5-2e526a76cff6" />
 
-**Notes:**
+### 4.7 Reviewing Department Analytics
 
-1. Open the department → **Manage Department Prompt**.
-2. Fill in:
-   - **Department Context** — who the writers are and what the program is
-   - **Writing Standards** — citation style, register, formatting
-   - **Restricted Topics** — subjects the coach should avoid or flag
-3. Click **Save Prompt**.
-
-These instructions apply across document types in that department. Per-type detail still lives in the Department Admin Evaluation Rubric.
+Department Analytics gives you a platform- or department-level view of usage and adoption. Use it to see how actively a department is using WREN, track volume over time, and support capacity and cost planning alongside [Usage Limits](#43-setting-usage-limits).
 
 1. Go to **System Admin Dashboard → Departments → [Department Name] → View Analytics** (or a platform-wide analytics view, if available).
 2. Review key metrics, including:
-   - **Active Users** — number of users who have logged in or used the platform within a selected time range.
-   - **Total Documents** — total document creation volume over time.
-   - **Total Drafts** — total AI debrief volume over time.
+   - **Active Users** — number of users who logged in or used the platform within a selected time range.
+   - **Documents Generated** — total document creation volume over time.
+   - **Debriefs Generated** — total AI Debrief volume over time.
 
-<img width="911" height="302" alt="image" src="https://github.com/user-attachments/assets/539979ef-8a54-41a8-bfc3-764fc87d4b43" />
-<img width="725" height="296" alt="image" src="https://github.com/user-attachments/assets/3b319c83-71de-4e06-8862-42ef7101baa6" />
+<img width="911" height="302" alt="Department analytics totals" src="https://github.com/user-attachments/assets/539979ef-8a54-41a8-bfc3-764fc87d4b43" />
+<img width="725" height="296" alt="Usage over time" src="https://github.com/user-attachments/assets/3b319c83-71de-4e06-8862-42ef7101baa6" />
 
-1. Open the department → **View Analytics**.
-2. Review totals for documents, drafts, and active users, plus breakdown by document type and usage over time.
-
-Figures are aggregates. They do not include per-student scores.
+Figures are aggregates. They do not include per-user scores.
 
 ### Quick Reference — System Admin
 
@@ -417,6 +409,6 @@ Figures are aggregates. They do not include per-student scores.
 | Promote or manage users | Department → Manage Users |
 | Control catalog discovery | Department → Department visibility → Visible / Permitted users only |
 | Manage explicit discovery | Department → Manage Users → Permitted users |
-| Control submission | Department → Student access → Open / Lock |
+| Control submission | Department → User access → Open / Lock |
 | Set department context and standards | Department → Manage Department Prompt |
 | Review department analytics | Department → View Analytics |
