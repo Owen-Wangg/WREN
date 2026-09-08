@@ -28,7 +28,6 @@ WREN is an AI writing coach that gives Socratic feedback (questions, never rewri
 
 This document describes the security controls as they are implemented in this repository. It explains what happens to a request, what protects it, and where that protection stops. It does not replace a formal threat model or compliance attestation.
 
-A note on naming: `WREN` is the project, repository, and AWS resource prefix used throughout this document. The user-facing display name shown in the web app and email is configurable (`WREN_APP_NAME`) and defaults to `LEON` for backward compatibility with existing deployments. Where this document refers to the system, it uses `WREN`. References such as "Ask WREN" describe the feature regardless of the configured display label.
 
 ### 1.2 Current Deployment Status
 
