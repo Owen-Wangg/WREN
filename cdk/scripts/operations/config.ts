@@ -1,9 +1,15 @@
 import {
+  CACHE_WORKLOADS,
   DEFAULT_APP_NAME,
   DEFAULT_BEDROCK_MODEL_ID,
+  DEFAULT_CACHE_MODE,
+  DEFAULT_CACHE_TTL,
   DEFAULT_ENVIRONMENT_NAME,
   DEFAULT_PROJECT_NAME,
   DEFAULT_REGION,
+  type CacheMode,
+  type CacheTtl,
+  type CacheWorkload,
 } from "../../lib/config.js";
 
 export type EcrOwnership = "managed" | "external";
@@ -17,6 +23,12 @@ export interface DeploymentConfig {
   readonly environmentName: string;
   readonly stackPrefix: string;
   readonly bedrockModelId: string;
+  /** Prompt-cache mode (plan §15). Safe default `observe`. */
+  readonly cacheMode: CacheMode;
+  /** Prompt-cache write TTL (plan §7/§10). Safe default `5m`. */
+  readonly cacheTtl: CacheTtl;
+  /** Workloads with explicit caching enabled (plan §14/§15). Default: none. */
+  readonly cacheEnabledWorkloads: readonly CacheWorkload[];
   readonly githubOwner?: string;
   readonly githubRepo?: string;
   readonly githubBranch: string;
@@ -94,6 +106,45 @@ function validateEmail(email: string | undefined): void {
   }
 }
 
+/** Resolve WREN_CACHE_MODE; safe default `observe`, reject anything else. */
+function resolveCacheModeEnv(raw: string | undefined): CacheMode {
+  if (raw === undefined) return DEFAULT_CACHE_MODE;
+  const v = raw.toLowerCase();
+  if (v === "off" || v === "observe" || v === "explicit") return v;
+  throw new Error("WREN_CACHE_MODE must be one of: off, observe, explicit.");
+}
+
+/** Resolve WREN_CACHE_TTL; safe default `5m`, reject anything else. */
+function resolveCacheTtlEnv(raw: string | undefined): CacheTtl {
+  if (raw === undefined) return DEFAULT_CACHE_TTL;
+  const v = raw.toLowerCase();
+  if (v === "5m" || v === "1h") return v;
+  throw new Error("WREN_CACHE_TTL must be one of: 5m, 1h.");
+}
+
+/**
+ * Resolve WREN_CACHE_ENABLED_WORKLOADS into canonical workload tokens. Empty /
+ * absent yields NO workloads (safe default). Unknown tokens are rejected so a
+ * typo is caught before deploy.
+ */
+function resolveCacheEnabledWorkloadsEnv(raw: string | undefined): CacheWorkload[] {
+  if (raw === undefined) return [];
+  const known = new Set<string>(CACHE_WORKLOADS);
+  const result: CacheWorkload[] = [];
+  for (const rawToken of raw.split(/[,\s]+/)) {
+    const token = rawToken.trim().toLowerCase().replace(/-/g, "_");
+    if (token.length === 0) continue;
+    if (!known.has(token)) {
+      throw new Error(
+        `WREN_CACHE_ENABLED_WORKLOADS contains unknown workload '${rawToken}'. ` +
+          `Allowed: ${CACHE_WORKLOADS.join(", ")}.`,
+      );
+    }
+    if (!result.includes(token as CacheWorkload)) result.push(token as CacheWorkload);
+  }
+  return result;
+}
+
 export function parseDeploymentConfig(
   env: NodeJS.ProcessEnv = process.env,
   operation: "deploy" | "undeploy" = "deploy",
@@ -106,6 +157,11 @@ export function parseDeploymentConfig(
   const derivedPrefix = `${projectName}-${environmentName}`;
   const stackPrefix = value(env, "WREN_STACK_PREFIX") ?? derivedPrefix;
   const bedrockModelId = value(env, "WREN_BEDROCK_MODEL_ID") ?? DEFAULT_BEDROCK_MODEL_ID;
+  const cacheMode = resolveCacheModeEnv(value(env, "WREN_CACHE_MODE"));
+  const cacheTtl = resolveCacheTtlEnv(value(env, "WREN_CACHE_TTL"));
+  const cacheEnabledWorkloads = resolveCacheEnabledWorkloadsEnv(
+    value(env, "WREN_CACHE_ENABLED_WORKLOADS"),
+  );
   const githubOwner = value(env, "WREN_GITHUB_OWNER");
   const githubRepo = value(env, "WREN_GITHUB_REPO");
   const githubBranch = value(env, "WREN_GITHUB_BRANCH") ?? "main";
@@ -144,6 +200,9 @@ export function parseDeploymentConfig(
     environmentName,
     stackPrefix,
     bedrockModelId,
+    cacheMode,
+    cacheTtl,
+    cacheEnabledWorkloads,
     ...(githubOwner ? { githubOwner } : {}),
     ...(githubRepo ? { githubRepo } : {}),
     githubBranch,
@@ -172,6 +231,9 @@ export function publicDeploymentConfig(config: DeploymentConfig): Record<string,
     environmentName: config.environmentName,
     stackPrefix: config.stackPrefix,
     bedrockModelId: config.bedrockModelId,
+    cacheMode: config.cacheMode,
+    cacheTtl: config.cacheTtl,
+    cacheEnabledWorkloads: config.cacheEnabledWorkloads.join(",") || "(none)",
     githubOwner: config.githubOwner,
     githubRepo: config.githubRepo,
     githubBranch: config.githubBranch,

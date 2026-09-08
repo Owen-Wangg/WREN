@@ -112,7 +112,7 @@ On the **User Dashboard** you will see your existing drafts, or an empty state i
 
 1. From **All Documents**, click the draft you want to open. The editor shows a continuous document on the right and a side panel on the left.
 2. The document is not split into pages on screen. Headers and footers sit at the top and bottom of the draft. The **Contents** panel shows the draft version, word count, and an estimated printed page count (US Letter). Heading 1–3 styles build an outline; click a heading to jump to it.
-3. Hover or drag the scrollbar to see an estimated printed page, for example **Page 2 of 17**. That is how the document is expected to paginate on preview or export, not a live page break in the editor.
+3. Hover or drag the scrollbar to see an estimated printed page, for example **Page 2 of 17**.
 4. The left icon rail switches the panel between **Contents**, **Ask WREN**, and **AI Debrief**.
 <img width="1912" height="829" alt="Editor with Ask WREN and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
 

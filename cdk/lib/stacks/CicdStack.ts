@@ -4,6 +4,7 @@ import * as codepipelineActions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import type { Construct } from "constructs";
 
 import type { AppConfig } from "../config";
@@ -66,6 +67,35 @@ export interface ComputeDeployScopes {
 export class CicdStack extends Stack {
   public readonly ecrRepository: ecr.IRepository;
   public readonly pipeline?: codepipeline.Pipeline;
+  /**
+   * Standing, S3-sourced CodeBuild project that builds the Feedback Engine
+   * image from a per-commit source snapshot. Created regardless of
+   * `enablePipeline` — it is deployment infrastructure, not the CI/CD pipeline.
+   */
+  public readonly bootstrapImageBuild: codebuild.Project;
+
+  /** CodeBuild project name the deploy workflow invokes to build the image. */
+  public static bootstrapImageProjectNameFor(stackPrefix: string): string {
+    return `${stackPrefix}-bootstrap-image`;
+  }
+
+  /**
+   * S3 key prefix (in the CDK bootstrap assets bucket) under which the deploy
+   * workflow uploads the per-commit `git archive` snapshot as `<sha>.zip`.
+   */
+  public static bootstrapSourcePrefixFor(stackPrefix: string): string {
+    return `wren-bootstrap-source/${stackPrefix}`;
+  }
+
+  /**
+   * Name of the CDK bootstrap assets bucket the snapshot is uploaded to and the
+   * bootstrap project reads from. Uses the default CDK qualifier
+   * (`hnb659fds`), matching the file-publishing bucket the pipeline already
+   * references elsewhere in this stack.
+   */
+  public static bootstrapAssetsBucketNameFor(account: string, region: string): string {
+    return `cdk-hnb659fds-assets-${account}-${region}`;
+  }
 
   /**
    * Fixed name of the Compute permissions-boundary managed policy this stack owns.
@@ -143,6 +173,87 @@ export class CicdStack extends Stack {
         repositoryName,
       );
     }
+
+    // -------------------------------------------------------------------
+    // Bootstrap image build — standing, S3-sourced CodeBuild project.
+    //
+    // This is deployment infrastructure, NOT the ongoing CI/CD pipeline: it is
+    // created unconditionally (before the `enablePipeline` guard below) so a
+    // first-time `npm run deploy` can build the Feedback Engine container image
+    // in AWS instead of on the operator's machine, removing the local Docker
+    // daemon prerequisite. `enableCicd`/`enablePipeline` gates only the
+    // pipeline resources further down.
+    //
+    // Source is an S3 object the deploy workflow uploads per commit
+    // (`git archive <sha>` → `${BOOTSTRAP_SOURCE_PREFIX}/<sha>.zip` in the CDK
+    // bootstrap assets bucket). The concrete key is supplied at build time via
+    // `start-build --source-location-override`, so nothing here depends on the
+    // Feedback Engine image existing — the dependency runs one way:
+    // Cicd → bootstrap build → ECR image → Compute.
+    const bootstrapAssetsBucket = s3.Bucket.fromBucketName(
+      this,
+      "BootstrapAssetsBucket",
+      CicdStack.bootstrapAssetsBucketNameFor(this.account, config.env.region),
+    );
+    this.bootstrapImageBuild = new codebuild.Project(this, "BootstrapImageBuild", {
+      projectName: `${config.stackPrefix}-bootstrap-image`,
+      environment: {
+        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+        computeType: codebuild.ComputeType.MEDIUM,
+        // Docker build runs inside CodeBuild; privileged mode is required.
+        privileged: true,
+      },
+      environmentVariables: {
+        // Overridden per build with the commit-scoped tag (`src-<shortsha>`).
+        // The default is inert — a real deploy always overrides it.
+        IMAGE_TAG: { value: "bootstrap" },
+      },
+      source: codebuild.Source.s3({
+        bucket: bootstrapAssetsBucket,
+        // Placeholder object under the stable prefix. The deploy workflow
+        // overrides the source location per build with the SHA-keyed object,
+        // so this key exists only to satisfy synth-time source config.
+        path: `${CicdStack.bootstrapSourcePrefixFor(config.stackPrefix)}/HEAD.zip`,
+      }),
+      buildSpec: codebuild.BuildSpec.fromObject({
+        version: "0.2",
+        phases: {
+          pre_build: {
+            commands: [
+              // Log in against the ECR registry host only (not the repo path).
+              `aws ecr get-login-password --region ${config.env.region} | docker login --username AWS --password-stdin ${this.account}.dkr.ecr.${config.env.region}.amazonaws.com`,
+            ],
+          },
+          build: {
+            commands: [
+              `docker build -t ${this.ecrRepository.repositoryUri}:$IMAGE_TAG backend/engine/python/`,
+              `docker push ${this.ecrRepository.repositoryUri}:$IMAGE_TAG`,
+              // Keep the mutable `bootstrap` convenience tag current so
+              // CloudFormation can always reference a concrete image. The
+              // authoritative artifact is the digest recorded by the workflow.
+              `docker tag ${this.ecrRepository.repositoryUri}:$IMAGE_TAG ${this.ecrRepository.repositoryUri}:bootstrap`,
+              `docker push ${this.ecrRepository.repositoryUri}:bootstrap`,
+            ],
+          },
+        },
+      }),
+    });
+
+    this.ecrRepository.grantPullPush(this.bootstrapImageBuild);
+    this.bootstrapImageBuild.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ecr:GetAuthorizationToken"],
+      resources: ["*"],
+    }));
+    // Read the SHA-keyed source snapshot from the CDK bootstrap assets bucket.
+    // No `s3:GetObjectVersion`: the snapshot is pinned by object key (the SHA),
+    // never by VersionId, so version-scoped reads are never exercised.
+    this.bootstrapImageBuild.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"],
+      resources: [
+        bootstrapAssetsBucket.bucketArn,
+        `${bootstrapAssetsBucket.bucketArn}/${CicdStack.bootstrapSourcePrefixFor(config.stackPrefix)}/*`,
+      ],
+    }));
 
     if (!props.enablePipeline) return;
     const repositoryOwner = props.repositoryOwner;

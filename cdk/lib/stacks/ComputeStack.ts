@@ -17,7 +17,7 @@ import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct
 import { NotificationInfraConstruct } from "../constructs/NotificationInfraConstruct";
 
 import type { AppDbRole } from "../appDbRoles.js";
-import { bedrockModelIdParameterName, type AppConfig } from "../config";
+import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, type AppConfig } from "../config";
 
 /** IAM resources for us.anthropic.* / us.meta.* cross-region inference profiles. */
 function crisBedrockInvokeResources(region: string, account: string): string[] {
@@ -337,6 +337,11 @@ export class ComputeStack extends Stack {
         CONVERSATION_TABLE_NAME: props.conversationTableName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         STACK_PREFIX: config.stackPrefix,
+        // Prompt-cache decision layer (plan §15). Safe defaults keep caching
+        // effectively OFF (observe / 5m / none); the runtime reads these keys.
+        CACHE_MODE: config.cacheMode,
+        CACHE_TTL: config.cacheTtl,
+        CACHE_ENABLED_WORKLOADS: cacheEnabledWorkloadsEnv(config),
       },
       bundling: sharedBundling,
     });
@@ -365,6 +370,11 @@ export class ComputeStack extends Stack {
         STACK_PREFIX: config.stackPrefix,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
+        // Prompt-cache decision layer (plan §15). Same safe defaults as the
+        // orchestrator; the Python runtime reads these keys.
+        CACHE_MODE: config.cacheMode,
+        CACHE_TTL: config.cacheTtl,
+        CACHE_ENABLED_WORKLOADS: cacheEnabledWorkloadsEnv(config),
       },
     });
     // SQS event source: the engine is triggered by messages on the feedback queue.

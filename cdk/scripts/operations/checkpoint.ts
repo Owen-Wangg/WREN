@@ -24,8 +24,27 @@ export interface StageCheckpoint {
   readonly message?: string;
 }
 
+/** Current checkpoint schema version. */
+export const CHECKPOINT_SCHEMA_VERSION = 2 as const;
+
+/**
+ * The image recorded in a checkpoint. `digest` is the authoritative,
+ * immutable artifact identity; `tag` is a mutable convenience label; and
+ * `sourceCommit` ties the image to the exact Git revision it was built from so
+ * a rerun can prove the recorded image belongs to the revision being deployed.
+ *
+ * `sourceCommit` is optional only to tolerate a legacy v1 checkpoint on disk
+ * (image built before this field existed): when it is absent the workflow must
+ * treat the commit as unknown and rebuild rather than reuse the image.
+ */
+export interface CheckpointImage {
+  readonly tag: string;
+  readonly digest: string;
+  readonly sourceCommit?: string;
+}
+
 export interface DeploymentCheckpoint {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 1 | 2;
   readonly operation: Operation;
   readonly accountId: string;
   readonly region: string;
@@ -34,7 +53,7 @@ export interface DeploymentCheckpoint {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly stages: Readonly<Record<string, StageCheckpoint>>;
-  readonly image?: { readonly tag: string; readonly digest: string };
+  readonly image?: CheckpointImage;
 }
 
 function stable(value: unknown): unknown {
@@ -64,7 +83,7 @@ export function newCheckpoint(
 ): DeploymentCheckpoint {
   const timestamp = now.toISOString();
   return {
-    schemaVersion: 1,
+    schemaVersion: CHECKPOINT_SCHEMA_VERSION,
     operation,
     accountId,
     region: config.region,
@@ -98,9 +117,18 @@ export function withImage(
   checkpoint: DeploymentCheckpoint,
   tag: string,
   digest: string,
+  sourceCommit: string,
   now = new Date(),
 ): DeploymentCheckpoint {
-  return { ...checkpoint, updatedAt: now.toISOString(), image: { tag, digest } };
+  return {
+    ...checkpoint,
+    // Writing a v2-shaped image ({tag,digest,sourceCommit}) upgrades the
+    // checkpoint's schema label so it matches the payload — e.g. when a
+    // recovered legacy v1 checkpoint records a new image.
+    schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+    updatedAt: now.toISOString(),
+    image: { tag, digest, sourceCommit },
+  };
 }
 
 export function assertCheckpointMatches(
@@ -110,7 +138,7 @@ export function assertCheckpointMatches(
   accountId: string,
 ): void {
   const mismatch =
-    checkpoint.schemaVersion !== 1 ||
+    (checkpoint.schemaVersion !== 1 && checkpoint.schemaVersion !== 2) ||
     checkpoint.operation !== operation ||
     checkpoint.accountId !== accountId ||
     checkpoint.region !== config.region ||
@@ -198,7 +226,10 @@ export class CheckpointStore {
   public load(): DeploymentCheckpoint | undefined {
     if (!existsSync(this.checkpointPath)) return undefined;
     const parsed = JSON.parse(readFileSync(this.checkpointPath, "utf8")) as DeploymentCheckpoint;
-    if (parsed.schemaVersion !== 1 || typeof parsed.stages !== "object") {
+    // Accept both the current v2 and a legacy v1 (whose `image` carries no
+    // `sourceCommit`); the workflow treats a commit-less image as "unknown
+    // commit" and rebuilds rather than reusing it.
+    if ((parsed.schemaVersion !== 1 && parsed.schemaVersion !== 2) || typeof parsed.stages !== "object") {
       throw new Error(`Unsupported or malformed WREN checkpoint: ${this.checkpointPath}`);
     }
     return parsed;

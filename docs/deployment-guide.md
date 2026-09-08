@@ -14,8 +14,14 @@ This guide deploys the WREN writing coach into an AWS account. AWS resource name
   - [AWS credentials](#aws-credentials)
   - [Deployment](#deployment)
     - [Deployment workflow implementation](#deployment-workflow-implementation)
+    - [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built)
     - [Variables for the standard deployment](#variables-for-the-standard-deployment)
     - [Advanced deployment configuration](#advanced-deployment-configuration)
+      - [AWS target and application identity](#aws-target-and-application-identity)
+      - [Hosting, CI/CD, images, and ECR ownership](#hosting-cicd-images-and-ecr-ownership)
+        - [External ECR safety requirement](#external-ecr-safety-requirement)
+      - [Recovery and automation controls](#recovery-and-automation-controls)
+      - [Preview and protected teardown](#preview-and-protected-teardown)
   - [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
   - [Troubleshooting](#troubleshooting)
     - [Common Issues](#common-issues)
@@ -69,7 +75,7 @@ Before you deploy, you must have the following installed on your device:
 - [AWS CLI](https://aws.amazon.com/cli/) _(v2.0.0+ required)_
 - [Node.js](https://nodejs.org/en/learn/getting-started/how-to-install-nodejs) _(v22.x+ required)_
 - [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) _(comes with Node)_
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with the daemon running — required to build the Feedback Engine image and for CDK asset bundling
+
 
 > The AWS CDK CLI (`aws-cdk`) is a **dev dependency** of `cdk/` — you do not need a global `cdk` install. All commands below use `npx cdk`. The pinned version is **`2.1138.0`** (see `cdk/package.json`); Node.js v22+ is required by the project's `engines` field and by Amplify's build environment.
 
@@ -107,7 +113,7 @@ Before running the command, complete these prerequisites:
 
 1. Configure or sign in to AWS using the standard credential chain (for example, `aws configure sso` and your SSO login) and confirm the intended account with `aws sts get-caller-identity`.
 2. Enable access to the configured Bedrock model/inference profile in the target Region.
-3. Start Docker Desktop and confirm its daemon is running.
+3. Commit the revision you intend to deploy and ensure a clean working tree (`git status` reports nothing to commit). The image is built in CodeBuild from a snapshot of the committed revision, so uncommitted changes are not included.
 
 For the default hosted deployment, set the target, GitHub source, PAT, and intended first administrator before running the command. `WREN_EXPECTED_ACCOUNT_ID` is strongly recommended everywhere and required for production or non-interactive runs. **Choose exactly one of the following command blocks for your terminal, replace the placeholder values, and run it from the repository root.**
 
@@ -237,6 +243,28 @@ The runnable workflow is intentionally kept in source alongside the infrastructu
 - Configuration, checkpointing, AWS discovery, redaction, and shell-free execution: [`cdk/scripts/operations/`](../cdk/scripts/operations/)
 
 Use this guide for operator inputs, safety gates, and recovery behavior. Consult the linked workflow modules when extending the deployment sequence or diagnosing an implementation-specific failure; changes should preserve the documented ordering, secret-handling, and retention guarantees.
+
+### How the Feedback Engine image is built
+
+The Feedback Engine runs as a Lambda **container image**. That image is built in **AWS CodeBuild**, not on your machine — so no local Docker daemon is a prerequisite. CodeBuild still uses Docker internally (the same `backend/engine/python/Dockerfile`); the change is only *where* the build runs.
+
+At the `feedback-image` stage of `npm run deploy`, the workflow:
+
+1. **Resolves the exact revision** with `git rev-parse HEAD` and **requires a clean working tree**. Because the build uses a snapshot of the committed revision, uncommitted changes are never in the image; a dirty tree stops the deploy with an actionable message.
+2. **Verifies the CDK bootstrap assets bucket** (`cdk-hnb659fds-assets-<account>-<region>`) exists. If it is missing, the deploy fails clearly and points you to `cdk bootstrap` (the workflow bootstraps it automatically when `WREN_BOOTSTRAP_MISSING=true`) rather than surfacing an opaque CodeBuild error.
+3. **Uploads a source snapshot** produced by `git archive <sha>` to a **SHA-based key**: `wren-bootstrap-source/${stackPrefix}/<sha>.zip`. The key encodes the commit, so the build input is pinned by object key — no dependency on S3 versioning or a VersionId.
+4. **Starts the standing `${stackPrefix}-bootstrap-image` CodeBuild project** against that snapshot, overriding `IMAGE_TAG` with a commit-scoped tag (`src-<first 12 of sha>`), and waits for it to finish.
+5. **Records the resulting ECR image digest** in the deployment checkpoint alongside the source commit.
+
+Key properties:
+
+- **The digest is authoritative and is what deploys.** The immutable `sha256:...` digest identifies exactly what was built, is recorded in the checkpoint, and is what the deployed Lambda is pinned to. The commit-scoped `src-<shortsha>` and mutable `:bootstrap` tags are human-facing lookup labels only, so repointing a tag cannot change the running image. See the [digest/tag note](./dependency-management.md#feedback-engine-the-heavy-python-runtime) in the dependency guide.
+- **Commit-safe reuse.** A rerun reuses an existing image only when it is provably built from the revision being deployed (the checkpoint's recorded source commit matches `HEAD`). A pre-existing tag alone never causes a different commit's image to be deployed — if the commit differs, the image is rebuilt. Moving `HEAD` therefore forces a rebuild.
+- **No GitHub credential needed for the image.** The snapshot comes from your local clone via `git archive`, so building the bootstrap image requires no GitHub PAT or GitHub→CodeBuild connection. (A PAT is still needed for the optional Amplify frontend and the ongoing CI/CD pipeline.)
+- **`enableCicd` does not gate this build.** The bootstrap CodeBuild project is **deployment infrastructure** created in the `Cicd` stack at the `prerequisites` stage and is present whether or not the ongoing CI/CD pipeline is enabled. `WREN_ENABLE_CICD` controls only the ongoing pipeline.
+- **Overriding the tag.** `WREN_ENGINE_IMAGE_TAG` overrides the commit-scoped tag. It bypasses commit-scoping, so its safe reuse relies on the checkpoint's recorded source commit matching the revision being deployed.
+
+If you ever need to build the image by hand (an emergency escape hatch, not the normal path), the manual `docker build backend/engine/python/` + ECR push described in [docs/dependency-management.md](./dependency-management.md) still works from a machine with Docker.
 
 ### Variables for the standard deployment
 

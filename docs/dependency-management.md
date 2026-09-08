@@ -120,18 +120,22 @@ The engine test dependencies follow the same `.in` → compiled `.txt` pattern: 
 
 ### Feedback Engine (the heavy Python runtime)
 
-The Feedback Engine is deployed as an AWS Lambda container image. Docker builds the image (locally or through CI) and the result is pushed to ECR; subsequent sections refer to it simply as "the image." See the [deployment guide](./deployment-guide.md) for how the ECR repository and the initial image are created.
+The Feedback Engine is deployed as an AWS Lambda container image. The image is built in **AWS CodeBuild** — during a first-time `npm run deploy` by the standing `${stackPrefix}-bootstrap-image` project (from a snapshot of the committed revision, so no local Docker daemon is needed), and on later pushes by the CI/CD pipeline's Build stage. Docker still runs *inside* CodeBuild against the same `backend/engine/python/Dockerfile`; the result is pushed to ECR. Subsequent sections refer to it simply as "the image." See [How the Feedback Engine image is built](./deployment-guide.md#how-the-feedback-engine-image-is-built) for the bootstrap flow and how the ECR repository and initial image are created.
 
 - **Location:** `backend/engine/python/`
 - **Base image:** `public.ecr.aws/lambda/python:3.12`
 - **ECR repository:** `{stackPrefix}-feedback-engine`
 
-**A note on image tags, because they cause confusion.** The same image can carry two tags:
+**A note on image tags and identity, because they cause confusion.** The immutable **image digest** is the true identity of a build; tags are labels that can move. The same image can carry:
 
-- `bootstrap` — the default tag the Compute stack points the Lambda at (`feedbackEngineImageTag` in `cdk/lib/config.ts`) when you deploy CDK directly. Manual builds push this tag.
-- the commit SHA — what CI tags each build with. The CI pipeline pushes *both* the SHA tag and `bootstrap` for the same build, then points the Lambda at the SHA.
+- `bootstrap` — a mutable "latest" pointer that every build (bootstrap or CI) pushes.
+- a commit-scoped tag — the bootstrap build tags each image `src-<first 12 of the commit sha>`; the CI pipeline tags with the full commit SHA. Both are per-commit pointers, immutable *by convention* (the ECR repo itself is `MUTABLE` so the `bootstrap` convenience tag can move).
 
-So `bootstrap` is a stable "latest" pointer for direct deploys, and the SHA is the immutable per-commit tag CI actually runs. Both refer to the same image content for a given build.
+What is enforced:
+
+- The **deployed Lambda is pinned by the immutable digest.** `ComputeStack` resolves the image via `fromEcrImage(..., { tagOrDigest: config.feedbackEngineImageTag })`, and the deploy workflow passes the `sha256:...` **digest** it recorded for the built image (falling back to a tag only for direct-CDK/`bootstrap` use when no image was published that run). So an out-of-band `docker push` that repoints a tag cannot change what the deployed Lambda runs.
+- **Commit-safe reuse** lives in the deploy workflow: it records the digest **and** the source commit in its checkpoint and reuses an existing image only when the recorded `sourceCommit` matches the revision being deployed. A stale or reused tag therefore never causes a different commit's image to ship.
+- The `src-<sha>` and `bootstrap` tags remain **human-facing lookup labels** (the ECR repo is `MUTABLE` so `bootstrap` can move); they are not what the deployed Lambda is bound to.
 
 This is the only Python workload that ships a third-party runtime stack — Bedrock via `langchain-aws`, Postgres via `psycopg`.
 
@@ -211,7 +215,7 @@ Current status, so you don't go looking for logic that isn't there: `handler.py`
      --python 3.12
    ```
 
-3. Rebuild and push the image (see [deployment-guide.md](./deployment-guide.md) Step 4). The tag below uses `wren-dev` as an example environment; substitute your own prefix:
+3. Commit the change (clean working tree) and rebuild the image. The normal path is automatic: `npm run deploy` builds it in CodeBuild from the committed revision, or the CI/CD pipeline builds it on push — neither needs local Docker. As an emergency escape hatch only, you can still build by hand from a machine with Docker (substitute your own prefix for `wren-dev`):
 
    ```bash
    docker build -t "${ACCOUNT}.dkr.ecr.ca-central-1.amazonaws.com/wren-dev-feedback-engine:bootstrap" \
@@ -219,7 +223,7 @@ Current status, so you don't go looking for logic that isn't there: `handler.py`
    docker push …:bootstrap
    ```
 
-4. Point the Lambda at the new image (`update-function-code`, or the CI/CD UpdateLambda stage).
+4. Point the Lambda at the new image (the bootstrap flow and CI/CD UpdateLambda stage do this automatically; manual escape hatch: `update-function-code`).
 
 5. Confirm the function starts (`handler.handler`) and Bedrock/DB access still works. The log group follows the same convention, e.g. `/aws/lambda/wren-dev-feedback-engine`.
 
@@ -236,9 +240,9 @@ Current status, so you don't go looking for logic that isn't there: `handler.py`
 
 **Node:** update the version in the appropriate `package.json`, run `npm install` in that package tree, commit both `package.json` and its lockfile, then redeploy the consumer (Compute, Amplify, or CDK).
 
-**Python runtime:** bump the pin in `requirements-feedback-engine.in`, recompile the `.txt`, rebuild and push the `bootstrap` image, then update the Lambda.
+**Python runtime:** bump the pin in `requirements-feedback-engine.in`, recompile the `.txt`, commit, then let `npm run deploy` (bootstrap build) or the CI/CD pipeline rebuild the image in CodeBuild and update the Lambda.
 
-Use exact pins (`==`) in `.in` files that feed production installs — unpinned ranges can drift between `uv pip compile` runs and between Docker builds.
+Use exact pins (`==`) in `.in` files that feed production installs — unpinned ranges can drift between `uv pip compile` runs and between image builds.
 
 After a `langchain-aws` bump, re-check the required `boto3` floor and IAM (the CRIS model ARNs in `ComputeStack.ts`). A new model family can need IAM changes even when `pip` succeeds.
 
@@ -263,7 +267,7 @@ UpdateLambda — Update_Feedback_Engine: lambda update-function-code with the
 
 So a change to `requirements-feedback-engine.txt` or engine source flows through Build (which pushes the SHA and `bootstrap` tags, per the tag note above) and then UpdateLambda (image swap to the SHA). Separating UpdateLambda from Deploy means a Python-only commit is a quick image swap rather than a full CloudFormation diff.
 
-The manual equivalent is Docker build + ECR push + `lambda update-function-code`, as described in the deployment guide.
+For a first-time or pipeline-less deploy, the standing `${stackPrefix}-bootstrap-image` CodeBuild project performs the equivalent build from a SHA-keyed source snapshot (no local Docker); see [How the Feedback Engine image is built](./deployment-guide.md#how-the-feedback-engine-image-is-built). A hand-run Docker build + ECR push + `lambda update-function-code` remains available as an emergency escape hatch.
 
 Test commands: root `npm test` (Jest) for Node, `npm test` in `frontend/` (Vitest) for the web app, and `uv run pytest` for Python.
 

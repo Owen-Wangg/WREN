@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AwsCli } from "./awsCli.js";
@@ -10,8 +10,10 @@ import {
   newCheckpoint,
   updateStage,
   withImage,
+  type CheckpointImage,
   type DeploymentCheckpoint,
 } from "./checkpoint.js";
+import { CicdStack } from "../../lib/stacks/CicdStack.js";
 import type { DeploymentConfig } from "./config.js";
 import { DeploymentDiscovery } from "./discovery.js";
 import { ActionRequiredError } from "./errors.js";
@@ -66,6 +68,17 @@ interface AuthMeResponse {
 
 interface PipelineStateResponse {
   readonly stageStates?: readonly { readonly stageName?: string }[];
+}
+
+interface StartBuildResponse {
+  readonly build?: { readonly id?: string };
+}
+
+interface BatchGetBuildsResponse {
+  readonly builds?: readonly {
+    readonly buildStatus?: string;
+    readonly logs?: { readonly deepLink?: string; readonly groupName?: string };
+  }[];
 }
 
 const EXPECTED_PIPELINE_STAGES = ["Source", "Build", "Deploy", "UpdateLambda"] as const;
@@ -199,6 +212,9 @@ export function cdkContextArgs(
     "-c", `stackPrefix=${config.stackPrefix}`,
     "-c", `region=${config.region}`,
     "-c", `bedrockModelId=${config.bedrockModelId}`,
+    "-c", `cacheMode=${config.cacheMode}`,
+    "-c", `cacheTtl=${config.cacheTtl}`,
+    "-c", `cacheEnabledWorkloads=${config.cacheEnabledWorkloads.join(",")}`,
     "-c", `feedbackEngineImageTag=${imageTag}`,
     "-c", `enableCicd=${enableCicd}`,
     "-c", `ecrOwnership=${config.ecrOwnership}`,
@@ -226,10 +242,310 @@ export function classifyBedrockError(error: unknown): string {
   return `Bedrock verification failed: ${text}`;
 }
 
+// ---------------------------------------------------------------------------
+// Cache-aware synthetic smoke (prompt-cache plan §17/§18/§20).
+//
+// This is an OPTIONAL, non-sensitive verification that only runs when explicit
+// caching is enabled. It NEVER touches student or reference content — it sends
+// a fixed, benign synthetic prompt twice with a cache checkpoint and asserts the
+// second invocation reports cache-read tokens. In observe/off it is skipped
+// entirely. All logic below is pure and unit-testable without any AWS calls.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the cache-aware synthetic smoke should run for this deployment.
+ *
+ * It runs ONLY when `cacheMode === 'explicit'` AND at least one workload is
+ * enabled — i.e. only when caching can actually take effect. In `off` and
+ * `observe` (the safe default) it is skipped, so the default deploy behavior
+ * is unchanged and no synthetic cache request is ever sent.
+ */
+export function shouldRunCacheSmoke(config: {
+  readonly cacheMode: string;
+  readonly cacheEnabledWorkloads: readonly string[];
+}): boolean {
+  return config.cacheMode === "explicit" && config.cacheEnabledWorkloads.length > 0;
+}
+
+/**
+ * A benign, fixed synthetic prompt large enough (>1,024 tokens) to exceed the
+ * minimum cacheable prefix for Claude Sonnet 4.6 (plan §7). It contains NO
+ * student, reference, or otherwise sensitive content — only repeated neutral
+ * filler describing that this is a deployment cache probe.
+ */
+export function cacheSmokeSystemPrompt(): string {
+  const sentence =
+    "This is a synthetic WREN deployment cache-verification probe containing no user or reference data. ";
+  // ~13 tokens/sentence * 120 => comfortably over the 1,024-token minimum.
+  return sentence.repeat(120).trim();
+}
+
+/**
+ * Build the Anthropic `InvokeModel` body for the synthetic cache probe. The
+ * large fixed system block carries a single `cache_control` ephemeral
+ * checkpoint (the only approved place); the user message is a trivial fixed
+ * prompt. Byte-identical across both invocations so the second can hit the
+ * cache written by the first.
+ */
+export function buildCacheSmokeRequestBody(ttl: "5m" | "1h" = "5m"): Record<string, unknown> {
+  return {
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: 1,
+    system: [
+      {
+        type: "text",
+        text: cacheSmokeSystemPrompt(),
+        cache_control: { type: "ephemeral", ttl },
+      },
+    ],
+    messages: [{ role: "user", content: "Reply with OK." }],
+  };
+}
+
+/** Minimal shape of the Anthropic usage block we inspect (plan §7). */
+export interface CacheSmokeUsage {
+  readonly cache_creation_input_tokens?: number;
+  readonly cache_read_input_tokens?: number;
+}
+
+/** Extract the usage block from a parsed Anthropic InvokeModel response. */
+export function parseCacheSmokeUsage(responseText: string): CacheSmokeUsage {
+  const parsed = JSON.parse(responseText) as { readonly usage?: CacheSmokeUsage };
+  return parsed.usage ?? {};
+}
+
+/** Outcome of the two-request cache probe. */
+export interface CacheSmokeResult {
+  readonly cacheDemonstrated: boolean;
+  readonly firstWriteTokens: number;
+  readonly secondReadTokens: number;
+  readonly detail: string;
+}
+
+/**
+ * Evaluate the two synthetic responses. Cache is "demonstrated" when the SECOND
+ * response reports `cache_read_input_tokens > 0` (plan §20 acceptance gate).
+ * This is a pure evaluation — the caller decides whether to treat a negative
+ * result as soft (reported) or hard.
+ */
+export function evaluateCacheSmoke(
+  first: CacheSmokeUsage,
+  second: CacheSmokeUsage,
+): CacheSmokeResult {
+  const firstWriteTokens = first.cache_creation_input_tokens ?? 0;
+  const secondReadTokens = second.cache_read_input_tokens ?? 0;
+  const cacheDemonstrated = secondReadTokens > 0;
+  const detail = cacheDemonstrated
+    ? `Cache read demonstrated: first write=${firstWriteTokens} tokens, second read=${secondReadTokens} tokens.`
+    : `No cache read observed on the second request (write=${firstWriteTokens}, read=${secondReadTokens}). ` +
+      "This can happen below the minimum prefix, on cache expiry, or under concurrent routing.";
+  return { cacheDemonstrated, firstWriteTokens, secondReadTokens, detail };
+}
+
 export function sourceTag(checkpoint: DeploymentCheckpoint, configured?: string): string {
   if (configured) return configured;
   const timestamp = checkpoint.createdAt.replace(/[-:.TZ]/g, "");
   return `deploy-${timestamp}`;
+}
+
+/**
+ * Derive an immutable, commit-scoped ECR tag from a full Git commit SHA.
+ * The tag is a stable function of the commit, so the image built under it
+ * always corresponds to exactly that revision — the basis for commit-safe
+ * idempotency. `WREN_ENGINE_IMAGE_TAG` overrides this when set (see
+ * {@link resolveImageTagForCommit}).
+ */
+export function commitImageTag(sha: string): string {
+  return `src-${sha.slice(0, 12)}`;
+}
+
+/**
+ * Resolve the ECR tag to build under for a given commit. The commit-scoped
+ * `src-<shortsha>` is the default and guarantees the tag maps to the revision.
+ * An explicit `WREN_ENGINE_IMAGE_TAG` bypasses commit-scoping — it is an
+ * operator-owned override whose safe reuse relies on the checkpoint's recorded
+ * `sourceCommit` matching the revision being deployed.
+ */
+export function resolveImageTagForCommit(sha: string, configured?: string): string {
+  return configured ?? commitImageTag(sha);
+}
+
+/**
+ * True when a recorded checkpoint image may be reused for the revision being
+ * deployed. Reuse is allowed only when the image is provably from this commit:
+ * the checkpoint recorded a `sourceCommit` equal to the resolved SHA. A legacy
+ * v1 checkpoint (no `sourceCommit`) or a commit mismatch forces a rebuild, so a
+ * pre-existing tag can never cause the wrong commit's image to be deployed.
+ */
+export function checkpointImageMatchesCommit(
+  image: CheckpointImage | undefined,
+  sha: string,
+): boolean {
+  return image?.sourceCommit === sha;
+}
+
+/**
+ * The image identifier handed to CDK as `feedbackEngineImageTag` (consumed by
+ * `Code.fromEcrImage`'s `tagOrDigest`). Prefer the immutable **digest** the
+ * `feedback-image` stage recorded this run, so the deployed Lambda is pinned to
+ * exactly the image that was built — a mutable tag cannot be repointed
+ * out-of-band between build and deploy. Falls back to the recorded tag, then to
+ * the computed source tag (direct-CDK / `bootstrap` compatibility when no image
+ * was published this run).
+ */
+export function imageDeployRef(
+  checkpoint: DeploymentCheckpoint,
+  configured?: string,
+): string {
+  const image = checkpoint.image;
+  return (image?.digest || image?.tag) ?? sourceTag(checkpoint, configured);
+}
+
+/**
+ * The `aws`/`runner` surface the git + S3 + CodeBuild helpers depend on,
+ * narrowed so they are unit-testable with lightweight mocks.
+ */
+export interface ImageBuildDeps {
+  readonly runner: Runner;
+  readonly aws: Pick<AwsCli, "json" | "tryJson" | "command">;
+  readonly repoRoot: string;
+}
+
+/**
+ * Resolve the exact Git revision being deployed and enforce a clean working
+ * tree. CodeBuild builds from a `git archive <sha>` snapshot, not the working
+ * directory, so uncommitted changes would silently not be in the image — a
+ * dirty tree is therefore a hard, actionable error.
+ */
+export async function resolveCleanCommit(runner: Runner, repoRoot: string): Promise<string> {
+  // `--untracked-files=all` makes the guard independent of the operator's
+  // `status.showUntrackedFiles` config: untracked files never enter
+  // `git archive <sha>`, so a "clean" check must still flag them rather than
+  // let them silently drop out of the image.
+  const status = await runner.run({
+    executable: "git",
+    args: ["status", "--porcelain", "--untracked-files=all"],
+    cwd: repoRoot,
+  });
+  if (status.stdout.trim().length > 0) {
+    throw new ActionRequiredError(
+      "The working tree has uncommitted or untracked changes. The Feedback Engine image is " +
+      "built in CodeBuild from a snapshot of the committed revision (git archive), so those " +
+      "changes would not be included. Commit, stash, or remove them, then rerun npm run deploy.",
+    );
+  }
+  const head = await runner.run({
+    executable: "git",
+    args: ["rev-parse", "HEAD"],
+    cwd: repoRoot,
+  });
+  const sha = head.stdout.trim();
+  if (!/^[0-9a-f]{40}$/i.test(sha)) {
+    throw new Error(`git rev-parse HEAD did not return a full commit SHA (got "${sha}").`);
+  }
+  return sha;
+}
+
+/**
+ * Verify the CDK bootstrap assets bucket exists and is reachable, failing with
+ * an actionable error if not. This makes a missing/renamed bootstrap bucket a
+ * clear prerequisite failure rather than an opaque CodeBuild source error.
+ */
+export async function verifyBootstrapAssetsBucket(
+  aws: Pick<AwsCli, "command">,
+  bucket: string,
+): Promise<void> {
+  try {
+    await aws.command(["s3api", "head-bucket", "--bucket", bucket]);
+  } catch {
+    throw new ActionRequiredError(
+      `The CDK bootstrap assets bucket ${bucket} is not available. The Feedback Engine image ` +
+      "build uploads its source snapshot there. Bootstrap the account/region (npx cdk bootstrap " +
+      "or set WREN_BOOTSTRAP_MISSING=true so npm run deploy bootstraps it), then rerun.",
+    );
+  }
+}
+
+/**
+ * `git archive <sha>` the full repository to a temporary zip and upload it under
+ * a SHA-based key in the bootstrap assets bucket. The key encodes the commit,
+ * so the CodeBuild S3 source is pinned by object key with no dependency on S3
+ * versioning or a VersionId. Returns the bucket and key of the snapshot.
+ */
+export async function uploadCommitSnapshot(
+  deps: ImageBuildDeps,
+  bucket: string,
+  keyPrefix: string,
+  sha: string,
+): Promise<{ readonly bucket: string; readonly key: string }> {
+  const key = `${keyPrefix}/${sha}.zip`;
+  const directory = mkdtempSync(path.join(tmpdir(), "wren-bootstrap-src-"));
+  const zipPath = path.join(directory, `${sha}.zip`);
+  try {
+    await deps.runner.run({
+      executable: "git",
+      args: ["archive", "--format=zip", "-o", zipPath, sha],
+      cwd: deps.repoRoot,
+    });
+    await deps.aws.command([
+      "s3api", "put-object",
+      "--bucket", bucket,
+      "--key", key,
+      "--body", `fileb://${zipPath.replace(/\\/g, "/")}`,
+    ]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  return { bucket, key };
+}
+
+/**
+ * Start the standing bootstrap CodeBuild project against the SHA-keyed S3
+ * snapshot (via `--source-location-override`, never a VersionId), overriding
+ * `IMAGE_TAG` with the commit-scoped tag, and poll until the build reaches a
+ * terminal state. A non-`SUCCEEDED` outcome throws with the build id and its
+ * CloudWatch logs location for triage.
+ */
+export async function runBootstrapImageBuild(
+  aws: Pick<AwsCli, "json">,
+  projectName: string,
+  source: { readonly bucket: string; readonly key: string },
+  imageTag: string,
+  options: { readonly pollIntervalMs?: number; readonly timeoutMs?: number; readonly sleep?: (ms: number) => Promise<void> } = {},
+): Promise<void> {
+  const pollIntervalMs = options.pollIntervalMs ?? 15_000;
+  const timeoutMs = options.timeoutMs ?? 60 * 60 * 1000;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  const started = await aws.json<StartBuildResponse>([
+    "codebuild", "start-build",
+    "--project-name", projectName,
+    "--source-location-override", `${source.bucket}/${source.key}`,
+    "--source-type-override", "S3",
+    "--environment-variables-override", `name=IMAGE_TAG,value=${imageTag},type=PLAINTEXT`,
+  ]);
+  const buildId = started.build?.id;
+  if (!buildId) throw new Error(`codebuild start-build did not return a build id for ${projectName}.`);
+
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const response = await aws.json<BatchGetBuildsResponse>([
+      "codebuild", "batch-get-builds", "--ids", buildId,
+    ]);
+    const build = response.builds?.[0];
+    const status = build?.buildStatus;
+    if (status && status !== "IN_PROGRESS") {
+      if (status === "SUCCEEDED") return;
+      const logs = build?.logs?.deepLink ?? build?.logs?.groupName ?? "CloudWatch Logs";
+      throw new Error(
+        `Bootstrap image build ${buildId} finished with status ${status}. Inspect ${logs}.`,
+      );
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`Bootstrap image build ${buildId} did not finish within the timeout.`);
+    }
+    await sleep(pollIntervalMs);
+  }
 }
 
 export function isCompletedDeployCheckpoint(checkpoint: DeploymentCheckpoint): boolean {
@@ -340,7 +656,7 @@ export class DeployWorkflow {
 
   private async runDryPlan(identityArn: string): Promise<void> {
     console.log(`[wren] DRY RUN identity: ${identityArn}`);
-    await this.preflight(identityArn, true);
+    await this.preflight(identityArn);
     await this.verifyBedrock(false);
     const stacks = await this.discovery.allApplicationStacks();
     await this.resolveAuditPseudonymSaltOwnership();
@@ -353,15 +669,15 @@ export class DeployWorkflow {
     console.log("[wren] DRY RUN complete; no AWS resources were changed.");
   }
 
-  private async preflight(identityArn: string, dryRun = false): Promise<void> {
+  private async preflight(identityArn: string): Promise<void> {
     if (Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10) < 22) {
       throw new Error(`Node.js 22 or newer is required; found ${process.versions.node}.`);
     }
     console.log(`[wren] AWS identity: ${identityArn}`);
     await this.runner.run({ executable: "aws", args: ["--version"] });
-    if (!dryRun) {
-      await this.runner.run({ executable: "docker", args: ["version", "--format", "{{.Server.Version}}"] });
-    }
+    // No local Docker check: the Feedback Engine image is built in CodeBuild
+    // from an S3 source snapshot, so a running local Docker daemon is not a
+    // deploy prerequisite.
     const cdkCli = this.cdkCliPath();
     if (!existsSync(cdkCli)) throw new Error(`Local CDK CLI was not found at ${cdkCli}.`);
   }
@@ -408,6 +724,75 @@ export class DeployWorkflow {
       ]);
     } catch (error) {
       throw new ActionRequiredError(classifyBedrockError(error));
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Optional cache-aware synthetic smoke (plan §17/§18/§20). Skipped unless
+   * explicit caching is enabled. Sends the same benign synthetic prompt twice
+   * with a cache checkpoint and checks the second reports cache-read tokens.
+   *
+   * This is a SOFT check: a negative result or an execution failure is reported
+   * (returned) but does NOT fail the deploy — the one-token availability smoke
+   * remains the hard gate. It never sends student or reference content.
+   */
+  private async verifyCacheSmoke(): Promise<CacheSmokeResult | undefined> {
+    if (!shouldRunCacheSmoke(this.config)) {
+      console.log(
+        `[wren] Cache smoke skipped (cacheMode=${this.config.cacheMode}); explicit caching not enabled.`,
+      );
+      return undefined;
+    }
+
+    const directory = mkdtempSync(path.join(tmpdir(), "wren-cache-smoke-"));
+    const bodyPath = path.join(directory, "request.json");
+    const firstOut = path.join(directory, "first.json");
+    const secondOut = path.join(directory, "second.json");
+    writeFileSync(
+      bodyPath,
+      JSON.stringify(buildCacheSmokeRequestBody(this.config.cacheTtl)),
+      { mode: 0o600 },
+    );
+    const invoke = async (outputPath: string): Promise<CacheSmokeUsage> => {
+      await this.aws.command([
+        "bedrock-runtime",
+        "invoke-model",
+        "--model-id", this.config.bedrockModelId,
+        "--content-type", "application/json",
+        "--accept", "application/json",
+        "--body", `fileb://${bodyPath.replace(/\\/g, "/")}`,
+        "--cli-binary-format", "raw-in-base64-out",
+        outputPath,
+      ]);
+      return parseCacheSmokeUsage(readFileSync(outputPath, "utf8"));
+    };
+
+    try {
+      const first = await invoke(firstOut);
+      const second = await invoke(secondOut);
+      const result = evaluateCacheSmoke(first, second);
+      console.log(`[wren] Cache smoke: ${result.detail}`);
+      if (!result.cacheDemonstrated) {
+        console.warn(
+          "[wren] Cache smoke did NOT demonstrate a cache read. Reported as a soft check; " +
+            "the deployment continues. Review before advancing the production acceptance gate.",
+        );
+      }
+      return result;
+    } catch (error) {
+      // Soft check: surface the reason but do not fail the deploy.
+      console.warn(
+        `[wren] Cache smoke could not run (${errorMessage(error)}). ` +
+          "Reported as a soft check; the deployment continues.",
+      );
+      return {
+        cacheDemonstrated: false,
+        firstWriteTokens: 0,
+        secondReadTokens: 0,
+        detail: `Cache smoke execution failed: ${errorMessage(error)}`,
+      };
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -477,53 +862,62 @@ export class DeployWorkflow {
   }
 
   private async publishFeedbackImage(): Promise<void> {
-    const tag = sourceTag(this.checkpoint, this.config.engineImageTag);
+    // Build the Feedback Engine image in AWS CodeBuild from an S3 snapshot of
+    // the exact Git revision being deployed. No local Docker daemon and no
+    // GitHub credential are involved — the local repo is `git archive`d, the
+    // snapshot is uploaded under a SHA-based key, and the standing bootstrap
+    // CodeBuild project (created in the Cicd stack at the prerequisites stage)
+    // builds and pushes the image.
+    const sha = await resolveCleanCommit(this.runner, this.repoRoot);
+    const tag = resolveImageTagForCommit(sha, this.config.engineImageTag);
     const repositoryName = `${this.config.stackPrefix}-feedback-engine`;
+
+    // Commit-safe idempotency: only short-circuit when the tag already exists
+    // in ECR AND we can prove it was built from this exact commit. A tag that
+    // exists but whose recorded commit differs (or is unknown, e.g. a legacy
+    // checkpoint) is rebuilt — a stale tag must never deploy the wrong commit.
     const existing = await this.aws.tryJson<ImagesResponse>([
       "ecr", "describe-images", "--repository-name", repositoryName, "--image-ids", `imageTag=${tag}`,
     ]);
     const existingDigest = existing?.imageDetails?.[0]?.imageDigest;
-    if (existingDigest) {
-      this.checkpoint = withImage(this.checkpoint, tag, existingDigest);
+    if (existingDigest && checkpointImageMatchesCommit(this.checkpoint.image, sha)) {
+      this.checkpoint = withImage(this.checkpoint, tag, existingDigest, sha);
       this.store.save(this.checkpoint);
       return;
     }
 
-    const registry = `${this.accountId}.dkr.ecr.${this.config.region}.amazonaws.com`;
-    const repositoryUri = `${registry}/${repositoryName}`;
-    const password = await this.aws.text(["ecr", "get-login-password"]);
-    await this.runner.run({
-      executable: "docker",
-      args: ["login", "--username", "AWS", "--password-stdin", registry],
-      stdin: `${password}\n`,
-      secrets: [password],
-    });
-    await this.runner.run({
-      executable: "docker",
-      args: [
-        "build",
-        "--platform", "linux/amd64",
-        "-t", `${repositoryUri}:${tag}`,
-        path.join(this.repoRoot, "backend", "engine", "python"),
-      ],
-      cwd: this.repoRoot,
-      streamOutput: true,
-    });
-    await this.runner.run({ executable: "docker", args: ["push", `${repositoryUri}:${tag}`], streamOutput: true });
-    await this.runner.run({ executable: "docker", args: ["tag", `${repositoryUri}:${tag}`, `${repositoryUri}:bootstrap`] });
-    await this.runner.run({ executable: "docker", args: ["push", `${repositoryUri}:bootstrap`], streamOutput: true });
+    const bucket = CicdStack.bootstrapAssetsBucketNameFor(this.accountId, this.config.region);
+    await verifyBootstrapAssetsBucket(this.aws, bucket);
 
+    const source = await uploadCommitSnapshot(
+      { runner: this.runner, aws: this.aws, repoRoot: this.repoRoot },
+      bucket,
+      CicdStack.bootstrapSourcePrefixFor(this.config.stackPrefix),
+      sha,
+    );
+
+    await runBootstrapImageBuild(
+      this.aws,
+      CicdStack.bootstrapImageProjectNameFor(this.config.stackPrefix),
+      source,
+      tag,
+    );
+
+    // Record the ECR digest alongside the source commit. The digest is the
+    // immutable identity of what was built and is what the deployed Lambda is
+    // pinned to (see imageDeployRef); recording the commit too lets a later
+    // rerun prove the image belongs to this revision.
     const verified = await this.aws.json<ImagesResponse>([
       "ecr", "describe-images", "--repository-name", repositoryName, "--image-ids", `imageTag=${tag}`,
     ]);
     const digest = verified.imageDetails?.[0]?.imageDigest;
     if (!digest) throw new Error(`ECR did not return a digest for ${repositoryName}:${tag}.`);
-    this.checkpoint = withImage(this.checkpoint, tag, digest);
+    this.checkpoint = withImage(this.checkpoint, tag, digest, sha);
     this.store.save(this.checkpoint);
   }
 
   private async deployConcerns(concerns: readonly string[]): Promise<void> {
-    const tag = this.checkpoint.image?.tag ?? sourceTag(this.checkpoint, this.config.engineImageTag);
+    const tag = imageDeployRef(this.checkpoint, this.config.engineImageTag);
     for (const concern of concerns) {
       const stackName = `${this.config.stackPrefix}-${concern}`;
       const region = concern === "CloudFrontWaf" ? "us-east-1" : this.config.region;
@@ -541,7 +935,7 @@ export class DeployWorkflow {
       throw new ActionRequiredError("Amplify requires WREN_GITHUB_OWNER and WREN_GITHUB_REPO.");
     }
     await this.ensureGithubSecret(`${this.config.stackPrefix}/github/token`);
-    const tag = this.checkpoint.image?.tag ?? sourceTag(this.checkpoint, this.config.engineImageTag);
+    const tag = imageDeployRef(this.checkpoint, this.config.engineImageTag);
     const stackName = `${this.config.stackPrefix}-Amplify`;
     await this.deployStacks([stackName], tag, false);
     const stack = await this.discovery.stack(stackName);
@@ -559,7 +953,7 @@ export class DeployWorkflow {
     }
 
     await this.ensureGithubSecret(`${this.config.stackPrefix}/cicd/github-pat`);
-    const tag = this.checkpoint.image?.tag ?? sourceTag(this.checkpoint, this.config.engineImageTag);
+    const tag = imageDeployRef(this.checkpoint, this.config.engineImageTag);
     await this.deployStacks([`${this.config.stackPrefix}-Cicd`], tag, true);
 
     const state = await this.aws.json<PipelineStateResponse>([
@@ -570,7 +964,7 @@ export class DeployWorkflow {
 
   private async configureAdministrator(): Promise<void> {
     const authorizerName = `${this.config.stackPrefix}-authorizer`;
-    const tag = this.checkpoint.image?.tag ?? sourceTag(this.checkpoint, this.config.engineImageTag);
+    const tag = imageDeployRef(this.checkpoint, this.config.engineImageTag);
 
     const configureAndProbe = async (): Promise<void> => {
       if (this.config.adminAlreadyConfigured && !this.config.adminEmail) {
@@ -775,6 +1169,10 @@ export class DeployWorkflow {
       const messages = Number(attributes.Attributes?.ApproximateNumberOfMessages ?? "0");
       if (messages > 0) throw new Error(`${queueName} contains ${messages} message(s).`);
     }
+
+    // Optional, non-sensitive cache verification (plan §17/§20). Skipped unless
+    // explicit caching is enabled; soft-reported so it never fails the deploy.
+    await this.verifyCacheSmoke();
   }
 
   private async apiEndpoint(): Promise<string> {

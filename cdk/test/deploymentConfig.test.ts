@@ -22,6 +22,33 @@ describe("deployment configuration", () => {
     });
   });
 
+  it("defaults prompt caching to the safe observe/5m/none posture", () => {
+    const config = parseDeploymentConfig(github);
+    expect(config.cacheMode).toBe("observe");
+    expect(config.cacheTtl).toBe("5m");
+    expect(config.cacheEnabledWorkloads).toEqual([]);
+  });
+
+  it("resolves explicit prompt-cache overrides and normalizes workload tokens", () => {
+    const config = parseDeploymentConfig({
+      ...github,
+      WREN_CACHE_MODE: "explicit",
+      WREN_CACHE_TTL: "1h",
+      WREN_CACHE_ENABLED_WORKLOADS: "ask-wren, feedback_primary",
+    });
+    expect(config.cacheMode).toBe("explicit");
+    expect(config.cacheTtl).toBe("1h");
+    expect(config.cacheEnabledWorkloads).toEqual(["ask_wren", "feedback_primary"]);
+  });
+
+  it("resolves the off rollback mode and rejects invalid cache values", () => {
+    expect(parseDeploymentConfig({ ...github, WREN_CACHE_MODE: "off" }).cacheMode).toBe("off");
+    expect(() => parseDeploymentConfig({ ...github, WREN_CACHE_MODE: "on" })).toThrow("WREN_CACHE_MODE");
+    expect(() => parseDeploymentConfig({ ...github, WREN_CACHE_TTL: "10m" })).toThrow("WREN_CACHE_TTL");
+    expect(() => parseDeploymentConfig({ ...github, WREN_CACHE_ENABLED_WORKLOADS: "bogus" }))
+      .toThrow("unknown workload");
+  });
+
   it.each(["TRUE", "1", "yes", ""])('rejects malformed booleans except an empty value (%s)', (raw) => {
     const env = { ...github, WREN_ENABLE_CICD: raw };
     if (raw === "") expect(parseDeploymentConfig(env).enableCicd).toBe(true);

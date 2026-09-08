@@ -52,6 +52,33 @@ export const DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-6";
 export const DEFAULT_REGION = "ca-central-1";
 
 /**
+ * Prompt-cache configuration (prompt-cache plan §15/§16).
+ *
+ * These drive the runtime cache DECISION layer through Lambda environment
+ * variables (`CACHE_MODE` / `CACHE_TTL` / `CACHE_ENABLED_WORKLOADS`). The safe
+ * production defaults keep explicit caching effectively OFF: `mode=observe`,
+ * `ttl=5m`, and NO workloads enabled — so no explicit cache markers are ever
+ * emitted until an operator opts in per environment. `mode=off` is the tested
+ * rollback that fully disables cache decisions at runtime.
+ */
+export type CacheMode = "off" | "observe" | "explicit";
+export type CacheTtl = "5m" | "1h";
+
+/** Plan §14 workload tokens. Canonical (underscore) form used for env output. */
+export const CACHE_WORKLOADS = [
+  "ask_wren",
+  "feedback_primary",
+  "strength_fill",
+  "quote_fill",
+  "resolution_judge",
+] as const;
+export type CacheWorkload = (typeof CACHE_WORKLOADS)[number];
+
+/** Plan §15 initial posture: caching effectively OFF. */
+export const DEFAULT_CACHE_MODE: CacheMode = "observe";
+export const DEFAULT_CACHE_TTL: CacheTtl = "5m";
+
+/**
  * Resolved, immutable configuration shared by every stack in the app.
  */
 export interface AppConfig {
@@ -73,7 +100,12 @@ export interface AppConfig {
    * backend orchestration logic. Defaults to {@link DEFAULT_BEDROCK_MODEL_ID}.
    */
   readonly bedrockModelId: string;
-  /** Immutable ECR tag used by the Feedback Engine Lambda. */
+  /**
+   * ECR image reference the Feedback Engine Lambda is pinned to, passed to
+   * `Code.fromEcrImage`'s `tagOrDigest`. The deploy workflow supplies the
+   * immutable image **digest** (`sha256:...`) recorded for the deployed
+   * revision; a tag (e.g. `bootstrap`) is accepted for direct-CDK use.
+   */
   readonly feedbackEngineImageTag: string;
   /**
    * Whether Compute creates the audit pseudonym salt or reuses a salt retained
@@ -90,6 +122,25 @@ export interface AppConfig {
    * subscription remains pending until the recipient confirms it in AWS.
    */
   readonly alarmEmail?: string;
+  /**
+   * Prompt-cache mode (plan §15). Defaults to {@link DEFAULT_CACHE_MODE}
+   * (`observe`). Propagated to the feedback Lambdas as `CACHE_MODE`. `off` is
+   * the rollback that disables cache decisions at runtime; `explicit` is the
+   * only mode that can ever cache.
+   */
+  readonly cacheMode: CacheMode;
+  /**
+   * Prompt-cache write TTL (plan §7/§10). Defaults to {@link DEFAULT_CACHE_TTL}
+   * (`5m`). Propagated as `CACHE_TTL`.
+   */
+  readonly cacheTtl: CacheTtl;
+  /**
+   * Workloads for which explicit caching is enabled (plan §14/§15). Defaults to
+   * an EMPTY set (no workloads). Propagated as `CACHE_ENABLED_WORKLOADS` (a
+   * comma-separated list; empty string when none). Unknown tokens are rejected
+   * at synth so a typo can never silently mis-configure the runtime.
+   */
+  readonly cacheEnabledWorkloads: readonly CacheWorkload[];
   /**
    * Prefix that drives all stack/resource naming: `${StackPrefix}-<Concern>`.
    * Defaults to `${projectName}-${environmentName}` when not explicitly
@@ -110,6 +161,56 @@ function readContext(app: App, key: string): string | undefined {
 }
 
 /**
+ * Resolve the prompt-cache mode from `cacheMode` context, defaulting to the
+ * safe `observe` posture. An unrecognized value is rejected (fail-fast at synth)
+ * so a typo can never silently enable — or fail to disable — caching.
+ */
+function resolveCacheMode(raw: string | undefined): CacheMode {
+  if (raw === undefined) return DEFAULT_CACHE_MODE;
+  const v = raw.toLowerCase();
+  if (v === "off" || v === "observe" || v === "explicit") return v;
+  throw new Error("cacheMode must be one of: off, observe, explicit");
+}
+
+/** Resolve the cache TTL from `cacheTtl` context, defaulting to `5m`. */
+function resolveCacheTtl(raw: string | undefined): CacheTtl {
+  if (raw === undefined) return DEFAULT_CACHE_TTL;
+  const v = raw.toLowerCase();
+  if (v === "5m" || v === "1h") return v;
+  throw new Error("cacheTtl must be one of: 5m, 1h");
+}
+
+/**
+ * Resolve the enabled-workload allowlist from `cacheEnabledWorkloads` context.
+ *
+ * Accepts a comma/whitespace-separated list; both hyphen (`ask-wren`) and
+ * underscore (`ask_wren`) spellings normalize to the canonical underscore
+ * token. An empty/absent value yields NO workloads (the safe default). Unknown
+ * tokens are rejected at synth — unlike the runtime parser (which fails closed
+ * by ignoring them), infrastructure config fails LOUD so a mistyped workload is
+ * caught before deploy.
+ */
+function resolveCacheEnabledWorkloads(raw: string | undefined): CacheWorkload[] {
+  if (raw === undefined) return [];
+  const result: CacheWorkload[] = [];
+  const known = new Set<string>(CACHE_WORKLOADS);
+  for (const rawToken of raw.split(/[,\s]+/)) {
+    const token = rawToken.trim().toLowerCase().replace(/-/g, "_");
+    if (token.length === 0) continue;
+    if (!known.has(token)) {
+      throw new Error(
+        `cacheEnabledWorkloads contains unknown workload '${rawToken}'. ` +
+          `Allowed: ${CACHE_WORKLOADS.join(", ")}`,
+      );
+    }
+    if (!result.includes(token as CacheWorkload)) {
+      result.push(token as CacheWorkload);
+    }
+  }
+  return result;
+}
+
+/**
  * Resolve the application configuration from CDK context with sensible
  * defaults, and the deployment account/region from the standard CDK
  * environment variables.
@@ -122,6 +223,9 @@ function readContext(app: App, key: string): string | undefined {
  *   - `feedbackEngineImageTag` -> defaults to `bootstrap` for direct-CDK compatibility
  *   - `technicalAdminBootstrapSubject` -> optional exact Cognito sub; absent disables bootstrap
  *   - `alarmEmail`      -> optional SNS email recipient for CloudWatch alarms
+ *   - `cacheMode`       -> `off|observe|explicit`, defaults to `observe`
+ *   - `cacheTtl`        -> `5m|1h`, defaults to `5m`
+ *   - `cacheEnabledWorkloads` -> comma-separated workloads, defaults to none
  *   - `stackPrefix`     -> defaults to `${projectName}-${environmentName}`
  *
  * Override at synth/deploy time, e.g.:
@@ -140,6 +244,11 @@ export function resolveAppConfig(app: App): AppConfig {
   }
   const technicalAdminBootstrapSubject = readContext(app, "technicalAdminBootstrapSubject");
   const alarmEmail = readContext(app, "alarmEmail");
+  const cacheMode = resolveCacheMode(readContext(app, "cacheMode"));
+  const cacheTtl = resolveCacheTtl(readContext(app, "cacheTtl"));
+  const cacheEnabledWorkloads = resolveCacheEnabledWorkloads(
+    readContext(app, "cacheEnabledWorkloads"),
+  );
   const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
 
   // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
@@ -158,6 +267,9 @@ export function resolveAppConfig(app: App): AppConfig {
     auditPseudonymSaltOwnership,
     ...(technicalAdminBootstrapSubject ? { technicalAdminBootstrapSubject } : {}),
     ...(alarmEmail ? { alarmEmail } : {}),
+    cacheMode,
+    cacheTtl,
+    cacheEnabledWorkloads,
     stackPrefix,
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -172,6 +284,15 @@ export function resolveAppConfig(app: App): AppConfig {
  */
 export function stackName(config: AppConfig, concern: string): string {
   return `${config.stackPrefix}-${concern}`;
+}
+
+/**
+ * Serialize the enabled-workload allowlist to the `CACHE_ENABLED_WORKLOADS`
+ * env value the runtime cache policy reads: a comma-separated list of canonical
+ * tokens, or the empty string when no workloads are enabled (the safe default).
+ */
+export function cacheEnabledWorkloadsEnv(config: AppConfig): string {
+  return config.cacheEnabledWorkloads.join(",");
 }
 
 /**
