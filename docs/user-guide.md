@@ -51,7 +51,7 @@ This guide covers how to get started with **WREN** — from creating your accoun
 
 1. Click **Sign Up**.
 2. Enter:
-   - Your institutional email address
+   - Your email address
    - A new password for WREN
 
    Follow the password rules listed on the page (length, letters, numbers, or symbols as shown).
