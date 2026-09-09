@@ -1,6 +1,11 @@
 import type { App } from "aws-cdk-lib";
 import type { Environment } from "aws-cdk-lib";
 
+import {
+  resolveLambdaConcurrency,
+  type LambdaConcurrencyConfig,
+} from "./lambdaConcurrency.js";
+
 /**
  * Single-source defaults for the CDK application.
  *
@@ -148,6 +153,15 @@ export interface AppConfig {
    */
   readonly stackPrefix: string;
   /**
+   * Reserved-concurrency policy for the Compute Lambdas (authorizer throttling
+   * remediation). Floors protect the authorizers on the critical path; caps
+   * bound the long-running feedback-engine/document functions so a burst cannot
+   * starve the shared account concurrency pool. Validated at synth time by
+   * {@link resolveLambdaConcurrency}. See
+   * `docs/authorizer-throttling-remediation.md`.
+   */
+  readonly lambdaConcurrency: LambdaConcurrencyConfig;
+  /**
    * Optional custom domain (e.g. `example.com`) for the Amplify-hosted
    * frontend. When present, the Amplify stack maps the production branch to the
    * domain root and its `www` subdomain. Absent by default, in which case the
@@ -258,6 +272,7 @@ export function resolveAppConfig(app: App): AppConfig {
     readContext(app, "cacheEnabledWorkloads"),
   );
   const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
+  const lambdaConcurrency = resolveLambdaConcurrency((key) => readContext(app, key));
   const customDomain = readContext(app, "customDomain");
 
   // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
@@ -280,6 +295,7 @@ export function resolveAppConfig(app: App): AppConfig {
     cacheTtl,
     cacheEnabledWorkloads,
     stackPrefix,
+    lambdaConcurrency,
     ...(customDomain ? { customDomain } : {}),
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,

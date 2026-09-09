@@ -1,5 +1,6 @@
 import { App } from "aws-cdk-lib";
 import type { AppConfig } from "../lib/config.js";
+import { DEFAULT_LAMBDA_CONCURRENCY } from "../lib/lambdaConcurrency.js";
 import { ConfigStack } from "../lib/stacks/ConfigStack.js";
 import { DatabaseStack } from "../lib/stacks/DatabaseStack.js";
 import { StorageStack } from "../lib/stacks/StorageStack.js";
@@ -30,6 +31,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     cacheTtl: "5m",
     cacheEnabledWorkloads: [],
     stackPrefix: "wren-test",
+    lambdaConcurrency: DEFAULT_LAMBDA_CONCURRENCY,
     env: { account: TEST_ACCOUNT, region: TEST_REGION },
     ...overrides,
   };

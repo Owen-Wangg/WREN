@@ -177,6 +177,10 @@ export class ComputeStack extends Stack {
       memorySize: 256,
       // VPC cold start (ENI + Secrets Manager + RDS Proxy + JWKS) can exceed 10s.
       timeout: Duration.seconds(20),
+      // Guaranteed concurrency FLOOR on the auth critical path. Prevents the
+      // shared account pool from being starved by long-running functions
+      // (authorizer throttling remediation — see lambdaConcurrency.ts).
+      reservedConcurrentExecutions: config.lambdaConcurrency.authorizer,
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,
@@ -205,6 +209,10 @@ export class ComputeStack extends Stack {
       // abort large OCR jobs — the worker uses this full timeout.
       memorySize: 2048,
       timeout: Duration.minutes(3),
+      // Reserved CAP so a burst of long-running OCR jobs cannot consume the
+      // whole account pool and starve the authorizer. Aligns with the ingest
+      // SQS maxConcurrency below (authorizer throttling remediation).
+      reservedConcurrentExecutions: config.lambdaConcurrency.document,
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,
@@ -359,6 +367,11 @@ export class ComputeStack extends Stack {
       handler: lambda.Handler.FROM_IMAGE,
       memorySize: 1024,
       timeout: Duration.minutes(15), // long documents can exceed 5m on Bedrock
+      // Reserved CAP so the longest-running function (15-min timeout, holds a
+      // slot for minutes) cannot exhaust the shared account pool and starve the
+      // authorizer. Aligns with the SQS maxConcurrency below (authorizer
+      // throttling remediation — see lambdaConcurrency.ts).
+      reservedConcurrentExecutions: config.lambdaConcurrency.feedbackEngine,
       vpc,
       vpcSubnets: privateSubnets,
       environment: {
@@ -482,6 +495,9 @@ export class ComputeStack extends Stack {
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
       timeout: Duration.seconds(20),
+      // Guaranteed concurrency FLOOR for realtime auth (authorizer throttling
+      // remediation — see lambdaConcurrency.ts).
+      reservedConcurrentExecutions: config.lambdaConcurrency.appsyncAuthorizer,
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,

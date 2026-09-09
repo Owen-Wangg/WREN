@@ -652,7 +652,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "bf9f49f68fcdcf8e73c5f19757bd99defc9bbd07e08b2ae40cdbedd9cbc0762d.zip",
+          "S3Key": "e1ca2195edd0c493c9692401e9221a0cdcdbe9b5b63a6f3bbd80c3e3c9d5258b.zip",
         },
         "Environment": {
           "Variables": {
@@ -709,7 +709,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           ],
         },
         "Runtime": "nodejs22.x",
-        "Timeout": 120,
+        "Timeout": 480,
         "VpcConfig": {
           "SecurityGroupIds": [
             {
@@ -980,7 +980,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "databaseSecretArn": {
           "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
         },
-        "migrationsFingerprint": "6387fcce5e246211",
+        "migrationsFingerprint": "91da9ae59aafa6d8",
       },
       "Type": "AWS::CloudFormation::CustomResource",
       "UpdateReplacePolicy": "Delete",
@@ -993,7 +993,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "77a9dd1a2fb5d6d1b5318985553907bc97908a638b6847d7a9968268ed99f8d5.zip",
+          "S3Key": "e6c98ebd0f1bdbd6123a4f36b7ab22b7bc9da4b96c32d2eb5ca51995ba1d9090.zip",
         },
         "Environment": {
           "Variables": {

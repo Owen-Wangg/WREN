@@ -20,6 +20,12 @@ export interface ObservabilityStackProps extends StackProps {
   /** SQS DLQ name (alarm on non-zero messages). */
   readonly feedbackDlqName: string;
   /**
+   * Name of the Cognito JWT authorizer Lambda (critical path). Used for the
+   * DB-failure / auth-failure log metric filters and their alarms. Defaults to
+   * `${stackPrefix}-authorizer` when omitted.
+   */
+  readonly authorizerFunctionName?: string;
+  /**
    * Optional, configurable thresholds for the prompt-cache alarms (plan
    * §16/§17). All have SAFE defaults chosen so that, under the default
    * `observe` posture (no cache activity => cache metrics stay at zero /
@@ -126,13 +132,22 @@ export class ObservabilityStack extends Stack {
     // retention on existing log groups rather than failing with "already exists".
     // -------------------------------------------------------------------
     const functionNames = props.functionNames || [];
+    const authorizerName = props.authorizerFunctionName ?? `${config.stackPrefix}-authorizer`;
+    // Captured so the authorizer metric filters (below) can depend on the
+    // LogRetention custom resource that upserts the authorizer's log group —
+    // otherwise, on a first deploy where the authorizer has never run, the
+    // group may not exist yet when the filters are created.
+    let authorizerLogRetention: logs.LogRetention | undefined;
     for (let i = 0; i < functionNames.length; i++) {
       const functionName = functionNames[i]!;
-      new logs.LogRetention(this, `LogRetention${i}`, {
+      const logRetention = new logs.LogRetention(this, `LogRetention${i}`, {
         logGroupName: `/aws/lambda/${functionName}`,
         retention: retentionDays,
         removalPolicy: RemovalPolicy.RETAIN,
       });
+      if (functionName === authorizerName) {
+        authorizerLogRetention = logRetention;
+      }
     }
 
     // -------------------------------------------------------------------
@@ -173,17 +188,39 @@ export class ObservabilityStack extends Stack {
         period: Duration.minutes(5),
       });
 
+      // Authorizer throttling remediation (Task 6): the OLD alarm required
+      // Sum > 1 across 2 CONSECUTIVE 5-min periods. Lambda only emits a
+      // Throttles datapoint when a throttle occurs, so the sporadic 1–2/hour
+      // bursts seen in the incident produced isolated datapoints that never
+      // chained across two periods — the alarm stayed OK and the team was
+      // under-informed. Now: ANY throttle in a single 5-min window fires
+      // (threshold 0, 1 datapoint). NOT_BREACHING is still correct — a period
+      // with no throttles emits no datapoint and must read healthy.
       const throttleAlarm = new cloudwatch.Alarm(this, `ThrottleAlarm${i}`, {
         alarmName: `${config.stackPrefix}-${functionName}-throttles`,
         metric: throttleMetric,
-        threshold: 1,
-        evaluationPeriods: 2,
+        threshold: 0,
+        evaluationPeriods: 1,
+        datapointsToAlarm: 1,
         comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
         treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-        alarmDescription: `Lambda throttled for ${functionName}`,
+        alarmDescription:
+          `Lambda ${functionName} was throttled (any throttle in a 5-min window). ` +
+          `Throttles on the authorizer break authentication — investigate account ` +
+          `concurrency (L-B99A9384) and reserved-concurrency allocation.`,
       });
       throttleAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
     }
+
+    // -------------------------------------------------------------------
+    // Authorizer throttling remediation (Task 6): account concurrency
+    // saturation + authorizer DB/auth-failure detection.
+    // -------------------------------------------------------------------
+    this.addConcurrencyAndAuthFailureObservability(
+      config,
+      props.authorizerFunctionName,
+      authorizerLogRetention,
+    );
 
     // -------------------------------------------------------------------
     // Feedback Queue Depth Alarm (degradation signal)
@@ -259,6 +296,148 @@ export class ObservabilityStack extends Stack {
     // and never fires without real cache activity.
     // -------------------------------------------------------------------
     this.addCacheObservability(config, props.cacheAlarmThresholds);
+  }
+
+  /**
+   * Account concurrency saturation + authorizer DB/auth-failure observability
+   * (authorizer throttling remediation, Task 6). All alarms wire to
+   * {@link alarmTopic}.
+   */
+  private addConcurrencyAndAuthFailureObservability(
+    config: AppConfig,
+    authorizerFunctionName: string | undefined,
+    authorizerLogRetention: logs.LogRetention | undefined,
+  ): void {
+    const authorizerName = authorizerFunctionName ?? `${config.stackPrefix}-authorizer`;
+    const limit = config.lambdaConcurrency.accountLimit;
+
+    // ---- Account-wide concurrency saturation --------------------------------
+    // The root cause was the account concurrent-executions pool (quota
+    // L-B99A9384) saturating. Alarm BEFORE it is fully exhausted (80% of the
+    // configured limit) so operators act before throttling starts. Uses the
+    // account-level ConcurrentExecutions metric (no FunctionName dimension).
+    const accountConcurrency = new cloudwatch.Metric({
+      namespace: "AWS/Lambda",
+      metricName: "ConcurrentExecutions",
+      statistic: "Maximum",
+      period: Duration.minutes(1),
+    });
+    const concurrencyAlarm = new cloudwatch.Alarm(this, "AccountConcurrencySaturationAlarm", {
+      alarmName: `${config.stackPrefix}-account-concurrency-saturation`,
+      metric: accountConcurrency,
+      threshold: Math.floor(limit * 0.8),
+      evaluationPeriods: 3,
+      datapointsToAlarm: 3,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription:
+        `Account Lambda ConcurrentExecutions >= 80% of the configured limit ` +
+        `(${limit}). The shared pool is nearing exhaustion — authorizer throttling ` +
+        `risk. Review reserved concurrency and the L-B99A9384 quota.`,
+    });
+    concurrencyAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
+
+    // ---- Authorizer log metric filters + alarms -----------------------------
+    // Reference the authorizer's log group by name (LogRetention above manages
+    // its retention). fromLogGroupName imports without trying to create it.
+    const authorizerLogGroup = logs.LogGroup.fromLogGroupName(
+      this,
+      "AuthorizerLogGroupRef",
+      `/aws/lambda/${authorizerName}`,
+    );
+
+    const authNamespace = `${config.stackPrefix}/Authorizer`;
+
+    // Each entry: a metric filter turning a log pattern into a countable metric,
+    // then an alarm on any occurrence. treatMissingData NOT_BREACHING keeps them
+    // quiet when the pattern never appears.
+    const logSignals: ReadonlyArray<{
+      readonly id: string;
+      readonly metricName: string;
+      readonly pattern: logs.IFilterPattern;
+      readonly alarmSuffix: string;
+      readonly description: string;
+    }> = [
+      {
+        // Runtime.ExitError: the crash-loop signature that amplified concurrency
+        // during the incident (unhandled rejection kills the runtime).
+        id: "Runtime ExitError",
+        metricName: "RuntimeExitErrors",
+        pattern: logs.FilterPattern.anyTerm("Runtime.ExitError"),
+        alarmSuffix: "authorizer-runtime-exit",
+        description:
+          "Authorizer Runtime.ExitError — a container crash that forces cold starts " +
+          "and amplifies concurrency. Investigate DB connectivity / unhandled rejections.",
+      },
+      {
+        // DB connection guard opened (Task 3) — a credential-class failure window.
+        id: "DB Guard Open",
+        metricName: "DbConnectionGuardOpen",
+        pattern: logs.FilterPattern.literal('{ $.event = "db_connection_guard_open" }'),
+        alarmSuffix: "authorizer-db-guard-open",
+        description:
+          "Authorizer DB connection guard opened (credential-class DB failure). " +
+          "Likely a password desync — check RDS Proxy / role secrets.",
+      },
+      {
+        // Postgres 28P01 (invalid_password) — the desync error class.
+        // Scoped with allTerms so it only fires on the authorizer's actual
+        // error-log line (backend/auth/src/authorizer.ts logs
+        // "Authorizer failed after token present:" followed by the pg error,
+        // whose string form carries the SQLSTATE) — NOT any incidental mention
+        // of the substring "28P01" elsewhere in the logs.
+        id: "Postgres 28P01",
+        metricName: "PostgresInvalidPassword",
+        pattern: logs.FilterPattern.allTerms("Authorizer failed after token present", "28P01"),
+        alarmSuffix: "authorizer-db-invalid-password",
+        description:
+          "Authorizer saw Postgres 28P01 (invalid_password) — credential desync on " +
+          "the auth critical path.",
+      },
+      {
+        // Postgres 42501 (insufficient_privilege) — the Sep 3 GRANT gap.
+        // Scoped like the 28P01 filter to the authorizer's error-log line.
+        id: "Postgres 42501",
+        metricName: "PostgresPermissionDenied",
+        pattern: logs.FilterPattern.allTerms("Authorizer failed after token present", "42501"),
+        alarmSuffix: "authorizer-db-permission-denied",
+        description:
+          "Authorizer saw Postgres 42501 (permission denied) — a missing GRANT on the " +
+          "wren_authorizer role. Apply 0002_authorizer_grants_repair.sql.",
+      },
+    ];
+
+    for (const signal of logSignals) {
+      const metricFilter = new logs.MetricFilter(this, `AuthMetricFilter-${signal.id}`, {
+        logGroup: authorizerLogGroup,
+        metricNamespace: authNamespace,
+        metricName: signal.metricName,
+        filterPattern: signal.pattern,
+        metricValue: "1",
+        defaultValue: 0,
+      });
+      // Ensure the authorizer log group exists (upserted by LogRetention)
+      // before the filter is created — avoids a first-deploy ordering failure
+      // when the authorizer has never run and its group does not yet exist.
+      if (authorizerLogRetention) {
+        metricFilter.node.addDependency(authorizerLogRetention);
+      }
+
+      const alarm = new cloudwatch.Alarm(this, `AuthAlarm-${signal.id}`, {
+        alarmName: `${config.stackPrefix}-${signal.alarmSuffix}`,
+        metric: metricFilter.metric({
+          statistic: "Sum",
+          period: Duration.minutes(5),
+        }),
+        threshold: 0,
+        evaluationPeriods: 1,
+        datapointsToAlarm: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        alarmDescription: signal.description,
+      });
+      alarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
+    }
   }
 
   /**

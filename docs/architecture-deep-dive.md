@@ -1,5 +1,4 @@
 # Architecture Deep Dive
-# Architecture Deep Dive
 
 > **Type:** Technical Reference
 >
