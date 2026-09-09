@@ -32,6 +32,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     cacheEnabledWorkloads: [],
     stackPrefix: "wren-test",
     lambdaConcurrency: DEFAULT_LAMBDA_CONCURRENCY,
+    corsAllowedOrigins: [],
     env: { account: TEST_ACCOUNT, region: TEST_REGION },
     ...overrides,
   };

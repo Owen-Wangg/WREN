@@ -7,6 +7,7 @@ import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
 import { publishNotificationEvent } from '@wren/notification';
+import { bindCorsOrigin, withCorsHeaders } from '@wren/auth';
 
 import {
   appendAskWrenTurn,
@@ -25,22 +26,7 @@ import {
   UsageLimitReachedError,
 } from '@wren/admin/lifetimeUsagePolicy';
 // Shared utilities (parseAuthContext, wrapHandler, CORS)
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-};
-
-function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
-  return {
-    ...result,
-    headers: {
-      ...CORS_HEADERS,
-      ...(result.headers as Record<string, string> | undefined),
-    },
-  };
-}
+const withCors = withCorsHeaders;
 
 function parseAuthContext(event: any) {
   const ctx = event.requestContext?.authorizer || {};
@@ -454,6 +440,7 @@ const sqsClient = new SQSClient({ region: process.env.AWS_REGION || 'ca-central-
 
 export const handler: APIGatewayProxyHandler = async (event, context): Promise<APIGatewayProxyResult> => {
   freezeEventLoopOnReturn(context);
+  bindCorsOrigin(event);
   try {
     const { httpMethod, resource } = event;
     const accessFailure = studentAccessFailure(event);

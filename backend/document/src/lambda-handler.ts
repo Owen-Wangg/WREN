@@ -9,7 +9,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { v4 as uuid } from 'uuid';
-import { resolveAccess } from '@wren/auth';
+import { resolveAccess, bindCorsOrigin, withCorsHeaders } from '@wren/auth';
 import type { AccessGrant, CustomMetadataField, TipTapDoc } from '@wren/types';
 import {
   createDocumentInputSchema,
@@ -59,22 +59,7 @@ function parseOcrEngineFromBody(body: { readonly ocrEngine?: unknown }): string 
   return resolveOcrEngine(typeof raw === 'string' ? raw : null);
 }
 
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-};
-
-function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
-  return {
-    ...result,
-    headers: {
-      ...CORS_HEADERS,
-      ...(result.headers as Record<string, string> | undefined),
-    },
-  };
-}
+const withCors = withCorsHeaders;
 
 function parseAuthContext(event: any) {
   const ctx = event.requestContext?.authorizer || {};
@@ -355,6 +340,7 @@ export const handler = async (
     return;
   }
 
+  bindCorsOrigin(event);
   try {
     const { httpMethod, resource } = event;
     const accessFailure = studentAccessFailure(event);

@@ -4,10 +4,11 @@
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { getAnalytics } from './analyticsService';
-import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
+import { parseAuthContext, wrapHandler, withCors, bindCorsOrigin } from './lambda-utils';
 
 export const handler: APIGatewayProxyHandler = async (event, context): Promise<APIGatewayProxyResult> => {
   freezeEventLoopOnReturn(context);
+  bindCorsOrigin(event);
   try {
     const { httpMethod, resource } = event;
 
