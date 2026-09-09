@@ -21,6 +21,12 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 
 import { resolveBedrockModelId } from './bedrockModelId.js';
+import { emitTelemetry, parseInvocationUsage } from './bedrockTelemetry.js';
+import {
+  isCacheValidationError,
+  resolveCacheDecision,
+  resolveCachePolicyConfig,
+} from './cachePolicy.js';
 import { UsageLimitReachedError } from '@wren/admin/lifetimeUsagePolicy';
 
 export type ChatRole = 'user' | 'wren';
@@ -366,10 +372,26 @@ export interface DocumentTypeContext {
   categories?: Array<{ name: string; definition?: string; criteria?: string }>;
 }
 
-export function buildSystemPrompt(
+/**
+ * Ordered system-prompt SEGMENTS whose newline-join is byte-identical to
+ * {@link buildSystemPrompt}'s output (prompt-cache plan §12.1).
+ *
+ * This is the single source of truth for the assembled Ask WREN system prompt:
+ * `buildSystemPrompt` is literally `buildSystemPromptSegments(...).join('\n')`,
+ * so the string can never drift from the segments. Task 5 uses these segments
+ * to emit ordered Anthropic text blocks when explicit caching applies, while the
+ * public `buildSystemPrompt` signature/behavior stays exactly as before.
+ *
+ * NOTE: these are the raw `parts` entries `buildSystemPrompt` joined with '\n'
+ * (each entry may itself contain newlines). Joining them with '\n' reproduces the
+ * legacy string exactly. For a coarser view aligned to §12.1's three content
+ * classes (universal / department / document-type), use
+ * {@link buildSystemPromptBlocks}.
+ */
+function buildSystemPromptSegments(
   docTypeCtx?: DocumentTypeContext,
   departmentAskWrenContext?: string,
-): string {
+): string[] {
   const parts: string[] = [SYSTEM_PROMPT];
 
   // Department-level Ask WREN context sits AFTER the universal system prompt and
@@ -384,7 +406,7 @@ export function buildSystemPrompt(
     );
   }
 
-  if (!docTypeCtx) return parts.join('\n');
+  if (!docTypeCtx) return parts;
 
   const { documentTypeName, purpose, restrictions, notes, categories } = docTypeCtx;
 
@@ -420,7 +442,40 @@ export function buildSystemPrompt(
     );
   }
 
-  return parts.join('\n');
+  return parts;
+}
+
+/**
+ * Ask WREN system prompt as ORDERED content blocks (prompt-cache plan §12.1).
+ *
+ * The PLAIN concatenation of these blocks (`blocks.join('')`) is BYTE-IDENTICAL
+ * to {@link buildSystemPrompt}'s string output. This matters because the Anthropic
+ * Messages API concatenates `system` text blocks with NO separator, so the '\n'
+ * that `buildSystemPrompt` inserts between segments is folded into the blocks
+ * here (every block after the first is prefixed with '\n'). That guarantees the
+ * restructured `system` array sends byte-for-byte the same text the model saw as
+ * a plain string.
+ *
+ * Task 5 attaches a single `cache_control` checkpoint to the LAST block only
+ * (the final approved system segment). Every block is trusted content (universal
+ * system, department context, document-type config) — never student content,
+ * conversation history, or the student question (plan §10).
+ */
+export function buildSystemPromptBlocks(
+  docTypeCtx?: DocumentTypeContext,
+  departmentAskWrenContext?: string,
+): string[] {
+  const segments = buildSystemPromptSegments(docTypeCtx, departmentAskWrenContext);
+  // Fold the '\n' segment separators into the block text so join('') reproduces
+  // the legacy string exactly (Anthropic concatenates system blocks separator-free).
+  return segments.map((segment, index) => (index === 0 ? segment : `\n${segment}`));
+}
+
+export function buildSystemPrompt(
+  docTypeCtx?: DocumentTypeContext,
+  departmentAskWrenContext?: string,
+): string {
+  return buildSystemPromptSegments(docTypeCtx, departmentAskWrenContext).join('\n');
 }
 
 export async function generateAskWrenReply(input: {
@@ -447,24 +502,144 @@ export async function generateAskWrenReply(input: {
     input.userText.trim(),
   ].join('\n');
 
-  const body = {
+  // The plain-string system prompt. This is the EXACT byte sequence sent today,
+  // and the fallback whenever explicit caching does not apply (or is rolled back
+  // via a cache-validation error). The cached form (below) restructures it into
+  // ordered text blocks whose plain concatenation is byte-identical to this.
+  const systemString = buildSystemPrompt(
+    input.documentTypeContext,
+    input.departmentAskWrenContext,
+  );
+  const messages = [...history, { role: 'user', content: userContent }];
+
+  // Resolve the cache policy decision for THIS invocation (prompt-cache plan Task
+  // 4/5, §14/§15). Env-driven, no globals. Default posture is observe => no cache.
+  const cacheConfig = resolveCachePolicyConfig();
+  const decision = resolveCacheDecision({
+    mode: cacheConfig.mode,
+    ttl: cacheConfig.ttl,
+    workload: 'ask_wren',
+    modelId,
+    enabledWorkloads: cacheConfig.enabledWorkloads,
+  });
+
+  // Build the plain (uncached) body — identical bytes to today. `system` stays a
+  // string and `messages` never carry a cache marker.
+  const plainBody = {
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: 512,
     temperature: 0.4,
-    system: buildSystemPrompt(input.documentTypeContext, input.departmentAskWrenContext),
-    messages: [...history, { role: 'user', content: userContent }],
+    system: systemString,
+    messages,
   };
 
-  const response = await getBedrock().send(
-    new InvokeModelCommand({
-      modelId,
-      contentType: 'application/json',
-      accept: 'application/json',
-      body: Buffer.from(JSON.stringify(body)),
-    }),
-  );
+  // Build the cached body ONLY when the policy decision applies: `system` becomes
+  // an ordered array of trusted text blocks, and a single `cache_control`
+  // checkpoint is attached to the LAST block (the final approved system segment).
+  // `messages` are left untouched — history + the student turn never get a marker.
+  const cachedBody = decision.applyExplicitCache
+    ? (() => {
+        const blocks = buildSystemPromptBlocks(
+          input.documentTypeContext,
+          input.departmentAskWrenContext,
+        );
+        const systemBlocks = blocks.map((text, index) => {
+          if (index !== blocks.length - 1) return { type: 'text' as const, text };
+          return {
+            type: 'text' as const,
+            text,
+            cache_control: {
+              type: 'ephemeral' as const,
+              ...(decision.ttl === '1h' ? { ttl: '1h' as const } : {}),
+            },
+          };
+        });
+        return { ...plainBody, system: systemBlocks };
+      })()
+    : undefined;
+
+  const useCache = cachedBody !== undefined;
+
+  const invoke = (payload: unknown) =>
+    getBedrock().send(
+      new InvokeModelCommand({
+        modelId,
+        contentType: 'application/json',
+        accept: 'application/json',
+        body: Buffer.from(JSON.stringify(payload)),
+      }),
+    );
+
+  // OBSERVE/EXPLICIT telemetry (prompt-cache plan Task 3/5): measure latency and
+  // parse usage, then emit privacy-safe metrics/logs. Adding cache_control (when
+  // applicable) does not change the returned value or the error semantics.
+  const startedAt = Date.now();
+  let response;
+  let fallbackReason: string | undefined;
+  let cacheFallback = false;
+  try {
+    response = await invoke(useCache ? cachedBody : plainBody);
+  } catch (err) {
+    // Recognized cache syntax/capability rejection (plan §15): retry ONCE with the
+    // plain-string body. Any OTHER error keeps current behavior (rethrow below).
+    if (useCache && isCacheValidationError(err)) {
+      fallbackReason = 'cache_validation_fallback';
+      cacheFallback = true;
+      try {
+        response = await invoke(plainBody);
+      } catch (retryErr) {
+        emitTelemetry({
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          modelId,
+          workload: 'ask_wren',
+          latencyMs: Date.now() - startedAt,
+          stopReason: '',
+          success: false,
+          fallbackReason,
+        });
+        throw retryErr;
+      }
+    } else {
+      emitTelemetry({
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        modelId,
+        workload: 'ask_wren',
+        latencyMs: Date.now() - startedAt,
+        stopReason: '',
+        success: false,
+        fallbackReason: err instanceof Error ? err.name : 'error',
+      });
+      throw err;
+    }
+  }
+  const latencyMs = Date.now() - startedAt;
 
   const raw = JSON.parse(new TextDecoder().decode(response.body));
+  const usage = parseInvocationUsage(raw);
+  emitTelemetry(
+    {
+      ...usage,
+      modelId,
+      workload: 'ask_wren',
+      latencyMs,
+      stopReason: typeof raw?.stop_reason === 'string' ? raw.stop_reason : '',
+      success: true,
+      ...(fallbackReason ? { fallbackReason } : {}),
+    },
+    {
+      requestId: response.$metadata?.requestId,
+      cacheEligible: decision.applyExplicitCache,
+      cacheFallback,
+      ttl: decision.ttl,
+    },
+  );
+
   const text =
     typeof raw?.content?.[0]?.text === 'string' ? raw.content[0].text : '';
   return assertSocraticReply(text);

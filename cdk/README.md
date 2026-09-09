@@ -4,7 +4,7 @@ AWS CDK v2 (TypeScript) for the LEON writing coach platform (internal project na
 
 Stacks are named `${stackPrefix}-<Concern>` (default `wren-dev-Vpc`, `wren-dev-Compute`, …). Persistent resources stay in the **CDK `region`** (default `ca-central-1` in examples; override with `-c region=...`). CloudFront is a global CDN. The `CloudFrontWaf` stack is created in **`us-east-1`** because AWS manages CloudFront-scoped WAF there — not because student data is stored in that Region.
 
-**Full first-time AWS rollout:** use `npm run deploy` from the repository root. It installs locked dependencies, verifies AWS/Bedrock/Docker, bootstraps both Regions, publishes the image, deploys stacks in order, guides first-admin setup, and runs smoke checks. Configuration and recovery details are in **[docs/deployment-guide.md](../docs/deployment-guide.md)**. Direct `npx cdk` commands in this README are advanced development/recovery operations.
+**Full first-time AWS rollout:** use `npm run deploy` from the repository root. It installs locked dependencies, verifies AWS/Bedrock, bootstraps both Regions, builds and publishes the Feedback Engine image in AWS CodeBuild (from a snapshot of the committed revision — no local Docker), deploys stacks in order, guides first-admin setup, and runs smoke checks. Configuration and recovery details are in **[docs/deployment-guide.md](../docs/deployment-guide.md)**. Direct `npx cdk` commands in this README are advanced development/recovery operations.
 
 This package is meant to be deployable with **configuration only** — no source edits for display name, environment, or GitHub repo (REQ-NFR-OSS-01).
 
@@ -12,7 +12,7 @@ This package is meant to be deployable with **configuration only** — no source
 
 - Node.js **22.x** or newer
 - AWS credentials for the target account (`aws sts get-caller-identity`)
-- Docker (Feedback Engine image + some CDK bundling)
+- A clean Git working tree at the revision you deploy (the Feedback Engine image is built in AWS CodeBuild from a snapshot of that commit — no local Docker daemon required)
 - CDK CLI via this package (`npx cdk` / `npm run cdk`) — no global install required
 
 Also install **workspace packages at the repo root** (`npm ci` in `/`), not only here. Compute bundling resolves `@wren/*` from the monorepo `node_modules`.

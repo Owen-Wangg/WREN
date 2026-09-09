@@ -12,6 +12,17 @@ dev = [
     "hypothesis>=6.122",
     # Data-access layer (task 2.4) — psycopg pool over RDS Proxy with TLS.
     "psycopg[binary,pool]>=3.2",
+    # Feedback Engine runtime imports needed to COLLECT + RUN the engine test
+    # suite (handler.py imports boto3 at module load; the caching/telemetry
+    # tests monkeypatch handler.boto3.client, and test_model_invocation.py
+    # constructs the real langchain-aws ChatBedrockConverse). Pinned to match
+    # the runtime lockfile (backend/engine/python/requirements-feedback-engine.in)
+    # so the test env resolves the same versions the container image ships.
+    # These are test-tooling deps only; the image installs its own compiled
+    # requirements-feedback-engine.txt (see docs/dependency-management.md).
+    "boto3==1.40.63",
+    "langchain-aws==1.0.0",
+    "langchain-core==1.4.9",
 ]
 
 [tool.uv]
