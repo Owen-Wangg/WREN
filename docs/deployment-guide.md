@@ -12,6 +12,7 @@ This guide deploys the WREN writing coach into an AWS account. AWS resource name
     - [Access Tokens](#access-tokens)
     - [Enable and Verify Bedrock Model Access](#enable-and-verify-bedrock-model-access)
   - [AWS credentials](#aws-credentials)
+  - [First Deployment — Step by Step](#first-deployment--step-by-step)
   - [Deployment](#deployment)
     - [Deployment workflow implementation](#deployment-workflow-implementation)
     - [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built)
@@ -70,7 +71,7 @@ Default naming uses project `wren` and environment `dev`, so stacks are named `w
 Before you deploy, you must have the following installed on your device:
 
 - [git](https://git-scm.com/downloads)
-- An [AWS Account](https://aws.amazon.com/account/) with permission to create IAM, VPC, RDS, Lambda, API Gateway, Cognito, CloudFront, WAF, Amplify, Bedrock, and KMS resources
+- An [AWS Account](https://aws.amazon.com/account/) with permission to create IAM, VPC, RDS, Lambda, API Gateway, Cognito, CloudFront, WAF, Amplify, Bedrock, KMS, ECR, and CodeBuild resources (ECR + CodeBuild back the Feedback Engine image build)
 - A [GitHub Account](https://github.com/) — required for the default hosted frontend and optional CI/CD; set its details in the [standard deployment variables](#variables-for-the-standard-deployment)
 - [AWS CLI](https://aws.amazon.com/cli/) _(v2.0.0+ required)_
 - [Node.js](https://nodejs.org/en/learn/getting-started/how-to-install-nodejs) _(v22.x+ required)_
@@ -81,11 +82,11 @@ Before you deploy, you must have the following installed on your device:
 
 ### Access Tokens
 
-You also need a GitHub repository this account can read (fork or the original) and a GitHub personal access token (PAT);
+You also need a GitHub repository this account can read (a fork of WREN or the original) and a GitHub personal access token (PAT). The exact scopes and where to create it are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup). A separate, short-lived token (`WREN_SMOKE_ACCESS_TOKEN`) is used once during first-admin setup — see [Step 4](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3).
 
 ### Enable and Verify Bedrock Model Access
 
-Without model access, the app deploys but **feedback generation fails at runtime**.
+Enable the target Bedrock model in your Region **before** deploying — without model access the app deploys but **feedback generation fails at runtime**. The concrete console steps are in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup); the deploy also verifies access early and pauses with an actionable message if it's missing.
 
 ---
 
@@ -107,26 +108,43 @@ aws sts get-caller-identity
 ```
 ---
 
-## Deployment
+## First Deployment — Step by Step
 
-Before running the command, complete these prerequisites:
+This is the recommended path for a first-time deployment. Follow the steps in order. Each step says what to do and what you should see before moving on. The [Deployment](#deployment) and [Advanced deployment configuration](#advanced-deployment-configuration) sections below are reference material for the same workflow.
 
-1. Configure or sign in to AWS using the standard credential chain (for example, `aws configure sso` and your SSO login) and confirm the intended account with `aws sts get-caller-identity`.
-2. Enable access to the configured Bedrock model/inference profile in the target Region.
-3. Commit the revision you intend to deploy and ensure a clean working tree (`git status` reports nothing to commit). The image is built in CodeBuild from a snapshot of the committed revision, so uncommitted changes are not included.
+> **Read this first — the deploy runs more than once, on purpose.**
+>
+> `npm run deploy` is safe to run repeatedly. It will **pause and exit with code `3`** whenever it needs you to do something (sign up, confirm an email, provide a token). **Exit code 3 is not an error and not a rollback** — it is a checkpoint. You read the printed instruction, do the one thing it asks, and run the same command again. Setting up the first administrator takes **three** runs in total, because the system refuses to grant admin rights from a config value alone: the intended admin must sign in and prove their identity. That is deliberate and cannot be skipped.
+>
+> You will handle **two different tokens**. Don't mix them up:
+> - **GitHub personal access token (PAT)** — set once (`WREN_GITHUB_TOKEN`). Lets AWS read your repo for the frontend/pipeline. Long-lived.
+> - **Smoke access token** (`WREN_SMOKE_ACCESS_TOKEN`) — a temporary Cognito login token for the first admin, used once near the end to prove they can sign in. **Expires in about an hour**, so you fetch it right before the final run.
 
-For the default hosted deployment, set the target, GitHub source, PAT, and intended first administrator before running the command. `WREN_EXPECTED_ACCOUNT_ID` is strongly recommended everywhere and required for production or non-interactive runs. **Choose exactly one of the following command blocks for your terminal, replace the placeholder values, and run it from the repository root.**
+### Step 1 — Prerequisites (one-time setup)
 
-<details>
-<summary>macOS/Linux</summary>
+1. Install the tools in [Requirements](#requirements) (git, AWS CLI v2, Node.js 22+). **No local Docker is needed** — the Feedback Engine image builds in AWS CodeBuild.
+2. Sign in to AWS and confirm the account: `aws sts get-caller-identity` shows the account you intend to deploy into.
+3. **Enable the Bedrock model.** In the AWS Console, open **Amazon Bedrock → Model access** in your target Region and enable the default model (`us.anthropic.claude-sonnet-4-6`) or the one you set in `WREN_BEDROCK_MODEL_ID`. Without this, the app deploys but feedback generation fails at runtime. The deploy verifies model access early and pauses with an actionable message if it's missing.
+4. **Create a GitHub personal access token (PAT).** You need a GitHub repo this account can read (a fork of WREN or the original). Create a token at **GitHub → Settings → Developer settings → Personal access tokens**:
+   - Classic token: enable the **`repo`** scope (and **`admin:repo_hook`** so the CI/CD pipeline can register its webhook).
+   - Fine-grained token: grant the target repository **Contents: read** and **Webhooks: read and write**.
+   - You only need this if Amplify or the CI/CD pipeline are enabled (both are on by default). Copy the token somewhere safe for Step 2.
+5. Ensure a **clean git working tree** at the commit you want to deploy (`git status` shows nothing to commit). The image is built from a snapshot of the committed revision, so uncommitted changes are not included.
+
+### Step 2 — Start the deploy (run #1)
+
+Set the variables and run the command from the repository root. Replace the placeholder values. Pick the block for your shell:
+
+<details open>
+<summary>macOS/Linux (bash)</summary>
 
 ```bash
-export WREN_EXPECTED_ACCOUNT_ID=YourAccountId
+export WREN_EXPECTED_ACCOUNT_ID=YourAccountId    # from `aws sts get-caller-identity`
 export WREN_GITHUB_OWNER=YourOrgOrUser
 export WREN_GITHUB_REPO=WREN
 export WREN_GITHUB_BRANCH=main
-export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'
-export WREN_ADMIN_EMAIL=admin@example.com
+export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'       # the PAT from Step 1
+export WREN_ADMIN_EMAIL=admin@example.com        # who will be the first admin
 npm run deploy
 ```
 
@@ -151,7 +169,7 @@ npm run deploy
 <summary>Windows CMD</summary>
 
 ```cmd
-set WREN_EXPECTED_ACCOUNT_ID=YourAccountID
+set WREN_EXPECTED_ACCOUNT_ID=YourAccountId
 set WREN_GITHUB_OWNER=YourOrgOrUser
 set WREN_GITHUB_REPO=WREN
 set WREN_GITHUB_BRANCH=main
@@ -162,48 +180,32 @@ npm run deploy
 
 </details>
 
-The first run normally pauses with exit code **3** when human action is required. Setting up the first administrator takes three `npm run deploy` runs, because the workflow will not grant admin rights from a config value alone — it makes the intended user sign in and prove their identity first.
+**What you should see:** the workflow verifies AWS/Bedrock, bootstraps, builds the image in CodeBuild, deploys the stacks, and then **pauses with exit code 3**, printing an Amplify sign-up URL and asking you to create the first-admin account. That pause is expected — go to Step 3.
 
-1. **Create the account.** Follow the printed Amplify sign-up URL, sign up using the address in `WREN_ADMIN_EMAIL`, and confirm the email. Do not use the app yet.
-2. **Claim the admin role.** Rerun `npm run deploy`. The workflow finds the confirmed user, adds them to Cognito `SystemAdmin`, and temporarily flags their account for admin verification. It then pauses and asks for a `WREN_SMOKE_ACCESS_TOKEN`.
-3. **Prove the identity.** Sign in to the app once as that user and copy their login token (see "How to get the token" below). Set it as `WREN_SMOKE_ACCESS_TOKEN` and rerun `npm run deploy`.
-4. The workflow confirms the signed-in user is really an admin, removes the temporary verification flag, and runs its final checks. You're done. Don't save the token or commit it — it expires on its own and is only needed for this one run.
+> Keep the same variables set for every rerun in Steps 3–4 (in the same terminal session, or re-export them). Rerunning is how you advance; live AWS state is rediscovered each time.
 
-**What `WREN_SMOKE_ACCESS_TOKEN` is:** a temporary login token for the first admin, created when they sign in. You don't invent it — you copy it from a real sign-in. The deploy uses it to confirm the person named in `WREN_ADMIN_EMAIL` really is an admin before finishing. It stops working after about an hour, so get it right before you rerun.
+### Step 3 — Create the admin account, then rerun (run #2)
 
-**How to get the token** — pick either way:
+1. Open the **Amplify sign-up URL** the deploy printed.
+2. Sign up using the exact address in `WREN_ADMIN_EMAIL`, and confirm the email.
+3. **Do not use the app yet** — do not make any writing request. (An early request can invalidate the first-admin identity check. Just sign up, confirm, and stop.)
+4. Run `npm run deploy` again.
 
-**Option 1 — from the browser.** Sign in to the app, open your browser's developer tools (F12), go to Application → Local Storage, and copy the value whose name ends in `.accessToken`.
+**What you should see:** the workflow finds your confirmed user, adds them to the Cognito `SystemAdmin` group, flags the account for one-time admin verification, then **pauses again (exit code 3)** asking for `WREN_SMOKE_ACCESS_TOKEN`. Go to Step 4.
 
-**Option 2 — from the command line (no browser).** Run the snippet below with the admin's email and password. It looks up the account details for you; you only need to set `prefix` to match your deployment (it's `wren-dev` unless you changed it).
+### Step 4 — Prove the admin identity with a token, then rerun (run #3)
 
-<details>
-<summary>PowerShell — set the token in one step</summary>
+You now fetch the **smoke access token** — a temporary login token for the admin user — and give it to the final run. It expires in ~1 hour, so do this right before rerunning.
 
-```powershell
-$prefix = "wren-dev"                 # change if your deployment uses a different prefix
-$email  = "admin@example.com"        # the first admin's email
-$password = Read-Host "Admin password"   # you'll be prompted; nothing is saved
+**Recommended: fetch it from the command line (no browser needed).** Run the block for your shell; it looks up your deployment's Cognito client for you. Set `prefix` to your stack prefix (`wren-dev` unless you changed project/environment).
 
-$clientId = aws ssm get-parameter --name "/$prefix/auth/client-id" --query Parameter.Value --output text
-
-$env:WREN_SMOKE_ACCESS_TOKEN = aws cognito-idp initiate-auth `
-  --auth-flow USER_PASSWORD_AUTH `
-  --client-id $clientId `
-  --auth-parameters "USERNAME=$email,PASSWORD=$password" `
-  --query "AuthenticationResult.AccessToken" --output text
-npm run deploy
-```
-
-</details>
-
-<details>
-<summary>macOS/Linux (bash) — set the token in one step</summary>
+<details open>
+<summary>macOS/Linux (bash) — fetch the token and rerun</summary>
 
 ```bash
-PREFIX="wren-dev"                 # change if your deployment uses a different prefix
+PREFIX="wren-dev"                 # change if your prefix differs
 EMAIL="admin@example.com"         # the first admin's email
-read -rsp "Admin password: " PASSWORD; echo   # you'll be prompted; nothing is saved
+read -rsp "Admin password: " PASSWORD; echo   # prompted; nothing is saved
 
 CLIENT_ID=$(aws ssm get-parameter --name "/$PREFIX/auth/client-id" --query Parameter.Value --output text)
 
@@ -212,14 +214,72 @@ export WREN_SMOKE_ACCESS_TOKEN=$(aws cognito-idp initiate-auth \
   --client-id "$CLIENT_ID" \
   --auth-parameters "USERNAME=$EMAIL,PASSWORD=$PASSWORD" \
   --query "AuthenticationResult.AccessToken" --output text)
+
 npm run deploy
 ```
 
 </details>
 
-If the command prints an empty token instead of a long string, the account probably needs a first sign-in in the browser (for example to set a permanent password or complete two-factor sign-in). Do that once, then run the snippet again.
+<details>
+<summary>PowerShell — fetch the token and rerun</summary>
 
-Whichever way you use, get the token right before you rerun — it stops working after about an hour.
+```powershell
+$prefix = "wren-dev"                 # change if your prefix differs
+$email  = "admin@example.com"        # the first admin's email
+$password = Read-Host "Admin password"   # prompted; nothing is saved
+
+$clientId = aws ssm get-parameter --name "/$prefix/auth/client-id" --query Parameter.Value --output text
+
+$env:WREN_SMOKE_ACCESS_TOKEN = aws cognito-idp initiate-auth `
+  --auth-flow USER_PASSWORD_AUTH `
+  --client-id $clientId `
+  --auth-parameters "USERNAME=$email,PASSWORD=$password" `
+  --query "AuthenticationResult.AccessToken" --output text
+
+npm run deploy
+```
+
+</details>
+
+> **If the token comes back empty** (instead of a long string), the account needs a first interactive sign-in — sign in once in the browser to set a permanent password or complete MFA, then run the block again.
+
+<details>
+<summary>Alternative: copy the token from the browser</summary>
+
+Sign in to the app, open developer tools (F12), go to **Application → Local Storage**, and copy the value whose key ends in **`.accessToken`**. Set it as `WREN_SMOKE_ACCESS_TOKEN` and run `npm run deploy`.
+
+</details>
+
+**What you should see:** the workflow confirms the signed-in user really is the admin, removes the temporary verification flag, runs its final smoke checks, and completes. **You're done.** Don't save or commit the token — it expires on its own and was only needed for this run.
+
+### Step 5 — Confirm it's up
+
+- If Amplify is enabled, the deploy prints the hosted application URL. Open it and sign in as the admin.
+- The first admin can now assign roles to other users from within the app.
+
+If any step stops with exit code 3 or an error, read the printed instruction, complete that one action, and rerun `npm run deploy`. See [Troubleshooting](#troubleshooting) for specific messages.
+
+---
+
+## Deployment
+
+**New here? Follow [First Deployment — Step by Step](#first-deployment--step-by-step) instead** — it walks the same workflow linearly, including the three-run first-admin setup and the smoke-token step. This section is a condensed reference for the same command.
+
+The default hosted deployment sets the target account, GitHub source + PAT, and the intended first administrator, then runs `npm run deploy` from the repository root:
+
+```bash
+export WREN_EXPECTED_ACCOUNT_ID=YourAccountId    # required for prod / non-interactive; recommended everywhere
+export WREN_GITHUB_OWNER=YourOrgOrUser
+export WREN_GITHUB_REPO=WREN
+export WREN_GITHUB_BRANCH=main
+export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'
+export WREN_ADMIN_EMAIL=admin@example.com
+npm run deploy
+```
+
+(PowerShell/CMD equivalents are shown in the [step-by-step walkthrough](#step-2--start-the-deploy-run-1).)
+
+The command is **idempotent and rerun-driven**: it pauses with exit code **3** whenever human action is required, and you rerun the same command after doing it. First-admin setup takes three runs — create/confirm the account, claim the `SystemAdmin` role, then prove identity with a temporary `WREN_SMOKE_ACCESS_TOKEN`. The workflow never grants admin from a config value alone; the intended user must sign in and prove their identity. See [Step 3](#step-3--create-the-admin-account-then-rerun-run-2) and [Step 4](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3) for the exact actions and the token-fetch commands.
 
 Preview without changing AWS resources:
 
@@ -309,7 +369,7 @@ Do not commit access tokens or GitHub personal access tokens to source control. 
 | `WREN_ENABLE_AMPLIFY` | `true` | Running an API-only deployment with `false`. GitHub owner/repository variables become optional only when both Amplify and CI/CD are disabled. |
 | `WREN_ENABLE_CICD` | `true` | Skipping the CodePipeline CI/CD pipeline with `false`. Enabled by default, so the standard path builds it and needs `WREN_GITHUB_TOKEN` on first setup; the `Cicd` prerequisite stack is created regardless. |
 | `WREN_ECR_OWNERSHIP` | `managed` | Reusing a verified pre-existing repository by setting `external`. New deployments should keep `managed`; ownership is never silently adopted. |
-| `WREN_ENGINE_IMAGE_TAG` | generated immutable deploy tag | Pinning an ECR image tag. Change a pinned value for each engine source release; generated tags are fresh after each successful deployment. |
+| `WREN_ENGINE_IMAGE_TAG` | commit-scoped `src-<shortsha>` | Forcing a specific ECR image tag instead of the commit-derived one. By default the workflow builds the image under `src-<first 12 of the commit sha>` and pins the deployed Lambda to the resulting immutable **digest**; leave this unset for that commit-safe behavior. Setting it bypasses commit-scoping, so safe reuse then relies on the checkpoint's recorded source commit matching the revision being deployed. See [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built). |
 
 ##### External ECR safety requirement
 
@@ -398,7 +458,7 @@ Monitoring is a detection and notification control, not an automatic rollback sy
 
 ### Common Issues
 
-For a failed standard deployment, first complete the action printed by `npm run deploy` and rerun that same command. The direct CDK, bootstrap, ECR, and individual-stack commands in the entries below apply only when you deliberately use the [direct-CDK recovery path](#direct-cdk-recovery-path-advanced-only).
+For a failed standard deployment, first complete the action printed by `npm run deploy` and rerun that same command. The direct CDK, bootstrap, ECR, and individual-stack commands in the entries below apply only when you deliberately drive CDK by hand (advanced recovery) instead of `npm run deploy`.
 
 **Issue: `npm run deploy` exits with code 3**
 
@@ -418,7 +478,7 @@ For a failed standard deployment, first complete the action printed by `npm run 
 
 **Issue: `Source image …:bootstrap does not exist`**
 
-- Solution: for the standard workflow, do not create or push the image manually—rerun `npm run deploy` after correcting its reported ECR/ownership failure. The ECR repository/tag procedure in [D. Build and push the Feedback Engine image](#d-build-and-push-the-feedback-engine-image) is for direct-CDK recovery only.
+- Solution: for the standard workflow, do not create or push the image manually—rerun `npm run deploy` after correcting its reported ECR/ownership or CodeBuild failure. The `feedback-image` stage builds and pushes the image in CodeBuild (see [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built)); if the build itself failed, open the reported `${prefix}-bootstrap-image` build in CloudWatch Logs. A hand-run `docker build` + ECR push is an emergency escape hatch only (see [docs/dependency-management.md](./dependency-management.md#feedback-engine-the-heavy-python-runtime)).
 
 **Issue: `Cannot find module '@aws-cdk/aws-amplify-alpha'`**
 
