@@ -175,6 +175,8 @@ new ObservabilityStack(app, stackName(config, "Observability"), {
   ],
   feedbackQueueName: computeStack.feedbackQueue.queueName,
   feedbackDlqName: computeStack.feedbackDlq.queueName,
+  notificationDlqName: computeStack.notificationDlq.queueName,
+  documentIngestDlqName: computeStack.documentIngestDlq.queueName,
   authorizerFunctionName: computeStack.authorizerFunction.functionName,
 });
 

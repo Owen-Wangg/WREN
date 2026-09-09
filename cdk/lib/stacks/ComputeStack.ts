@@ -98,6 +98,7 @@ export class ComputeStack extends Stack {
   public readonly documentIngestQueue: sqs.Queue;
   public readonly documentIngestDlq: sqs.Queue;
   public readonly notificationFunction: lambda.Function;
+  public readonly notificationDlq: sqs.Queue;
   public readonly notificationTopicArn: string;
   public readonly appSyncGraphqlUrl: string;
   public readonly appSyncAuthorizerFunction: lambda.Function;
@@ -419,6 +420,7 @@ export class ComputeStack extends Stack {
       stackPrefix: config.stackPrefix,
     });
     this.notificationTopicArn = notificationInfra.topic.topicArn;
+    this.notificationDlq = notificationInfra.dlq;
 
     // -----------------------------------------------------------------------
     // Notification Service Lambda (Node 22) — processes SQS events, REST API,

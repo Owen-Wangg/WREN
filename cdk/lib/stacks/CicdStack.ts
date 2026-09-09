@@ -436,6 +436,18 @@ export class CicdStack extends Stack {
         },
       ],
     });
+
+    // Expire rebuildable pipeline artifacts so the Retain-policy bucket cannot
+    // grow without bound. Mutate the existing auto-created bucket in place —
+    // passing a new artifactBucket would orphan this one.
+    const artifactBucket = this.pipeline.artifactBucket;
+    if (artifactBucket instanceof s3.Bucket) {
+      artifactBucket.addLifecycleRule({
+        id: "ExpirePipelineArtifacts",
+        expiration: Duration.days(90),
+        abortIncompleteMultipartUploadAfter: Duration.days(7),
+      });
+    }
   }
 
   /**

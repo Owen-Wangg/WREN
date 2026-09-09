@@ -213,10 +213,12 @@ EMAIL="admin@example.com"         # the first admin's email
 read -rsp "Admin password: " PASSWORD; echo   # prompted; nothing is saved
 
 CLIENT_ID=$(aws ssm get-parameter --name "/$PREFIX/auth/client-id" --query Parameter.Value --output text)
+POOL_ID=$(aws ssm get-parameter --name "/$PREFIX/auth/user-pool-id" --query Parameter.Value --output text)
 
-export WREN_SMOKE_ACCESS_TOKEN=$(aws cognito-idp initiate-auth \
-  --auth-flow USER_PASSWORD_AUTH \
+export WREN_SMOKE_ACCESS_TOKEN=$(aws cognito-idp admin-initiate-auth \
+  --user-pool-id "$POOL_ID" \
   --client-id "$CLIENT_ID" \
+  --auth-flow ADMIN_USER_PASSWORD_AUTH \
   --auth-parameters "USERNAME=$EMAIL,PASSWORD=$PASSWORD" \
   --query "AuthenticationResult.AccessToken" --output text)
 
@@ -234,10 +236,12 @@ $email  = "admin@example.com"        # the first admin's email
 $password = Read-Host "Admin password"   # prompted; nothing is saved
 
 $clientId = aws ssm get-parameter --name "/$prefix/auth/client-id" --query Parameter.Value --output text
+$poolId = aws ssm get-parameter --name "/$prefix/auth/user-pool-id" --query Parameter.Value --output text
 
-$env:WREN_SMOKE_ACCESS_TOKEN = aws cognito-idp initiate-auth `
-  --auth-flow USER_PASSWORD_AUTH `
+$env:WREN_SMOKE_ACCESS_TOKEN = aws cognito-idp admin-initiate-auth `
+  --user-pool-id $poolId `
   --client-id $clientId `
+  --auth-flow ADMIN_USER_PASSWORD_AUTH `
   --auth-parameters "USERNAME=$email,PASSWORD=$password" `
   --query "AuthenticationResult.AccessToken" --output text
 

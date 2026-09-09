@@ -19,6 +19,10 @@ export interface ObservabilityStackProps extends StackProps {
   readonly feedbackQueueName: string;
   /** SQS DLQ name (alarm on non-zero messages). */
   readonly feedbackDlqName: string;
+  /** Notification DLQ name. Alarm is created only when provided. */
+  readonly notificationDlqName?: string;
+  /** Document-ingest DLQ name. Alarm is created only when provided. */
+  readonly documentIngestDlqName?: string;
   /**
    * Name of the Cognito JWT authorizer Lambda (critical path). Used for the
    * DB-failure / auth-failure log metric filters and their alarms. Defaults to
@@ -94,7 +98,7 @@ const WREN_BEDROCK_NAMESPACE = "WREN/Bedrock";
  *   - Lambda errors (5xx) per function
  *   - Lambda throttles per function
  *   - Feedback queue depth (degradation signal)
- *   - Feedback DLQ messages (poison messages — needs investigation)
+ *   - Feedback, notification, and document-ingest DLQ messages
  *   - API Gateway latency p99
  * - SNS topic for alarm notifications.
  *
@@ -245,26 +249,28 @@ export class ObservabilityStack extends Stack {
     queueDepthAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
 
     // -------------------------------------------------------------------
-    // Feedback DLQ Alarm (poison messages — needs investigation)
+    // DLQ alarms (poison messages — needs investigation). Feedback has always
+    // been wired; notification and document-ingest were silent until now.
     // -------------------------------------------------------------------
-    const dlqMetric = new cloudwatch.Metric({
-      namespace: "AWS/SQS",
-      metricName: "ApproximateNumberOfMessagesVisible",
-      dimensionsMap: { QueueName: props.feedbackDlqName },
-      statistic: "Maximum",
-      period: Duration.minutes(5),
-    });
-
-    const dlqAlarm = new cloudwatch.Alarm(this, "FeedbackDlqAlarm", {
-      alarmName: `${config.stackPrefix}-feedback-dlq-messages`,
-      metric: dlqMetric,
-      threshold: 0,
-      evaluationPeriods: 1,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      alarmDescription: "Messages in feedback DLQ — poison messages detected",
-    });
-    dlqAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
+    this.addDlqVisibleAlarm(
+      "FeedbackDlqAlarm",
+      props.feedbackDlqName,
+      "Messages in feedback DLQ — poison messages detected",
+    );
+    if (props.notificationDlqName !== undefined) {
+      this.addDlqVisibleAlarm(
+        "NotificationDlqAlarm",
+        props.notificationDlqName,
+        "Messages in notification DLQ — poison messages detected",
+      );
+    }
+    if (props.documentIngestDlqName !== undefined) {
+      this.addDlqVisibleAlarm(
+        "DocumentIngestDlqAlarm",
+        props.documentIngestDlqName,
+        "Messages in document-ingest DLQ — poison messages detected",
+      );
+    }
 
     // -------------------------------------------------------------------
     // API Gateway Latency Alarm (p99)
@@ -583,5 +589,30 @@ export class ObservabilityStack extends Stack {
         "Cache writes are occurring but net savings are non-positive (or cost is materially high) — economic regression.",
     });
     costRegressionAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
+  }
+
+  /** Alarm when any message is visible on a DLQ (threshold 0, one 5-min period). */
+  private addDlqVisibleAlarm(
+    id: string,
+    queueName: string,
+    alarmDescription: string,
+  ): void {
+    const metric = new cloudwatch.Metric({
+      namespace: "AWS/SQS",
+      metricName: "ApproximateNumberOfMessagesVisible",
+      dimensionsMap: { QueueName: queueName },
+      statistic: "Maximum",
+      period: Duration.minutes(5),
+    });
+    const alarm = new cloudwatch.Alarm(this, id, {
+      alarmName: `${queueName}-messages`,
+      metric,
+      threshold: 0,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription,
+    });
+    alarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
   }
 }
