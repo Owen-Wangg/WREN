@@ -21,9 +21,10 @@ describe("ObservabilityStack", () => {
 
     template.resourceCountIs("AWS::SNS::Topic", 1);
     template.resourceCountIs("AWS::SNS::Subscription", 0);
-    // 5 baseline alarms + 3 prompt-cache alarms (write-without-read, fallbacks,
-    // cost-regression).
-    template.resourceCountIs("AWS::CloudWatch::Alarm", 8);
+    // 5 baseline alarms + 3 prompt-cache alarms + 1 account-concurrency
+    // saturation alarm + 4 authorizer DB/auth-failure alarms (Runtime.ExitError,
+    // DB guard open, Postgres 28P01, Postgres 42501).
+    template.resourceCountIs("AWS::CloudWatch::Alarm", 13);
   });
 
   it("creates an email subscription only when an alarm recipient is configured", () => {
@@ -118,5 +119,91 @@ describe("ObservabilityStack — prompt-cache observability (plan §16/§17)", (
       MetricName: "CacheFallbacks",
       Threshold: 42,
     });
+  });
+});
+
+describe("ObservabilityStack — authorizer throttling remediation (Task 6)", () => {
+  function synth(): Template {
+    const app = new App();
+    const stack = new ObservabilityStack(app, "wren-test-Observability", {
+      env: testConfig().env,
+      config: testConfig(),
+      functionNames: ["wren-test-authorizer", "wren-test-feedback-engine"],
+      feedbackQueueName: "wren-test-feedback-queue",
+      feedbackDlqName: "wren-test-feedback-dlq",
+      authorizerFunctionName: "wren-test-authorizer",
+    });
+    return Template.fromStack(stack);
+  }
+
+  it("fires the throttle alarm on ANY throttle in a single 5-min window", () => {
+    const template = synth();
+    // The fix: threshold 0, one datapoint, one period — no longer requires two
+    // consecutive periods (which sporadic throttles never satisfied).
+    // NOTE: alarm names embed the (already-prefixed) function name, so the
+    // stackPrefix appears twice — matching the deployed
+    // `wren-dev-wren-dev-authorizer-throttles` name from the incident.
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: "wren-test-wren-test-authorizer-throttles",
+      MetricName: "Throttles",
+      Namespace: "AWS/Lambda",
+      Dimensions: Match.arrayWith([
+        { Name: "FunctionName", Value: "wren-test-authorizer" },
+      ]),
+      Threshold: 0,
+      EvaluationPeriods: 1,
+      DatapointsToAlarm: 1,
+      TreatMissingData: "notBreaching",
+    });
+  });
+
+  it("alarms on account concurrency nearing the configured limit (80%)", () => {
+    const template = synth();
+    // Default accountLimit is 200 -> 80% = 160. No FunctionName dimension
+    // (account-wide ConcurrentExecutions).
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: "wren-test-account-concurrency-saturation",
+      MetricName: "ConcurrentExecutions",
+      Namespace: "AWS/Lambda",
+      Threshold: 160,
+      ComparisonOperator: "GreaterThanOrEqualToThreshold",
+    });
+  });
+
+  it("creates metric filters on the authorizer log group for the failure signatures", () => {
+    const template = synth();
+    template.resourceCountIs("AWS::Logs::MetricFilter", 4);
+    for (const metricName of [
+      "RuntimeExitErrors",
+      "DbConnectionGuardOpen",
+      "PostgresInvalidPassword",
+      "PostgresPermissionDenied",
+    ]) {
+      template.hasResourceProperties("AWS::Logs::MetricFilter", {
+        LogGroupName: "/aws/lambda/wren-test-authorizer",
+        MetricTransformations: Match.arrayWith([
+          Match.objectLike({ MetricName: metricName, MetricNamespace: "wren-test/Authorizer" }),
+        ]),
+      });
+    }
+  });
+
+  it("creates the four authorizer DB/auth-failure alarms wired to the topic", () => {
+    const template = synth();
+    const topics = template.findResources("AWS::SNS::Topic");
+    const topicLogicalId = Object.keys(topics)[0]!;
+
+    for (const alarmName of [
+      "wren-test-authorizer-runtime-exit",
+      "wren-test-authorizer-db-guard-open",
+      "wren-test-authorizer-db-invalid-password",
+      "wren-test-authorizer-db-permission-denied",
+    ]) {
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        AlarmName: alarmName,
+        AlarmActions: Match.arrayWith([{ Ref: topicLogicalId }]),
+        TreatMissingData: "notBreaching",
+      });
+    }
   });
 });

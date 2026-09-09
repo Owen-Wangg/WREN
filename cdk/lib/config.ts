@@ -1,6 +1,11 @@
 import type { App } from "aws-cdk-lib";
 import type { Environment } from "aws-cdk-lib";
 
+import {
+  resolveLambdaConcurrency,
+  type LambdaConcurrencyConfig,
+} from "./lambdaConcurrency.js";
+
 /**
  * Single-source defaults for the CDK application.
  *
@@ -147,6 +152,23 @@ export interface AppConfig {
    * provided — it derives from the project name, never from {@link appName}.
    */
   readonly stackPrefix: string;
+  /**
+   * Reserved-concurrency policy for the Compute Lambdas (authorizer throttling
+   * remediation). Floors protect the authorizers on the critical path; caps
+   * bound the long-running feedback-engine/document functions so a burst cannot
+   * starve the shared account concurrency pool. Validated at synth time by
+   * {@link resolveLambdaConcurrency}. See
+   * `docs/authorizer-throttling-remediation.md`.
+   */
+  readonly lambdaConcurrency: LambdaConcurrencyConfig;
+  /**
+   * Optional custom domain (e.g. `example.com`) for the Amplify-hosted
+   * frontend. When present, the Amplify stack maps the production branch to the
+   * domain root and its `www` subdomain. Absent by default, in which case the
+   * frontend is reachable only via the Amplify default `*.amplifyapp.com`
+   * domain. No domain is ever hard-coded.
+   */
+  readonly customDomain?: string;
   /** Account/region passed to every stack. */
   readonly env: Required<Pick<Environment, "region">> & Environment;
 }
@@ -250,6 +272,8 @@ export function resolveAppConfig(app: App): AppConfig {
     readContext(app, "cacheEnabledWorkloads"),
   );
   const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
+  const lambdaConcurrency = resolveLambdaConcurrency((key) => readContext(app, key));
+  const customDomain = readContext(app, "customDomain");
 
   // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
   // The region is resolved from the `region` context key and otherwise pinned
@@ -271,6 +295,8 @@ export function resolveAppConfig(app: App): AppConfig {
     cacheTtl,
     cacheEnabledWorkloads,
     stackPrefix,
+    lambdaConcurrency,
+    ...(customDomain ? { customDomain } : {}),
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,
       region,

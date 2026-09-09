@@ -25,6 +25,17 @@ export {
   type LambdaCallbackContext,
 } from './pool';
 export {
+  ConnectionGuard,
+  ConnectionGuardOpenError,
+  classifyConnectionError,
+  INVALID_PASSWORD_SQLSTATE,
+  DEFAULT_OPEN_MS,
+  MAX_OPEN_MS,
+  type FailureClass,
+  type GuardEvent,
+  type GuardDeps,
+} from './connectionGuard';
+export {
   runMigrations,
   listMigrationFiles,
   DEFAULT_MIGRATIONS_DIR,

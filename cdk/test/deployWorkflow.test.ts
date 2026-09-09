@@ -13,6 +13,7 @@ import {
   imageDeployRef,
   isCompletedDeployCheckpoint,
   parseCacheSmokeUsage,
+  primaryFrontendHost,
   resolveCleanCommit,
   resolveImageTagForCommit,
   runBootstrapImageBuild,
@@ -63,6 +64,29 @@ describe("deployment workflow command construction", () => {
     const armed = cdkContextArgs(config, "sha-abc123", false, "subject-123");
     expect(safe.some((value) => value.includes("technicalAdminBootstrapSubject"))).toBe(false);
     expect(armed).toContain("technicalAdminBootstrapSubject=subject-123");
+  });
+
+  it("adds the custom-domain context only when a domain is configured", () => {
+    const withoutDomain = cdkContextArgs(config, "sha-abc123", false);
+    expect(withoutDomain.some((value) => value.startsWith("customDomain="))).toBe(false);
+
+    const domainConfig = parseDeploymentConfig({
+      WREN_GITHUB_OWNER: "owner",
+      WREN_GITHUB_REPO: "repo",
+      WREN_GITHUB_BRANCH: "release",
+      WREN_EXPECTED_ACCOUNT_ID: "123456789012",
+      WREN_NON_INTERACTIVE: "true",
+      WREN_ECR_OWNERSHIP: "external",
+      WREN_CUSTOM_DOMAIN: "cloud-inov.com",
+    });
+    expect(cdkContextArgs(domainConfig, "sha-abc123", false)).toContain("customDomain=cloud-inov.com");
+  });
+
+  it("prefers the custom domain over the Amplify default for the frontend host", () => {
+    expect(primaryFrontendHost("cloud-inov.com", "main.d123.amplifyapp.com")).toBe("cloud-inov.com");
+    expect(primaryFrontendHost(undefined, "main.d123.amplifyapp.com")).toBe("main.d123.amplifyapp.com");
+    expect(primaryFrontendHost("cloud-inov.com", undefined)).toBe("cloud-inov.com");
+    expect(primaryFrontendHost(undefined, undefined)).toBeUndefined();
   });
 
   it("classifies actionable Bedrock failures", () => {

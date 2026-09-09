@@ -175,6 +175,7 @@ new ObservabilityStack(app, stackName(config, "Observability"), {
   ],
   feedbackQueueName: computeStack.feedbackQueue.queueName,
   feedbackDlqName: computeStack.feedbackDlq.queueName,
+  authorizerFunctionName: computeStack.authorizerFunction.functionName,
 });
 
 // CloudFront + WAF stack. A CLOUDFRONT-scoped WAF WebACL MUST live in
