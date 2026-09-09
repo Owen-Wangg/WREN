@@ -13,6 +13,11 @@ This guide deploys the WREN writing coach into an AWS account. AWS resource name
     - [Enable and Verify Bedrock Model Access](#enable-and-verify-bedrock-model-access)
   - [AWS credentials](#aws-credentials)
   - [First Deployment — Step by Step](#first-deployment--step-by-step)
+    - [Step 1 — Prerequisites (one-time setup)](#step-1--prerequisites-one-time-setup)
+    - [Step 2 — Start the deploy (run #1)](#step-2--start-the-deploy-run-1)
+    - [Step 3 — Create the admin account, then rerun (run #2)](#step-3--create-the-admin-account-then-rerun-run-2)
+    - [Step 4 — Prove the admin identity with a token, then rerun (run #3)](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3)
+    - [Step 5 — Confirm it's up](#step-5--confirm-its-up)
   - [Deployment](#deployment)
     - [Deployment workflow implementation](#deployment-workflow-implementation)
     - [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built)
@@ -21,6 +26,7 @@ This guide deploys the WREN writing coach into an AWS account. AWS resource name
       - [AWS target and application identity](#aws-target-and-application-identity)
       - [Hosting, CI/CD, images, and ECR ownership](#hosting-cicd-images-and-ecr-ownership)
         - [External ECR safety requirement](#external-ecr-safety-requirement)
+      - [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain)
       - [Recovery and automation controls](#recovery-and-automation-controls)
       - [Preview and protected teardown](#preview-and-protected-teardown)
   - [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
@@ -60,9 +66,8 @@ Default naming uses project `wren` and environment `dev`, so stacks are named `w
 | `CloudFrontWaf` | `us-east-1` (WAF control plane for CloudFront scope) | CloudFront distribution + CloudFront-scoped WAF |
 | `Amplify` | Data-plane Region | Frontend hosting (only if GitHub owner/repo are set) |
 
-> **Use `npm run deploy` for normal deployments.**
->
-> `Amplify` and the CI/CD pipeline are both enabled by default, so the standard path builds them and requires GitHub owner/repo variables plus a `WREN_GITHUB_TOKEN` on first setup. Opt out of the pipeline with `WREN_ENABLE_CICD=false`; the `Cicd` prerequisite stack remains present either way.
+
+> `Amplify` and the CI/CD pipeline are both enabled by default, so the standard path builds them and requires GitHub owner/repo variables plus a `WREN_GITHUB_TOKEN` on first setup. 
 
 ---
 
@@ -72,7 +77,7 @@ Before you deploy, you must have the following installed on your device:
 
 - [git](https://git-scm.com/downloads)
 - An [AWS Account](https://aws.amazon.com/account/) with permission to create IAM, VPC, RDS, Lambda, API Gateway, Cognito, CloudFront, WAF, Amplify, Bedrock, KMS, ECR, and CodeBuild resources (ECR + CodeBuild back the Feedback Engine image build)
-- A [GitHub Account](https://github.com/) — required for the default hosted frontend and optional CI/CD; set its details in the [standard deployment variables](#variables-for-the-standard-deployment)
+- A [GitHub Account](https://github.com/) — required for the default hosted frontend and CI/CD; set its details in the [standard deployment variables](#variables-for-the-standard-deployment)
 - [AWS CLI](https://aws.amazon.com/cli/) _(v2.0.0+ required)_
 - [Node.js](https://nodejs.org/en/learn/getting-started/how-to-install-nodejs) _(v22.x+ required)_
 - [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) _(comes with Node)_
