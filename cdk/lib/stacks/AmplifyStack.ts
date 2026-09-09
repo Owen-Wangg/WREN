@@ -125,6 +125,29 @@ export class AmplifyStack extends Stack {
     }
 
     // -------------------------------------------------------------------
+    // Optional custom domain.
+    //
+    // When `config.customDomain` is set, map the production branch to the
+    // domain root and its `www` subdomain. Amplify provisions the ACM
+    // certificate and — when the domain's hosted zone lives in this AWS
+    // account — creates the DNS records automatically; otherwise it surfaces
+    // verification records to add manually in whatever DNS provider hosts the
+    // zone. No Route 53 or ACM resources are created here, so the feature stays
+    // account/provider-agnostic. When unset, the frontend is reachable only via
+    // the Amplify default domain and nothing below is synthesized.
+    // -------------------------------------------------------------------
+    if (config.customDomain) {
+      const domain = this.amplifyApp.addDomain(config.customDomain);
+      domain.mapRoot(this.productionBranch);
+      domain.mapSubDomain(this.productionBranch, "www");
+
+      new CfnOutput(this, "CustomDomainUrl", {
+        value: `https://${config.customDomain}`,
+        description: "Custom domain URL for the frontend (root)",
+      });
+    }
+
+    // -------------------------------------------------------------------
     // Outputs
     // -------------------------------------------------------------------
     new CfnOutput(this, "AmplifyAppId", {

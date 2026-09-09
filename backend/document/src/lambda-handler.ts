@@ -253,7 +253,7 @@ function rejectUnsafeTipTap(
       statusCode: 400,
       body: JSON.stringify({
         code: 'PAYLOAD_TOO_LARGE',
-        message: `${field} exceeds the 1MB serialized size limit`,
+        message: `${field} exceeds the ${Math.round(TIPTAP_FIELD_MAX_BYTES / 1_048_576)}MB serialized size limit`,
       }),
     };
   }

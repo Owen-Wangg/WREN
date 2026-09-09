@@ -59,3 +59,45 @@ describe("AmplifyStack configured branch", () => {
     });
   });
 });
+
+describe("AmplifyStack custom domain", () => {
+  const baseProps = (config: ReturnType<typeof testConfig>) => ({
+    env: config.env,
+    config,
+    repositoryOwner: "owner",
+    repositoryName: "repo",
+    branch: "main",
+    githubTokenSecretName: `${config.stackPrefix}/github/token`,
+    apiEndpoint: "https://api.example.test/",
+    cognitoUserPoolId: "ca-central-1_pool",
+    cognitoClientId: "client",
+    appSyncGraphqlUrl: "https://example.appsync-api.ca-central-1.amazonaws.com/graphql",
+  });
+
+  it("maps the production branch to the domain root and www when a custom domain is set", () => {
+    const config = testConfig({ customDomain: "cloud-inov.com" });
+    const stack = new AmplifyStack(new App(), "Amplify", baseProps(config));
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs("AWS::Amplify::Domain", 1);
+    template.hasResourceProperties("AWS::Amplify::Domain", {
+      DomainName: "cloud-inov.com",
+      SubDomainSettings: Match.arrayWith([
+        Match.objectLike({ BranchName: Match.anyValue(), Prefix: "" }),
+        Match.objectLike({ BranchName: Match.anyValue(), Prefix: "www" }),
+      ]),
+    });
+    template.hasOutput("CustomDomainUrl", {
+      Value: "https://cloud-inov.com",
+    });
+  });
+
+  it("synthesizes no domain association or custom-domain output when unset (regression guard)", () => {
+    const config = testConfig();
+    const stack = new AmplifyStack(new App(), "Amplify", baseProps(config));
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs("AWS::Amplify::Domain", 0);
+    expect(Object.keys(template.findOutputs("CustomDomainUrl"))).toHaveLength(0);
+  });
+});

@@ -1,4 +1,5 @@
 import { parseDeploymentConfig, publicDeploymentConfig } from "../scripts/operations/config.js";
+import { configFingerprint } from "../scripts/operations/checkpoint.js";
 import { redactText, withoutSecretEnvironment } from "../scripts/operations/redaction.js";
 import { runCommand } from "../scripts/operations/runner.js";
 
@@ -78,6 +79,47 @@ describe("deployment configuration", () => {
     const bothDisabled = parseDeploymentConfig({ WREN_ENABLE_AMPLIFY: "false", WREN_ENABLE_CICD: "false" });
     expect(bothDisabled.enableAmplify).toBe(false);
     expect(bothDisabled.enableCicd).toBe(false);
+  });
+
+  it("parses an optional custom domain and omits it when absent", () => {
+    expect(parseDeploymentConfig(github).customDomain).toBeUndefined();
+    const config = parseDeploymentConfig({ ...github, WREN_CUSTOM_DOMAIN: "cloud-inov.com" });
+    expect(config.customDomain).toBe("cloud-inov.com");
+  });
+
+  it.each([
+    "https://cloud-inov.com",
+    "Cloud-Inov.com",
+    "cloud inov.com",
+    "cloud-inov.com/app",
+    "cloud-inov.com.",
+    "cloudinov",
+    "-cloud.com",
+    `${"a".repeat(64)}.com`,
+  ])("rejects a malformed custom domain (%s)", (raw) => {
+    expect(() => parseDeploymentConfig({ ...github, WREN_CUSTOM_DOMAIN: raw })).toThrow("WREN_CUSTOM_DOMAIN");
+  });
+
+  it("accepts a label at the maximum 63-character length", () => {
+    const domain = `${"a".repeat(63)}.com`;
+    expect(parseDeploymentConfig({ ...github, WREN_CUSTOM_DOMAIN: domain }).customDomain).toBe(domain);
+  });
+
+  it("accepts a multi-label subdomain custom domain", () => {
+    const config = parseDeploymentConfig({ ...github, WREN_CUSTOM_DOMAIN: "wren.cloud-inov.com" });
+    expect(config.customDomain).toBe("wren.cloud-inov.com");
+  });
+
+  it("echoes the custom domain in public configuration, defaulting when unset", () => {
+    expect(publicDeploymentConfig(parseDeploymentConfig(github)).customDomain).toBe("(amplify default)");
+    const withDomain = parseDeploymentConfig({ ...github, WREN_CUSTOM_DOMAIN: "cloud-inov.com" });
+    expect(publicDeploymentConfig(withDomain).customDomain).toBe("cloud-inov.com");
+  });
+
+  it("changes the checkpoint fingerprint when the custom domain changes", () => {
+    const base = parseDeploymentConfig(github);
+    const withDomain = parseDeploymentConfig({ ...github, WREN_CUSTOM_DOMAIN: "cloud-inov.com" });
+    expect(configFingerprint(withDomain)).not.toBe(configFingerprint(base));
   });
 
   it("never includes tokens in public configuration", () => {

@@ -67,3 +67,13 @@ describe("resolveAppConfig — prompt-cache validation", () => {
     );
   });
 });
+
+describe("resolveAppConfig — optional custom domain", () => {
+  it("is undefined when no customDomain context is provided", () => {
+    expect(resolve().customDomain).toBeUndefined();
+  });
+
+  it("maps the customDomain context key into AppConfig", () => {
+    expect(resolve({ customDomain: "cloud-inov.com" }).customDomain).toBe("cloud-inov.com");
+  });
+});

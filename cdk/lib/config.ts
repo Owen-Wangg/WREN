@@ -147,6 +147,14 @@ export interface AppConfig {
    * provided — it derives from the project name, never from {@link appName}.
    */
   readonly stackPrefix: string;
+  /**
+   * Optional custom domain (e.g. `example.com`) for the Amplify-hosted
+   * frontend. When present, the Amplify stack maps the production branch to the
+   * domain root and its `www` subdomain. Absent by default, in which case the
+   * frontend is reachable only via the Amplify default `*.amplifyapp.com`
+   * domain. No domain is ever hard-coded.
+   */
+  readonly customDomain?: string;
   /** Account/region passed to every stack. */
   readonly env: Required<Pick<Environment, "region">> & Environment;
 }
@@ -250,6 +258,7 @@ export function resolveAppConfig(app: App): AppConfig {
     readContext(app, "cacheEnabledWorkloads"),
   );
   const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
+  const customDomain = readContext(app, "customDomain");
 
   // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
   // The region is resolved from the `region` context key and otherwise pinned
@@ -271,6 +280,7 @@ export function resolveAppConfig(app: App): AppConfig {
     cacheTtl,
     cacheEnabledWorkloads,
     stackPrefix,
+    ...(customDomain ? { customDomain } : {}),
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,
       region,

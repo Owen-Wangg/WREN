@@ -222,10 +222,25 @@ export function cdkContextArgs(
     ...(config.githubOwner ? ["-c", `githubOwner=${config.githubOwner}`] : []),
     ...(config.githubRepo ? ["-c", `githubRepo=${config.githubRepo}`] : []),
     "-c", `githubBranch=${config.githubBranch}`,
+    ...(config.customDomain ? ["-c", `customDomain=${config.customDomain}`] : []),
     ...(technicalAdminBootstrapSubject
       ? ["-c", `technicalAdminBootstrapSubject=${technicalAdminBootstrapSubject}`]
       : []),
   ];
+}
+
+/**
+ * The primary frontend origin to surface in logs, signup guidance, and the
+ * smoke test. Prefers the configured custom domain (root) when set, otherwise
+ * falls back to the Amplify default domain. Returns `undefined` when neither is
+ * available (e.g. Amplify hosting disabled and no custom domain). Values are
+ * bare hostnames (no scheme); callers prepend `https://`.
+ */
+export function primaryFrontendHost(
+  customDomain: string | undefined,
+  amplifyDefaultDomain: string | undefined,
+): string | undefined {
+  return customDomain ?? amplifyDefaultDomain ?? undefined;
 }
 
 export function classifyBedrockError(error: unknown): string {
@@ -942,8 +957,18 @@ export class DeployWorkflow {
     const appId = stack.outputs.AmplifyAppId;
     if (!appId) throw new Error(`${stackName} did not return AmplifyAppId.`);
     await this.waitForAmplify(appId);
-    const domain = stack.outputs.AmplifyDefaultDomain;
-    if (domain) console.log(`[wren] Hosted application: https://${domain}`);
+    const amplifyDefaultDomain = stack.outputs.AmplifyDefaultDomain;
+    const host = primaryFrontendHost(this.config.customDomain, amplifyDefaultDomain);
+    if (host) console.log(`[wren] Hosted application: https://${host}`);
+    if (this.config.customDomain && amplifyDefaultDomain) {
+      // The custom-domain certificate/DNS association can take time to become
+      // live after the stack deploys; the Amplify default domain is available
+      // immediately as a fallback.
+      console.log(
+        `[wren] Custom domain https://${this.config.customDomain} is provisioning; ` +
+          `the Amplify default https://${amplifyDefaultDomain} works immediately.`,
+      );
+    }
   }
 
   private async deployPipeline(): Promise<void> {
@@ -986,10 +1011,18 @@ export class DeployWorkflow {
       ]);
       const user = users.Users?.[0];
       const amplify = await this.discovery.stack(`${this.config.stackPrefix}-Amplify`);
-      const signupDomain = amplify.outputs.AmplifyDefaultDomain;
+      // Prefer the Amplify default domain for the hand-followed signup URL: a
+      // custom domain's certificate/DNS may not be live yet during this admin
+      // setup step, whereas the Amplify default is available immediately. The
+      // custom domain (if configured) is only surfaced as informational context.
+      const signupDomain = amplify.outputs.AmplifyDefaultDomain ?? this.config.customDomain;
+      const customDomainNote =
+        this.config.customDomain && this.config.customDomain !== signupDomain
+          ? ` (the app will also be reachable at https://${this.config.customDomain} once its certificate is live)`
+          : "";
       if (!user?.Username) {
         throw new ActionRequiredError(
-          `No Cognito user exists for ${this.config.adminEmail}. Sign up${signupDomain ? ` at https://${signupDomain}/signup` : " in the application"}, confirm the email, do not make an application request yet, and rerun.`,
+          `No Cognito user exists for ${this.config.adminEmail}. Sign up${signupDomain ? ` at https://${signupDomain}/signup${customDomainNote}` : " in the application"}, confirm the email, do not make an application request yet, and rerun.`,
         );
       }
       if (user.UserStatus !== "CONFIRMED") {
@@ -1097,11 +1130,36 @@ export class DeployWorkflow {
     const amplify = await this.discovery.stack(`${this.config.stackPrefix}-Amplify`);
     let smokeOrigin = "http://localhost:5173";
     if (this.config.enableAmplify) {
-      const domain = amplify.outputs.AmplifyDefaultDomain;
-      if (!domain) throw new Error("Amplify did not publish a hosted domain.");
-      smokeOrigin = `https://${domain}`;
-      const response = await fetch(`${smokeOrigin}/`, { signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) throw new Error(`Amplify frontend returned HTTP ${response.status}.`);
+      const amplifyDefaultDomain = amplify.outputs.AmplifyDefaultDomain;
+      if (!amplifyDefaultDomain) throw new Error("Amplify did not publish a hosted domain.");
+
+      // Prefer the custom domain when configured, but its certificate/DNS may
+      // not be live yet. Try it first; on any failure fall back to the Amplify
+      // default domain (always available) so the smoke test still verifies the
+      // frontend. API CORS returns `*`, so either origin satisfies the
+      // preflight assertion below.
+      const reachable = async (host: string): Promise<boolean> => {
+        try {
+          const response = await fetch(`https://${host}/`, { signal: AbortSignal.timeout(30_000) });
+          return response.ok;
+        } catch {
+          return false;
+        }
+      };
+
+      if (this.config.customDomain && (await reachable(this.config.customDomain))) {
+        smokeOrigin = `https://${this.config.customDomain}`;
+      } else {
+        if (this.config.customDomain) {
+          console.log(
+            `[wren] Custom domain https://${this.config.customDomain} is not live yet; ` +
+              `smoke-testing the Amplify default https://${amplifyDefaultDomain} instead.`,
+          );
+        }
+        smokeOrigin = `https://${amplifyDefaultDomain}`;
+        const response = await fetch(`${smokeOrigin}/`, { signal: AbortSignal.timeout(30_000) });
+        if (!response.ok) throw new Error(`Amplify frontend returned HTTP ${response.status}.`);
+      }
     }
 
     const api = await this.apiEndpoint();

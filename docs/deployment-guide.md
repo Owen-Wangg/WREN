@@ -367,6 +367,7 @@ Do not commit access tokens or GitHub personal access tokens to source control. 
 | Variable | Default | Use only when |
 | --- | --- | --- |
 | `WREN_ENABLE_AMPLIFY` | `true` | Running an API-only deployment with `false`. GitHub owner/repository variables become optional only when both Amplify and CI/CD are disabled. |
+| `WREN_CUSTOM_DOMAIN` | unset | Serving the frontend on your own domain instead of only the Amplify default. Set a bare hostname such as `example.com`; the production branch is mapped to the root and `www`. When unset, the frontend is reachable only via the Amplify default `*.amplifyapp.com` domain. No domain is hard-coded. See [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain). |
 | `WREN_ENABLE_CICD` | `true` | Skipping the CodePipeline CI/CD pipeline with `false`. Enabled by default, so the standard path builds it and needs `WREN_GITHUB_TOKEN` on first setup; the `Cicd` prerequisite stack is created regardless. |
 | `WREN_ECR_OWNERSHIP` | `managed` | Reusing a verified pre-existing repository by setting `external`. New deployments should keep `managed`; ownership is never silently adopted. |
 | `WREN_ENGINE_IMAGE_TAG` | commit-scoped `src-<shortsha>` | Forcing a specific ECR image tag instead of the commit-derived one. By default the workflow builds the image under `src-<first 12 of the commit sha>` and pins the deployed Lambda to the resulting immutable **digest**; leave this unset for that commit-safe behavior. Setting it bypasses commit-scoping, so safe reuse then relies on the checkpoint's recorded source commit matching the revision being deployed. See [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built). |
@@ -374,6 +375,23 @@ Do not commit access tokens or GitHub personal access tokens to source control. 
 ##### External ECR safety requirement
 
 Use `WREN_ECR_OWNERSHIP=external` only when the expected `{prefix}-feedback-engine` repository already exists outside CloudFormation. Its repository policy must allow the `lambda.amazonaws.com` service principal to call `ecr:GetDownloadUrlForLayer`, `ecr:BatchGetImage`, and `ecr:BatchCheckLayerAvailability`. The workflow stops before deployment if this policy is absent or incomplete.
+
+#### Serving the frontend on a custom domain
+
+By default the frontend is reachable only at the Amplify default domain (`https://<branch>.<app-id>.amplifyapp.com`). To serve it on your own domain instead, set `WREN_CUSTOM_DOMAIN` to a bare hostname before deploying:
+
+```bash
+export WREN_CUSTOM_DOMAIN=example.com
+```
+
+This is entirely optional and no domain is baked into the project — omit the variable and deployment behaves exactly as before. When set, WREN maps the Amplify production branch to both the domain root (`https://example.com`) and its `www` subdomain (`https://www.example.com`), and prints a `CustomDomainUrl` stack output. WREN does not create or modify any Route 53 or ACM resources itself, so the feature works regardless of where your DNS is hosted; Amplify manages the TLS certificate.
+
+There are two DNS paths, and WREN supports both because it only creates the Amplify domain association:
+
+- **Hosted zone in the same AWS account (automatic).** If the domain's Route 53 hosted zone lives in the account you deploy into, Amplify provisions the certificate and creates the required DNS records automatically. No manual steps.
+- **DNS elsewhere (manual verification).** If the zone is in a different AWS account or with an external provider (Cloudflare, GoDaddy, etc.), Amplify surfaces certificate-validation and CNAME records that you add by hand in that provider. Open **AWS Console → Amplify → your app → Domain management** to copy the exact records.
+
+In both cases the certificate and domain association can take several minutes (occasionally longer) to become live. Until then the Amplify default domain keeps working, and the deploy workflow automatically falls back to it for its post-deploy smoke test if the custom domain is not yet reachable.
 
 #### Recovery and automation controls
 
