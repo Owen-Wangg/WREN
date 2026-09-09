@@ -52,7 +52,10 @@ export class NotificationInfraConstruct extends Construct {
     // --- Main SQS Queue ---
     this.queue = new sqs.Queue(this, "NotificationQueue", {
       queueName: `${stackPrefix}-notification-queue`,
-      visibilityTimeout: Duration.seconds(30),
+      // AWS SQS+Lambda: visibility timeout must be ≥ 6× the function timeout
+      // so a throttle/retry cannot redeliver while the original invoke is live.
+      // NotificationFn timeout is 30s → 180s.
+      visibilityTimeout: Duration.minutes(3),
       deadLetterQueue: {
         queue: this.dlq,
         maxReceiveCount: 3,

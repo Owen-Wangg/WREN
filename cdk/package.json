@@ -15,7 +15,8 @@
     "synth": "cdk synth",
     "cdk": "cdk",
     "deploy:orchestrator": "tsx scripts/deploy.ts",
-    "undeploy:orchestrator": "tsx scripts/undeploy.ts"
+    "undeploy:orchestrator": "tsx scripts/undeploy.ts",
+    "redrive:dlq": "tsx scripts/redrive-dlq.ts"
   },
   "devDependencies": {
     "@types/node": "~26.0.1",

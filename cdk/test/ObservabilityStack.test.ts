@@ -207,3 +207,46 @@ describe("ObservabilityStack — authorizer throttling remediation (Task 6)", ()
     }
   });
 });
+
+describe("ObservabilityStack — DLQ coverage", () => {
+  it("does not add notification or ingest DLQ alarms when those names are omitted", () => {
+    const template = synthObservability();
+    const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"));
+    const names = alarms.map((alarm) => alarm.Properties?.AlarmName as string);
+    expect(names).toContain("wren-test-feedback-dlq-messages");
+    expect(names).not.toContain("wren-test-notification-dlq-messages");
+    expect(names).not.toContain("wren-test-document-ingest-dlq-messages");
+  });
+
+  it("alarms when any message is visible on the notification or document-ingest DLQ", () => {
+    const app = new App();
+    const stack = new ObservabilityStack(app, "wren-test-Observability", {
+      env: testConfig().env,
+      config: testConfig(),
+      functionNames: ["wren-test-feedback-engine"],
+      feedbackQueueName: "wren-test-feedback-queue",
+      feedbackDlqName: "wren-test-feedback-dlq",
+      notificationDlqName: "wren-test-notification-dlq",
+      documentIngestDlqName: "wren-test-document-ingest-dlq",
+    });
+    const template = Template.fromStack(stack);
+    const topics = template.findResources("AWS::SNS::Topic");
+    const topicLogicalId = Object.keys(topics)[0]!;
+
+    for (const alarmName of [
+      "wren-test-feedback-dlq-messages",
+      "wren-test-notification-dlq-messages",
+      "wren-test-document-ingest-dlq-messages",
+    ]) {
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        AlarmName: alarmName,
+        MetricName: "ApproximateNumberOfMessagesVisible",
+        Namespace: "AWS/SQS",
+        Threshold: 0,
+        EvaluationPeriods: 1,
+        TreatMissingData: "notBreaching",
+        AlarmActions: Match.arrayWith([{ Ref: topicLogicalId }]),
+      });
+    }
+  });
+});

@@ -74,6 +74,20 @@ describe("CicdStack", () => {
     );
     expect(stageNames).toEqual(["Source", "Build", "Deploy", "UpdateLambda"]);
   });
+
+  it("expires pipeline artifact objects after 90 days", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({
+            Status: "Enabled",
+            ExpirationInDays: 90,
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+          }),
+        ]),
+      },
+    });
+  });
 });
 
 function grants(statement: PolicyStatement, action: string): boolean {

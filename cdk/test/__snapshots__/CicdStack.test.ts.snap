@@ -1556,6 +1556,18 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
             },
           ],
         },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7,
+              },
+              "ExpirationInDays": 90,
+              "Id": "ExpirePipelineArtifacts",
+              "Status": "Enabled",
+            },
+          ],
+        },
         "PublicAccessBlockConfiguration": {
           "BlockPublicAcls": true,
           "BlockPublicPolicy": true,

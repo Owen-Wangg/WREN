@@ -1,6 +1,11 @@
-import { Stack, type StackProps, CfnOutput, Duration } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, Duration, RemovalPolicy } from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as s3 from "aws-cdk-lib/aws-s3";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as wafv2 from "aws-cdk-lib/aws-wafv2";
 import type { Construct } from "constructs";
 
@@ -169,6 +174,21 @@ export class CloudFrontWafStack extends Stack {
       },
     );
 
+    const accessLogs = new s3.Bucket(this, "AccessLogs", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      objectOwnership: s3.ObjectOwnership.OBJECT_WRITER,
+      lifecycleRules: [
+        {
+          id: "ExpireCloudFrontAccessLogs",
+          expiration: Duration.days(90),
+          abortIncompleteMultipartUploadAfter: Duration.days(7),
+        },
+      ],
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
       comment: `${config.stackPrefix} - WREN Writing Coach CDN`,
       defaultBehavior: {
@@ -182,6 +202,10 @@ export class CloudFrontWafStack extends Stack {
       webAclId: this.webAcl.attrArn,
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100, // NA + Europe
+      enableLogging: true,
+      logBucket: accessLogs,
+      logFilePrefix: "cloudfront/",
+      publishAdditionalMetrics: true,
     });
 
     // If Amplify domain is provided, add it as a secondary behavior for the
@@ -196,6 +220,54 @@ export class CloudFrontWafStack extends Stack {
         responseHeadersPolicy: securityHeadersPolicy,
       });
     }
+
+    // CloudFront metrics are us-east-1 / Region=Global — keep alarms in this
+    // stack rather than importing the ca-central-1 Observability SNS topic.
+    const alarmTopic = new sns.Topic(this, "AlarmTopic", {
+      topicName: `${config.stackPrefix}-cloudfront-alarms`,
+      displayName: `${config.stackPrefix} CloudFront Alarms`,
+    });
+    if (config.alarmEmail !== undefined) {
+      alarmTopic.addSubscription(new subscriptions.EmailSubscription(config.alarmEmail));
+    }
+
+    const cfDimensions = {
+      DistributionId: this.distribution.distributionId,
+      Region: "Global",
+    };
+    const fiveXx = new cloudwatch.Alarm(this, "FiveXxAlarm", {
+      alarmName: `${config.stackPrefix}-cloudfront-5xx`,
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/CloudFront",
+        metricName: "5xxErrorRate",
+        dimensionsMap: cfDimensions,
+        statistic: "Average",
+        period: Duration.minutes(5),
+      }),
+      threshold: 5,
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: "CloudFront 5xx error rate > 5% for 10 minutes",
+    });
+    fiveXx.addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
+    const fourXx = new cloudwatch.Alarm(this, "FourXxAlarm", {
+      alarmName: `${config.stackPrefix}-cloudfront-4xx`,
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/CloudFront",
+        metricName: "4xxErrorRate",
+        dimensionsMap: cfDimensions,
+        statistic: "Average",
+        period: Duration.minutes(5),
+      }),
+      threshold: 50,
+      evaluationPeriods: 3,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: "CloudFront 4xx error rate > 50% for 15 minutes",
+    });
+    fourXx.addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     // -------------------------------------------------------------------
     // Outputs

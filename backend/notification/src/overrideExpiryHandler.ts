@@ -9,6 +9,11 @@
  * Emits two event types:
  *   - override-expiring: override will expire within warningHours
  *   - override-expired: override has expired since last check window
+ *
+ * Queries the V4 `override` table (joined to `document_type` / `app_user`).
+ * There is no `usage_override` or `writing_type` relation — those names were
+ * the pre-V4 schema and are what produced `relation "usage_override" does
+ * not exist` on the scheduled scan.
  */
 import type { NotificationServiceDeps } from './notificationService.js';
 import type { NotificationEvent } from './types.js';
@@ -28,12 +33,20 @@ const DEFAULT_CONFIG: OverrideExpiryConfig = {
 interface OverrideRow {
   id: string;
   granted_by: string;
-  writing_type_id: string;
+  document_type_id: string;
   user_id: string;
   expires_at: string;
-  writing_type_name: string;
+  document_type_name: string;
   student_name: string;
 }
+
+/** Shared projection against the live `override` schema (post-V4). */
+const OVERRIDE_EXPIRY_SELECT = `SELECT o.id, o.granted_by, o.document_type_id, o.user_id, o.expires_at,
+            dt.name AS document_type_name,
+            CONCAT(u.first_name, ' ', u.last_name) AS student_name
+     FROM override o
+     JOIN document_type dt ON o.document_type_id = dt.id
+     JOIN app_user u ON o.user_id = u.id`;
 
 /**
  * Check for expiring and expired overrides, returning notification events
@@ -49,17 +62,13 @@ export async function checkOverrideExpiry(
   const { warningHours, checkIntervalMinutes } = { ...DEFAULT_CONFIG, ...config };
   const events: NotificationEvent[] = [];
 
-  // 1. Find overrides expiring within the warning window (not yet expired)
+  // 1. Find overrides expiring within the warning window (not yet expired).
+  // `granted_by` is nullable (SET NULL when the grantor is deleted); skip those.
   const expiringRows = await db.query<OverrideRow>(
-    `SELECT o.id, o.granted_by, o.writing_type_id, o.user_id, o.expires_at,
-            wt.name AS writing_type_name,
-            CONCAT(u.first_name, ' ', u.last_name) AS student_name
-     FROM usage_override o
-     JOIN writing_type wt ON o.writing_type_id = wt.id
-     JOIN app_user u ON o.user_id = u.id
+    `${OVERRIDE_EXPIRY_SELECT}
      WHERE o.expires_at > NOW()
        AND o.expires_at <= NOW() + INTERVAL '1 hour' * $1
-       AND o.revoked_at IS NULL`,
+       AND o.granted_by IS NOT NULL`,
     [warningHours],
   );
 
@@ -71,22 +80,17 @@ export async function checkOverrideExpiry(
       context: {
         overrideId: row.id,
         studentName: row.student_name,
-        documentTypeName: row.writing_type_name,
+        documentTypeName: row.document_type_name,
       },
     });
   }
 
-  // 2. Find overrides that have expired within the last check interval
+  // 2. Find overrides that have expired within the last check interval.
   const expiredRows = await db.query<OverrideRow>(
-    `SELECT o.id, o.granted_by, o.writing_type_id, o.user_id, o.expires_at,
-            wt.name AS writing_type_name,
-            CONCAT(u.first_name, ' ', u.last_name) AS student_name
-     FROM usage_override o
-     JOIN writing_type wt ON o.writing_type_id = wt.id
-     JOIN app_user u ON o.user_id = u.id
+    `${OVERRIDE_EXPIRY_SELECT}
      WHERE o.expires_at <= NOW()
        AND o.expires_at > NOW() - INTERVAL '1 minute' * $1
-       AND o.revoked_at IS NULL`,
+       AND o.granted_by IS NOT NULL`,
     [checkIntervalMinutes],
   );
 
@@ -98,7 +102,7 @@ export async function checkOverrideExpiry(
       context: {
         overrideId: row.id,
         studentName: row.student_name,
-        documentTypeName: row.writing_type_name,
+        documentTypeName: row.document_type_name,
       },
     });
   }
