@@ -35,10 +35,6 @@ Package-level CDK notes (context keys, stack list, commands) are in [`cdk/README
 
 See the [User Guide](docs/user-guide.md) for how students and department admins use the web app.
 
-## Document Processing
-
-[Deployment Guide](docs/deployment-guide.md).
-
 ## Directories
 
 ```
