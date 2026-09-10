@@ -502,11 +502,17 @@ export async function uploadCommitSnapshot(
       args: ["archive", "--format=zip", "-o", zipPath, sha],
       cwd: deps.repoRoot,
     });
+    // Upload with `s3 cp` rather than `s3api put-object --body fileb://`.
+    // AWS CLI v2 (Python 3.14 build) on Windows routes the fileb:// path
+    // through URIArgumentHandler -> os.fsdecode, which raises
+    // `UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd9` under a
+    // non-UTF-8 system code page (e.g. cp1252), failing every upload
+    // regardless of the file contents. `s3 cp` streams the local file
+    // directly and does not exercise that broken decode path.
     await deps.aws.command([
-      "s3api", "put-object",
-      "--bucket", bucket,
-      "--key", key,
-      "--body", `fileb://${zipPath.replace(/\\/g, "/")}`,
+      "s3", "cp",
+      zipPath,
+      `s3://${bucket}/${key}`,
     ]);
   } finally {
     rmSync(directory, { recursive: true, force: true });

@@ -6,9 +6,12 @@
  * yet. Roles remain owned by Postgres — never copied from IdP claims.
  *
  * Exception: an explicitly configured exact Cognito subject may receive
- * TechnicalAdmin only while a genuinely new app_user is provisioned and the
- * verified token also contains SystemAdmin. Missing configuration is default-off;
- * existing or email-relinked users never escalate from group membership.
+ * TechnicalAdmin when the verified token also contains SystemAdmin. This applies
+ * whether or not the app_user already exists, so a first-admin candidate who
+ * signed in once before the bootstrap gate was armed can still be elevated (they
+ * keep Student and also gain TechnicalAdmin). Missing configuration is
+ * default-off; a non-matching subject or a token without SystemAdmin never
+ * escalates from group membership.
  */
 import type { QueryExecutor } from './identityMapping';
 
@@ -85,7 +88,6 @@ export async function ensureAppUser(
     input.idpSubject,
   ]);
   let userId = rows[0]?.id;
-  let createdNewUser = false;
 
   // Seeded / recycled users often already have this email with a different
   // Cognito `sub`. Relink instead of failing the unique email constraint.
@@ -110,7 +112,6 @@ export async function ensureAppUser(
       input.idpSubject,
     ]);
     userId = rows[0]?.id;
-    createdNewUser = userId !== undefined;
   }
 
   if (!userId) {
@@ -119,14 +120,21 @@ export async function ensureAppUser(
     );
   }
 
+  // Bootstrap gate. This intentionally does NOT require a brand-new app_user:
+  // the guided deploy adds the candidate to SystemAdmin and arms their exact
+  // Cognito sub, but the candidate may have already signed in once (creating a
+  // Student row) before the gate was armed. Requiring `createdNewUser` would
+  // permanently lock those deployments out of first-admin setup. Safety is
+  // preserved by the two operator-controlled conditions that remain: the exact
+  // armed subject must match, and the verified token must carry SystemAdmin.
+  // A normal user can satisfy neither. The candidate keeps Student and also
+  // gains TechnicalAdmin.
   const bootstrapAdmin =
-    createdNewUser &&
     input.technicalAdminBootstrapSubject === input.idpSubject &&
     input.groups?.includes('SystemAdmin') === true;
+  await db.query(ENSURE_STUDENT_ROLE_SQL, [userId]);
   if (bootstrapAdmin) {
     await db.query(ENSURE_TECHNICAL_ADMIN_ROLE_SQL, [userId]);
-  } else {
-    await db.query(ENSURE_STUDENT_ROLE_SQL, [userId]);
   }
   return userId;
 }

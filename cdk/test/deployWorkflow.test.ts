@@ -318,10 +318,12 @@ describe("CodeBuild bootstrap image build (S3 source snapshot)", () => {
     const archive = runnerCalls.find((c) => c[1] === "archive");
     expect(archive).toContain(cleanSha);
     expect(archive).toContain("--format=zip");
-    // put-object targets the SHA-keyed path; no VersionId is requested/relied on.
-    const put = awsCalls.find((c) => c.includes("put-object"));
-    expect(put).toContain("--key");
-    expect(put?.[put.indexOf("--key") + 1]).toBe(`wren-bootstrap-source/wren-dev/${cleanSha}.zip`);
+    // Upload uses `s3 cp` (not `s3api put-object --body fileb://`, which is
+    // broken on the Windows AWS CLI v2/Python 3.14 build) and targets the
+    // SHA-keyed s3:// destination. No VersionId is requested/relied on.
+    const put = awsCalls.find((c) => c[0] === "s3" && c[1] === "cp");
+    expect(put).toBeDefined();
+    expect(put?.[put.length - 1]).toBe(`s3://the-bucket/wren-bootstrap-source/wren-dev/${cleanSha}.zip`);
     expect(put?.join(" ")).not.toContain("version-id");
   });
 

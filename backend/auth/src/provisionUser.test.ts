@@ -83,7 +83,7 @@ describe('ensureAppUser — TechnicalAdmin bootstrap', () => {
     expect(roles).toEqual(['Student']);
   });
 
-  it('bootstraps only an exact-subject SystemAdmin who is genuinely new', async () => {
+  it('bootstraps an exact-subject SystemAdmin who is genuinely new', async () => {
     const { db, roles } = makeDb();
 
     const userId = await ensureAppUser(db, input({
@@ -92,10 +92,10 @@ describe('ensureAppUser — TechnicalAdmin bootstrap', () => {
     }));
 
     expect(userId).toBe(NEW_USER_ID);
-    expect(roles).toEqual(['TechnicalAdmin']);
+    expect(roles).toEqual(['Student', 'TechnicalAdmin']);
   });
 
-  it('never escalates a subject that already exists', async () => {
+  it('elevates an exact-subject SystemAdmin who already exists (early-login recovery)', async () => {
     const { db, roles, calls } = makeDb({ existingSubjectId: EXISTING_USER_ID });
 
     const userId = await ensureAppUser(db, input({
@@ -104,11 +104,11 @@ describe('ensureAppUser — TechnicalAdmin bootstrap', () => {
     }));
 
     expect(userId).toBe(EXISTING_USER_ID);
-    expect(roles).toEqual(['Student']);
+    expect(roles).toEqual(['Student', 'TechnicalAdmin']);
     expect(calls.some((text) => text.includes('INSERT INTO app_user'))).toBe(false);
   });
 
-  it('never escalates an email-linked user when assigning a new IdP subject', async () => {
+  it('elevates an exact-subject SystemAdmin relinked by email', async () => {
     const { db, roles, calls } = makeDb({ existingEmailId: RELINKED_USER_ID });
 
     const userId = await ensureAppUser(db, input({
@@ -117,7 +117,7 @@ describe('ensureAppUser — TechnicalAdmin bootstrap', () => {
     }));
 
     expect(userId).toBe(RELINKED_USER_ID);
-    expect(roles).toEqual(['Student']);
+    expect(roles).toEqual(['Student', 'TechnicalAdmin']);
     expect(calls.some((text) => text.includes('UPDATE app_user'))).toBe(true);
   });
 
