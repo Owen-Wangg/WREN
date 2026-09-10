@@ -502,17 +502,17 @@ export async function uploadCommitSnapshot(
       args: ["archive", "--format=zip", "-o", zipPath, sha],
       cwd: deps.repoRoot,
     });
+    // Upload with `s3 cp` rather than `s3api put-object --body fileb://`.
+    // AWS CLI v2 (Python 3.14 build) on Windows routes the fileb:// path
+    // through URIArgumentHandler -> os.fsdecode, which raises
+    // `UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd9` under a
+    // non-UTF-8 system code page (e.g. cp1252), failing every upload
+    // regardless of the file contents. `s3 cp` streams the local file
+    // directly and does not exercise that broken decode path.
     await deps.aws.command([
-      "s3api", "put-object",
-      "--bucket", bucket,
-      "--key", key,
-      "--body", `fileb://${zipPath.replace(/\\/g, "/")}`,
-      // AWS CLI v2 defaults cli-binary-format to base64 and, on some Windows
-      // builds, tries to UTF-8 decode a fileb:// payload — which fails on the
-      // first non-text byte of the zip ("invalid continuation byte"). Forcing
-      // raw-in-base64-out treats the body as raw bytes. The Bedrock invoke
-      // calls in this file already pass this flag; the upload path omitted it.
-      "--cli-binary-format", "raw-in-base64-out",
+      "s3", "cp",
+      zipPath,
+      `s3://${bucket}/${key}`,
     ]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
