@@ -219,9 +219,9 @@ There are three parts to the analytics:
 <img width="544" height="122" alt="image" src="https://github.com/user-attachments/assets/8712c5ea-ffa1-4817-853f-fae22da2fe25" />
 
 - **AI Debrief helpfulness** — aggregate student ratings (helpful / not helpful) and optional comments.
-- **Section applicability** — whether feedback sections applied to the draft, in aggregate.
-
 <img width="1447" height="685" alt="Helpfulness and applicability breakdown" src="https://github.com/user-attachments/assets/d70c2cf6-a983-4eb5-8d1f-c5f29e50a9a4" />
+- **Section applicability** — whether feedback sections applied to the draft, in aggregate.
+<img width="781" height="211" alt="image" src="https://github.com/user-attachments/assets/fc57bc47-5656-481b-8c9d-2674fc27bc55" />
 
 ### Quick Reference — Department Admin
 
@@ -256,13 +256,14 @@ Let's begin with model configuration.
 The model configuration settings determine which AI model WREN uses to generate AI Debriefs and respond to Ask WREN prompts. As a System Admin, you can change the active model to balance response quality, performance, and cost requirements.
 
 1. From the System Admin dashboard, click the drop-down arrow next to Model Configuration.
-[insert image here]
-2. Using the Active model drop-down menu, you can see all the models available to use.
 <img width="910" height="385" alt="image" src="https://github.com/user-attachments/assets/b9ec4bef-0b50-4b22-9c22-aaab06e8ee62" />
-[insert image here]
+
+2. Using the Active model drop-down menu, you can see all the models available to use.
+<img width="943" height="407" alt="image" src="https://github.com/user-attachments/assets/9748ca8d-c179-4080-a597-eceab6933922" />
+
 3. Select the model you want to set as the platform default.
 4. Click **Save**.
-[insert image here]
+<img width="905" height="414" alt="image" src="https://github.com/user-attachments/assets/5b765a1e-e23c-40bb-8a63-e21e36afb1f2" />
 
 **Note:**
 
@@ -303,7 +304,7 @@ To create new departments as a System Admin:
 
 3. Assign an initial Department Admin by clicking the pen symbol to the right of a user's name and selecting **Department Admin** (optional — can be done later from Manage Users, see [4.5 Managing Departments](#45-managing-departments)).
 
-[insert image]
+<img width="789" height="322" alt="image" src="https://github.com/user-attachments/assets/ccc917be-b151-4ec3-b627-82d8cbcc821f" />
 
 **Notes:**
 
@@ -316,24 +317,24 @@ To create new departments as a System Admin:
 Department management allows administrators to configure user access and control who can discover and submit documents within a department. From this screen, you can assign Department Admins, manage participant permissions, configure submission controls, and control department visibility. 
 
 1. Go to **System Admin Dashboard → Departments** and select the department you want to manage.
-[insert image]
+<img width="1789" height="679" alt="image" src="https://github.com/user-attachments/assets/13772124-bc8a-4d57-99fe-ec5ff1a69742" />
 
-2. Under **Manage Users**, you can search participants and assign or revoke roles. Assigning **Department Admin** here scopes that role to this department, as previously discussed.
+2. Under **Manage Users**, you can search participants and assign or revoke roles.
+<img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/65b17290-e7e3-4d23-bd7d-d68bcf904d39" />
 
-3. Use **User access → Open / Lock** to control who can submit documents for this document type:
-   - **Open** — any user with access to the platform can submit documents for this document type. No document-type-specific Access Grant is required.
-   - **Locked** — Only users who have been explicitly granted access to this document type can submit documents. Users must have an approved document-type Access Grant before they can upload or submit documents for evaluation.
+3. Use **Student access → Open / Lock** to control who can submit documents for this document type:
+   - **When the button says lock, it means the access is open** — any user with access to the platform can submit documents for this document type. No document-type-specific Access Grant is required.
+   - **When the button says open, it means the access is locked** — only users who have been explicitly granted access to this document type can submit documents. Users must have an approved document-type Access Grant before they can upload or submit documents for evaluation.
    - When a document type is locked, administrators can manage access by reviewing and approving Access Grant requests from users.
-[insert image]
+<img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/3aa639f4-909c-434f-9a2f-f47195cf074e" />
 
 Department visibility controls whether a department appears in the catalog for all users or only for users who have been explicitly granted access. It can be configured using the following steps:
 
-1. Use **Department visibility → Visible / Permitted users only** to control catalog discovery:
-   - **Visible** — the department is visible to all users.
-   - **Permitted users only** — the department is shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
-2. Under **Permitted users**, search the user directory to grant or revoke explicit visibility permission. Permissions are retained while the department is Visible and automatically take effect if it is changed back to Permitted users only. Revoking an explicit permission does not remove a Technical Admin or scoped Department Admin's automatic discovery access.
-
-[insert image]
+1. Use the button the right side to control visibility:
+   - **Limit visibility** — the department is visible to all users.
+   - **Make visible** — the department is shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
+<img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/59cf4cd2-59df-41a4-b946-28a7648fa2ce" />
+<img width="122" height="176" alt="image" src="https://github.com/user-attachments/assets/89c31f2b-d4f6-4d58-a2bc-9252cbc57af1" />
 
 **Important:** A visibility permission controls discovery only. It does not grant submission to a Locked document type; **that requires a document-type Access Grant.**
 
