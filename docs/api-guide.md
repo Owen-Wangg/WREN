@@ -799,8 +799,7 @@ Fetch the owning student’s per-section applicable/not-applicable votes.
 **Query Parameters:**
 
 - `environmentId` (uuid, required): The document ID. Read as `environmentId` (not `documentId`).
-- `draftId` (uuid, required): Draft ID (when absent or `none`, the response is `{ "votes": {} }`)
-
+- `draftId` (uuid, required): Draft ID (when absent or `none`, the response is `{ "votes": {} }
 **Response:** `200 OK`
 
 ```json

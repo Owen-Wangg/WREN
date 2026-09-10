@@ -31,6 +31,7 @@ This guide deploys the WREN writing coach into an AWS account.
   - [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
   - [Troubleshooting](#troubleshooting)
     - [Common Issues](#common-issues)
+  - [Custom Domain Support](#custom-domain-support)
   - [Cleanup](#cleanup)
     - [Protected application teardown (recommended)](#protected-application-teardown-recommended)
     - [Full data destruction is a separate manual operation](#full-data-destruction-is-a-separate-manual-operation)
@@ -96,20 +97,25 @@ Enable the target Bedrock model in your Region **before** deploying — without 
 
 ## AWS credentials
 
-Authenticate with an AWS identity that has broad first-rollout deployment rights (`AdministratorAccess`, or a dedicated CDK deploy role). For the standard workflow, prefer AWS IAM Identity Center/SSO or another standard AWS credential-chain method; the workflow uses those credentials (or `AWS_PROFILE`) and never asks for long-lived access keys.
+Authenticate with an AWS identity that has broad first-rollout deployment rights (`AdministratorAccess`, or a dedicated CDK deploy role). For the standard workflow, prefer AWS IAM Identity Center/SSO or another standard AWS credential-chain method; the workflow uses those credentials and never asks for long-lived access keys.
 
-For example, configure and sign in with SSO:
+**The standard way to select your account is a named AWS CLI profile.** Set `AWS_PROFILE` and the deploy uses that profile for every AWS call — this is the environment-variable equivalent of passing `--profile <name>` to the AWS CLI, and it means you do **not** need to look up or type your 12-digit account ID. The account WREN deploys into is always resolved from your active credentials (`aws sts get-caller-identity`).
+
+Configure and sign in with SSO, then point the deploy at that profile:
 
 ```bash
 aws configure sso
 aws sso login --profile <your-profile>
+export AWS_PROFILE=<your-profile>          # PowerShell: $env:AWS_PROFILE = "<your-profile>"
 ```
 
 Confirm the account before any deployment:
 
 ```bash
-aws sts get-caller-identity
+aws sts get-caller-identity                # honors AWS_PROFILE
 ```
+
+> Setting `WREN_EXPECTED_ACCOUNT_ID` is optional for interactive deploys and acts only as a safety guard: if set, the workflow refuses to proceed when the profile resolves to a different account. It becomes **required** only for production (`WREN_ENVIRONMENT=prod`) or non-interactive/CI runs. For a normal interactive deploy, selecting the right profile is enough.
 ---
 
 ## First Deployment — Step by Step
@@ -127,7 +133,7 @@ This is the recommended path for a first-time deployment. Follow the steps in or
 ### Step 1 — Prerequisites (one-time setup)
 
 1. Install the tools in [Requirements](#requirements) (git, AWS CLI v2, Node.js 22+).
-2. Sign in to AWS and confirm the account: `aws sts get-caller-identity` shows the account you intend to deploy into.
+2. Sign in to AWS and select your profile: `aws sso login --profile <your-profile>`, then `export AWS_PROFILE=<your-profile>` (PowerShell: `$env:AWS_PROFILE = "<your-profile>"`). Confirm the target account with `aws sts get-caller-identity` — it shows the account you intend to deploy into. Selecting the profile is how you choose the account; you do not need to type the account ID.
 3. **Enable the Bedrock model.** In the AWS Console, open **Amazon Bedrock → Model access** in your target Region and enable the default model (`us.anthropic.claude-sonnet-4-6`) or the one you set in `WREN_BEDROCK_MODEL_ID`. Without this, the app deploys but feedback generation fails at runtime. The deploy verifies model access early and pauses with an actionable message if it's missing.
 4. **Create a GitHub personal access token (PAT).** You need a GitHub repo this account can read (a fork of WREN or the original). Create a token at **GitHub → Settings → Developer settings → Personal access tokens**:
    - Classic token: enable the **`repo`** scope (and **`admin:repo_hook`** so the CI/CD pipeline can register its webhook).
@@ -143,12 +149,13 @@ Set the variables and run the command from the repository root. Replace the plac
 <summary>macOS/Linux (bash)</summary>
 
 ```bash
-export WREN_EXPECTED_ACCOUNT_ID=YourAccountId    # from `aws sts get-caller-identity`
+export AWS_PROFILE=your-profile                  # selects the account (like `--profile`); no account ID needed
 export WREN_GITHUB_OWNER=YourOrgOrUser
 export WREN_GITHUB_REPO=WREN
 export WREN_GITHUB_BRANCH=main
 export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'       # the PAT from Step 1
 export WREN_ADMIN_EMAIL=admin@example.com        # who will be the first admin
+export WREN_REQUIRE_APPROVAL=never               # skips the interactive IAM prompt
 npm run deploy
 ```
 
@@ -158,12 +165,13 @@ npm run deploy
 <summary>PowerShell</summary>
 
 ```powershell
-$env:WREN_EXPECTED_ACCOUNT_ID = "YourAccountId"
+$env:AWS_PROFILE = "your-profile"        # selects the account (like --profile); no account ID needed
 $env:WREN_GITHUB_OWNER = "YourOrgOrUser"
 $env:WREN_GITHUB_REPO = "WREN"
 $env:WREN_GITHUB_BRANCH = "main"
 $env:WREN_GITHUB_TOKEN = "YOUR_GITHUB_PAT"
 $env:WREN_ADMIN_EMAIL = "admin@example.com"
+$env:WREN_REQUIRE_APPROVAL = "never"     # skips the interactive IAM prompt
 npm run deploy
 ```
 
@@ -173,16 +181,19 @@ npm run deploy
 <summary>Windows CMD</summary>
 
 ```cmd
-set WREN_EXPECTED_ACCOUNT_ID=YourAccountId
+set AWS_PROFILE=your-profile
 set WREN_GITHUB_OWNER=YourOrgOrUser
 set WREN_GITHUB_REPO=WREN
 set WREN_GITHUB_BRANCH=main
 set WREN_GITHUB_TOKEN=YOUR_GITHUB_PAT
 set WREN_ADMIN_EMAIL=admin@example.com
+set WREN_REQUIRE_APPROVAL=never
 npm run deploy
 ```
 
 </details>
+
+> 
 
 **What you should see:** the workflow verifies AWS/Bedrock, bootstraps, builds the image in CodeBuild, deploys the stacks, and then **pauses with exit code 3**, printing an Amplify sign-up URL and asking you to create the first-admin account. That pause is expected — go to Step 3.
 
@@ -192,16 +203,27 @@ npm run deploy
 
 1. Open the **Amplify sign-up URL** the deploy printed.
 2. Sign up using the exact address in `WREN_ADMIN_EMAIL`, and confirm the email.
-3. **Do not use the app yet** — do not make any writing request. (An early request can invalidate the first-admin identity check. Just sign up, confirm, and stop.)
-4. Run `npm run deploy` again.
+3. You can stop after confirming the email; you don't need to do anything else in the app. (Signing in early is fine — the guided flow still elevates you to admin in place on the final run. It's simplest to just sign up, confirm, and continue.)
+4. Run `npm run deploy` again. This is your first rerun, so you can skip the dependency reinstall to save time — Step 2 already ran `npm ci` for the root and `cdk/` directories:
+
+   ```bash
+   export WREN_SKIP_INSTALL=true   # PowerShell: $env:WREN_SKIP_INSTALL = "true"
+   npm run deploy
+   ```
+
+   Keep it set for the Step 4 rerun too. Only leave it out (or set `false`) if you deleted `node_modules` or changed dependencies since Step 2; the workflow errors clearly if either `node_modules` directory is missing.
 
 **What you should see:** the workflow finds your confirmed user, adds them to the Cognito `SystemAdmin` group, flags the account for one-time admin verification, then **pauses again (exit code 3)** asking for `WREN_SMOKE_ACCESS_TOKEN`. Go to Step 4.
+
+> Run #2 may briefly redeploy the Compute stack to arm the one-time admin-verification gate, so it can take a little longer than a pure no-op rerun even with the reinstall skipped.
 
 ### Step 4 — Prove the admin identity with a token, then rerun (run #3)
 
 You now fetch the **smoke access token** — a temporary login token for the admin user — and give it to the final run. It expires in ~1 hour, so do this right before rerunning.
 
 **Recommended: fetch it from the command line (no browser needed).** Run the block for your shell; it looks up your deployment's Cognito client for you. Set `prefix` to your stack prefix (`wren-dev` unless you changed project/environment).
+
+> The blocks below keep `WREN_SKIP_INSTALL=true` (introduced in Step 3) so this rerun skips the dependency reinstall and goes straight to synthesis and the admin-verification checks. This run is typically the fastest, since the smoke token is verified against the API without redeploying stacks.
 
 <details open>
 <summary>macOS/Linux (bash) — fetch the token and rerun</summary>
@@ -221,6 +243,8 @@ export WREN_SMOKE_ACCESS_TOKEN=$(aws cognito-idp admin-initiate-auth \
   --auth-parameters "USERNAME=$EMAIL,PASSWORD=$PASSWORD" \
   --query "AuthenticationResult.AccessToken" --output text)
 
+export WREN_REQUIRE_APPROVAL=never   # keep set from Step 2; re-export here if you opened a new shell
+export WREN_SKIP_INSTALL=true        # Step 2 already ran npm ci; skip the reinstall to speed up this rerun
 npm run deploy
 ```
 
@@ -245,6 +269,7 @@ $env:WREN_SMOKE_ACCESS_TOKEN = aws cognito-idp admin-initiate-auth `
   --auth-parameters "USERNAME=$email,PASSWORD=$password" `
   --query "AuthenticationResult.AccessToken" --output text
 
+$env:WREN_REQUIRE_APPROVAL = "never"   # keep set from Step 2; re-set here if you opened a new shell
 npm run deploy
 ```
 
@@ -277,14 +302,17 @@ If any step stops with exit code 3 or an error, read the printed instruction, co
 The default hosted deployment sets the target account, GitHub source + PAT, and the intended first administrator, then runs `npm run deploy` from the repository root:
 
 ```bash
-export WREN_EXPECTED_ACCOUNT_ID=YourAccountId    # required for prod / non-interactive; recommended everywhere
+export AWS_PROFILE=your-profile                  # selects the account (like `--profile`)
 export WREN_GITHUB_OWNER=YourOrgOrUser
 export WREN_GITHUB_REPO=WREN
 export WREN_GITHUB_BRANCH=main
 export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'
 export WREN_ADMIN_EMAIL=admin@example.com
+export WREN_REQUIRE_APPROVAL=never               # deploy runs CDK without a TTY; skips the interactive IAM prompt
 npm run deploy
 ```
+
+For production or non-interactive/CI runs, also set `export WREN_EXPECTED_ACCOUNT_ID=YourAccountId` as a guard; it is optional for interactive deploys where the profile already selects the account.
 
 (PowerShell/CMD equivalents are shown in the [step-by-step walkthrough](#step-2--start-the-deploy-run-1).)
 
@@ -319,11 +347,13 @@ For the default hosted deployment, set only the following variables before the f
 
 | Variable | Default | Standard deployment use |
 | --- | --- | --- |
-| `WREN_EXPECTED_ACCOUNT_ID` | unset | Your expected 12-digit AWS account ID. Strongly recommended everywhere; required for production or non-interactive deployments. |
+| `AWS_PROFILE` | AWS CLI default credential chain | The named AWS CLI/SSO profile that selects the target account — the environment-variable equivalent of `--profile <name>`. This is how you choose which account WREN deploys into; set it and you do not need to supply the account ID. |
+| `WREN_EXPECTED_ACCOUNT_ID` | unset | Optional safety guard: your expected 12-digit AWS account ID. When set, the deploy aborts if the active profile resolves to a different account. Optional for interactive deploys (the profile already selects the account); **required** for production or non-interactive deployments. |
 | `WREN_GITHUB_OWNER` / `WREN_GITHUB_REPO` | unset | GitHub owner and repository for the default Amplify-hosted frontend. |
 | `WREN_GITHUB_BRANCH` | `main` | GitHub branch deployed by Amplify. |
 | `WREN_GITHUB_TOKEN` | unset | GitHub personal access token used to create the Amplify and CI/CD secrets. **Required on first setup** because CI/CD is built by default; it can be omitted on later runs once both secrets already exist. |
 | `WREN_ENABLE_CICD` | `true` | Builds the CodePipeline CI/CD pipeline by default. Leave it at `true` for the standard path; set `false` only to skip the pipeline.
+| `WREN_REQUIRE_APPROVAL` | `broadening` interactively | Set to `never` for the standard `npm run deploy`. The deploy runs CDK without an attached terminal, so the default `broadening` prompt for IAM changes cannot be answered and aborts with `terminal (TTY) is not attached`. `never` applies those changes without prompting; for production, review the change first with `WREN_DRY_RUN=true`. |
 | `WREN_ADMIN_EMAIL` | unset | Email address for the intended first administrator. The guided first-admin flow uses this value to pick who becomes admin. |
 | `WREN_SMOKE_ACCESS_TOKEN` | unset | The first administrator's fresh Cognito **access token**, set only for the final first-admin run (step 3 above). It proves that user authenticates as an admin so the temporary elevation can be removed, and completes the authenticated smoke checks. Copy it from the signed-in session; never commit or persist it. |
 
@@ -341,12 +371,15 @@ Do not commit access tokens or GitHub personal access tokens to source control. 
 
 | Variable | Default | Use only when |
 | --- | --- | --- |
-| `AWS_PROFILE` | AWS CLI default credential chain | Selecting a named AWS CLI profile or SSO session. Standard AWS credential environment variables also work. |
+| `AWS_PROFILE` | AWS CLI default credential chain | Selecting a named AWS CLI profile or SSO session. This is the standard, recommended way to pick the target account (see [Variables for the standard deployment](#variables-for-the-standard-deployment)); it is listed here only for completeness. Standard AWS credential environment variables also work. |
 | `WREN_REGION` | `ca-central-1` | Deploying the data plane outside the default Region. The CloudFront WAF stack and its second CDK bootstrap remain in `us-east-1`. |
-| `WREN_APP_NAME` | `LEON` | Changing the user-facing display name in the UI and email. The default is `LEON` for backward compatibility with existing deployments; new deployments should set this to the intended display name (for example `WREN`). |
+| `WREN_APP_NAME` | `LEON` | Changing the user-facing display name in the UI and email. The default is `LEON` for backward compatibility with existing deployments; new deployments should set this to the intended display name (for example `WREN`). Should be done at the start of the deployment only |
+| `WREN_BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-6` | You only need this if your account/Region cannot access the default or you want to start on another model. A Technical Admin can change the model in-app afterward, and that choice overrides this deploy-time value. |
 | `WREN_PROJECT_NAME` | `wren` | Changing the lowercase resource-name prefix component. |
 | `WREN_ENVIRONMENT` | `dev` | Deploying a distinct environment, such as `staging` or `prod`. Production deployments require `WREN_EXPECTED_ACCOUNT_ID`. |
 | `WREN_STACK_PREFIX` | `{project}-{environment}` | Supplying the derived stack prefix explicitly. Its value must exactly equal `WREN_PROJECT_NAME-WREN_ENVIRONMENT`. |
+
+**Changing the stack prefix.** The stack prefix (default `wren-dev`, producing stacks like `wren-dev-Vpc`) is always derived as `{WREN_PROJECT_NAME}-{WREN_ENVIRONMENT}`. To change it, set those two variables — for example `WREN_PROJECT_NAME=myproject` and `WREN_ENVIRONMENT=staging` yields the prefix `myproject-staging`. Both must start with a lowercase letter and contain only lowercase letters, digits, or hyphens. `WREN_STACK_PREFIX` does **not** override the prefix freely; if set, it must exactly equal the derived value, so it only serves to assert the prefix you expect (the deploy fails otherwise). A prefix change names an entirely separate deployment (distinct stacks, resource names, and `/{prefix}/…` SSM paths) rather than renaming an existing one, and it starts a fresh deployment operation.
 
 #### Hosting, CI/CD, images, and ECR ownership
 
@@ -464,6 +497,18 @@ Monitoring is a detection and notification control, not an automatic rollback sy
 
 For a failed standard deployment, first complete the action printed by `npm run deploy` and rerun that same command. The direct CDK, bootstrap, ECR, and individual-stack commands in the entries below apply only when you deliberately drive CDK by hand (advanced recovery) instead of `npm run deploy`.
 
+**Issue: `Your session has expired. Please reauthenticate` (AWS CLI exits 255)**
+
+- Solution: your SSO session lapsed. Refresh it for your profile and rerun: `aws sso login --profile <your-profile>`, then `npm run deploy`. The deploy calls the AWS CLI directly, so there is no `--profile` flag to pass to `npm run deploy`; set `AWS_PROFILE` in the same terminal instead (see below).
+
+**Issue: the deploy uses the wrong account, or ignores the profile you expected**
+
+- Solution: the workflow selects the account from `AWS_PROFILE`, not from a `--profile` argument. Set it in the same shell before deploying — `export AWS_PROFILE=<your-profile>` (PowerShell: `$env:AWS_PROFILE = "<your-profile>"`) — and confirm with `aws sts get-caller-identity`. If you set `WREN_EXPECTED_ACCOUNT_ID` and see `AWS identity account ... does not match`, the profile resolves to a different account than the guard expects; point `AWS_PROFILE` at the intended account or clear `WREN_EXPECTED_ACCOUNT_ID` for an interactive deploy.
+
+**Issue: `Stack includes security-sensitive updates, but terminal (TTY) is not attached` (CDK exits 1)**
+
+- Solution: `npm run deploy` runs the CDK CLI as a piped subprocess, so CDK's default `broadening` approval mode has no terminal to prompt on and aborts. Set `WREN_REQUIRE_APPROVAL=never` in the same shell and rerun — `export WREN_REQUIRE_APPROVAL=never` (PowerShell: `$env:WREN_REQUIRE_APPROVAL = "never"`). This auto-approves the IAM-broadening changes; on production, first review them with `WREN_DRY_RUN=true`.
+
 **Issue: `npm run deploy` exits with code 3**
 
 - Solution: this is an intentional action-required pause, not a rollback. Complete the exact printed Bedrock, Cognito sign-up/confirmation, access-token, ownership, or CloudFormation recovery action and rerun the same command. Live AWS state is rediscovered.
@@ -526,7 +571,7 @@ For a failed standard deployment, first complete the action printed by `npm run 
 
 **Issue: User is not Technical Admin**
 
-- Solution: All bootstrap gates must be present on the genuinely first application login: exact `technicalAdminBootstrapSubject`, `SystemAdmin` membership, and no existing subject/email row. Do not keep retrying or leave bootstrap enabled; remove the context and redeploy Compute. Assign the role through the application once a Technical Admin exists, or follow your controlled database recovery procedure.
+- Solution: Two operator-controlled gates must both hold when the candidate signs in: the exact armed `technicalAdminBootstrapSubject` and `SystemAdmin` group membership. The candidate does **not** need to be a brand-new account — if they signed in once before the gate was armed (and so already have a `Student` row), completing the guided flow now elevates them in place, and they keep `Student` while also gaining `TechnicalAdmin`. If setup still fails, confirm the signed-in user's Cognito `sub` matches the armed subject and that they are in the `SystemAdmin` group, then rerun. Assign the role through the application once a Technical Admin exists, or follow your controlled database recovery procedure.
 
 **Issue: `cdk deploy` puts resources in the wrong region**
 
@@ -541,6 +586,30 @@ For a failed standard deployment, first complete the action printed by `npm run 
 - Solution: Stale local change to spec injection — deploy the current `ApiStack` `resolveSpec()` code and don't reintroduce string-injection of `Fn::Sub`.
 
 _The issues listed above represent the most common historical deploy bugs encountered in this repo, all of which have been resolved._
+
+---
+
+## Custom Domain Support
+
+WREN can serve the frontend on your own domain instead of only the default Amplify URL (`https://<branch>.<app-id>.amplifyapp.com`). The feature is entirely optional — no domain is baked into the project, and omitting it leaves deployment behavior unchanged.
+
+To enable it, set a bare hostname before deploying:
+
+```bash
+export WREN_CUSTOM_DOMAIN=example.com     # PowerShell: $env:WREN_CUSTOM_DOMAIN = "example.com"
+npm run deploy
+```
+
+When set, WREN maps the Amplify production branch to both the domain root (`https://example.com`) and its `www` subdomain (`https://www.example.com`), and prints a `CustomDomainUrl` stack output. WREN only creates the Amplify domain association — it does not create or modify any Route 53 or ACM resources, so the feature works regardless of where your DNS is hosted; Amplify manages the TLS certificate.
+
+There are two DNS paths:
+
+- **Hosted zone in the same AWS account (automatic).** If the domain's Route 53 hosted zone is in the account you deploy into, Amplify provisions the certificate and creates the DNS records automatically. No manual steps.
+- **DNS elsewhere (manual verification).** If the zone is in a different AWS account or with an external provider (Cloudflare, GoDaddy, etc.), open **AWS Console → Amplify → your app → Domain management** and add the certificate-validation and CNAME records it surfaces to your provider by hand.
+
+In both cases the certificate and domain association can take several minutes to become live. Until then the Amplify default domain keeps working, and the deploy workflow falls back to it for the post-deploy smoke test if the custom domain is not yet reachable.
+
+For the full reference, see [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain) and the `WREN_CUSTOM_DOMAIN` row in [Hosting, CI/CD, images, and ECR ownership](#hosting-cicd-images-and-ecr-ownership).
 
 ---
 
@@ -595,7 +664,7 @@ For the real protected teardown, set the exact confirmation string printed by th
 <summary>macOS/Linux</summary>
 
 ```bash
-export WREN_EXPECTED_ACCOUNT_ID=YourAccountId
+export AWS_PROFILE=your-profile                  # selects the account (like `--profile`)
 export WREN_GITHUB_OWNER=YourOrgOrUser
 export WREN_GITHUB_REPO=WREN
 export WREN_UNDEPLOY_CONFIRM=YourAccountId/DeploymentRegion/StackPrefix
@@ -608,7 +677,7 @@ npm run undeploy
 <summary>PowerShell</summary>
 
 ```powershell
-$env:WREN_EXPECTED_ACCOUNT_ID = "YourAccountId"
+$env:AWS_PROFILE = "your-profile"        # selects the account (like --profile)
 $env:WREN_GITHUB_OWNER = "YourOrgOrUser"
 $env:WREN_GITHUB_REPO = "WREN"
 $env:WREN_UNDEPLOY_CONFIRM = "YourAccountId/DeploymentRegion/StackPrefix"
@@ -621,7 +690,7 @@ npm run undeploy
 <summary>Windows CMD</summary>
 
 ```cmd
-set WREN_EXPECTED_ACCOUNT_ID=YourAccountId
+set AWS_PROFILE=your-profile
 set WREN_GITHUB_OWNER=YourOrgOrUser
 set WREN_GITHUB_REPO=WREN
 set WREN_UNDEPLOY_CONFIRM=YourAccountId/DeploymentRegion/StackPrefix
