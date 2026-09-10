@@ -1,8 +1,8 @@
 # WREN User Guide
 
-This guide covers how to get started with **WREN** — from creating your account to using it as a **Student**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
+Welcome to the WREN User Guide! This guide covers how to get started with **WREN** — from creating your account to using its features as a **Student**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
 
-**Names you will see:** **WREN** is the product name in the app. In the repository and AWS, the project prefix is **WREN**. The System Admin screens correspond to the `TechnicalAdmin` role in the API and database.
+Please note that this document follows different naming conventions. For instance, **WREN** is used to refer to the product in its broader application as a writing tool, while **LEON** refers to the product's origins in a legal context. **Both names refer to the same product.** Similarly, the term '**System Admin**' is used throughout the user guide to describe a role, but this role is referred to as the 'Technical Admin' role in the API and database.
 
 ## Table of Contents
 
@@ -64,25 +64,15 @@ This guide covers how to get started with **WREN** — from creating your accoun
 5. Return to the sign-up page and enter the code.
 6. Your account is ready. Continue to [1.1 Log In](#11-log-in).
 
-### 1.3 Choosing Your Account View
-
-Open your profile and select your account view. That choice sets which dashboard you see:
-
-- **Student** — drafts, AI Debrief, and Ask WREN. See [Part 2](#part-2-student-guide).
-- **Department Admin** — document types, evaluation rubrics, and type-level analytics. See [Part 3](#part-3-department-admin-guide).
-- **System Admin** — model, usage limits, departments, users, department prompts, and department analytics. See [Part 4](#part-4-system-admin-guide).
-
-You can switch views from your profile at any time if your account holds more than one role.
-
 ---
 
 ## Part 2: Student Guide
 
-On the **Student Dashboard** you will see your existing drafts, or an empty state if you have not created one yet.
+Once you have logged in, you will be taken to the **Student Dashboard,** where you will see any existing drafts.
 
 <img width="957" height="395" alt="Student dashboard" src="https://github.com/user-attachments/assets/a0050ec6-575d-48fe-bc46-d5aecbdb2107" />
 
-### 2.1 Creating a New Document Draft
+### 2.1 Creating a New Draft
 
 1. From the Student Dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
 <img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
@@ -95,49 +85,46 @@ On the **Student Dashboard** you will see your existing drafts, or an empty stat
 
 5. Give your draft a name.
 
-6. Click **Choose File** and select the DOCX file from your computer that you want to upload.
+6. Click **Choose File** and select the PDF or DOCX file from your computer that you want to upload. Uploading a DOCX file will provide formatting that is more accurate to the original document.
 
 <img width="956" height="368" alt="image" src="https://github.com/user-attachments/assets/5c284420-bbfa-4e77-b675-14e2dc247690" />
 
-8. After uploading, you will automatically be returned to the **My Documents** page, where you will now see your newly uploaded draft listed.
-9. After uploading, you will be taken to the following page:
+7. After uploading, you will be taken to the following page:
 <img width="956" height="415" alt="image" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
 
 ### 2.2 Opening and Reviewing Your Document
 
-1. From **All Documents**, click the draft you want to open. The editor shows a continuous document on the right and a side panel on the left.
-2. The document is not split into pages on screen. Headers and footers sit at the top and bottom of the draft. The **Contents** panel shows the draft version, word count, and an estimated printed page count (US Letter). Heading 1–3 styles build an outline; click a heading to jump to it.
-3. Hover or drag the scrollbar to see an estimated printed page, for example **Page 2 of 17**. That is how the document is expected to paginate on preview or export, not a live page break in the editor.
-4. The left icon rail switches the panel between **Contents**, **Ask WREN**, and **AI Debrief**.
-<img width="1912" height="829" alt="Editor with Ask WREN and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
+You are now on a dashboard for editing your document. You can edit the document directly on the right panel, using the document features in the menu bar such as the bold feature, font selection, size selection, highlighting, and more. If you wish to edit your draft on a separate document and get feedback following your revisions, you can use the 'upload a new draft' button to do so. 
 
-**Other options in this view:**
-
-- **Upload a new draft** — use this if changes were made to your document in another editor and you need LEON to review the updated version.
-  
 <img width="960" height="412" alt="image" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
 
-- **Export** — use this to download your document after changes have been made.
+The left panel hosts the various tools you may use to revise your draft. In the image below, AI Debrief is selected and opened. However, the sidebar also provides options to view the table of contents under the 'contents' icon and Ask LEON using the 'LEON' icon. 
+
+<img width="1912" height="829" alt="Editor with Ask WREN and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
+
+If you would like to download your draft, clicking the 'export' button allows download a PDF or DOCX, with or without the AI Debrief feedback.
 
 <img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/d31b8995-9545-4531-8c9e-04411dbd8c70" />
 
-- **Adjust the panel** — click on the grey bar on the right side of the AI debrief to expand or minimize the panel.
+Finally, to adjust the size of the panels, click the grey bar on the right side of the left panel.
 
 <img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/544ace4d-b433-437f-8472-14376b80b177" />
 
 ### 2.3 Using AI Debrief
 
-1. Click **Regenerate** to generate a new AI Debrief report on your document.
+The AI Debrief is where feedback is shared. When you upload a document, there won't be any feedback until the 'regenerate' button is clicked. 
+
 <img width="956" height="413" alt="image" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
-2. To view a previously generated report, click the **drop-down arrow** and select an earlier draft's report from the list.
+
+Once the button has been clicked, wait for the feedback to be generated. As you go through various iterations of your work, you may click the regenerate button to see if you have made any improvements in your writing. When the new AI Debrief appears, click the **drop-down arrow** to view earlier drafts. 
+
 <img width="959" height="416" alt="image" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
 
-1. Click **Ask WREN** (the WREN icon) on the left rail.
-2. Ask questions about the debrief, your draft, or writing craft (clarity, organization, tone, and similar).
-3. Click a quoted phrase in a reply to jump to that passage.
+You might have questions about the feedback the AI Debrief generated, or want some assistance in improving your writing. This is where Ask WREN comes in. Clicking on the 'WREN' icon brings you to the Ask WREN screen, where you can ask questions about the debrief, your draft, or aspects of writing such as clarity, organization, tone, and more. 
+
 <img width="958" height="412" alt="Ask WREN chat" src="https://github.com/user-attachments/assets/0b5d2ba7-27b3-4c33-a726-e6882021007e" />
 
-Ask WREN will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.
+**Ask WREN will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.**
 
 ### Quick Recap — Student
 
@@ -145,11 +132,11 @@ Ask WREN will not write or rewrite your sentences, fact-check legal or technical
 | --- | --- |
 | Create an account | Sign Up → email/password → verify the email code |
 | Log in | Login → email/password |
-| Start a new draft | Student Dashboard → New Document → department → document type → upload .docx or .pdf → Activate Editor |
+| Start a new draft | All documents → new document → department → document type → upload .docx or .pdf → activate editor |
 | Review AI feedback | Open document → AI Debrief |
 | Ask questions about your draft | Open document → Ask WREN |
-| Update a draft | Editor → Upload New Draft |
-| Save a copy | Editor → Export (DOCX or PDF) |
+| Update a draft | Left sidebar → Upload New Draft |
+| Save a copy | Left sidebar → Export (DOCX or PDF) |
 
 ---
 
@@ -157,83 +144,44 @@ Ask WREN will not write or rewrite your sentences, fact-check legal or technical
 
 As a **Department Admin**, you configure document types and evaluation criteria for the department(s) you administer, and you review aggregate analytics. Student-facing debriefs are generated against the rubric you save.
 
-After you choose **Department Admin** as your account view (see [1.3](#13-choosing-your-account-view)), you land on the Department Admin dashboard.
-
 ### 3.1 How the Department Admin Screens Are Organized
 
-- **Profile** — switch account view (Student / Department Admin / System Admin, depending on your roles).
-<img width="944" height="410" alt="Switch account view from profile" src="https://github.com/user-attachments/assets/60265c0f-df66-4185-ac91-986725b99043" />
-- **Dashboard** — document types for the department you are managing. If you administer more than one department, a selector on the banner switches which department you are editing. **Create New Document Type** is on the right.
+- **Dashboard** — document types for the department(s) you are managing. **Create New Document Type** allows you to create a new evaluation criteria and Ask WREN prompts, so you can tailor document assessments to your specific requirements. 
 <img width="943" height="412" alt="Department Admin dashboard" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
-- **Document type** — opens when you select a type. Two areas: **Evaluation Rubric** and **Analytics**.
+
+- **Document type** — The document type dashboard appears when you create a new document type or open an existing document type using the **manage document type** button. On the left sidebar, there are two pages the department admin can access:
+1. The Evaluation Rubric, shown in the image below, and;
+2. Analytics
 <img width="950" height="413" alt="Document type Evaluation Rubric and Analytics" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
-- **Evaluation Rubric** — **Document Context** (purpose, common mistakes, additional background, citation guide) and **Evaluation Criteria** (categories the AI should use). Click **Save Rubric** when you are done; this screen does not autosave.
+
+- **Evaluation Rubric** — On this page, you can provide document context and general guidance that serves as the foundation for all AI-generated feedback. You can select which criteria you want to show up in the AI Debrief by clicking the checkmarks next to each evaluation criteria. From there, you can click the drop-down menu next to 'edit' and fill in the prompts for what the evaluation criteria looks like for a document type, and the standard for the criterion. 
+**Click Save Rubric when you are done; this screen does not autosave.**
 <img width="935" height="409" alt="Evaluation Rubric categories" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
-- **Analytics** — student improvement trends, AI Debrief helpfulness (aggregate yes/no ratings), and section applicability. Figures are aggregates, not per-student scores.
-<img width="950" height="407" alt="Document type analytics" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
 
-- **Profile** — click your profile to switch your account view between Student and Department Admin.
-  
-<img width="1870" height="813" alt="image" src="https://github.com/user-attachments/assets/529f9101-fb8e-4dd8-9e32-9d36953b4ce4" />
-
-- **Dashboard** — the main screen after choosing Department Admin. Your existing document types are listed here, with the **Create New Document Type** button on the right side of the screen.
-  
-<img width="943" height="412" alt="image" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
-
-- **Document Controls** — opens when you select or create a document type. It's organized as two tabs: **Evaluation** and **Analytics**.
-  
-<img width="950" height="413" alt="image" src="https://github.com/user-attachments/assets/3c9ac6ea-feee-4d36-9d63-9f507a28a9e9" />
-
-- **Inside Evaluation Settings** — **General Information** sits at the top, followed by your list of **Categories**. Clicking a category opens its configuration form.
-
-<img width="935" height="409" alt="image" src="https://github.com/user-attachments/assets/361ff81e-4ba7-4dd5-ad90-c683bb13a939" />
-
-- **Inside Analytics** — **Student Improvement Trends** appears first, followed by **AI Debrief Helpfulness** and **Feedback Section Applicability**
-
-<img width="950" height="407" alt="image" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
-
-### 3.2 Opening a Document Type
-
-**Entering document type information**
-
-1. Go to the **document context** section.
-2. Enter a description of the document's purpose and expected content.
-3. Add any other reference information relevant to the document type.
-
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/7ee641f9-4749-404e-b308-146254404519" />
-
-**Select or create evaluation criteria**
-
-1. Select an existing category to open its configuration form, or
-2. Click **add custom criterion** to add a new one.
-
+If there is a criteria missing, you can click 'add custom criterion' to create a new one.
 <img width="859" height="401" alt="image" src="https://github.com/user-attachments/assets/47d93e8b-8b9d-404f-acac-57c5fd833046" />
 
-1. Expand **Document Context**.
-2. Fill in **Purpose**, **Common mistakes to avoid**, and **Additional background**.
-3. Optionally choose a **Citation guide** (for example McGill Guide) so the AI evaluates references consistently.
+- **Analytics** — The analytics screen provides a look at student improvement trends, AI Debrief helpfulness, and feedback section applicability.
+<img width="950" height="407" alt="Document type analytics" src="https://github.com/user-attachments/assets/1b1427c0-02f6-4dd2-9f74-ff7e1c45ed16" />
 
-1. Click into a category (e.g., "Clarity").
-2. Fill in the form with the requirements the AI should evaluate against for this document type — for example, what does clarity look like for an appellate factum?
-3. Your changes save automatically as you go, so you can leave and return without losing progress.
+Analytics lets you see how well the rubric is working for a document type. It answers three questions and provides aggregate data: 
+1. Are users improving over time?
+2. Do they find the AI Debrief helpful?
+3. Are the feedback sections you configured actually applying to real submissions.
 
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/c62f4476-d14e-4155-a50f-2ea6e1d7d27d" />
+If most users rate a category's feedback "not helpful," the wording in your Evaluation Rubric is probably too vague or off-target. That is a signal to go back to 3.2 and sharpen it.
+
+If a feedback section rarely marks as applicable, it may not fit the document type, and you can simplify the rubric by removing or rewording it.
 
 ### 3.3 Reviewing Analytics
+There are three parts to the analytics: 
 
-- **Student improvement** — how debrief-related signals change over time (date-range presets or custom range).
-- **AI Debrief helpfulness** — aggregate student ratings (helpful / not helpful) and optional comments.
-- **Section applicability** — whether feedback sections applied to the draft, in aggregate.
-
-View whether students addressed the feedback flagged their previous drafts.
-
+- **Student improvement** — assesses whether or not students have addressed the feedback flagged in their previous draft.
 <img width="706" height="399" alt="image" src="https://github.com/user-attachments/assets/d7558de7-dc06-495a-bd37-558cf0a87078" />
 <img width="544" height="122" alt="image" src="https://github.com/user-attachments/assets/8712c5ea-ffa1-4817-853f-fae22da2fe25" />
 
-**Check AI Debrief quality**
-
-1. Review the Helpfulness Breakdown - which provides a visual to see what percentage of feedback was both helpful and not helpful
-2. Review Feedback Section Applicability — applicable/not applicable indicators tied to each evaluation category you configured in [3.3 Setting Up Evaluation Settings](#33-setting-up-evaluation-settings) (e.g., "Was the tone feedback useful? Yes/No").
+- **AI Debrief helpfulness** — aggregate student ratings (helpful / not helpful) and optional comments.
+- **Section applicability** — whether feedback sections applied to the draft, in aggregate.
 
 <img width="1447" height="685" alt="image" src="https://github.com/user-attachments/assets/d70c2cf6-a983-4eb5-8d1f-c5f29e50a9a4" />
 
@@ -241,10 +189,8 @@ View whether students addressed the feedback flagged their previous drafts.
 
 | Action | What happens |
 | --- | --- |
-| Switch department | Use the department selector on the dashboard banner (if you administer more than one) |
-| Create a document type | Create New Document Type → name → Create |
-| Open a type | Click it in the list |
-| Set coaching rules | Evaluation Rubric → Document Context + criteria → Save Rubric |
+| Create a document type | Create New Document Type → Name → Create |
+| Set AI Debrief criteria | Evaluation Rubric → Document Context + Criteria → Save Rubric |
 | Check results | Analytics for that document type |
 
 ---
