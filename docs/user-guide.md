@@ -1,6 +1,6 @@
 # WREN User Guide
 
-Welcome to the WREN User Guide! This guide covers how to get started with **WREN** — from creating your account to using its features as a **Student**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
+Welcome to the WREN User Guide! This guide covers how to get started with **WREN** — from creating your account to using its features as a **Writer**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
 
 ## How to use this Guide
 WREN is an AI-assisted writing and feedback platform that helps users draft, review, and improve written work using document-specific criteria, AI-generated feedback, and guided writing support. 
