@@ -18,6 +18,7 @@ import { NotificationInfraConstruct } from "../constructs/NotificationInfraConst
 
 import type { AppDbRole } from "../appDbRoles.js";
 import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, type AppConfig } from "../config";
+import { corsLambdaEnvironment } from "../corsOrigins";
 
 /** IAM resources for us.anthropic.* / us.meta.* cross-region inference profiles. */
 function crisBedrockInvokeResources(region: string, account: string): string[] {
@@ -124,6 +125,7 @@ export class ComputeStack extends Stack {
       NODE_OPTIONS: "--enable-source-maps",
     });
     const secrets = props.databaseSecretArns;
+    const corsEnv = corsLambdaEnvironment(config);
 
     // Shared bundling config: workspace packages are resolved from the monorepo
     // root node_modules (npm workspaces hoist them there). esbuild runs from the
@@ -220,6 +222,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_document),
+        ...corsEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
         DOCUMENTS_KMS_KEY_ARN: props.storageEncryptionKey.keyArn,
         PDF_OCR_ENABLED: "true",
@@ -276,6 +279,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_admin),
+        ...corsEnv,
         ...activitySaltEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
@@ -303,6 +307,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_audit),
+        ...corsEnv,
         ...activitySaltEnv,
       },
       bundling: sharedBundling,
@@ -342,6 +347,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_feedback_orch),
+        ...corsEnv,
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
         CONVERSATION_TABLE_NAME: props.conversationTableName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
@@ -439,6 +445,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_notification),
+        ...corsEnv,
         NOTIFICATION_TOPIC_ARN: notificationInfra.topic.topicArn,
         OVERRIDE_EXPIRY_WARNING_HOURS: "24",
       },

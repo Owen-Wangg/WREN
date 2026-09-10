@@ -21,6 +21,7 @@ import {
 } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { conversationTableName, type AppConfig } from "../config.js";
+import { s3CorsAllowedOrigins } from "../corsOrigins.js";
 
 export interface StorageResourcesProps {
   readonly config: AppConfig;
@@ -112,13 +113,15 @@ export class StorageResources extends Construct {
       versioned: true,
       lifecycleRules: this.lifecycleRules(),
       removalPolicy: RemovalPolicy.RETAIN,
-      // Documents: browser PUT via presigned URL (create/ingest flow).
+      // Documents: browser POST via presigned URL (create/ingest flow).
+      // Reference material is uploaded by the Admin Lambda (PutObject), not
+      // the browser — no CORS on that bucket.
       ...(name === "Documents"
         ? {
             cors: [
               {
                 allowedMethods: [HttpMethods.PUT, HttpMethods.POST, HttpMethods.GET, HttpMethods.HEAD],
-                allowedOrigins: ["*"],
+                allowedOrigins: s3CorsAllowedOrigins(this.props.config),
                 allowedHeaders: ["*"],
                 exposedHeaders: ["ETag"],
                 maxAge: 3000,

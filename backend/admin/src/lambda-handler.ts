@@ -47,7 +47,7 @@ import {
   updatePlatformUsagePolicy,
 } from './lifetimeUsagePolicy';
 import type { QueryExecutor } from './db';
-import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
+import { parseAuthContext, wrapHandler, withCors, bindCorsOrigin } from './lambda-utils';
 import { AuthorizationError, NotFoundError, PromptInjectionError } from './errors';
 import { PromptGuardrailError } from './promptGuardrail';
 import { assertCanListDepartmentUsers, requireCapability } from './capabilityGuard';
@@ -134,6 +134,7 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
     return syncCognitoAdminsHandler(event);
   }
 
+  bindCorsOrigin(event);
   try {
     const { httpMethod, resource } = event;
 

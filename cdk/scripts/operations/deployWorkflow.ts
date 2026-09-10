@@ -1136,8 +1136,8 @@ export class DeployWorkflow {
       // Prefer the custom domain when configured, but its certificate/DNS may
       // not be live yet. Try it first; on any failure fall back to the Amplify
       // default domain (always available) so the smoke test still verifies the
-      // frontend. API CORS returns `*`, so either origin satisfies the
-      // preflight assertion below.
+      // frontend. API CORS echoes the request Origin when it is localhost,
+      // the custom domain, or an Amplify default host.
       const reachable = async (host: string): Promise<boolean> => {
         try {
           const response = await fetch(`https://${host}/`, { signal: AbortSignal.timeout(30_000) });

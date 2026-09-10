@@ -63,13 +63,22 @@ const github = {
   repo: ctxOrEnv("githubRepo", "GITHUB_REPO"),
   branch: ctxOrEnv("githubBranch", "GITHUB_BRANCH") ?? "main",
 };
-const enableCicd = boolCtxOrEnv("enableCicd", "WREN_ENABLE_CICD");
-const ecrOwnership = ctxOrEnv("ecrOwnership", "WREN_ECR_OWNERSHIP") ?? "managed";
+// Default ON, matching the deploy workflow (config.ts defaults WREN_ENABLE_CICD
+// to true). cdk.json also sets `enableCicd: true` in context; this explicit
+// fallback keeps a bare `cdk deploy` (no context, no env var) from silently
+// dropping the pipeline. Opt out with `-c enableCicd=false` or WREN_ENABLE_CICD=false.
+const enableCicd = boolCtxOrEnv("enableCicd", "WREN_ENABLE_CICD", true);
+const ecrOwnership =
+  ctxOrEnv("ecrOwnership", "WREN_ECR_OWNERSHIP") ?? "managed";
 if (ecrOwnership !== "managed" && ecrOwnership !== "external") {
-  throw new Error("ecrOwnership/WREN_ECR_OWNERSHIP must be 'managed' or 'external'");
+  throw new Error(
+    "ecrOwnership/WREN_ECR_OWNERSHIP must be 'managed' or 'external'",
+  );
 }
 if (enableCicd && (!github.owner || !github.repo)) {
-  throw new Error("GitHub owner and repository are required when CI/CD is enabled");
+  throw new Error(
+    "GitHub owner and repository are required when CI/CD is enabled",
+  );
 }
 
 // Mandatory deployment prerequisites retain their historical Cicd stack
@@ -135,7 +144,8 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   conversationTableName: storageStack.conversationTableName,
   userPoolId: cognitoStack.userPoolId,
   userPoolClientId: cognitoStack.userPoolClientId,
-  promptGuardrailId: configStack.parameters.promptGuardrailIdParameter.stringValue,
+  promptGuardrailId:
+    configStack.parameters.promptGuardrailIdParameter.stringValue,
 });
 
 // The prerequisite stack is always present, so use its real managed-policy

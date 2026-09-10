@@ -563,7 +563,7 @@ For CDK property names, IAM grants, and the step-by-step CMK changes for each st
 
 > **Do not** turn off `enforceSSL` or `BlockPublicAccess.BLOCK_ALL` on the buckets.
 
-> **Production security note.** API Gateway currently permits `Access-Control-Allow-Origin: *` — this is the deployed default (`allowedOrigins = "*"` in `ApiStack.ts`, applied to both the CORS `OPTIONS` responses and the gateway error responses). Production should set `allowedOrigins` to the specific Amplify application origin. Verify the deployed value before treating the production configuration as complete.
+> **CORS.** API Gateway OPTIONS and Lambda responses echo `Access-Control-Allow-Origin` for local Vite, the configured `customDomain` (plus `www`), extra `-c corsAllowedOrigins=...` values, and Amplify default hosts — not `*`. The documents bucket CORS list is the same exact origins plus `https://*.amplifyapp.com` (S3 cannot use a regex). The reference bucket has no CORS: admin uploads go through the Admin Lambda, not a browser presign.
 
 ---
 

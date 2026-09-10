@@ -115,4 +115,13 @@ describe("ComputeStack — prompt-cache Lambda environment", () => {
     expect(orchestrator.CACHE_MODE).toBe("off");
     expect(engine.CACHE_MODE).toBe("off");
   });
+
+  it("propagates the CORS origin allowlist to the orchestrator (not the engine)", () => {
+    const { orchestrator, engine } = synthFeedbackEnv(
+      testConfig({ customDomain: "coach.example.com" }),
+    );
+    expect(orchestrator.CORS_ALLOWED_ORIGINS).toContain("https://coach.example.com");
+    expect(orchestrator.CORS_ALLOW_AMPLIFY_ORIGINS).toBe("true");
+    expect(engine.CORS_ALLOWED_ORIGINS).toBeUndefined();
+  });
 });

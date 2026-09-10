@@ -569,6 +569,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
     },
     "build": {
       "commands": [
+        "IMAGE_TAG=src-\${CODEBUILD_RESOLVED_SOURCE_VERSION:0:12}",
         "docker build -t ",
                 {
                   "Fn::Select": [
@@ -611,7 +612,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 {
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
-                ":$CODEBUILD_RESOLVED_SOURCE_VERSION backend/engine/python/",
+                ":$IMAGE_TAG backend/engine/python/",
         "docker push ",
                 {
                   "Fn::Select": [
@@ -654,7 +655,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 {
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
-                ":$CODEBUILD_RESOLVED_SOURCE_VERSION",
+                ":$IMAGE_TAG",
         "docker tag ",
                 {
                   "Fn::Select": [
@@ -697,7 +698,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 {
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
-                ":$CODEBUILD_RESOLVED_SOURCE_VERSION ",
+                ":$IMAGE_TAG ",
                 {
                   "Fn::Select": [
                     4,
@@ -825,8 +826,8 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 {
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
-                ":$CODEBUILD_RESOLVED_SOURCE_VERSION\\" > image-uri.txt",
-        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$CODEBUILD_RESOLVED_SOURCE_VERSION -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
+                ":$IMAGE_TAG\\" > image-uri.txt",
+        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
       ]
     }
   },

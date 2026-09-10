@@ -5,6 +5,7 @@ import {
   resolveLambdaConcurrency,
   type LambdaConcurrencyConfig,
 } from "./lambdaConcurrency.js";
+import { parseCorsAllowedOrigins } from "./corsOrigins.js";
 
 /**
  * Single-source defaults for the CDK application.
@@ -169,6 +170,14 @@ export interface AppConfig {
    * domain. No domain is ever hard-coded.
    */
   readonly customDomain?: string;
+  /**
+   * Extra exact browser origins for API/S3 CORS (scheme://host[:port]).
+   * Local Vite (`http://localhost:5173`, `http://127.0.0.1:5173`) and
+   * {@link customDomain} (plus `www`) are always included. Amplify default
+   * hosts are matched separately (`*.amplifyapp.com`). Override with
+   * `-c corsAllowedOrigins=https://a.example,https://b.example`.
+   */
+  readonly corsAllowedOrigins: readonly string[];
   /** Account/region passed to every stack. */
   readonly env: Required<Pick<Environment, "region">> & Environment;
 }
@@ -249,6 +258,7 @@ function resolveCacheEnabledWorkloads(raw: string | undefined): CacheWorkload[] 
  *   - `cacheTtl`        -> `5m|1h`, defaults to `5m`
  *   - `cacheEnabledWorkloads` -> comma-separated workloads, defaults to none
  *   - `stackPrefix`     -> defaults to `${projectName}-${environmentName}`
+ *   - `corsAllowedOrigins` -> extra exact CORS origins, comma-separated
  *
  * Override at synth/deploy time, e.g.:
  *   cdk synth -c appName="My Coach" -c environmentName=prod
@@ -274,6 +284,7 @@ export function resolveAppConfig(app: App): AppConfig {
   const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
   const lambdaConcurrency = resolveLambdaConcurrency((key) => readContext(app, key));
   const customDomain = readContext(app, "customDomain");
+  const corsAllowedOrigins = parseCorsAllowedOrigins(readContext(app, "corsAllowedOrigins"));
 
   // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
   // The region is resolved from the `region` context key and otherwise pinned
@@ -297,6 +308,7 @@ export function resolveAppConfig(app: App): AppConfig {
     stackPrefix,
     lambdaConcurrency,
     ...(customDomain ? { customDomain } : {}),
+    corsAllowedOrigins,
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,
       region,

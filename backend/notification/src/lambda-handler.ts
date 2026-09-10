@@ -12,23 +12,20 @@ import type {
   SQSEvent,
 } from 'aws-lambda';
 import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
+import { bindCorsOrigin, withCorsHeaders } from '@wren/auth';
 import { NotificationServiceImpl } from './notificationService';
 import { NotificationTypeCatalogServiceImpl } from './catalogService';
 import { checkOverrideExpiry } from './overrideExpiryHandler';
 import type { NotificationEvent } from './types';
 
-// Shared CORS headers for API Gateway responses.
 function withCors(response: APIGatewayProxyResult): APIGatewayProxyResult {
-  return {
+  return withCorsHeaders({
     ...response,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
       ...response.headers,
     },
-  };
+  });
 }
 
 /** Parse the auth context from the API Gateway event (set by the Lambda authorizer). */
@@ -114,6 +111,7 @@ async function handleScheduledEvent(): Promise<void> {
 // API Gateway Handler — REST endpoints
 // ---------------------------------------------------------------------------
 async function handleApiEvent(event: any): Promise<APIGatewayProxyResult> {
+  bindCorsOrigin(event);
   try {
     const { httpMethod, resource } = event;
 

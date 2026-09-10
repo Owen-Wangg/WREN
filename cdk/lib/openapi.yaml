@@ -32,8 +32,11 @@ x-amazon-apigateway-request-validators:
 x-amazon-apigateway-request-validator: params-only
 
 x-amazon-apigateway-cors:
+  # OPTIONS methods are overwritten in ApiStack.ts with an origin allowlist
+  # (localhost, customDomain, corsAllowedOrigins, Amplify default hosts).
+  # This extension is documentation only; it is not the deployed CORS policy.
   allowedOrigins:
-    - "*"
+    - "http://localhost:5173"
   allowedMethods:
     - GET
     - POST

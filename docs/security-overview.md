@@ -193,9 +193,16 @@ API Gateway stage throttling (see [4.2](#42-request-validation)) applies on both
 
 ### 4.4 CORS
 
-**Current limitation:** CORS currently allows all origins (`*`), with methods `GET,POST,PUT,PATCH,DELETE,OPTIONS`. Gateway-generated 401/403/5xx responses include the same CORS headers so browsers surface the real status instead of a false CORS failure.
+API Gateway OPTIONS preflight and `aws_proxy` Lambda responses echo `Access-Control-Allow-Origin` only for:
 
-This is acceptable for development but should be restricted to the deployed application origin (the Amplify / application domain) before production. CORS is a browser control and does not replace API authentication or authorization — `Access-Control-Allow-Origin: *` does not mean the API is unauthenticated.
+- local Vite (`http://localhost:5173`, `http://127.0.0.1:5173`)
+- the configured `customDomain` (and `www`) when present
+- extra exact origins from `-c corsAllowedOrigins=...`
+- Amplify default hosts (`https://{branch}.{appId}.amplifyapp.com`)
+
+Allowed methods are `GET,POST,PUT,PATCH,DELETE,OPTIONS`. Gateway-generated 401/403/5xx responses echo the request `Origin` so browsers surface the real status instead of a false CORS failure; preflight is the allowlist gate.
+
+CORS is a browser control and does not replace API authentication or authorization. A missing `Access-Control-Allow-Origin` does not mean the API is unauthenticated — it means that browser origin is not allowed to read the response.
 
 ### 4.5 Upload Security
 

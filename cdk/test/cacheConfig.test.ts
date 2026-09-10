@@ -76,4 +76,11 @@ describe("resolveAppConfig — optional custom domain", () => {
   it("maps the customDomain context key into AppConfig", () => {
     expect(resolve({ customDomain: "cloud-inov.com" }).customDomain).toBe("cloud-inov.com");
   });
+
+  it("parses corsAllowedOrigins and defaults to none", () => {
+    expect(resolve().corsAllowedOrigins).toEqual([]);
+    expect(
+      resolve({ corsAllowedOrigins: "https://a.example, https://b.example" }).corsAllowedOrigins,
+    ).toEqual(["https://a.example", "https://b.example"]);
+  });
 });

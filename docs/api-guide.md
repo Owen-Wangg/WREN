@@ -132,7 +132,7 @@ The authorizer also accepts a raw JWT without the `Bearer ` prefix.
 
 API Gateway throttling: **100** requests/second sustained, **200** burst.
 
-**CORS:** REST methods return CORS headers on both success and gateway-generated `401`/`403` responses. The deployed API stack currently allows all origins (`Access-Control-Allow-Origin: *`) and should be tightened for production. See [CORS](#cors) under Security Considerations for the full allowed methods and headers.
+**CORS:** REST methods return CORS headers on both success and gateway-generated `401`/`403` responses. Preflight echoes `Access-Control-Allow-Origin` only for local Vite, the configured custom domain, extra `corsAllowedOrigins`, and Amplify default hosts — never `*`. See [CORS](#cors) under Security Considerations for the full allowed methods and headers.
 
 ## Error Responses
 
@@ -2091,11 +2091,11 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/admi
 
 REST methods support CORS. Deployed gateway responses include:
 
-- `Access-Control-Allow-Origin: *`
+- `Access-Control-Allow-Origin: <request Origin>` when that origin is local Vite, the configured custom domain, an extra `corsAllowedOrigins` value, or an Amplify default host
 - `Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS`
 - `Access-Control-Allow-Headers: Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent`
 
-Tighten origins for production (the Api stack currently allows `*`).
+Add extra exact origins at synth with `-c corsAllowedOrigins=https://a.example,https://b.example`.
 
 ### Input Validation
 
