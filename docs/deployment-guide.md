@@ -1,6 +1,6 @@
 # WREN — AWS Deployment Guide
 
-This guide deploys the WREN writing coach into an AWS account. AWS resource names use the `wren` project prefix. The user-facing display name is set by `WREN_APP_NAME`, which defaults to `LEON` for backward compatibility; new deployments should set it to the intended display name (for example `WREN`). See [Advanced deployment configuration](#advanced-deployment-configuration).
+This guide deploys the WREN writing coach into an AWS account.
 
 ## Table of Contents
 
@@ -20,7 +20,6 @@ This guide deploys the WREN writing coach into an AWS account. AWS resource name
     - [Step 5 — Confirm it's up](#step-5--confirm-its-up)
   - [Deployment](#deployment)
     - [Deployment workflow implementation](#deployment-workflow-implementation)
-    - [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built)
     - [Variables for the standard deployment](#variables-for-the-standard-deployment)
     - [Advanced deployment configuration](#advanced-deployment-configuration)
       - [AWS target and application identity](#aws-target-and-application-identity)
@@ -87,7 +86,7 @@ Before you deploy, you must have the following installed on your device:
 
 ### Access Tokens
 
-You also need a GitHub repository this account can read (a fork of WREN or the original) and a GitHub personal access token (PAT). The exact scopes and where to create it are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup). A separate, short-lived token (`WREN_SMOKE_ACCESS_TOKEN`) is used once during first-admin setup — see [Step 4](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3).
+You also need a GitHub repository this account can read (a fork of WREN) and a GitHub personal access token (PAT). The exact scopes and where to create it are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup). A separate, short-lived token (`WREN_SMOKE_ACCESS_TOKEN`) is used once during first-admin setup — see [Step 4](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3).
 
 ### Enable and Verify Bedrock Model Access
 
@@ -127,13 +126,13 @@ This is the recommended path for a first-time deployment. Follow the steps in or
 
 ### Step 1 — Prerequisites (one-time setup)
 
-1. Install the tools in [Requirements](#requirements) (git, AWS CLI v2, Node.js 22+). **No local Docker is needed** — the Feedback Engine image builds in AWS CodeBuild.
+1. Install the tools in [Requirements](#requirements) (git, AWS CLI v2, Node.js 22+).
 2. Sign in to AWS and confirm the account: `aws sts get-caller-identity` shows the account you intend to deploy into.
 3. **Enable the Bedrock model.** In the AWS Console, open **Amazon Bedrock → Model access** in your target Region and enable the default model (`us.anthropic.claude-sonnet-4-6`) or the one you set in `WREN_BEDROCK_MODEL_ID`. Without this, the app deploys but feedback generation fails at runtime. The deploy verifies model access early and pauses with an actionable message if it's missing.
 4. **Create a GitHub personal access token (PAT).** You need a GitHub repo this account can read (a fork of WREN or the original). Create a token at **GitHub → Settings → Developer settings → Personal access tokens**:
    - Classic token: enable the **`repo`** scope (and **`admin:repo_hook`** so the CI/CD pipeline can register its webhook).
    - Fine-grained token: grant the target repository **Contents: read** and **Webhooks: read and write**.
-   - You only need this if Amplify or the CI/CD pipeline are enabled (both are on by default). Copy the token somewhere safe for Step 2.
+
 5. Ensure a **clean git working tree** at the commit you want to deploy (`git status` shows nothing to commit). The image is built from a snapshot of the committed revision, so uncommitted changes are not included.
 
 ### Step 2 — Start the deploy (run #1)
@@ -228,6 +227,7 @@ npm run deploy
 </details>
 
 <details>
+
 <summary>PowerShell — fetch the token and rerun</summary>
 
 ```powershell
@@ -313,28 +313,6 @@ The runnable workflow is intentionally kept in source alongside the infrastructu
 
 Use this guide for operator inputs, safety gates, and recovery behavior. Consult the linked workflow modules when extending the deployment sequence or diagnosing an implementation-specific failure; changes should preserve the documented ordering, secret-handling, and retention guarantees.
 
-### How the Feedback Engine image is built
-
-The Feedback Engine runs as a Lambda **container image**. That image is built in **AWS CodeBuild**, not on your machine — so no local Docker daemon is a prerequisite. CodeBuild still uses Docker internally (the same `backend/engine/python/Dockerfile`); the change is only *where* the build runs.
-
-At the `feedback-image` stage of `npm run deploy`, the workflow:
-
-1. **Resolves the exact revision** with `git rev-parse HEAD` and **requires a clean working tree**. Because the build uses a snapshot of the committed revision, uncommitted changes are never in the image; a dirty tree stops the deploy with an actionable message.
-2. **Verifies the CDK bootstrap assets bucket** (`cdk-hnb659fds-assets-<account>-<region>`) exists. If it is missing, the deploy fails clearly and points you to `cdk bootstrap` (the workflow bootstraps it automatically when `WREN_BOOTSTRAP_MISSING=true`) rather than surfacing an opaque CodeBuild error.
-3. **Uploads a source snapshot** produced by `git archive <sha>` to a **SHA-based key**: `wren-bootstrap-source/${stackPrefix}/<sha>.zip`. The key encodes the commit, so the build input is pinned by object key — no dependency on S3 versioning or a VersionId.
-4. **Starts the standing `${stackPrefix}-bootstrap-image` CodeBuild project** against that snapshot, overriding `IMAGE_TAG` with a commit-scoped tag (`src-<first 12 of sha>`), and waits for it to finish.
-5. **Records the resulting ECR image digest** in the deployment checkpoint alongside the source commit.
-
-Key properties:
-
-- **The digest is authoritative and is what deploys.** The immutable `sha256:...` digest identifies exactly what was built, is recorded in the checkpoint, and is what the deployed Lambda is pinned to. The commit-scoped `src-<shortsha>` and mutable `:bootstrap` tags are human-facing lookup labels only, so repointing a tag cannot change the running image. See the [digest/tag note](./dependency-management.md#feedback-engine-the-heavy-python-runtime) in the dependency guide.
-- **Commit-safe reuse.** A rerun reuses an existing image only when it is provably built from the revision being deployed (the checkpoint's recorded source commit matches `HEAD`). A pre-existing tag alone never causes a different commit's image to be deployed — if the commit differs, the image is rebuilt. Moving `HEAD` therefore forces a rebuild.
-- **No GitHub credential needed for the image.** The snapshot comes from your local clone via `git archive`, so building the bootstrap image requires no GitHub PAT or GitHub→CodeBuild connection. (A PAT is still needed for the optional Amplify frontend and the ongoing CI/CD pipeline.)
-- **`enableCicd` does not gate this build.** The bootstrap CodeBuild project is **deployment infrastructure** created in the `Cicd` stack at the `prerequisites` stage and is present whether or not the ongoing CI/CD pipeline is enabled. `WREN_ENABLE_CICD` controls only the ongoing pipeline.
-- **Overriding the tag.** `WREN_ENGINE_IMAGE_TAG` overrides the commit-scoped tag. It bypasses commit-scoping, so its safe reuse relies on the checkpoint's recorded source commit matching the revision being deployed.
-
-If you ever need to build the image by hand (an emergency escape hatch, not the normal path), the manual `docker build backend/engine/python/` + ECR push described in [docs/dependency-management.md](./dependency-management.md) still works from a machine with Docker.
-
 ### Variables for the standard deployment
 
 For the default hosted deployment, set only the following variables before the first `npm run deploy`. The first-admin token is a follow-up input, not a first-run requirement.
@@ -345,7 +323,7 @@ For the default hosted deployment, set only the following variables before the f
 | `WREN_GITHUB_OWNER` / `WREN_GITHUB_REPO` | unset | GitHub owner and repository for the default Amplify-hosted frontend. |
 | `WREN_GITHUB_BRANCH` | `main` | GitHub branch deployed by Amplify. |
 | `WREN_GITHUB_TOKEN` | unset | GitHub personal access token used to create the Amplify and CI/CD secrets. **Required on first setup** because CI/CD is built by default; it can be omitted on later runs once both secrets already exist. |
-| `WREN_ENABLE_CICD` | `true` | Builds the CodePipeline CI/CD pipeline by default. Leave it at `true` for the standard path; set `false` only to skip the pipeline (the `Cicd` prerequisite stack is still created). |
+| `WREN_ENABLE_CICD` | `true` | Builds the CodePipeline CI/CD pipeline by default. Leave it at `true` for the standard path; set `false` only to skip the pipeline.
 | `WREN_ADMIN_EMAIL` | unset | Email address for the intended first administrator. The guided first-admin flow uses this value to pick who becomes admin. |
 | `WREN_SMOKE_ACCESS_TOKEN` | unset | The first administrator's fresh Cognito **access token**, set only for the final first-admin run (step 3 above). It proves that user authenticates as an admin so the temporary elevation can be removed, and completes the authenticated smoke checks. Copy it from the signed-in session; never commit or persist it. |
 
@@ -369,7 +347,6 @@ Do not commit access tokens or GitHub personal access tokens to source control. 
 | `WREN_PROJECT_NAME` | `wren` | Changing the lowercase resource-name prefix component. |
 | `WREN_ENVIRONMENT` | `dev` | Deploying a distinct environment, such as `staging` or `prod`. Production deployments require `WREN_EXPECTED_ACCOUNT_ID`. |
 | `WREN_STACK_PREFIX` | `{project}-{environment}` | Supplying the derived stack prefix explicitly. Its value must exactly equal `WREN_PROJECT_NAME-WREN_ENVIRONMENT`. |
-| `WREN_BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-6` | Using an approved, available Bedrock inference profile other than the default. The workflow verifies it with a minimal invocation before deployment. |
 
 #### Hosting, CI/CD, images, and ECR ownership
 

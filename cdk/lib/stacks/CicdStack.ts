@@ -293,16 +293,23 @@ export class CicdStack extends Stack {
           },
           build: {
             commands: [
-              `docker build -t ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION backend/engine/python/`,
-              `docker push ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION`,
+              // Derive a prefixed, human-readable ECR tag (`src-<shortsha>`)
+              // from the resolved commit SHA. Using the raw
+              // $CODEBUILD_RESOLVED_SOURCE_VERSION (a 40-char hex SHA) would
+              // leave the repo tagged with bare hex codes; `src-<shortsha>`
+              // matches the operator deploy path (commitImageTag) so both build
+              // routes tag identically and the tag is legible in the ECR console.
+              "IMAGE_TAG=src-${CODEBUILD_RESOLVED_SOURCE_VERSION:0:12}",
+              `docker build -t ${this.ecrRepository.repositoryUri}:$IMAGE_TAG backend/engine/python/`,
+              `docker push ${this.ecrRepository.repositoryUri}:$IMAGE_TAG`,
               // Also keep bootstrap tag current so CloudFormation can always reference it
-              `docker tag ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION ${this.ecrRepository.repositoryUri}:bootstrap`,
+              `docker tag ${this.ecrRepository.repositoryUri}:$IMAGE_TAG ${this.ecrRepository.repositoryUri}:bootstrap`,
               `docker push ${this.ecrRepository.repositoryUri}:bootstrap`,
-              `echo "${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION" > image-uri.txt`,
+              `echo "${this.ecrRepository.repositoryUri}:$IMAGE_TAG" > image-uri.txt`,
               // Synth with the same stackPrefix/environment as this pipeline so
               // cdk.out/${stackPrefix}-Compute.assets.json actually exists
               // (cdk.json defaults to environmentName=dev otherwise).
-              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c feedbackEngineImageTag=$CODEBUILD_RESOLVED_SOURCE_VERSION -c auditPseudonymSaltOwnership=${config.auditPseudonymSaltOwnership} -c enableCicd=true -c ecrOwnership=${props.ecrOwnership ?? "managed"} -c githubOwner=${repositoryOwner} -c githubRepo=${repositoryNameFromSource} -c githubBranch=${branch} && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
+              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=${config.auditPseudonymSaltOwnership} -c enableCicd=true -c ecrOwnership=${props.ecrOwnership ?? "managed"} -c githubOwner=${repositoryOwner} -c githubRepo=${repositoryNameFromSource} -c githubBranch=${branch} && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
             ],
           },
         },
