@@ -73,6 +73,34 @@ WHERE NOT EXISTS (
 `;
 
 /**
+ * Grant TechnicalAdmin to an ALREADY-PROVISIONED user during first-admin
+ * bootstrap (REQ-SEC-ROLE-01).
+ *
+ * The authorizer only calls {@link ensureAppUser} when a subject has no
+ * app_user row yet, so its group-seeded elevation is unreachable for a
+ * candidate who already signed in (which the app forces immediately after
+ * signup by auto-loading the dashboard). This function closes that gap: it is
+ * called on any authenticated request while the deploy has armed the exact
+ * candidate subject, and adds the TechnicalAdmin role in place.
+ *
+ * Safety: the SOLE gate is the operator-armed exact-subject match, which the
+ * caller MUST verify before calling (`armedSubject === idpSubject`). That is an
+ * operator-controlled signal set only by the guided deploy and stripped again
+ * immediately after verification. Unlike {@link ensureAppUser}, this path does
+ * NOT consult `cognito:groups`: the REST authorizer verifies access tokens,
+ * which do not reliably carry `cognito:groups`, so a group claim cannot be
+ * relied on here. The armed subject is sufficient and is never derived from the
+ * token. Idempotent: the insert is a no-op if the role already exists, and this
+ * is only invoked when the caller has confirmed the role is absent.
+ */
+export async function ensureTechnicalAdminForArmedSubject(
+  db: QueryExecutor,
+  userId: string,
+): Promise<void> {
+  await db.query(ENSURE_TECHNICAL_ADMIN_ROLE_SQL, [userId]);
+}
+
+/**
  * Ensure an `app_user` exists for the verified IdP subject and has at least the
  * default Student role. Idempotent under concurrent first-login requests.
  */

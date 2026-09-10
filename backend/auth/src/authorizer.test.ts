@@ -243,3 +243,113 @@ describe('Lambda authorizer', () => {
     expect(result.context?.email).toBe('writer@example.com');
   });
 });
+
+/**
+ * First-admin bootstrap for an ALREADY-PROVISIONED candidate (option 2a).
+ *
+ * These exercise the authorizer end-to-end for a user who already has a Student
+ * row — the case the app forces by auto-loading the dashboard on signup, and
+ * the one the `if (!context)` first-login path can never reach. The verifier
+ * returns `groups: []` (as a real Cognito ACCESS token does), so these also
+ * prove the elevation does NOT depend on the `cognito:groups` claim: the sole
+ * gate is the operator-armed exact subject.
+ */
+describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
+  const SUBJECT = USER.idp_subject;
+  const ORIGINAL_ARMED = process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT;
+
+  /**
+   * DB fake that tracks role rows precisely, distinguishing the Student insert
+   * from the TechnicalAdmin insert (unlike the shared makeDb, which always
+   * pushes Student).
+   */
+  function makeRoleTrackingDb(initialRoles: RoleAssignmentRow[]): {
+    db: QueryExecutor;
+    roles: () => string[];
+  } {
+    const roleRows: RoleAssignmentRow[] = [...initialRoles];
+    const db: QueryExecutor = {
+      async query<Row>(text: string, params: readonly unknown[] = []): Promise<Row[]> {
+        if (text.includes("'TechnicalAdmin'")) {
+          if (!roleRows.some((r) => r.role === 'TechnicalAdmin')) {
+            roleRows.push({ role: 'TechnicalAdmin', scope: null });
+          }
+          return [] as unknown as Row[];
+        }
+        if (text.includes("'Student'")) {
+          if (!roleRows.some((r) => r.role === 'Student')) {
+            roleRows.push({ role: 'Student', scope: null });
+          }
+          return [] as unknown as Row[];
+        }
+        if (text.includes('SELECT id FROM app_user')) {
+          return (params[0] === SUBJECT ? [{ id: USER.id }] : []) as unknown as Row[];
+        }
+        if (text.includes('FROM app_user')) {
+          return (params[0] === SUBJECT ? [USER] : []) as unknown as Row[];
+        }
+        if (text.includes('FROM role_assignment')) {
+          return roleRows as unknown as Row[];
+        }
+        if (text.includes('FROM access_grant')) {
+          return [] as unknown as Row[];
+        }
+        throw new Error(`unexpected query: ${text}`);
+      },
+    };
+    return { db, roles: () => roleRows.map((r) => r.role) };
+  }
+
+  afterEach(() => {
+    if (ORIGINAL_ARMED === undefined) delete process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT;
+    else process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = ORIGINAL_ARMED;
+  });
+
+  it('elevates an already-provisioned Student when their exact subject is armed', async () => {
+    process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = SUBJECT;
+    const { db, roles } = makeRoleTrackingDb([{ role: 'Student', scope: null }]);
+    const handler = createAuthorizerHandler(async () => depsFor(db));
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    // The freshly granted role is reflected in THIS request's context.
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student', 'TechnicalAdmin']);
+    expect(roles()).toEqual(['Student', 'TechnicalAdmin']);
+  });
+
+  it('does not elevate when no subject is armed', async () => {
+    delete process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT;
+    const { db, roles } = makeRoleTrackingDb([{ role: 'Student', scope: null }]);
+    const handler = createAuthorizerHandler(async () => depsFor(db));
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student']);
+    expect(roles()).toEqual(['Student']);
+  });
+
+  it('does not elevate a different user while another subject is armed', async () => {
+    process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = 'some-other-armed-subject';
+    const { db, roles } = makeRoleTrackingDb([{ role: 'Student', scope: null }]);
+    const handler = createAuthorizerHandler(async () => depsFor(db));
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student']);
+    expect(roles()).toEqual(['Student']);
+  });
+
+  it('is idempotent: an armed subject already holding TechnicalAdmin is unchanged', async () => {
+    process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = SUBJECT;
+    const { db, roles } = makeRoleTrackingDb([
+      { role: 'Student', scope: null },
+      { role: 'TechnicalAdmin', scope: null },
+    ]);
+    const handler = createAuthorizerHandler(async () => depsFor(db));
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student', 'TechnicalAdmin']);
+    expect(roles()).toEqual(['Student', 'TechnicalAdmin']);
+  });
+});
