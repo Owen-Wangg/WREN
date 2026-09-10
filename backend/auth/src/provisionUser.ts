@@ -157,6 +157,17 @@ export async function ensureAppUser(
   // armed subject must match, and the verified token must carry SystemAdmin.
   // A normal user can satisfy neither. The candidate keeps Student and also
   // gains TechnicalAdmin.
+  // NOTE: the `groups.includes('SystemAdmin')` half of this gate is NOT a hard
+  // second factor. It only constrains this first-login provisioning path. The
+  // authorizer additionally re-evaluates elevation for an already-provisioned
+  // user via ensureTechnicalAdminForArmedSubject, gated ONLY on the armed
+  // exact-subject match (no group check, because access tokens do not reliably
+  // carry cognito:groups). So an armed subject that fails this group check on
+  // first login is elevated on their very next request regardless. The real
+  // security boundary for both paths is the operator-armed
+  // TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT, set only by the guided deploy and
+  // stripped immediately after verification. Do not treat this group check as
+  // an independent constraint.
   const bootstrapAdmin =
     input.technicalAdminBootstrapSubject === input.idpSubject &&
     input.groups?.includes('SystemAdmin') === true;

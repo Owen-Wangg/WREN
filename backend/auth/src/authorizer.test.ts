@@ -312,9 +312,15 @@ describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
 
     const result = await handler(event(tokenFor({ sub: SUBJECT })));
 
-    // The freshly granted role is reflected in THIS request's context.
-    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student', 'TechnicalAdmin']);
-    expect(roles()).toEqual(['Student', 'TechnicalAdmin']);
+    // The freshly granted role is reflected in THIS request's context. Compare
+    // order-insensitively: role_assignment has no ORDER BY, so a real DB may
+    // return the rows in any order.
+    expect(JSON.parse(String(result.context?.roles))).toEqual(
+      expect.arrayContaining(['Student', 'TechnicalAdmin']),
+    );
+    expect(JSON.parse(String(result.context?.roles))).toHaveLength(2);
+    expect(roles()).toEqual(expect.arrayContaining(['Student', 'TechnicalAdmin']));
+    expect(roles()).toHaveLength(2);
   });
 
   it('does not elevate when no subject is armed', async () => {
@@ -349,7 +355,11 @@ describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
 
     const result = await handler(event(tokenFor({ sub: SUBJECT })));
 
-    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student', 'TechnicalAdmin']);
-    expect(roles()).toEqual(['Student', 'TechnicalAdmin']);
+    expect(JSON.parse(String(result.context?.roles))).toEqual(
+      expect.arrayContaining(['Student', 'TechnicalAdmin']),
+    );
+    expect(JSON.parse(String(result.context?.roles))).toHaveLength(2);
+    expect(roles()).toEqual(expect.arrayContaining(['Student', 'TechnicalAdmin']));
+    expect(roles()).toHaveLength(2);
   });
 });
