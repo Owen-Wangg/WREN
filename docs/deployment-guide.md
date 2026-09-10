@@ -31,6 +31,7 @@ This guide deploys the WREN writing coach into an AWS account.
   - [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
   - [Troubleshooting](#troubleshooting)
     - [Common Issues](#common-issues)
+  - [Custom Domain Support](#custom-domain-support)
   - [Cleanup](#cleanup)
     - [Protected application teardown (recommended)](#protected-application-teardown-recommended)
     - [Full data destruction is a separate manual operation](#full-data-destruction-is-a-separate-manual-operation)
@@ -202,7 +203,7 @@ npm run deploy
 
 1. Open the **Amplify sign-up URL** the deploy printed.
 2. Sign up using the exact address in `WREN_ADMIN_EMAIL`, and confirm the email.
-3. **Do not use the app yet** — do not make any writing request. (An early request can invalidate the first-admin identity check. Just sign up, confirm, and stop.)
+3. You can stop after confirming the email; you don't need to do anything else in the app. (Signing in early is fine — the guided flow still elevates you to admin in place on the final run. It's simplest to just sign up, confirm, and continue.)
 4. Run `npm run deploy` again. This is your first rerun, so you can skip the dependency reinstall to save time — Step 2 already ran `npm ci` for the root and `cdk/` directories:
 
    ```bash
@@ -269,7 +270,6 @@ $env:WREN_SMOKE_ACCESS_TOKEN = aws cognito-idp admin-initiate-auth `
   --query "AuthenticationResult.AccessToken" --output text
 
 $env:WREN_REQUIRE_APPROVAL = "never"   # keep set from Step 2; re-set here if you opened a new shell
-$env:WREN_SKIP_INSTALL = "true"        # Step 2 already ran npm ci; skip the reinstall to speed up this rerun
 npm run deploy
 ```
 
@@ -568,7 +568,7 @@ For a failed standard deployment, first complete the action printed by `npm run 
 
 **Issue: User is not Technical Admin**
 
-- Solution: All bootstrap gates must be present on the genuinely first application login: exact `technicalAdminBootstrapSubject`, `SystemAdmin` membership, and no existing subject/email row. Do not keep retrying or leave bootstrap enabled; remove the context and redeploy Compute. Assign the role through the application once a Technical Admin exists, or follow your controlled database recovery procedure.
+- Solution: Two operator-controlled gates must both hold when the candidate signs in: the exact armed `technicalAdminBootstrapSubject` and `SystemAdmin` group membership. The candidate does **not** need to be a brand-new account — if they signed in once before the gate was armed (and so already have a `Student` row), completing the guided flow now elevates them in place, and they keep `Student` while also gaining `TechnicalAdmin`. If setup still fails, confirm the signed-in user's Cognito `sub` matches the armed subject and that they are in the `SystemAdmin` group, then rerun. Assign the role through the application once a Technical Admin exists, or follow your controlled database recovery procedure.
 
 **Issue: `cdk deploy` puts resources in the wrong region**
 
@@ -583,6 +583,30 @@ For a failed standard deployment, first complete the action printed by `npm run 
 - Solution: Stale local change to spec injection — deploy the current `ApiStack` `resolveSpec()` code and don't reintroduce string-injection of `Fn::Sub`.
 
 _The issues listed above represent the most common historical deploy bugs encountered in this repo, all of which have been resolved._
+
+---
+
+## Custom Domain Support
+
+WREN can serve the frontend on your own domain instead of only the default Amplify URL (`https://<branch>.<app-id>.amplifyapp.com`). The feature is entirely optional — no domain is baked into the project, and omitting it leaves deployment behavior unchanged.
+
+To enable it, set a bare hostname before deploying:
+
+```bash
+export WREN_CUSTOM_DOMAIN=example.com     # PowerShell: $env:WREN_CUSTOM_DOMAIN = "example.com"
+npm run deploy
+```
+
+When set, WREN maps the Amplify production branch to both the domain root (`https://example.com`) and its `www` subdomain (`https://www.example.com`), and prints a `CustomDomainUrl` stack output. WREN only creates the Amplify domain association — it does not create or modify any Route 53 or ACM resources, so the feature works regardless of where your DNS is hosted; Amplify manages the TLS certificate.
+
+There are two DNS paths:
+
+- **Hosted zone in the same AWS account (automatic).** If the domain's Route 53 hosted zone is in the account you deploy into, Amplify provisions the certificate and creates the DNS records automatically. No manual steps.
+- **DNS elsewhere (manual verification).** If the zone is in a different AWS account or with an external provider (Cloudflare, GoDaddy, etc.), open **AWS Console → Amplify → your app → Domain management** and add the certificate-validation and CNAME records it surfaces to your provider by hand.
+
+In both cases the certificate and domain association can take several minutes to become live. Until then the Amplify default domain keeps working, and the deploy workflow falls back to it for the post-deploy smoke test if the custom domain is not yet reachable.
+
+For the full reference, see [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain) and the `WREN_CUSTOM_DOMAIN` row in [Hosting, CI/CD, images, and ECR ownership](#hosting-cicd-images-and-ecr-ownership).
 
 ---
 
