@@ -352,8 +352,8 @@ For the default hosted deployment, set only the following variables before the f
 | `WREN_GITHUB_OWNER` / `WREN_GITHUB_REPO` | unset | GitHub owner and repository for the default Amplify-hosted frontend. |
 | `WREN_GITHUB_BRANCH` | `main` | GitHub branch deployed by Amplify. |
 | `WREN_GITHUB_TOKEN` | unset | GitHub personal access token used to create the Amplify and CI/CD secrets. **Required on first setup** because CI/CD is built by default; it can be omitted on later runs once both secrets already exist. |
-| `WREN_ENABLE_CICD` | `true` | Builds the CodePipeline CI/CD pipeline by default. Leave it at `true` for the standard path; set `false` only to skip the pipeline.
-| `WREN_REQUIRE_APPROVAL` | `broadening` interactively | Set to `never` for the standard `npm run deploy`. The deploy runs CDK without an attached terminal, so the default `broadening` prompt for IAM changes cannot be answered and aborts with `terminal (TTY) is not attached`. `never` applies those changes without prompting; for production, review the change first with `WREN_DRY_RUN=true`. |
+| `WREN_ENABLE_CICD` | `true` | Builds the CodePipeline CI/CD pipeline by default. Leave it at `true` for the standard path; set `false` only to skip the pipeline. |
+| `WREN_REQUIRE_APPROVAL` | `broadening` interactively; otherwise `never` | Set to `never` for the standard `npm run deploy`. The deploy runs CDK without an attached terminal, so the default `broadening` prompt for IAM changes cannot be answered and aborts with `terminal (TTY) is not attached`. `never` applies those changes without prompting; for production, review the change first with `WREN_DRY_RUN=true`. |
 | `WREN_ADMIN_EMAIL` | unset | Email address for the intended first administrator. The guided first-admin flow uses this value to pick who becomes admin. |
 | `WREN_SMOKE_ACCESS_TOKEN` | unset | The first administrator's fresh Cognito **access token**, set only for the final first-admin run (step 3 above). It proves that user authenticates as an admin so the temporary elevation can be removed, and completes the authenticated smoke checks. Copy it from the signed-in session; never commit or persist it. |
 
