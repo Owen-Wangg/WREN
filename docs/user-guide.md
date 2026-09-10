@@ -23,7 +23,7 @@ Learn how to configure AI models, manage departments and user access, set usage 
 
 ## Before you Begin
 
-Please note that this document follows different naming conventions. For instance, **WREN** is used to refer to the product in its broader application as a writing tool, while **LEON** refers to the product's origins in a legal context. **Both names refer to the same product.** Similarly, the term '**System Admin**' is used throughout the user guide to describe a role, but this role is referred to as the 'Technical Admin' role in the API and database.
+Please note that this document follows certain naming conventions. For instance, **WREN** is used to refer to the product in its broader application as a writing tool, while **LEON** refers to the product's origins in a legal context. It is for this reason that you may see LEON in the screenshots, but the product is formally referred to as WREN. **Both names refer to the same product.** Similarly, the term **'System Admin'** is used throughout the user guide to describe a role, but this role is referred to as the 'Technical Admin' role in the API and database.
 
 ## Table of Contents
 
