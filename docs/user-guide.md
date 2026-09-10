@@ -150,7 +150,7 @@ As a **Department Admin**, you configure document types and evaluation criteria 
 
 ### 3.1 How the Department Admin Screens Are Organized
 
-- **Dashboard** — document types for the department(s) you are managing. **Create New Document Type** allows you to create a new evaluation criteria and Ask WREN prompts, so you can tailor document assessments to your specific requirements. 
+- **Dashboard** — document types for the department(s) you are managing. **Create new Document Type** allows you to create a new evaluation criteria and Ask WREN prompts, so you can tailor document assessments to your specific requirements. 
 <img width="943" height="412" alt="Department Admin dashboard" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
 
 - **Document type** — The document type dashboard appears when you create a new document type or open an existing document type using the **manage document type** button. On the left sidebar, there are two pages the department admin can access:
@@ -193,7 +193,7 @@ There are three parts to the analytics:
 
 | Action | What happens |
 | --- | --- |
-| Create a document type | Create New Document Type → Name → Create |
+| Create a document type | Create new Document Type → Name → Create |
 | Set AI Debrief criteria | Evaluation Rubric → Document Context + Criteria → Save Rubric |
 | Check results | Analytics for that document type |
 
@@ -203,17 +203,8 @@ There are three parts to the analytics:
 
 As a **System Admin**, you sit above the department level: you choose the Bedrock model, set platform usage limits, create departments, manage users and access, edit department-level prompts, and review department analytics.
 
-After you choose **System Admin** as your account view (see [1.3](#13-choosing-your-account-view)), you land on **System Configuration** and the department list.
-
 ### 4.1 How the System Admin Screens Are Organized
-
-Before diving into the steps, here's where things live on the platform:
-
-- **Profile** — click your profile to switch your account view between User, Department Admin, and System Admin.
-
-<img width="1870" height="813" alt="image" src="https://github.com/user-attachments/assets/529f9101-fb8e-4dd8-9e32-9d36953b4ce4" />
-
-- **Dashboard** — the main screen after choosing System Admin. Your list of departments is shown here, alongside **Usage Limits** and **Model Configuration**.
+Once you have logged in as a system admin, you will be taken to the dashboard. On the dashboard, you will see system configuration options, including model configuration and usage limits, alongside your departments.
 
 <img width="944" height="297" alt="image" src="https://github.com/user-attachments/assets/04c3dd29-6923-433b-9e4d-211c27c67975" />
 <img width="917" height="310" alt="image" src="https://github.com/user-attachments/assets/fa25a40d-91a0-4b9f-a1b6-16faaab5cf35" />
