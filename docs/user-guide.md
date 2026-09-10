@@ -55,6 +55,7 @@ Please note that this document follows certain naming conventions. For instance,
 
 ---
 
+
 ## Part 1: Getting Started (All Users)
 
 In this section, you will learn how to create an account and log into WREN. **Complete this section before moving to the role-specific guides.**
@@ -88,6 +89,7 @@ In this section, you will learn how to create an account and log into WREN. **Co
 6. Your account is ready. Continue to [1.1 Log In](#11-log-in).
 
 ---
+
 
 ## Part 2: Writer Guide
 
@@ -169,6 +171,7 @@ You might have questions about the feedback the AI Debrief generated, or want so
 
 ---
 
+
 ## Part 3: Department Admin Guide
 
 In this section, you will learn how Department Admin screens are organized, how to configure evaluation rubrics, and how to interpret document-type analytics. 
@@ -229,6 +232,7 @@ There are three parts to the analytics:
 | Check results | Analytics for that document type |
 
 ---
+
 
 ## Part 4: System Admin Guide
 
