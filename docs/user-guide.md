@@ -201,56 +201,42 @@ There are three parts to the analytics:
 
 ## Part 4: System Admin Guide
 
-As a **System Admin**, you sit above the department level: you choose the Bedrock model, set platform usage limits, create departments, manage users and access, edit department-level prompts, and review department analytics.
+The **System Admin** is the primary administrator for the platform who is responsible for setup, configuration, user management, and ensuring the system operates according to organizational requirements. 
 
-### 4.1 How the System Admin Screens Are Organized
+The System Admin chooses the Bedrock model, sets platform usage limits, creates departments, manages users and access, edits department-level prompts, and reviews department analytics.
+
+### 4.1 System Admin Dashboard
 Once you have logged in as a system admin, you will be taken to the dashboard. On the dashboard, you will see system configuration options, including model configuration and usage limits, alongside your departments.
 
 <img width="944" height="297" alt="image" src="https://github.com/user-attachments/assets/04c3dd29-6923-433b-9e4d-211c27c67975" />
 <img width="917" height="310" alt="image" src="https://github.com/user-attachments/assets/fa25a40d-91a0-4b9f-a1b6-16faaab5cf35" />
 
-- **Department Controls** — opens when you select or create a department. It's organized into three areas: **Manage Users**, **Manage Department Prompt**, and **View Analytics**.
-- **Inside Manage Users** — manage participant roles and explicit department visibility permissions. Only the System Admin (`TechnicalAdmin` in the API and database) can change department visibility or these permissions.
-
-**Two independent controls:**
-
-- **Department visibility — Visible / Permitted users only:** controls whether the department appears in user catalog and New Document views.
-- **User access — Open / Locked:** controls submission. Open requires no document-type Access Grant; Locked requires an active document-type Access Grant.
-
-Changing one control does not change the other.
-
-<img width="1867" height="810" alt="image" src="https://github.com/user-attachments/assets/f37e9e4d-f13a-4149-8f11-03550340dc3a" />
-
-
-- **Inside Manage Department Prompt** — **Department Context** sits at the top, followed by **Writing Standards**, then **Restricted Topics**.
-
-
-- **Inside Analytics** — **Active Users** appears first, followed by **Documents Generated**, then **Debriefs Generated**.
+Let's begin with model configuration. 
 
 ### 4.2 Model Configuration
 
-1. Go to **System Admin Dashboard → System Configuration → Model Configuration**.
-2. Review the list of available AI models.
+1. From the System Admin dashboard, click the drop-down arrow next to Model Configuration.
+[insert image here]
+2. Using the Active model drop-down menu, you can see all the models available to use.
+<img width="910" height="385" alt="image" src="https://github.com/user-attachments/assets/b9ec4bef-0b50-4b22-9c22-aaab06e8ee62" />
+[insert image here]
 3. Select the model you want to set as the platform default.
 4. Click **Save**.
+[insert image here]
 
-<img width="910" height="385" alt="image" src="https://github.com/user-attachments/assets/b9ec4bef-0b50-4b22-9c22-aaab06e8ee62" />
-
-**Notes:**
+**Note:**
 
 Model changes apply immediately to new AI Debrief and Ask WREN calls. Existing debriefs are unchanged. Different models can differ in quality, cost, and latency.
 
 ### 4.3 Setting Usage Limits
 
-Usage Limits cap how many AI Debriefs and documents can be generated in a given period. Each debrief and Ask WREN interaction is a call to a paid AI model.
+Usage Limits restrict how many AI Debriefs and Ask WREN messages can be generated per document. Each debrief and Ask WREN interaction sends a request to a paid AI model and therefore **incurs usage costs.**
 
-- **Cost control.** AI usage bills per call. Setting a ceiling keeps spend predictable and protects against a runaway bill from unexpectedly heavy use.
-- **Encouraging thoughtful use.** When debriefs are not unlimited, users tend to treat each one as meaningful — revising the draft before regenerating rather than clicking repeatedly. 
+You can apply limits platform-wide or per department, so a high-volume department can get more headroom than others. We recommend a prudent estimate of monthly AI costs; you can always raise a limit if users legitimately hit it.
 
-You can apply limits platform-wide or per department, so a high-volume department can get more headroom than others. Start conservative; you can always raise a limit if users legitimately hit it.
-
+To set usuage limits:
 1. Go to **System Admin Dashboard → System Configuration → Usage Limits**.
-2. Set limits for:
+2. You can set limits for:
    - **AI Debriefs allowed** — the maximum number of debriefs a user or department can generate in a given period.
    - **Documents allowed** — the maximum number of documents a user or department can create or process in a given period.
 3. Choose whether limits apply platform-wide or per department.
@@ -258,11 +244,13 @@ You can apply limits platform-wide or per department, so a high-volume departmen
 
 <img width="931" height="413" alt="image" src="https://github.com/user-attachments/assets/4e046f13-c2c6-4150-8bcc-68c60f85a331" />
 
-**Notes:**
+**Note:**
 
 These limits apply to all users in all departments. They are not per-calendar-period quotas.
 
 ### 4.4 Creating New Departments
+
+To create new departments as a System Admin:
 
 1. Go to **System Admin Dashboard → Departments → Create New Department**.
 
@@ -274,7 +262,7 @@ These limits apply to all users in all departments. They are not per-calendar-pe
 
 3. Assign an initial Department Admin by clicking the pen symbol to the right of a user's name and selecting **Department Admin** (optional — can be done later from Manage Users, see [4.5 Managing Departments](#45-managing-departments)).
 
-<img width="628" height="742" alt="image" src="https://github.com/user-attachments/assets/8b8715d7-ea2e-4f61-9a1e-f08e26443295" />
+[insert image]
 
 **Notes:**
 
@@ -284,23 +272,29 @@ These limits apply to all users in all departments. They are not per-calendar-pe
 
 ### 4.5 Managing Departments
 
+Department management allows administrators to configure user access and control who can discover and submit documents within a department.
+
 1. Go to **System Admin Dashboard → Departments** and select the department you want to manage.
-<img width="936" height="381" alt="image" src="https://github.com/user-attachments/assets/14cff36a-00bc-4265-8c91-4074eb697c56" />
+[insert image]
 
-2. Under **Manage Users**, you can search participants and assign or revoke roles. Assigning **Department Admin** here scopes that role to this department.
-3. Use **User access → Open / Lock** to control submission:
-   - **Open** — no document-type Access Grant is required.
-   - **Locked** — users require an approved document-type Access Grant before submitting.
+2. Under **Manage Users**, you can search participants and assign or revoke roles. Assigning **Department Admin** here scopes that role to this department, as previously discussed.
 
-   Locking does not prevent login, remove existing documents, or hide the department from the catalog.
-4. Use **Department visibility → Visible / Permitted users only** to control catalog discovery:
-   - **Visible** — shown to all users.
-   - **Permitted users only** — shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
-5. Under **Permitted users**, search the global user directory to grant or revoke explicit visibility permission. Permissions are retained while the department is Visible and automatically take effect if it is changed back to Permitted users only. Revoking an explicit permission does not remove a Technical Admin or scoped Department Admin's automatic discovery access.
+3. Use **User access → Open / Lock** to control who can submit documents for this document type:
+   - **Open** — any user with access to the platform can submit documents for this document type. No document-type-specific Access Grant is required.
+   - **Locked** — Only users who have been explicitly granted access to this document type can submit documents. Users must have an approved document-type Access Grant before they can upload or submit documents for evaluation.
+   - When a document type is locked, administrators can manage access by reviewing and approving Access Grant requests from users.
+[insert image]
 
-<img width="1864" height="805" alt="names_emails_only_blurred" src="https://github.com/user-attachments/assets/09497a94-13f9-4f70-ae40-61b8c14de4ef" />
+Department visibility controls whether a department appears in the catalog for all users or only for users who have been explicitly granted access. It can be configured using the following steps:
 
-**Important:** A visibility permission controls discovery only. It does not grant submission to a Locked document type; that requires a document-type Access Grant.
+1. Use **Department visibility → Visible / Permitted users only** to control catalog discovery:
+   - **Visible** — the department is visible to all users.
+   - **Permitted users only** — the department is shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
+2. Under **Permitted users**, search the user directory to grant or revoke explicit visibility permission. Permissions are retained while the department is Visible and automatically take effect if it is changed back to Permitted users only. Revoking an explicit permission does not remove a Technical Admin or scoped Department Admin's automatic discovery access.
+
+[insert image]
+
+**Important:** A visibility permission controls discovery only. It does not grant submission to a Locked document type; **that requires a document-type Access Grant.**
 
 **Security limitation:** Department visibility is a UI-only discovery filter, not an authorization or confidentiality boundary. The API returns active department rows with a `viewerCanDiscover` decision and the client filters catalog and New Document views. A user calling APIs directly may still learn department metadata and, when submission access is Open, may submit if they know the relevant IDs. Do not use **Permitted users only** to protect confidential department names or data. Use **Locked** plus document-type Access Grants to enforce submission eligibility; archive a department when it must stop accepting new submissions.
 
