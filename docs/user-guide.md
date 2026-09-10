@@ -6,14 +6,14 @@ Welcome to the WREN User Guide! This guide covers how to get started with **WREN
 WREN is an AI-assisted writing and feedback platform that helps users draft, review, and improve written work using document-specific criteria, AI-generated feedback, and guided writing support. 
 
 This guide explains how to use WREN from the perspective of three primary user roles:
-- **Writers** create and revise documents, review AI Debrief feedback, and interact with Ask WREN
+- **Writers** create and revise documents, review AI Debrief feedback, and interact with Ask WREN.
 - **Department Admins** configure document types, evaluation criteria, and analytics for the departments they manage.
 - **System Admins** manage platform-wide settings, user access, departments, AI-models, and usage controls.
 
 ## How this Guide is Organized
 The guide is organized into four parts.
 - **Part 1: Getting Started (All Users)**
-Learn how to create an account, log in, and access the appropriate view for your role.
+Learn how to create an account and log in.
 - **Part 2: Writer Guide**
 Learn how to create a document, navigate the editor, generate AI Debriefs, use Ask WREN, and manage document revisions. 
 - **Part 3: Department Admin Guide**
@@ -23,7 +23,7 @@ Learn how to configure AI models, manage departments and user access, set usage 
 
 ## Before you Begin
 
-Please note that this document follows certain naming conventions. For instance, **WREN** is used to refer to the product in its broader application as a writing tool, while **LEON** refers to the product's origins in a legal context. It is for this reason that you may see LEON in the screenshots, but the product is formally referred to as WREN. **Both names refer to the same product.** Similarly, the term **'System Admin'** is used throughout the user guide to describe a role, but this role is referred to as the 'Technical Admin' role in the API and database.
+Please note that this document uses certain names interchangeably. For instance, **WREN** is used to refer to the product in its broader application as a writing tool, while **LEON** refers to the product's origins in a legal education context. It is for this reason that you may see LEON in the screenshots, but the product is formally referred to as WREN. **Both names refer to the same product.** Similarly, the term **'System Admin'** is used throughout the user guide to describe a role, but this role is referred to as the 'Technical Admin' role in the API and database.
 
 ## Table of Contents
 
@@ -50,7 +50,8 @@ Please note that this document follows certain naming conventions. For instance,
     - [4.4 Creating New Departments](#44-creating-new-departments)
     - [4.5 Managing Departments](#45-managing-departments)
     - [4.6 Department-Level Prompt Management](#46-department-level-prompt-management)
-    - [4.7 Reviewing Department Analytics](#47-reviewing-department-analytics)
+    - [4.7 Ask Wren Prompt](#47-manage-ask-wren-prompt)
+    - [4.8 Reviewing Department Analytics](#48-reviewing-department-analytics)
     - [Quick Reference — System Admin](#quick-reference--system-admin)
 
 ---
@@ -82,7 +83,7 @@ In this section, you will learn how to create an account and log into WREN. **Co
 
 3. After you submit, WREN sends a **verification code** to that email.
 
-   **Important:** Keep the sign-up page open while you check email.
+**Important:** Keep the sign-up page open while you check email.
 
 4. Find the code in your inbox (check spam if it does not arrive within a few minutes).
 5. Return to the sign-up page and enter the code.
@@ -93,24 +94,20 @@ In this section, you will learn how to create an account and log into WREN. **Co
 
 ## Part 2: Writer Guide
 
-This section explains the day-to-day writer experience in WREN. You will learn how to create a document, generate AI Debriefs, and use Ask WREN to better understand feedback. 
+This section explains the day-to-day writer experience in WREN. You will learn how to create a draft, generate AI Debriefs, and use Ask WREN to better understand feedback. 
 
-Once you have logged in, you will be taken to the **Student Dashboard,** where you will see any existing drafts.
+Once you have logged in, you will be taken to the **Writer Dashboard,** where you will see any existing drafts.
 
 <img width="957" height="395" alt="User dashboard" src="https://github.com/user-attachments/assets/a0050ec6-575d-48fe-bc46-d5aecbdb2107" />
 
 ### 2.1 Creating a New Draft
 
-1. From the User Dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
+1. From the dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
 <img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
 
 2. Click **New Document**.
 
 3. Select your department.
-
-   **Which departments appear?** A **Visible** department appears for every user. A **Permitted users only** department appears only if a System Admin gave you an explicit visibility permission, or if your account is a Technical Admin or the Department Admin appointed to that department. This affects the **New Document** department list only; it does not remove your existing documents.
-
-   Seeing a department does not necessarily mean you can submit to every document type. **Open** allows self-service submission, while **Locked** requires a separate document-type Access Grant. If an expected department is missing, contact your System Admin.
 
 4. Choose your document type — for example, **Legal Memorandum**.
 
@@ -120,24 +117,24 @@ Once you have logged in, you will be taken to the **Student Dashboard,** where y
 
 7. Click **Activate Editor** to finish creating the draft.
 
-7. After uploading, you will be taken to the following page:
+7. After uploading your draft, you will be taken to the following page:
 <img width="956" height="415" alt="image" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
 
 ### 2.2 Opening and Reviewing Your Document
 
-You are now on a dashboard for editing your document. You can edit the document directly on the right panel, using the document features in the menu bar such as the bold feature, font selection, size selection, highlighting, and more. If you wish to edit your draft on a separate document and get feedback following your revisions, you can use the 'upload a new draft' button to do so. 
+You are now on a dashboard for editing your document. You can edit the document directly on the right panel, using the document features in the menu bar such as the bold feature, font selection, size selection, highlighting, and more. If you wish to edit your draft on a separate document and get feedback following your revisions, use the 'upload a new draft' button and hit the 'regenerate' button again. 
 
 <img width="960" height="412" alt="image" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
 
-The left panel hosts the various tools you may use to revise your draft. In the image below, AI Debrief is selected and opened. However, the sidebar also provides options to view the table of contents under the 'contents' icon and Ask LEON using the 'LEON' icon. 
+The left panel hosts the various tools you may use to revise your draft. In the image below, AI Debrief is selected and opened. However, the sidebar also provides options to view the table of contents under the 'contents' icon, and Ask LEON using the 'LEON' icon. 
 
 <img width="1912" height="829" alt="Editor with Ask WREN and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
 
-If you would like to download your draft, clicking the 'export' button allows download a PDF or DOCX, with or without the AI Debrief feedback.
+If you would like to download your draft, click the 'export' button. It will give you the option to download it as either a PDF or DOCX, with or without the AI Debrief feedback.
 
 <img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/d31b8995-9545-4531-8c9e-04411dbd8c70" />
 
-Finally, to adjust the size of the panels, click the grey bar on the right side of the left panel.
+Finally, to adjust the size of the panels, click and drag the grey bar on the right side of the left panel.
 
 <img width="959" height="412" alt="image" src="https://github.com/user-attachments/assets/544ace4d-b433-437f-8472-14376b80b177" />
 
@@ -151,7 +148,7 @@ Once the button has been clicked, wait for the feedback to be generated. As you 
 
 <img width="959" height="416" alt="image" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
 
-You might have questions about the feedback the AI Debrief generated, or want some assistance in improving your writing. This is where Ask WREN comes in. Clicking on the 'WREN' icon brings you to the Ask WREN screen, where you can ask questions about the debrief, your draft, or aspects of writing such as clarity, organization, tone, and more. 
+You might have questions about the feedback the AI Debrief generated, or want some assistance in improving your writing. This is where Ask WREN comes in. Clicking on the 'LEON' icon brings you to the Ask WREN screen, where you can ask questions about the debrief, your draft, or aspects of writing such as clarity, organization, tone, etc. 
 
 <img width="958" height="412" alt="Ask WREN chat" src="https://github.com/user-attachments/assets/0b5d2ba7-27b3-4c33-a726-e6882021007e" />
 
@@ -176,15 +173,15 @@ You might have questions about the feedback the AI Debrief generated, or want so
 
 In this section, you will learn how Department Admin screens are organized, how to configure evaluation rubrics, and how to interpret document-type analytics. 
 
-As a **Department Admin**, you configure document types and evaluation criteria for the department(s) you administer, and you review aggregate analytics. User-facing debriefs are generated against the rubric you save.
+As a **Department Admin**, you configure document types and evaluation criteria for the department(s) you administer, and you review aggregate analytics. User-facing AI debriefs are generated against the rubric you save.
 
 ### 3.1 How the Department Admin Screens Are Organized
 
 When you open the Department Admin experience, you will interact with two primary areas:
 1. The dashboard
-2. The document type page, which has tabs for the evaluation rubric and viewing analytics.
+2. The document type page, which has tabs for the Evaluation Rubric and viewing Analytics.
 
-**Dashboard** — document types for the department(s) you are managing. **Create new Document Type** allows you to create a new evaluation criteria and Ask WREN prompts, so you can tailor document assessments to your specific requirements. 
+**Dashboard** — The dashboard contains the document types for the department(s) you are managing. **Create new Document Type** allows you to create a new evaluation criteria and Ask WREN prompts, so you can tailor document assessments to your specific requirements. 
 <img width="943" height="412" alt="Department Admin dashboard" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
 
 **Document type** — The document type dashboard appears when you create a new document type or open an existing document type using the **manage document type** button. On the left sidebar, there are two pages the department admin can access:
@@ -218,9 +215,10 @@ There are three parts to the analytics:
 <img width="706" height="399" alt="image" src="https://github.com/user-attachments/assets/d7558de7-dc06-495a-bd37-558cf0a87078" />
 <img width="544" height="122" alt="image" src="https://github.com/user-attachments/assets/8712c5ea-ffa1-4817-853f-fae22da2fe25" />
 
-- **AI Debrief helpfulness** — aggregate student ratings (helpful / not helpful) and optional comments.
+- **AI Debrief helpfulness** — provides aggregate student ratings (helpful / not helpful) and optional comments.
 <img width="1447" height="685" alt="Helpfulness and applicability breakdown" src="https://github.com/user-attachments/assets/d70c2cf6-a983-4eb5-8d1f-c5f29e50a9a4" />
-- **Section applicability** — whether feedback sections applied to the draft, in aggregate.
+
+- **Section applicability** — assesses whether feedback categories were applicable to the draft, in aggregate.
 <img width="781" height="211" alt="image" src="https://github.com/user-attachments/assets/fc57bc47-5656-481b-8c9d-2674fc27bc55" />
 
 ### Quick Reference — Department Admin
@@ -243,7 +241,7 @@ The **System Admin** is the primary administrator for the platform who is respon
 The System Admin chooses the Bedrock model, sets platform usage limits, creates departments, manages users and access, edits department-level prompts, and reviews department analytics.
 
 ### 4.1 System Admin Dashboard
-The System Admin Dashboard is the starting point for all platform administration tasks. From this screen, you can access model settings, usage controls, departments, and analytics. 
+The System Admin Dashboard is the starting point for all platform administration tasks.
 
 Once you have logged in as a system admin, you will be taken to the dashboard. On the dashboard, you will see system configuration options, including model configuration and usage limits, alongside your departments.
 
@@ -262,6 +260,7 @@ The model configuration settings determine which AI model WREN uses to generate 
 <img width="943" height="407" alt="image" src="https://github.com/user-attachments/assets/9748ca8d-c179-4080-a597-eceab6933922" />
 
 3. Select the model you want to set as the platform default.
+
 4. Click **Save**.
 <img width="905" height="414" alt="image" src="https://github.com/user-attachments/assets/5b765a1e-e23c-40bb-8a63-e21e36afb1f2" />
 
@@ -273,7 +272,7 @@ Model changes apply immediately to new AI Debrief and Ask WREN calls. Existing d
 
 Usage Limits restrict how many AI Debriefs and Ask WREN messages can be generated per document. Each debrief and Ask WREN interaction sends a request to a paid AI model and therefore **incurs usage costs.**
 
-You can apply limits platform-wide or per department, so a high-volume department can get more headroom than others. We recommend a prudent estimate of monthly AI costs; you can always raise a limit if users legitimately hit it.
+You can apply limits platform-wide or per department. **We recommend a prudent estimate of monthly AI costs; you can always raise a limit if users legitimately hit it.**
 
 To set usuage limits:
 1. Go to **System Admin Dashboard → System Configuration → Usage Limits**.
@@ -282,7 +281,6 @@ To set usuage limits:
    - **Documents allowed** — the maximum number of documents a user or department can create or process in a given period.
 3. Choose whether limits apply platform-wide or per department.
 4. Click **Save Changes**.
-
 <img width="931" height="413" alt="image" src="https://github.com/user-attachments/assets/4e046f13-c2c6-4150-8bcc-68c60f85a331" />
 
 **Note:**
@@ -290,7 +288,7 @@ To set usuage limits:
 These limits apply to all users in all departments. They are not per-calendar-period quotas.
 
 ### 4.4 Creating New Departments
-Departments help organize users, document types, evaluation rubrics, and analytics into separate administrative areas. Before users can submit documents for a department, the department must first be created and configured. 
+Departments help organize users, document types, and analytics into separate administrative areas. Before users can submit documents for a department, the department must first be created and configured. 
 
 To create new departments as a System Admin:
 
@@ -328,11 +326,11 @@ Department management allows administrators to configure user access and control
    - When a document type is locked, administrators can manage access by reviewing and approving Access Grant requests from users.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/3aa639f4-909c-434f-9a2f-f47195cf074e" />
 
-Department visibility controls whether a department appears in the catalog for all users or only for users who have been explicitly granted access. It can be configured using the following steps:
+**Department visibility** controls whether a department appears in the catalog for all users or only for users who have been explicitly granted access. It can be configured using the following steps:
 
 1. Use the button the right side to control visibility:
-   - **Limit visibility** — the department is visible to all users.
-   - **Make visible** — the department is shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
+   - **If you see the 'limit visibility' button** — the department is visible to all users.
+   - **If you see the 'make visible' button** — the department is shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/59cf4cd2-59df-41a4-b946-28a7648fa2ce" />
 <img width="122" height="176" alt="image" src="https://github.com/user-attachments/assets/89c31f2b-d4f6-4d58-a2bc-9252cbc57af1" />
 
@@ -342,7 +340,7 @@ Department visibility controls whether a department appears in the catalog for a
 
 ### 4.6 Department-Level Prompt Management
 
-The department prompt sets instructions the AI applies across every document type in the department. Use it for guidance that should hold department-wide — who the writers are, the standards they follow, and topics the AI should avoid — rather than criteria specific to one document type (those live in the Department Admin Evaluation Rubric, see [3.2](#32-configuring-the-evaluation-rubric)). On the screen, you will se configurable fields for Department Context, Writing Standards, and Restricted Topics that together influence AI behavior across the department. 
+The department prompt sets instructions the AI applies across every document type in the department. Use it for guidance that should hold department-wide — who the writers are, the standards they follow, and topics the AI should avoid — rather than criteria specific to one document type (those live in the Department Admin Evaluation Rubric, see [3.2](#32-configuring-the-evaluation-rubric)). On the screen, you will see configurable fields for Department Context, Writing Standards, and Restricted Topics that together influence AI behavior across the department. 
 
 1. Go to **System Admin Dashboard → Departments → [Department Name] → Manage Department Prompt**.
 2. Configure the following:
@@ -354,7 +352,11 @@ The department prompt sets instructions the AI applies across every document typ
 
 <img width="1536" height="1024" alt="Manage Department Prompt fields" src="https://github.com/user-attachments/assets/c739a17c-7454-493e-b3f5-2e526a76cff6" />
 
-### 4.7 Reviewing Department Analytics
+## 4.7 Manage Ask WREN Prompt
+In addition to department prompts, as a System Admin you can configure a prompt for Ask WREN. This will shape how WREN frames its Socratic questions across every document type in the department. Once you fill in the blank field, **hit 'Save Ask Wren Prompt.'**
+<img width="776" height="404" alt="image" src="https://github.com/user-attachments/assets/4aa0efb9-d517-4765-9d1f-af9cf9f3bee4" />
+
+### 4.8 Reviewing Department Analytics
 
 The analytics dashboard provides a high-level view of platform adoption and AI usage trends. The following steps explain where to access these metrics and what each measure represents.
 
