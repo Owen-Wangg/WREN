@@ -374,10 +374,12 @@ Do not commit access tokens or GitHub personal access tokens to source control. 
 | `AWS_PROFILE` | AWS CLI default credential chain | Selecting a named AWS CLI profile or SSO session. This is the standard, recommended way to pick the target account (see [Variables for the standard deployment](#variables-for-the-standard-deployment)); it is listed here only for completeness. Standard AWS credential environment variables also work. |
 | `WREN_REGION` | `ca-central-1` | Deploying the data plane outside the default Region. The CloudFront WAF stack and its second CDK bootstrap remain in `us-east-1`. |
 | `WREN_APP_NAME` | `LEON` | Changing the user-facing display name in the UI and email. The default is `LEON` for backward compatibility with existing deployments; new deployments should set this to the intended display name (for example `WREN`). Should be done at the start of the deployment only |
-| `WREN_BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-6` |You only need this if your account/Region cannot access the default or you want to start on another model. A Technical Admin can change the model in-app afterward, and that choice overrides this deploy-time value. 
+| `WREN_BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-6` | You only need this if your account/Region cannot access the default or you want to start on another model. A Technical Admin can change the model in-app afterward, and that choice overrides this deploy-time value. |
 | `WREN_PROJECT_NAME` | `wren` | Changing the lowercase resource-name prefix component. |
 | `WREN_ENVIRONMENT` | `dev` | Deploying a distinct environment, such as `staging` or `prod`. Production deployments require `WREN_EXPECTED_ACCOUNT_ID`. |
 | `WREN_STACK_PREFIX` | `{project}-{environment}` | Supplying the derived stack prefix explicitly. Its value must exactly equal `WREN_PROJECT_NAME-WREN_ENVIRONMENT`. |
+
+**Changing the stack prefix.** The stack prefix (default `wren-dev`, producing stacks like `wren-dev-Vpc`) is always derived as `{WREN_PROJECT_NAME}-{WREN_ENVIRONMENT}`. To change it, set those two variables — for example `WREN_PROJECT_NAME=myproject` and `WREN_ENVIRONMENT=staging` yields the prefix `myproject-staging`. Both must start with a lowercase letter and contain only lowercase letters, digits, or hyphens. `WREN_STACK_PREFIX` does **not** override the prefix freely; if set, it must exactly equal the derived value, so it only serves to assert the prefix you expect (the deploy fails otherwise). A prefix change names an entirely separate deployment (distinct stacks, resource names, and `/{prefix}/…` SSM paths) rather than renaming an existing one, and it starts a fresh deployment operation.
 
 #### Hosting, CI/CD, images, and ECR ownership
 
