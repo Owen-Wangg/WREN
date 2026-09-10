@@ -187,6 +187,9 @@ export const queryKeys = {
   /** Usage limits across platform / org / writing-type scopes (Requirement 33.4). */
   adminUsageLimits: () => [ns, 'admin', 'usage-limits'] as const,
 
+  /** Upload configuration (max file size) accessible to any authenticated user. */
+  uploadConfig: () => [ns, 'upload-config'] as const,
+
   /** Platform/org aggregate analytics with optional Writing Type filter (Requirements 41.1, 41.2). */
   adminAnalytics: (writingTypeId?: string) =>
     [ns, 'admin', 'analytics', writingTypeId ?? 'all'] as const,

@@ -102,6 +102,9 @@ export {
   useGetAnalytics,
 } from './useDepartmentAdmin';
 
+// Upload configuration
+export { useUploadConfig } from './useUploadConfig';
+
 // System admin hooks (TechnicalAdmin)
 export {
   useSearchAllUsers,

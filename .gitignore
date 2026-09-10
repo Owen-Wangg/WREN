@@ -28,6 +28,9 @@ cdk.out/
 coverage/
 *.tsbuildinfo
 
+# Deployment checkpoints and target locks (local, non-secret)
+.wren-deploy/
+
 # Logs
 *.log
 npm-debug.log*

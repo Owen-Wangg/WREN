@@ -9,7 +9,9 @@
  * administered Department); there is deliberately NO separate capability for
  * Content Types, matching the capability matrix's documented scope.
  *
- * No superuser fallback — TechnicalAdmin CANNOT perform educational operations.
+ * TechnicalAdmin may use this same capability for explicit platform catalog
+ * bootstrap. This does not grant Topic, Access Grant, Department, or Reference
+ * Material authority.
  *
  * Every mutation re-checks the capability BEFORE touching the database and
  * denies with no mutation when disallowed (Requirements 36.2, 36.3). All

@@ -25,9 +25,10 @@
  * entries are visible/manageable by any DepartmentAdmin administering that
  * Department; tier-2 (Document-Type-scoped) entries are visible/manageable
  * only by DepartmentAdmins administering the Document Type's Department —
- * enforced the same way as every other Document-Type-scoped record, via
- * `documentType.modifyConfig` / `documentType.readConfig` re-checked against
- * the resolved Department.
+ * enforced by an explicit DepartmentAdmin role-and-owning-Department check,
+ * followed by the normal `documentType.modifyConfig` /
+ * `documentType.manageCatalog` capability check. TechnicalAdmin is deliberately
+ * not a superuser fallback for educational Reference Material.
  *
  * Every mutation re-checks the relevant capability BEFORE touching the
  * database and denies with no mutation when disallowed (Requirements 36.2,
@@ -43,7 +44,28 @@ import {
 
 import { requireCapability } from './capabilityGuard';
 import type { QueryExecutor } from './db';
-import { NotFoundError } from './errors';
+import { AuthorizationError, NotFoundError } from './errors';
+
+/**
+ * Reference Material is educational content, so mutation requires an explicit
+ * DepartmentAdmin appointment for the owning Department. This additional
+ * role-and-scope check prevents TechnicalAdmin capabilities from acting as a
+ * superuser fallback while still allowing a mixed-role actor through their
+ * correctly scoped DepartmentAdmin appointment.
+ */
+function requireReferenceMaterialDepartmentAdmin(
+  actor: AuthContext,
+  departmentId: string,
+): void {
+  if (
+    !actor.roles.includes('DepartmentAdmin') ||
+    !actor.administeredDepartmentIds.includes(departmentId)
+  ) {
+    throw new AuthorizationError(
+      `Reference Material mutation requires DepartmentAdmin scope for Department '${departmentId}'`,
+    );
+  }
+}
 
 /** Raw `reference_material` row (snake_case columns from PostgreSQL). */
 interface ReferenceMaterialRow {
@@ -143,12 +165,14 @@ export async function createReferenceMaterial(
       );
     }
 
+    requireReferenceMaterialDepartmentAdmin(actor, departmentId);
     requireCapability(actor, {
       capability: 'documentType.modifyConfig',
       scope: { kind: 'documentType', documentTypeId: parsed.documentTypeId, departmentId },
     });
   } else {
     // tier === 'department': department-wide baseline material.
+    requireReferenceMaterialDepartmentAdmin(actor, parsed.departmentId);
     requireCapability(actor, {
       capability: 'documentType.manageCatalog',
       scope: { kind: 'department', departmentId: parsed.departmentId },
@@ -253,6 +277,7 @@ export async function deleteReferenceMaterial(
   }
 
   if (existing.tier === 'type' && existing.documentTypeId) {
+    requireReferenceMaterialDepartmentAdmin(actor, existing.departmentId);
     requireCapability(actor, {
       capability: 'documentType.modifyConfig',
       scope: {
@@ -262,6 +287,7 @@ export async function deleteReferenceMaterial(
       },
     });
   } else {
+    requireReferenceMaterialDepartmentAdmin(actor, existing.departmentId);
     requireCapability(actor, {
       capability: 'documentType.manageCatalog',
       scope: { kind: 'department', departmentId: existing.departmentId },

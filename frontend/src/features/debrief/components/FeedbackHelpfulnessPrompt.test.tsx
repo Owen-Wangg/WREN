@@ -45,7 +45,7 @@ describe('FeedbackHelpfulnessPrompt', () => {
       }),
     );
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'Thanks for letting us know.',
+      'Thank you for your feedback!',
     );
   });
 

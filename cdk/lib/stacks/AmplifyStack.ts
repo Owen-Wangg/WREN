@@ -14,6 +14,8 @@ export interface AmplifyStackProps extends StackProps {
   readonly repositoryOwner: string;
   /** GitHub repository name (e.g. "WREN"). */
   readonly repositoryName: string;
+  /** Source branch hosted as the production branch. */
+  readonly branch: string;
   /** GitHub OAuth token secret name in Secrets Manager. */
   readonly githubTokenSecretName: string;
   /** The API endpoint URL for the frontend to connect to. */
@@ -40,7 +42,7 @@ export interface AmplifyStackProps extends StackProps {
  */
 export class AmplifyStack extends Stack {
   public readonly amplifyApp: amplify.App;
-  public readonly mainBranch: amplify.Branch;
+  public readonly productionBranch: amplify.Branch;
 
   constructor(scope: Construct, id: string, props: AmplifyStackProps) {
     super(scope, id, props);
@@ -106,18 +108,44 @@ export class AmplifyStack extends Stack {
     this.amplifyApp.addCustomRule(amplify.CustomRule.SINGLE_PAGE_APPLICATION_REDIRECT);
 
     // -------------------------------------------------------------------
-    // Branch: main (auto-build on push)
+    // Production branch follows the configured GitHub source branch.
     // -------------------------------------------------------------------
-    this.mainBranch = this.amplifyApp.addBranch("main", {
+    this.productionBranch = this.amplifyApp.addBranch(props.branch, {
       autoBuild: true,
       stage: "PRODUCTION",
     });
 
-    // Feature branches: auto-build for PR previews.
-    this.amplifyApp.addBranch("develop", {
-      autoBuild: true,
-      stage: "DEVELOPMENT",
-    });
+    // Keep the `development` branch as a DEVELOPMENT stage preview, unless it
+    // is already the configured production branch.
+    if (props.branch !== "development") {
+      this.amplifyApp.addBranch("development", {
+        autoBuild: true,
+        stage: "DEVELOPMENT",
+      });
+    }
+
+    // -------------------------------------------------------------------
+    // Optional custom domain.
+    //
+    // When `config.customDomain` is set, map the production branch to the
+    // domain root and its `www` subdomain. Amplify provisions the ACM
+    // certificate and — when the domain's hosted zone lives in this AWS
+    // account — creates the DNS records automatically; otherwise it surfaces
+    // verification records to add manually in whatever DNS provider hosts the
+    // zone. No Route 53 or ACM resources are created here, so the feature stays
+    // account/provider-agnostic. When unset, the frontend is reachable only via
+    // the Amplify default domain and nothing below is synthesized.
+    // -------------------------------------------------------------------
+    if (config.customDomain) {
+      const domain = this.amplifyApp.addDomain(config.customDomain);
+      domain.mapRoot(this.productionBranch);
+      domain.mapSubDomain(this.productionBranch, "www");
+
+      new CfnOutput(this, "CustomDomainUrl", {
+        value: `https://${config.customDomain}`,
+        description: "Custom domain URL for the frontend (root)",
+      });
+    }
 
     // -------------------------------------------------------------------
     // Outputs
@@ -127,8 +155,8 @@ export class AmplifyStack extends Stack {
       description: "Amplify App ID",
     });
     new CfnOutput(this, "AmplifyDefaultDomain", {
-      value: `main.${this.amplifyApp.defaultDomain}`,
-      description: "Amplify default domain for the main branch",
+      value: `${props.branch}.${this.amplifyApp.defaultDomain}`,
+      description: `Amplify default domain for the ${props.branch} branch`,
     });
   }
 }

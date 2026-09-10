@@ -52,6 +52,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageLimit.configure',
   'usageOverride.grant',
   'user.search',
+  'departmentVisibility.manage',
   // Shared dept-admin UI: System Admins may bootstrap Document Types and their
   // initial taxonomy/config (same screens DepartmentAdmins use).
   // Department-wide OPEN/LOCKED is TechnicalAdmin-only.
@@ -59,6 +60,10 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'documentType.manageCatalog',
   'documentType.readConfig',
   'documentType.modifyConfig',
+  // The Ask WREN coaching prompt is surfaced within the Technical Admin domain,
+  // so a TechnicalAdmin may edit it at platform scope (distinct from
+  // `department.manage`, which stays DepartmentAdmin-only for rename/removal).
+  'department.manageAskWrenPrompt',
   'analytics.view',
 ]);
 
@@ -73,6 +78,7 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'documentType.manageCatalog',
   'topic.manage',
   'department.manage',
+  'department.manageAskWrenPrompt',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageOverride.grant',

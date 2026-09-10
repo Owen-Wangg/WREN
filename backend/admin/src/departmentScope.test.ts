@@ -81,8 +81,9 @@ describe('department catalog isolation via list + scope', () => {
   it('Law admin listing departments never includes Test Department', async () => {
     const db = new FakeDb();
     seedLawAndTest(db);
-    const all = await listDepartments(db);
-    const scoped = filterDepartmentsForActor(deptAdminContext([LAW]), all);
+    const actor = deptAdminContext([LAW]);
+    const all = await listDepartments(actor, db);
+    const scoped = filterDepartmentsForActor(actor, all);
     expect(scoped.map((d) => d.name)).toEqual(['Law']);
   });
 
@@ -103,7 +104,7 @@ describe('department catalog isolation via list + scope', () => {
     const db = new FakeDb();
     seedLawAndTest(db);
     const actor = techAdminContext();
-    const departments = filterDepartmentsForActor(actor, await listDepartments(db));
+    const departments = filterDepartmentsForActor(actor, await listDepartments(actor, db));
     const types = filterDocumentTypesForActor(actor, await listAllDocumentTypes(db));
     expect(departments.map((d) => d.name).sort()).toEqual(['Law', 'Test Department']);
     expect(types.map((t) => t.name).sort()).toEqual(['Legal Memo', 'Test Brief']);

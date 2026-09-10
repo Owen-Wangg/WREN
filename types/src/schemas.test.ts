@@ -25,6 +25,9 @@ import {
   assertNoReplacementProse,
   containsReplacementProse,
   departmentSchema,
+  departmentVisibilityGrantSchema,
+  departmentVisibilityPermissionListSchema,
+  departmentVisibilityStateSchema,
   documentSchema,
   documentTypeSchema,
   draftSchema,
@@ -35,6 +38,7 @@ import {
   overrideSchema,
   resolutionStatusSchema,
   roleSchema,
+  updateDepartmentAskWrenPromptInputSchema,
 } from './index';
 
 /* -------------------------------------------------------------------------- */
@@ -57,6 +61,45 @@ const validExamples = {
     value: {
       id: 'dept_1',
       name: 'Legal Studies',
+      visibilityState: 'VISIBLE',
+      viewerCanDiscover: true,
+    },
+  },
+  departmentVisibilityGrant: {
+    schema: departmentVisibilityGrantSchema,
+    value: {
+      id: 'visibility_grant_1',
+      departmentId: 'dept_1',
+      userId: 'user_1',
+      grantedBy: 'user_admin',
+      grantedAt: ISO,
+    },
+  },
+  departmentVisibilityPermissionList: {
+    schema: departmentVisibilityPermissionListSchema,
+    value: {
+      items: [
+        {
+          grant: {
+            id: 'visibility_grant_1',
+            departmentId: 'dept_1',
+            userId: 'user_1',
+            grantedBy: 'user_admin',
+            grantedAt: ISO,
+          },
+          user: {
+            id: 'user_1',
+            email: 'student@example.com',
+            firstName: 'Student',
+            lastName: 'One',
+            roles: ['Student'],
+            administeredDepartmentIds: [],
+          },
+        },
+      ],
+      total: 1,
+      limit: 20,
+      offset: 0,
     },
   },
   documentType: {
@@ -204,6 +247,12 @@ describe('enum schemas', () => {
     expect(() => roleSchema.parse('Instructor')).toThrow();
   });
 
+  it('accepts only canonical Department visibility states', () => {
+    expect(departmentVisibilityStateSchema.parse('VISIBLE')).toBe('VISIBLE');
+    expect(departmentVisibilityStateSchema.parse('PERMITTED_ONLY')).toBe('PERMITTED_ONLY');
+    expect(() => departmentVisibilityStateSchema.parse('HIDDEN')).toThrow();
+  });
+
   it('rejects V1 role names', () => {
     expect(() => roleSchema.parse('User')).toThrow();
     expect(() => roleSchema.parse('Field Expert')).toThrow();
@@ -224,7 +273,70 @@ describe('enum schemas', () => {
   });
 });
 
+describe('department Ask WREN prompt schemas', () => {
+  it('accepts a Department carrying askWrenPrompt (string or null)', () => {
+    expect(
+      departmentSchema.parse({
+        ...validExamples.department.value,
+        askWrenPrompt: 'Law students writing legal memoranda.',
+      }).askWrenPrompt,
+    ).toBe('Law students writing legal memoranda.');
+
+    expect(
+      departmentSchema.parse({
+        ...validExamples.department.value,
+        askWrenPrompt: null,
+      }).askWrenPrompt,
+    ).toBeNull();
+  });
+
+  it('treats askWrenPrompt as optional (absent parses as before)', () => {
+    const parsed = departmentSchema.parse(validExamples.department.value);
+    expect(parsed.askWrenPrompt).toBeUndefined();
+  });
+
+  it('validates the update input (accepts string and null)', () => {
+    expect(
+      updateDepartmentAskWrenPromptInputSchema.parse({ askWrenPrompt: 'Some context.' })
+        .askWrenPrompt,
+    ).toBe('Some context.');
+    expect(
+      updateDepartmentAskWrenPromptInputSchema.parse({ askWrenPrompt: null }).askWrenPrompt,
+    ).toBeNull();
+  });
+
+  it('rejects a non-string, non-null askWrenPrompt', () => {
+    expect(() =>
+      updateDepartmentAskWrenPromptInputSchema.parse({ askWrenPrompt: 42 }),
+    ).toThrow();
+  });
+
+  it('rejects extra fields in the update input (strict mode)', () => {
+    expect(() =>
+      updateDepartmentAskWrenPromptInputSchema.parse({
+        askWrenPrompt: 'ok',
+        prompt: 'not allowed here',
+      }),
+    ).toThrow();
+  });
+});
+
 describe('schemas reject malformed input', () => {
+  it('requires explicit Department visibility response fields', () => {
+    expect(
+      departmentSchema.safeParse({ id: 'dept_legacy', name: 'Legacy' }).success,
+    ).toBe(false);
+  });
+
+  it('rejects an invalid Department visibility state', () => {
+    expect(() =>
+      departmentSchema.parse({
+        ...validExamples.department.value,
+        visibilityState: 'HIDDEN',
+      }),
+    ).toThrow();
+  });
+
   it('rejects an empty document name', () => {
     expect(() =>
       documentSchema.parse({ ...validExamples.document.value, name: '' }),

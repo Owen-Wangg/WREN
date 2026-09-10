@@ -28,6 +28,18 @@ export async function getDepartment(departmentId: string) {
   return apiClient.request(`/v1/departments/${departmentId}`, { schema: departmentSchema });
 }
 
+/** Update the DepartmentAdmin-owned Ask Wren coaching context. */
+export async function updateDepartmentAskWrenPrompt(
+  departmentId: string,
+  askWrenPrompt: string | null,
+) {
+  return apiClient.request(`/v1/departments/${departmentId}/ask-wren-prompt`, {
+    method: 'PUT',
+    body: { askWrenPrompt },
+    schema: departmentSchema,
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Document Types — scoped to department */
 /* -------------------------------------------------------------------------- */

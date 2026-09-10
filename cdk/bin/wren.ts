@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { App } from "aws-cdk-lib";
+import { App, aws_iam as iam } from "aws-cdk-lib";
 import { resolveAppConfig, stackName } from "../lib/config.js";
 import { applyStandardTags } from "../lib/tags.js";
 import { ConfigStack } from "../lib/stacks/ConfigStack.js";
@@ -46,6 +46,14 @@ function ctxOrEnv(key: string, envVar: string): string | undefined {
   return value && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function boolCtxOrEnv(key: string, envVar: string, fallback = false): boolean {
+  const raw = ctxOrEnv(key, envVar);
+  if (raw === undefined) return fallback;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`${key}/${envVar} must be exactly 'true' or 'false'`);
+}
+
 // GitHub source configuration for Amplify hosting + the CI/CD pipeline. Read
 // from CDK context (`-c githubOwner=… -c githubRepo=… -c codestarConnectionArn=…`)
 // or the GITHUB_* environment variables — never hardcoded. When absent, the
@@ -55,6 +63,35 @@ const github = {
   repo: ctxOrEnv("githubRepo", "GITHUB_REPO"),
   branch: ctxOrEnv("githubBranch", "GITHUB_BRANCH") ?? "main",
 };
+// Default ON, matching the deploy workflow (config.ts defaults WREN_ENABLE_CICD
+// to true). cdk.json also sets `enableCicd: true` in context; this explicit
+// fallback keeps a bare `cdk deploy` (no context, no env var) from silently
+// dropping the pipeline. Opt out with `-c enableCicd=false` or WREN_ENABLE_CICD=false.
+const enableCicd = boolCtxOrEnv("enableCicd", "WREN_ENABLE_CICD", true);
+const ecrOwnership =
+  ctxOrEnv("ecrOwnership", "WREN_ECR_OWNERSHIP") ?? "managed";
+if (ecrOwnership !== "managed" && ecrOwnership !== "external") {
+  throw new Error(
+    "ecrOwnership/WREN_ECR_OWNERSHIP must be 'managed' or 'external'",
+  );
+}
+if (enableCicd && (!github.owner || !github.repo)) {
+  throw new Error(
+    "GitHub owner and repository are required when CI/CD is enabled",
+  );
+}
+
+// Mandatory deployment prerequisites retain their historical Cicd stack
+// ownership. Only the pipeline resources are optional.
+const cicdStack = new CicdStack(app, stackName(config, "Cicd"), {
+  env: config.env,
+  config,
+  ecrOwnership,
+  enablePipeline: enableCicd,
+  ...(github.owner ? { repositoryOwner: github.owner } : {}),
+  ...(github.repo ? { repositoryName: github.repo } : {}),
+  branch: github.branch,
+});
 
 // Single-source application configuration (app name + Bedrock model id) is
 // published to SSM by the Config stack so backend Lambdas resolve it at runtime
@@ -98,6 +135,7 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   env: config.env,
   config,
   vpc: vpcStack.vpc,
+  feedbackEngineRepository: cicdStack.ecrRepository,
   databaseProxyEndpoint: databaseStack.proxyEndpoint,
   databaseSecretArns: databaseStack.appDbSecretArns,
   documentsBucketName: storageStack.documentsBucketName,
@@ -106,8 +144,15 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   conversationTableName: storageStack.conversationTableName,
   userPoolId: cognitoStack.userPoolId,
   userPoolClientId: cognitoStack.userPoolClientId,
-  promptGuardrailId: configStack.parameters.promptGuardrailIdParameter.stringValue,
+  promptGuardrailId:
+    configStack.parameters.promptGuardrailIdParameter.stringValue,
 });
+
+// The prerequisite stack is always present, so use its real managed-policy
+// reference. This creates a CloudFormation dependency instead of relying on a
+// constructed ARN whose policy may not exist yet.
+iam.PermissionsBoundary.of(computeStack).apply(cicdStack.computeBoundaryPolicy);
+computeStack.addDependency(cicdStack);
 
 // API Gateway stack (depends on Compute for Lambda function ARNs).
 // `crossRegionReferences` lets the us-east-1 CloudFront/WAF stack consume this
@@ -140,6 +185,9 @@ new ObservabilityStack(app, stackName(config, "Observability"), {
   ],
   feedbackQueueName: computeStack.feedbackQueue.queueName,
   feedbackDlqName: computeStack.feedbackDlq.queueName,
+  notificationDlqName: computeStack.notificationDlq.queueName,
+  documentIngestDlqName: computeStack.documentIngestDlq.queueName,
+  authorizerFunctionName: computeStack.authorizerFunction.functionName,
 });
 
 // CloudFront + WAF stack. A CLOUDFRONT-scoped WAF WebACL MUST live in
@@ -170,6 +218,7 @@ if (github.owner && github.repo) {
     config,
     repositoryOwner: github.owner,
     repositoryName: github.repo,
+    branch: github.branch,
     githubTokenSecretName: `${config.stackPrefix}/github/token`,
     apiEndpoint: amplifyApiEndpoint,
     cognitoUserPoolId: cognitoStack.userPoolId,
@@ -180,21 +229,6 @@ if (github.owner && github.repo) {
   // eslint-disable-next-line no-console
   console.warn(
     "[wren] Skipping Amplify stack — set -c githubOwner=<owner> -c githubRepo=<repo> (or GITHUB_OWNER/GITHUB_REPO) to enable frontend hosting.",
-  );
-}
-
-if (github.owner && github.repo) {
-  new CicdStack(app, stackName(config, "Cicd"), {
-    env: config.env,
-    config,
-    repositoryOwner: github.owner,
-    repositoryName: github.repo,
-    branch: github.branch,
-  });
-} else {
-  // eslint-disable-next-line no-console
-  console.warn(
-    "[wren] Skipping CICD stack — set githubOwner/githubRepo (or GITHUB_OWNER/GITHUB_REPO) to enable the pipeline.",
   );
 }
 

@@ -12,9 +12,11 @@ export interface CognitoStackProps extends StackProps {
 /**
  * `${StackPrefix}-Cognito` — Amazon Cognito user authentication.
  *
- * Instantiates a User Pool (email sign-in, SRP + password auth, self-signup enabled)
- * and a User Pool Client (public client for SPA, no secret). Both are published to
- * SSM Parameter Store so downstream Lambdas and the frontend can resolve them.
+ * Instantiates a User Pool (email sign-in, SRP auth, self-signup enabled)
+ * and a User Pool Client (public client for SPA, no secret, OAuth hosted-UI
+ * disabled). Admin USER_PASSWORD_AUTH is available only via IAM
+ * `AdminInitiateAuth` for operator smoke tokens — not the public app client.
+ * Pool and client IDs are published to SSM for Lambdas and the frontend.
  */
 export class CognitoStack extends Stack {
   public readonly userPool: cognito.UserPool;
@@ -83,8 +85,10 @@ export class CognitoStack extends Stack {
       generateSecret: false,
       authFlows: {
         userSrp: true,
-        userPassword: true,
+        userPassword: false,
+        adminUserPassword: true,
       },
+      disableOAuth: true,
       accessTokenValidity: Duration.hours(1),
       idTokenValidity: Duration.hours(1),
       refreshTokenValidity: Duration.days(30),
@@ -96,13 +100,14 @@ export class CognitoStack extends Stack {
     // -----------------------------------------------------------------------
     // Cognito Groups
     // -----------------------------------------------------------------------
-    // SystemAdmin group: adding an existing user here before their first login
-    // seeds them as TechnicalAdmin in the DB. After that the DB is the
-    // sole source of truth — Cognito group membership is never re-consulted.
+    // SystemAdmin is an eligibility signal, not an authorization grant. The
+    // Compute stack must also carry an exact subject allowlist, and only a
+    // genuinely new app_user can receive TechnicalAdmin during provisioning.
+    // Group membership alone never grants or changes an application role.
     new cognito.CfnUserPoolGroup(this, 'SystemAdminGroup', {
       userPoolId: this.userPool.userPoolId,
       groupName: 'SystemAdmin',
-      description: 'Bootstrap group: members are provisioned as TechnicalAdmin on first login.',
+      description: 'Bootstrap eligibility only; requires an exact configured subject and a genuinely new app user.',
     });
 
     // -----------------------------------------------------------------------

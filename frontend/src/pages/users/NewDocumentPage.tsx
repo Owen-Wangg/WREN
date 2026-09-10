@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
+import { useUploadConfig } from '@/hooks/useUploadConfig';
+import { useAuth } from '@/features/auth/AuthContext';
+import { selectStudentFacingDepartments } from '@/features/dashboard/departmentVisibility';
 
 import {
   useDocumentTypes,
+  useMetadataFields,
   useOrganizations,
 } from '@/features/dashboard/useDashboard';
 import {
@@ -44,32 +48,75 @@ function errorMessageFromUnknown(error: unknown): string {
 
 export function NewDocumentPage() {
   const navigate = useNavigate();
+  const { dbRoles, user } = useAuth();
 
   const organizationsQuery = useOrganizations();
-  const organizations = organizationsQuery.data ?? [];
+  const studentFacingDepartments = useMemo(
+    () =>
+      selectStudentFacingDepartments(organizationsQuery.data ?? [], {
+        roles: dbRoles,
+        administeredDepartmentIds: user?.administeredDepartmentIds ?? [],
+      }),
+    [dbRoles, organizationsQuery.data, user?.administeredDepartmentIds],
+  );
 
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedDocumentType, setSelectedDocumentType] = useState('');
   const [documentName, setDocumentName] = useState('');
+  const [metadata, setMetadata] = useState<Record<string, string>>({});
   const [referenceFile, setReferenceFile] = useState<File | undefined>(undefined);
+  const [fileSizeError, setFileSizeError] = useState<string | undefined>(undefined);
+  const { data: uploadConfig } = useUploadConfig();
   const documentTypesQuery = useDocumentTypes(selectedDepartment);
   const documentTypes = documentTypesQuery.data ?? [];
+  const metadataFieldsQuery = useMetadataFields(selectedDocumentType);
+  const metadataFields = metadataFieldsQuery.data ?? [];
+  const missingRequiredMetadata = metadataFields.filter(
+    (field) => field.required && !metadata[field.id]?.trim(),
+  );
+  const selectedDepartmentIsDiscoverable = studentFacingDepartments.some(
+    (department) => department.id === selectedDepartment,
+  );
 
-  const canActivate =
+  useEffect(() => {
+    if (!organizationsQuery.data || !selectedDepartment) return;
+    if (selectedDepartmentIsDiscoverable) return;
+
+    setSelectedDepartment('');
+    setSelectedDocumentType('');
+    setMetadata({});
+  }, [organizationsQuery.data, selectedDepartment, selectedDepartmentIsDiscoverable]);
+
+  const canActivate = Boolean(
     selectedDepartment &&
+    selectedDepartmentIsDiscoverable &&
     selectedDocumentType &&
     documentName.trim() &&
-    referenceFile;
+    referenceFile &&
+    !fileSizeError &&
+    !metadataFieldsQuery.isLoading &&
+    !metadataFieldsQuery.isError &&
+    missingRequiredMetadata.length === 0,
+  );
 
   const handleDepartmentChange = (value: string) => {
     setSelectedDepartment(value);
     setSelectedDocumentType('');
+    setMetadata({});
+  };
+
+  const handleDocumentTypeChange = (value: string) => {
+    setSelectedDocumentType(value);
+    setMetadata({});
   };
 
   const activateMutation = useMutation({
     mutationFn: async () => {
-      const org = organizations.find((o) => o.id === selectedDepartment);
+      const org = studentFacingDepartments.find((o) => o.id === selectedDepartment);
       const docType = documentTypes.find((dt) => dt.id === selectedDocumentType);
+      if (!org) {
+        throw new Error('Select a department you can currently discover.');
+      }
       if (!referenceFile) {
         throw new Error('A .docx or .pdf file is required');
       }
@@ -106,6 +153,7 @@ export function NewDocumentPage() {
       const doc = await createDocument(apiClient, {
         documentTypeId: selectedDocumentType,
         name: documentName.trim(),
+        metadata,
         source: { kind: 'file', key },
         ...(cleaned ? { content: cleaned } : {}),
         ...(referenceFile.name.toLowerCase().endsWith('.pdf')
@@ -113,9 +161,11 @@ export function NewDocumentPage() {
           : {}),
       });
 
-      const ingestQueued = doc.ingestStatus === 'queued';
+      const ingestQueued =
+        doc.ingestStatus === 'queued' || doc.ingestStatus === 'processing';
+      const ingestFailed = doc.ingestStatus === 'failed';
       // Feedback needs draft text — wait until PDF ingest completes in the editor.
-      if (!ingestQueued) {
+      if (!ingestQueued && !ingestFailed) {
         void generateFeedback(apiClient, doc.id).catch(() => {
           // Non-fatal: student can manually trigger from the editor if this fails.
         });
@@ -126,17 +176,30 @@ export function NewDocumentPage() {
         org,
         docType,
         initialContent: cleaned as JSONContent | undefined,
-        docxParseWarning,
+        docxParseWarning:
+          docxParseWarning ??
+          (ingestFailed
+            ? 'The document was saved, but PDF processing could not be queued. Upload it again from the editor.'
+            : undefined),
         ingestQueued,
+        ingestFailed,
       };
     },
-    onSuccess: ({ doc, org, docType, initialContent, docxParseWarning, ingestQueued }) => {
+    onSuccess: ({
+      doc,
+      org,
+      docType,
+      initialContent,
+      docxParseWarning,
+      ingestQueued,
+      ingestFailed,
+    }) => {
       navigate(`/dashboard/document/${doc.id}`, {
         state: {
           organizationName: org?.name,
           contentType: docType?.name,
           documentName: doc.name,
-          feedbackQueued: !ingestQueued,
+          feedbackQueued: !ingestQueued && !ingestFailed,
           ingestQueued,
           ...(initialContent ? { initialContent } : {}),
           ...(docxParseWarning ? { docxParseWarning } : {}),
@@ -146,6 +209,7 @@ export function NewDocumentPage() {
   });
 
   const handleActivate = () => {
+    if (!canActivate) return;
     activateMutation.mutate();
   };
 
@@ -191,13 +255,11 @@ export function NewDocumentPage() {
               <option value="" disabled>
                 Select department
               </option>
-              {organizations
-                .filter((org) => org.name !== 'Test Department')
-                .map((org) => (
-                  <option key={org.id} value={org.id}>
-                    {org.name}
-                  </option>
-                ))}
+              {studentFacingDepartments.map((org) => (
+                <option key={org.id} value={org.id}>
+                  {org.name}
+                </option>
+              ))}
             </select>
           )}
         </div>
@@ -226,7 +288,7 @@ export function NewDocumentPage() {
                 id="document-type-select"
                 value={selectedDocumentType}
                 className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary"
-                onChange={(e) => setSelectedDocumentType(e.target.value)}
+                onChange={(e) => handleDocumentTypeChange(e.target.value)}
               >
                 <option value="" disabled>
                   Select document type
@@ -261,8 +323,50 @@ export function NewDocumentPage() {
           </div>
         )}
 
-        {/* Step 4: File Upload */}
-        {documentName.trim() && (
+        {/* Step 4: Required and optional metadata */}
+        {selectedDocumentType && (
+          <div className="flex flex-col gap-md">
+            {metadataFieldsQuery.isLoading && (
+              <p role="status" className="text-bodySmall text-text-secondary">
+                Loading document details…
+              </p>
+            )}
+            {metadataFieldsQuery.isError && (
+              <p role="alert" className="text-bodySmall text-signal-critical">
+                Couldn't load the required document details. Please retry.
+              </p>
+            )}
+            {metadataFields.map((field) => (
+              <div key={field.id} className="flex flex-col gap-xs">
+                <label
+                  htmlFor={`metadata-${field.id}`}
+                  className="text-body font-sans font-semibold text-text-primary"
+                >
+                  {field.label}{field.required ? ' *' : ''}
+                </label>
+                <input
+                  id={`metadata-${field.id}`}
+                  type="text"
+                  required={field.required}
+                  value={metadata[field.id] ?? ''}
+                  className="rounded-md border border-border-subtle bg-surface-primary px-lg py-sm text-body text-text-primary"
+                  onChange={(e) => setMetadata((current) => ({
+                    ...current,
+                    [field.id]: e.target.value,
+                  }))}
+                />
+              </div>
+            ))}
+            {missingRequiredMetadata.length > 0 && (
+              <p role="status" className="text-bodySmall text-signal-caution">
+                Complete required fields: {missingRequiredMetadata.map((field) => field.label).join(', ')}.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Step 5: File Upload */}
+        {documentName.trim() && !metadataFieldsQuery.isLoading && !metadataFieldsQuery.isError && (
           <div className="flex flex-col gap-sm">
             <label
               htmlFor="reference-file-input"
@@ -275,8 +379,27 @@ export function NewDocumentPage() {
               type="file"
               accept=".docx,.pdf"
               className="rounded-md border border-border-subtle bg-surface-muted px-lg py-sm text-bodySmall text-text-primary file:mr-md file:rounded-md file:border-0 file:bg-surface-primary file:px-md file:py-xs file:text-bodySmall file:font-sans file:text-text-secondary"
-              onChange={(e) => setReferenceFile(e.target.files?.[0])}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                setFileSizeError(undefined);
+                if (file) {
+                  const limit = uploadConfig?.maxFileSizeBytes ?? 30 * 1024 * 1024;
+                  if (file.size > limit) {
+                    setFileSizeError(
+                      `File exceeds the maximum allowed size of ${Math.round(limit / (1024 * 1024))} MB`,
+                    );
+                    e.target.value = '';
+                    return;
+                  }
+                }
+                setReferenceFile(file);
+              }}
             />
+            {fileSizeError && (
+              <p role="alert" className="text-bodySmall text-signal-critical">
+                {fileSizeError}
+              </p>
+            )}
             <p className="text-caption text-text-muted leading-relaxed">
               <strong>Prefer .docx</strong> when formatting matters — fonts, colors,
               highlights, alignment, images, headings, lists, and tables survive

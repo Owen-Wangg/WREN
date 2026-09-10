@@ -9,9 +9,10 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { v4 as uuid } from 'uuid';
-import { resolveAccess } from '@wren/auth';
-import type { AccessGrant, TipTapDoc } from '@wren/types';
+import { resolveAccess, bindCorsOrigin, withCorsHeaders } from '@wren/auth';
+import type { AccessGrant, CustomMetadataField, TipTapDoc } from '@wren/types';
 import {
+  createDocumentInputSchema,
   isTipTapDoc,
   stripAiMarksFromTipTapContent,
   tipTapContentToSegments,
@@ -29,12 +30,14 @@ import { ingestUpload } from './ingestion.js';
 import { enforceSizeLimit } from './sizeLimit.js';
 import { overSizeLimitHttpResponse } from './patchDraftSizeLimit.js';
 import { gateSubmission } from './submissionGating.js';
+import { validateDocumentMetadata } from './metadataGating.js';
 import { createDraftRevision } from './draftVersioning.js';
 import { DbDraftRepository } from './draftRepository.js';
 import {
   enqueueIngestJob,
   getLatestIngestStatus,
   insertQueuedIngestJob,
+  markIngestJobFailed,
   shouldIngestPdfAsync,
 } from './ingestJob.js';
 import {
@@ -43,6 +46,7 @@ import {
 } from './ingestWorker.js';
 import {
   assertDocumentUploadAllowed,
+  getPlatformUsagePolicy,
   reserveDraftCreate,
   reserveDocumentUpload,
   UsageLimitReachedError,
@@ -50,27 +54,12 @@ import {
 
 const docxExtractor = new MammothDocxExtractor();
 
-function parseOcrEngineFromBody(body: Record<string, unknown>): string {
+function parseOcrEngineFromBody(body: { readonly ocrEngine?: unknown }): string {
   const raw = body.ocrEngine;
   return resolveOcrEngine(typeof raw === 'string' ? raw : null);
 }
 
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-};
-
-function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
-  return {
-    ...result,
-    headers: {
-      ...CORS_HEADERS,
-      ...(result.headers as Record<string, string> | undefined),
-    },
-  };
-}
+const withCors = withCorsHeaders;
 
 function parseAuthContext(event: any) {
   const ctx = event.requestContext?.authorizer || {};
@@ -84,10 +73,32 @@ function parseAuthContext(event: any) {
   };
 }
 
+/**
+ * Every route served by the Document Lambda is a writer operation. Enforce the
+ * Student role at runtime rather than relying on frontend routing or document
+ * ownership alone. Mixed-role users remain eligible through their Student role.
+ */
+function studentAccessFailure(event: any): APIGatewayProxyResult | null {
+  const actor = parseAuthContext(event);
+  if (!actor.userId) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify({ code: 'UNAUTHORIZED', message: 'Authentication required' }),
+    };
+  }
+  if (!actor.roles.includes('Student')) {
+    return {
+      statusCode: 403,
+      body: JSON.stringify({ code: 'PERMISSION_DENIED', message: 'Student role required' }),
+    };
+  }
+  return null;
+}
+
 async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<APIGatewayProxyResult> {
   try {
     return withCors(await fn());
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error:', error);
     if (error instanceof UsageLimitReachedError) {
       return withCors({
@@ -95,17 +106,41 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
         body: JSON.stringify({ code: error.code, message: error.message }),
       });
     }
+
+    if (error instanceof SyntaxError) {
+      return withCors({
+        statusCode: 400,
+        body: JSON.stringify({ code: 'BAD_REQUEST', message: 'Request body must be valid JSON' }),
+      });
+    }
+
+    const candidateStatus =
+      typeof error === 'object' && error !== null &&
+      'statusCode' in error && typeof error.statusCode === 'number'
+        ? error.statusCode
+        : 500;
+    const statusCode =
+      Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus < 600
+        ? candidateStatus
+        : 500;
+    const code =
+      statusCode === 403 ? 'PERMISSION_DENIED'
+        : statusCode === 404 ? 'NOT_FOUND'
+          : statusCode >= 500 ? 'INTERNAL_ERROR'
+            : 'BAD_REQUEST';
+    const safeMessage =
+      statusCode < 500 && error instanceof Error
+        ? error.message
+        : 'Internal server error';
+
     return withCors({
-      statusCode: error.statusCode || 500,
-      body: JSON.stringify({
-        code: error.statusCode === 403 ? 'PERMISSION_DENIED' : error.statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR',
-        message: error.message || 'Internal server error',
-      }),
+      statusCode,
+      body: JSON.stringify({ code, message: safeMessage }),
     });
   }
 }
 
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const DEFAULT_MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const ORPHAN_UPLOAD_TAGGING =
   '<Tagging><TagSet><Tag><Key>orphan-upload</Key><Value>true</Value></Tag></TagSet></Tagging>';
 
@@ -203,7 +238,7 @@ function rejectUnsafeTipTap(
       statusCode: 400,
       body: JSON.stringify({
         code: 'PAYLOAD_TOO_LARGE',
-        message: `${field} exceeds the 1MB serialized size limit`,
+        message: `${field} exceeds the ${Math.round(TIPTAP_FIELD_MAX_BYTES / 1_048_576)}MB serialized size limit`,
       }),
     };
   }
@@ -305,8 +340,11 @@ export const handler = async (
     return;
   }
 
+  bindCorsOrigin(event);
   try {
     const { httpMethod, resource } = event;
+    const accessFailure = studentAccessFailure(event);
+    if (accessFailure) return withCors(accessFailure);
 
     if (resource === '/v1/documents' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocuments(event));
@@ -334,6 +372,9 @@ export const handler = async (
     }
     if (resource === '/v1/uploads/presign' && httpMethod === 'POST') {
       return await wrapHandler(() => handlePresignUpload(event));
+    }
+    if (resource === '/v1/uploads/config' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleGetUploadConfig(event));
     }
 
     return withCors({
@@ -396,6 +437,32 @@ function normalizeGrants(raw: unknown): AccessGrant[] {
     .filter((g): g is AccessGrant => g !== null);
 }
 
+/**
+ * Reload the relevant active grant inside the Document service. The REST
+ * authorizer also loads grants on every request, but this local query preserves
+ * dual enforcement and prevents stale or forged authorizer context from
+ * authorizing submission to a locked Department.
+ */
+async function loadActiveSubmissionGrants(
+  userId: string,
+  documentTypeId: string,
+  db: Awaited<ReturnType<typeof getDataAccess>>,
+): Promise<AccessGrant[]> {
+  const rows = await db.query<Record<string, unknown>>(
+    `SELECT id,
+            user_id AS "userId",
+            document_type_id AS "documentTypeId",
+            granted_by AS "grantedBy",
+            granted_at::text AS "grantedAt"
+     FROM access_grant
+     WHERE user_id = $1
+       AND document_type_id = $2
+       AND revoked_at IS NULL`,
+    [userId, documentTypeId],
+  );
+  return normalizeGrants(rows);
+}
+
 async function readS3ObjectBytes(key: string): Promise<Buffer> {
   const response = await s3Client.send(
     new GetObjectCommand({
@@ -413,17 +480,24 @@ async function readS3ObjectBytes(key: string): Promise<Buffer> {
 async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const body = event.body ? JSON.parse(event.body) : {};
-  const documentTypeId = body.documentTypeId as string | undefined;
-  const name = typeof body.name === 'string' ? body.name.trim() : '';
-  let contentTypeId = (body.contentTypeId as string | null | undefined) ?? null;
-  const metadata =
-    body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
-      ? (body.metadata as Record<string, string>)
-      : {};
-  const source = body.source as
-    | { kind?: string; text?: string; key?: string }
-    | undefined;
+  const rawBody: unknown = event.body ? JSON.parse(event.body) : {};
+  const parsedBody = createDocumentInputSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'Document request body is invalid',
+      }),
+    };
+  }
+
+  const body = parsedBody.data;
+  const documentTypeId = body.documentTypeId;
+  const name = body.name.trim();
+  let contentTypeId = body.contentTypeId ?? null;
+  const metadata = body.metadata;
+  const source = body.source;
   const tipTapContent = parseRequestTipTapContent(body.content);
   if (tipTapContent) {
     const rejected = rejectUnsafeTipTap(tipTapContent, 'content');
@@ -481,8 +555,10 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   };
   const sizeLimitWords =
     typeof dtRows[0].size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const createDocPolicy = await getPlatformUsagePolicy(db);
+  const platformWordLimit = createDocPolicy.maxWordCount;
 
-  const grants = normalizeGrants(actor.grants);
+  const grants = await loadActiveSubmissionGrants(actor.userId, documentTypeId, db);
   const submissionGate = await gateSubmission(
     {
       resolveAccess: async (_userId, dtId) =>
@@ -505,9 +581,47 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  // Required custom-metadata gating is deferred: the student New Document
-  // flow does not collect metadata fields (Department → Document Type →
-  // Name → Upload only). Persist any metadata the client does send.
+  const metadataRows = await db.query<{
+    id: string;
+    document_type_id: string;
+    label: string;
+    required: boolean;
+  }>(
+    `SELECT id, document_type_id, label, required
+     FROM custom_metadata_field
+     WHERE document_type_id = $1
+     ORDER BY label ASC`,
+    [documentTypeId],
+  );
+  const metadataFields: CustomMetadataField[] = metadataRows.map((row) => ({
+    id: row.id,
+    documentTypeId: row.document_type_id,
+    label: row.label,
+    required: row.required,
+  }));
+  const metadataValidation = validateDocumentMetadata(metadataFields, metadata);
+  if (metadataValidation.status === 'invalid-metadata-fields') {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'INVALID_METADATA_FIELDS',
+        message: 'Document metadata contains fields not configured for this document type.',
+        unknownMetadataFieldIds: metadataValidation.unknownMetadataFieldIds,
+      }),
+    };
+  }
+
+  if (metadataValidation.status === 'missing-required-fields') {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'REQUIRED_METADATA_MISSING',
+        message: `Complete required fields: ${metadataValidation.missingRequiredFieldLabels.join(', ')}.`,
+        missingRequiredFieldIds: metadataValidation.missingRequiredFieldIds,
+        missingRequiredFieldLabels: metadataValidation.missingRequiredFieldLabels,
+      }),
+    };
+  }
 
   if (contentTypeId) {
     const contentTypeRows = await db.query(
@@ -595,44 +709,71 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     }
   }
 
-  await reserveDocumentUpload(actor.userId, db);
-
   if (asyncPdf) {
-    const insertQuery = `
-      INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at, draft_create_count)
-      VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
-      RETURNING id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
-    `;
-    const rows = await db.query(insertQuery, [
-      actor.userId,
-      documentTypeId,
-      contentTypeId,
-      name,
-      JSON.stringify(metadata),
-      'Still Drafting',
-    ]);
-    const documentId = (rows[0] as { id: string }).id;
-    const job = await insertQueuedIngestJob(db, {
-      documentId,
-      s3Key: asyncPdf.key,
-      fileName: asyncPdf.fileName,
-      ocrEngine,
+    const created = await db.transaction(async (tx) => {
+      await reserveDocumentUpload(actor.userId, tx);
+      const rows = await tx.query<any>(
+        `INSERT INTO document (
+           owner_user_id, document_type_id, content_type_id, name, metadata,
+           status, created_at, draft_create_count
+         ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
+         RETURNING id, owner_user_id, document_type_id, content_type_id,
+                   name, metadata, status, created_at`,
+        [
+          actor.userId,
+          documentTypeId,
+          contentTypeId,
+          name,
+          JSON.stringify(metadata),
+          'Still Drafting',
+        ],
+      );
+      const documentId = rows[0].id as string;
+      const job = await insertQueuedIngestJob(tx, {
+        documentId,
+        s3Key: asyncPdf.key,
+        fileName: asyncPdf.fileName,
+        ocrEngine,
+      });
+      return { rows, documentId, job };
     });
-    await enqueueIngestJob({
-      jobId: job.id,
-      documentId,
-      s3Key: asyncPdf.key,
-      fileName: asyncPdf.fileName,
-      userId: actor.userId,
-      sizeLimitWords,
-      ocrEngine,
-    });
+
+    try {
+      await enqueueIngestJob({
+        jobId: created.job.id,
+        documentId: created.documentId,
+        s3Key: asyncPdf.key,
+        fileName: asyncPdf.fileName,
+        userId: actor.userId,
+        sizeLimitWords,
+        platformSizeLimitWords: platformWordLimit,
+        ocrEngine,
+      });
+    } catch (enqueueError) {
+      try {
+        await markIngestJobFailed(db, created.job.id, 'Failed to enqueue document ingestion');
+      } catch (statusError) {
+        console.error('Failed to record document ingest enqueue failure', {
+          jobId: created.job.id,
+          enqueueError,
+          statusError,
+        });
+      }
+      return {
+        statusCode: 201,
+        body: JSON.stringify({
+          ...toDocumentDto(created.rows[0]),
+          ingestStatus: 'failed',
+          ingestJobId: created.job.id,
+        }),
+      };
+    }
     return {
       statusCode: 201,
       body: JSON.stringify({
-        ...toDocumentDto(rows[0]),
+        ...toDocumentDto(created.rows[0]),
         ingestStatus: 'queued',
-        ingestJobId: job.id,
+        ingestJobId: created.job.id,
       }),
     };
   }
@@ -675,6 +816,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     : ingestResult.segments;
   const sizeResult = enforceSizeLimit(segments, {
     documentTypeSizeLimitWords: sizeLimitWords,
+    platformSizeLimitWords: platformWordLimit,
   });
   if (sizeResult.status === 'over-limit') {
     return {
@@ -697,52 +839,64 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     const bodyWords = storedContent
       ? wordCountFromTipTapContent(storedContent)
       : sizeResult.measuredWords;
-    const overLimit = overSizeLimitHttpResponse(bodyWords + headerFooterWords, sizeLimitWords);
+    const overLimit = overSizeLimitHttpResponse(bodyWords + headerFooterWords, sizeLimitWords, platformWordLimit);
     if (overLimit) return overLimit;
   }
 
-  const insertQuery = `
-    INSERT INTO document (owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at, draft_create_count)
-    VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
-    RETURNING id, owner_user_id, document_type_id, content_type_id, name, metadata, status, created_at
-  `;
-  const rows = await db.query(insertQuery, [
-    actor.userId,
+  const created = await db.transaction(async (tx) => {
+    await reserveDocumentUpload(actor.userId, tx);
+    const rows = await tx.query<any>(
+      `INSERT INTO document (
+         owner_user_id, document_type_id, content_type_id, name, metadata,
+         status, created_at, draft_create_count
+       ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
+       RETURNING id, owner_user_id, document_type_id, content_type_id,
+                 name, metadata, status, created_at`,
+      [
+        actor.userId,
+        documentTypeId,
+        contentTypeId,
+        name,
+        JSON.stringify(metadata),
+        'Still Drafting',
+      ],
+    );
+    const documentId = rows[0].id as string;
+    const draftRepo = new DbDraftRepository(tx);
+    await createDraftRevision(
+      {
+        documentId,
+        segments,
+        wordCount:
+          (storedContent
+            ? wordCountFromTipTapContent(storedContent)
+            : sizeResult.measuredWords) + headerFooterWords,
+        s3Key,
+        ...(storedContent ? { content: storedContent } : {}),
+        ...(ingestResult.header ? { header: ingestResult.header } : {}),
+        ...(ingestResult.footer ? { footer: ingestResult.footer } : {}),
+        ...(typeof ingestResult.ocrConfidence === 'number'
+          ? { ocrConfidence: ingestResult.ocrConfidence }
+          : {}),
+      },
+      draftRepo,
+    );
+    return { rows, documentId };
+  });
+
+  // Analytics counters are intentionally best-effort and outside the atomic
+  // user-visible document/draft transaction.
+  await updateDepartmentUserCounter(
     documentTypeId,
-    contentTypeId,
-    name,
-    JSON.stringify(metadata),
-    'Still Drafting',
-  ]);
-  const document = rows[0] as { id: string };
-  const documentId = document.id;
-
-  // Maintain department active-user counter (non-fatal if it fails).
-  await updateDepartmentUserCounter(documentTypeId, actor.userId, documentId, 1, db);
-
-  const draftRepo = new DbDraftRepository(db);
-  await createDraftRevision(
-    {
-      documentId,
-      segments,
-      wordCount:
-        (storedContent
-          ? wordCountFromTipTapContent(storedContent)
-          : sizeResult.measuredWords) + headerFooterWords,
-      s3Key,
-      ...(storedContent ? { content: storedContent } : {}),
-      ...(ingestResult.header ? { header: ingestResult.header } : {}),
-      ...(ingestResult.footer ? { footer: ingestResult.footer } : {}),
-      ...(typeof ingestResult.ocrConfidence === 'number'
-        ? { ocrConfidence: ingestResult.ocrConfidence }
-        : {}),
-    },
-    draftRepo,
+    actor.userId,
+    created.documentId,
+    1,
+    db,
   );
 
   return {
     statusCode: 201,
-    body: JSON.stringify(toDocumentDto(rows[0])),
+    body: JSON.stringify(toDocumentDto(created.rows[0])),
   };
 }
 
@@ -968,6 +1122,7 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
   );
   const sizeLimitWords =
     typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const patchPolicy = await getPlatformUsagePolicy(db);
 
   const cleaned = stripAiMarksFromTipTapContent(tipTapContent) as TipTapDoc;
   const header = isTipTapDoc(body.header) ? (body.header as TipTapDoc) : undefined;
@@ -987,7 +1142,7 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
     wordCountFromTipTapContent(cleaned) +
     (header ? wordCountFromTipTapContent(header) : 0) +
     (footer ? wordCountFromTipTapContent(footer) : 0);
-  const overLimit = overSizeLimitHttpResponse(wordCount, sizeLimitWords);
+  const overLimit = overSizeLimitHttpResponse(wordCount, sizeLimitWords, patchPolicy.maxWordCount);
   if (overLimit) {
     return overLimit;
   }
@@ -1061,8 +1216,6 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
-  await reserveDraftCreate(documentId, db);
-
   const documentTypeId = docRows[0].document_type_id as string;
   const dtRows = await db.query(
     `SELECT size_limit_words FROM document_type WHERE id = $1`,
@@ -1070,6 +1223,8 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   );
   const sizeLimitWords =
     typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const createDraftPolicy = await getPlatformUsagePolicy(db);
+  const draftPlatformWordLimit = createDraftPolicy.maxWordCount;
 
   let s3Key = 'inline';
   let normalizedSegments: Array<{ index: number; text: string }>;
@@ -1122,21 +1277,55 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       await clearOrphanUploadTag(key);
 
       if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
-        const job = await insertQueuedIngestJob(db, {
-          documentId: documentId as string,
-          s3Key: key,
-          fileName,
-          ocrEngine,
+        const job = await db.transaction(async (tx) => {
+          const locked = await tx.query<{ owner_user_id: string }>(
+            'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
+            [documentId],
+          );
+          if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
+            throw Object.assign(new Error('Document not found'), { statusCode: 404 });
+          }
+          await reserveDraftCreate(documentId, tx);
+          return insertQueuedIngestJob(tx, {
+            documentId: documentId as string,
+            s3Key: key,
+            fileName,
+            ocrEngine,
+          });
         });
-        await enqueueIngestJob({
-          jobId: job.id,
-          documentId: documentId as string,
-          s3Key: key,
-          fileName,
-          userId: actor.userId,
-          sizeLimitWords,
-          ocrEngine,
-        });
+        try {
+          await enqueueIngestJob({
+            jobId: job.id,
+            documentId: documentId as string,
+            s3Key: key,
+            fileName,
+            userId: actor.userId,
+            sizeLimitWords,
+            platformSizeLimitWords: draftPlatformWordLimit,
+            ocrEngine,
+          });
+        } catch (enqueueError) {
+          const errorMessage =
+            'The upload was saved, but PDF processing could not be queued. Please try again.';
+          try {
+            await markIngestJobFailed(db, job.id, 'Failed to enqueue draft ingestion');
+          } catch (statusError) {
+            console.error('Failed to record draft ingest enqueue failure', {
+              jobId: job.id,
+              enqueueError,
+              statusError,
+            });
+          }
+          return {
+            statusCode: 202,
+            body: JSON.stringify({
+              ingestStatus: 'failed',
+              jobId: job.id,
+              documentId,
+              errorMessage,
+            }),
+          };
+        }
         return {
           statusCode: 202,
           body: JSON.stringify({
@@ -1192,6 +1381,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       : normalizeSegments(ingestResult.segments);
     const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
+      platformSizeLimitWords: draftPlatformWordLimit,
     });
     if (sizeResult.status === 'over-limit') {
       return {
@@ -1211,6 +1401,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     normalizedSegments = tipTapContentToSegments(tipTapContent);
     const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
+      platformSizeLimitWords: draftPlatformWordLimit,
     });
     if (sizeResult.status === 'over-limit') {
       return {
@@ -1229,6 +1420,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     wordCount = wordCountFromSegments(normalizedSegments);
     const sizeResult = enforceSizeLimit(normalizedSegments, {
       documentTypeSizeLimitWords: sizeLimitWords,
+      platformSizeLimitWords: draftPlatformWordLimit,
     });
     if (sizeResult.status === 'over-limit') {
       return {
@@ -1250,27 +1442,38 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     (storedHeader ? wordCountFromTipTapContent(storedHeader) : 0) +
     (storedFooter ? wordCountFromTipTapContent(storedFooter) : 0);
   if (headerFooterWords > 0) {
-    const overLimit = overSizeLimitHttpResponse(wordCount + headerFooterWords, sizeLimitWords);
+    const overLimit = overSizeLimitHttpResponse(wordCount + headerFooterWords, sizeLimitWords, draftPlatformWordLimit);
     if (overLimit) return overLimit;
     wordCount += headerFooterWords;
   }
 
-  const draftRepo = new DbDraftRepository(db);
-  const { draft } = await createDraftRevision(
-    {
-      documentId: documentId as string,
-      segments: normalizedSegments,
-      wordCount,
-      s3Key,
-      ...(storedContent ? { content: storedContent } : {}),
-      ...(storedHeader ? { header: storedHeader } : {}),
-      ...(storedFooter ? { footer: storedFooter } : {}),
-      ...(typeof storedOcrConfidence === 'number'
-        ? { ocrConfidence: storedOcrConfidence }
-        : {}),
-    },
-    draftRepo,
-  );
+  const draft = await db.transaction(async (tx) => {
+    const locked = await tx.query<{ owner_user_id: string }>(
+      'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
+      [documentId],
+    );
+    if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
+      throw Object.assign(new Error('Document not found'), { statusCode: 404 });
+    }
+    await reserveDraftCreate(documentId, tx);
+    const draftRepo = new DbDraftRepository(tx);
+    const result = await createDraftRevision(
+      {
+        documentId: documentId as string,
+        segments: normalizedSegments,
+        wordCount,
+        s3Key,
+        ...(storedContent ? { content: storedContent } : {}),
+        ...(storedHeader ? { header: storedHeader } : {}),
+        ...(storedFooter ? { footer: storedFooter } : {}),
+        ...(typeof storedOcrConfidence === 'number'
+          ? { ocrConfidence: storedOcrConfidence }
+          : {}),
+      },
+      draftRepo,
+    );
+    return result.draft;
+  });
 
   return {
     statusCode: 201,
@@ -1306,6 +1509,9 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
 
   await assertDocumentUploadAllowed(actor.userId, db);
 
+  const policy = await getPlatformUsagePolicy(db);
+  const maxFileSizeBytes = policy.maxUploadFileSizeBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+
   const safeName = filename.replace(/[^\w.\-()+ ]+/g, '_');
   const key = `documents/${actor.userId}/uploads/${uuid()}-${safeName}`;
   const kmsKeyArn = process.env.DOCUMENTS_KMS_KEY_ARN?.trim();
@@ -1320,7 +1526,7 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
     Bucket: process.env.DOCUMENTS_BUCKET_NAME!,
     Key: key,
     Conditions: [
-      ['content-length-range', 1, MAX_UPLOAD_BYTES],
+      ['content-length-range', 1, maxFileSizeBytes],
       ['eq', '$Content-Type', contentType],
       ['eq', '$tagging', ORPHAN_UPLOAD_TAGGING],
       ...Object.entries(encryptionFields).map(
@@ -1337,7 +1543,18 @@ async function handlePresignUpload(event: any): Promise<APIGatewayProxyResult> {
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ uploadUrl: url, fields, key }),
+    body: JSON.stringify({ uploadUrl: url, fields, key, maxFileSizeBytes }),
+  };
+}
+
+async function handleGetUploadConfig(event: any): Promise<APIGatewayProxyResult> {
+  parseAuthContext(event); // ensure authenticated
+  const db = await getDataAccess();
+  const policy = await getPlatformUsagePolicy(db);
+  const maxFileSizeBytes = policy.maxUploadFileSizeBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ maxFileSizeBytes, maxWordCount: policy.maxWordCount }),
   };
 }
 

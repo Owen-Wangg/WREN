@@ -55,6 +55,18 @@ export function GuidePage() {
           corner of the screen (next to <strong>All Documents</strong>, which is the page you
           are currently on).
         </p>
+        <p>
+          The department list shows what you can currently discover. Visible departments
+          appear for everyone. Permitted users only departments appear when you have an
+          explicit permission, are a Technical Admin, or are the Department Admin appointed
+          to that department. This filter affects New Document, not documents you already
+          created.
+        </p>
+        <p>
+          Department visibility and submission access are separate. A department may appear
+          here but still be Locked, in which case you need a document-type Access Grant. If
+          an expected department is missing, contact your System Admin.
+        </p>
         <ol className="list-decimal space-y-sm pl-xl">
           <li>Click <strong>New Document</strong>.</li>
           <li>Select your department — for example, Law.</li>

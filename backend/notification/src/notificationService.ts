@@ -231,14 +231,16 @@ class NotificationServiceImpl implements NotificationService {
     // 4. Update state with timestamp
     if (newState === 'read') {
       await this.db.execute(
-        `UPDATE notification SET state = $1, read_at = NOW() WHERE id = $2`,
-        [newState, notificationId],
+        `UPDATE notification SET state = $1, read_at = NOW()
+         WHERE id = $2 AND recipient_user_id = $3`,
+        [newState, notificationId, userId],
       );
     } else {
       // dismissed
       await this.db.execute(
-        `UPDATE notification SET state = $1, dismissed_at = NOW() WHERE id = $2`,
-        [newState, notificationId],
+        `UPDATE notification SET state = $1, dismissed_at = NOW()
+         WHERE id = $2 AND recipient_user_id = $3`,
+        [newState, notificationId, userId],
       );
     }
   }

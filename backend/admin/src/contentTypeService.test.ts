@@ -3,8 +3,8 @@
  * Type (REQ-ORG-CONFIG-01 / Requirement 30.2).
  *
  * Covers CRUD, scoping to a Document Type, and capability enforcement (a
- * disallowed actor is denied with no mutation). No superuser fallback —
- * TechnicalAdmin CANNOT perform educational operations.
+ * disallowed actor is denied with no mutation). TechnicalAdmin may bootstrap
+ * this catalog through the explicit `documentType.manageCatalog` matrix entry.
  */
 import {
   createContentType,
@@ -65,13 +65,18 @@ describe('createContentType (Requirement 30.2)', () => {
     expect(db.mutationCount).toBe(0);
   });
 
-  it('denies a TechnicalAdmin (not a catalog-management authority) with no mutation', async () => {
+  it('allows a TechnicalAdmin to bootstrap a Content Type', async () => {
     const db = new FakeDb();
     seedDeptAndDocumentType(db);
-    await expect(
-      createContentType(techAdminContext(), { documentTypeId: DT, label: 'X' }, db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
+
+    const contentType = await createContentType(
+      techAdminContext(),
+      { documentTypeId: DT, label: 'X' },
+      db,
+    );
+
+    expect(contentType).toMatchObject({ documentTypeId: DT, label: 'X' });
+    expect(db.mutationCount).toBe(1);
   });
 });
 
@@ -156,14 +161,12 @@ describe('deleteContentType', () => {
     expect(db.contentTypes.has('ct-1')).toBe(true);
   });
 
-  it('denies a TechnicalAdmin with no mutation', async () => {
+  it('allows a TechnicalAdmin to delete a bootstrap Content Type', async () => {
     const db = new FakeDb();
     seedDeptAndDocumentType(db);
     db.seedContentType({ id: 'ct-1', document_type_id: DT, label: 'Keep' });
-    await expect(
-      deleteContentType(techAdminContext(), 'ct-1', db),
-    ).rejects.toBeInstanceOf(AuthorizationError);
-    expect(db.mutationCount).toBe(0);
-    expect(db.contentTypes.has('ct-1')).toBe(true);
+
+    expect(await deleteContentType(techAdminContext(), 'ct-1', db)).toBe(true);
+    expect(db.contentTypes.has('ct-1')).toBe(false);
   });
 });

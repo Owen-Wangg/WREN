@@ -61,6 +61,14 @@ export type AccessDecision = z.infer<typeof accessDecisionSchema>;
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Student-catalog visibility for a Department. This is intentionally separate
+ * from OPEN/LOCKED submission access: PERMITTED_ONLY controls discovery while
+ * document-type Access Grants continue to control submission.
+ */
+export const departmentVisibilityStateSchema = z.enum(['VISIBLE', 'PERMITTED_ONLY']);
+export type DepartmentVisibilityState = z.infer<typeof departmentVisibilityStateSchema>;
+
+/**
  * A Department is a GROUPING of Document Types, the DepartmentAdmins who
  * maintain them, department-wide Reference Material, and business Topics —
  * never a data-isolation boundary and never an owner of Users (Requirement 28.1
@@ -72,11 +80,23 @@ export const departmentSchema = z
     name: z.string().min(1),
     prompt: z.string().nullable().optional(),
     /**
+     * Department-level Ask WREN coaching context, editable by a DepartmentAdmin
+     * for their administered Department(s). Appended to Ask WREN's universal
+     * system prompt as labeled context (never overriding rules). Independent of
+     * `prompt`, which feeds the Feedback Engine. NULL/absent means no department
+     * Ask WREN layer.
+     */
+    askWrenPrompt: z.string().nullable().optional(),
+    /**
      * Department-wide student access. OPEN = any student may self-select
      * document types in this department; LOCKED = grant required. Controlled
      * by TechnicalAdmin only.
      */
     accessState: documentTypeAccessStateSchema.optional(),
+    /** Whether the Department is discoverable by every student or permitted viewers only. */
+    visibilityState: departmentVisibilityStateSchema,
+    /** Caller-specific discovery decision; false entries are client-filtered in the UI-only phase. */
+    viewerCanDiscover: z.boolean(),
     /** Count of distinct users who have uploaded at least one document under this department. */
     activeUserCount: z.number().int().nonnegative().optional(),
     /**
@@ -87,6 +107,16 @@ export const departmentSchema = z
   })
   .strict();
 export type Department = z.infer<typeof departmentSchema>;
+
+/** Input to update a Department's student-catalog visibility. */
+export const updateDepartmentVisibilityInputSchema = z
+  .object({
+    visibilityState: departmentVisibilityStateSchema,
+  })
+  .strict();
+export type UpdateDepartmentVisibilityInput = z.infer<
+  typeof updateDepartmentVisibilityInputSchema
+>;
 
 /**
  * Input to create a Department.
@@ -113,6 +143,21 @@ export const updateDepartmentPromptInputSchema = z
   })
   .strict();
 export type UpdateDepartmentPromptInput = z.infer<typeof updateDepartmentPromptInputSchema>;
+
+/**
+ * Input to update a Department's Ask WREN prompt text (department-level Socratic
+ * coaching context). Separate from {@link updateDepartmentPromptInputSchema},
+ * which targets the Feedback-Engine `prompt`. Editable by DepartmentAdmins for
+ * their administered Department(s).
+ */
+export const updateDepartmentAskWrenPromptInputSchema = z
+  .object({
+    askWrenPrompt: z.string().nullable(),
+  })
+  .strict();
+export type UpdateDepartmentAskWrenPromptInput = z.infer<
+  typeof updateDepartmentAskWrenPromptInputSchema
+>;
 
 /* -------------------------------------------------------------------------- */
 /* DocumentType (configurable, self-selectable — design "Document Type")        */
@@ -335,7 +380,7 @@ export const documentSchema = z
     documentTypeId: idSchema,
     contentTypeId: idSchema.nullable().optional(),
     name: z.string().min(1),
-    /** DepartmentAdmin-defined custom metadata field values (e.g. "Writing Topic"). */
+    /** DepartmentAdmin-defined custom metadata values keyed by field id. */
     metadata: z.record(z.string(), z.string()),
     status: documentStatusSchema,
     createdAt: isoDateTimeSchema,
@@ -352,13 +397,10 @@ export type Document = z.infer<typeof documentSchema>;
  * `contentTypeId` is optional at creation; `metadata` carries any
  * DepartmentAdmin-defined custom field values captured at submission.
  */
-export const createDocumentSourceSchema = z
-  .object({
-    kind: z.enum(['file', 'paste']),
-    text: z.string().optional(),
-    key: z.string().optional(),
-  })
-  .strict();
+export const createDocumentSourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('file'), key: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('paste'), text: z.string().min(1) }).strict(),
+]);
 export type CreateDocumentSource = z.infer<typeof createDocumentSourceSchema>;
 
 /** Loose TipTap document JSON (type: "doc"). Not fully schema-validated. */
@@ -378,9 +420,11 @@ export const createDocumentInputSchema = z
     source: createDocumentSourceSchema,
     /** Optional client-parsed TipTap JSON; server derives segments when present. */
     content: tipTapDocSchema.optional(),
+    /** Explicit OCR override accepted by the current PDF ingestion pipeline. */
+    ocrEngine: z.literal('textract').optional(),
   })
   .strict();
-export type CreateDocumentInput = z.infer<typeof createDocumentInputSchema>;
+export type CreateDocumentInput = z.input<typeof createDocumentInputSchema>;
 
 /* -------------------------------------------------------------------------- */
 /* Draft (Requirement 8 — immutable, monotonically versioned)                  */
@@ -525,6 +569,31 @@ export const createAccessGrantInputSchema = z
   .strict();
 export type CreateAccessGrantInput = z.infer<typeof createAccessGrantInputSchema>;
 
+/* -------------------------------------------------------------------------- */
+/* DepartmentVisibilityGrant — discovery permission, never submission access   */
+/* -------------------------------------------------------------------------- */
+
+export const departmentVisibilityGrantSchema = z
+  .object({
+    id: idSchema,
+    departmentId: idSchema,
+    userId: idSchema,
+    grantedBy: idSchema.nullable(),
+    grantedAt: isoDateTimeSchema,
+    revokedAt: isoDateTimeSchema.optional(),
+  })
+  .strict();
+export type DepartmentVisibilityGrant = z.infer<
+  typeof departmentVisibilityGrantSchema
+>;
+
+export const createDepartmentVisibilityGrantInputSchema = z
+  .object({ userId: idSchema })
+  .strict();
+export type CreateDepartmentVisibilityGrantInput = z.infer<
+  typeof createDepartmentVisibilityGrantInputSchema
+>;
+
 /**
  * A pending access request for a LOCKED Document Type (Requirement 4.6): a
  * User requesting a Document Type they cannot currently reach. Approving a
@@ -566,6 +635,29 @@ export const userSummarySchema = z
   })
   .strict();
 export type UserSummary = z.infer<typeof userSummarySchema>;
+
+/** Active explicit visibility permission joined to the safe user summary used by System Admin UI. */
+export const departmentVisibilityPermissionSchema = z
+  .object({
+    grant: departmentVisibilityGrantSchema,
+    user: userSummarySchema,
+  })
+  .strict();
+export type DepartmentVisibilityPermission = z.infer<
+  typeof departmentVisibilityPermissionSchema
+>;
+
+export const departmentVisibilityPermissionListSchema = z
+  .object({
+    items: z.array(departmentVisibilityPermissionSchema),
+    total: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+  })
+  .strict();
+export type DepartmentVisibilityPermissionList = z.infer<
+  typeof departmentVisibilityPermissionListSchema
+>;
 
 /**
  * Search/filter/pagination input for the system-wide User directory.
@@ -1063,6 +1155,8 @@ export const platformUsagePolicySchema = z
     debriefGenerationLimit: z.number().int().positive(),
     documentUploadLimit: z.number().int().positive(),
     draftsPerDocumentLimit: z.number().int().positive(),
+    maxUploadFileSizeBytes: z.number().int().min(1048576).max(1073741824),
+    maxWordCount: z.number().int().min(100).max(100000),
   })
   .strict();
 export type PlatformUsagePolicy = z.infer<typeof platformUsagePolicySchema>;

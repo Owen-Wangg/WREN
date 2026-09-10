@@ -113,7 +113,9 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
                 "HEAD",
               ],
               "AllowedOrigins": [
-                "*",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "https://*.amplifyapp.com",
               ],
               "ExposedHeaders": [
                 "ETag",

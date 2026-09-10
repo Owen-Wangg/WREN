@@ -76,6 +76,7 @@ export async function enqueueIngestJob(job: {
   fileName: string;
   userId: string;
   sizeLimitWords: number | null;
+  platformSizeLimitWords?: number | null;
   ocrEngine?: string | null;
 }): Promise<void> {
   const queueUrl = process.env.DOCUMENT_INGEST_QUEUE_URL;
@@ -92,6 +93,7 @@ export async function enqueueIngestJob(job: {
         fileName: job.fileName,
         userId: job.userId,
         sizeLimitWords: job.sizeLimitWords,
+        platformSizeLimitWords: job.platformSizeLimitWords ?? null,
         ocrEngine: resolveOcrEngine(job.ocrEngine),
         enqueuedAt: new Date().toISOString(),
       }),

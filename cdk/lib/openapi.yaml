@@ -32,8 +32,11 @@ x-amazon-apigateway-request-validators:
 x-amazon-apigateway-request-validator: params-only
 
 x-amazon-apigateway-cors:
+  # OPTIONS methods are overwritten in ApiStack.ts with an origin allowlist
+  # (localhost, customDomain, corsAllowedOrigins, Amplify default hosts).
+  # This extension is documentation only; it is not the deployed CORS policy.
   allowedOrigins:
-    - "*"
+    - "http://localhost:5173"
   allowedMethods:
     - GET
     - POST
@@ -67,9 +70,9 @@ components:
         type: token
         authorizerUri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunctionArn}/invocations"
-        # Keep TTL low so a cached Deny from before first-login provisioning
-        # does not block the newly provisioned Allow for several minutes.
-        authorizerResultTtlInSeconds: 30
+        # Authorization is resolved from the application database on every
+        # request so role/grant revocations take effect immediately.
+        authorizerResultTtlInSeconds: 0
         identitySource: method.request.header.Authorization
 
   schemas:
@@ -88,7 +91,7 @@ components:
 
     Department:
       type: object
-      required: [id, name]
+      required: [id, name, visibilityState, viewerCanDiscover]
       properties:
         id:
           type: string
@@ -97,6 +100,81 @@ components:
           type: string
           description: Department name (mutable)
           minLength: 1
+        prompt:
+          type: string
+          nullable: true
+          description: TechnicalAdmin-authored prompt; omitted for other callers
+        accessState:
+          type: string
+          enum: [OPEN, LOCKED]
+          description: Independent submission-access state
+        visibilityState:
+          type: string
+          enum: [VISIBLE, PERMITTED_ONLY]
+          description: Student-catalog discovery state; separate from OPEN/LOCKED
+        viewerCanDiscover:
+          type: boolean
+          description: Caller-specific discovery decision used for UI-only filtering
+        activeUserCount:
+          type: integer
+          minimum: 0
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    DepartmentVisibilityGrant:
+      type: object
+      required: [id, departmentId, userId, grantedBy, grantedAt]
+      properties:
+        id:
+          type: string
+        departmentId:
+          type: string
+        userId:
+          type: string
+        grantedBy:
+          type: string
+          nullable: true
+        grantedAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    DepartmentVisibilityPermissionList:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [grant, user]
+            properties:
+              grant:
+                $ref: "#/components/schemas/DepartmentVisibilityGrant"
+              user:
+                type: object
+                required: [id, email, firstName, lastName, roles, administeredDepartmentIds]
+                properties:
+                  id: { type: string }
+                  email: { type: string, format: email }
+                  firstName: { type: string }
+                  lastName: { type: string }
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                      enum: [Student, DepartmentAdmin, TechnicalAdmin]
+                  administeredDepartmentIds:
+                    type: array
+                    items: { type: string }
+        total: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 1 }
+        offset: { type: integer, minimum: 0 }
 
     DocumentType:
       type: object
@@ -219,7 +297,8 @@ components:
 
     Override:
       type: object
-      required: [id, userId, documentTypeId, bounds, reason, grantedBy, expiresAt]
+      required:
+        [id, userId, documentTypeId, bounds, reason, grantedBy, expiresAt]
       properties:
         id:
           type: string
@@ -262,7 +341,17 @@ components:
 
     Document:
       type: object
-      required: [id, ownerUserId, documentTypeId, contentTypeId, name, metadata, status, createdAt]
+      required:
+        [
+          id,
+          ownerUserId,
+          documentTypeId,
+          contentTypeId,
+          name,
+          metadata,
+          status,
+          createdAt,
+        ]
       properties:
         id:
           type: string
@@ -283,8 +372,8 @@ components:
         metadata:
           type: object
           description: >-
-            DepartmentAdmin-defined custom metadata field values
-            (e.g., {"Writing Topic": "Contracts"})
+            DepartmentAdmin-defined custom metadata values keyed by the
+            corresponding CustomMetadataField id.
           additionalProperties:
             type: string
         status:
@@ -305,7 +394,8 @@ components:
 
     Draft:
       type: object
-      required: [id, documentId, versionNumber, s3Key, segments, wordCount, createdAt]
+      required:
+        [id, documentId, versionNumber, s3Key, segments, wordCount, createdAt]
       properties:
         id:
           type: string
@@ -352,7 +442,17 @@ components:
 
     Anchor:
       type: object
-      required: [id, feedbackItemId, draftId, paragraphIndex, startOffset, endOffset, contentFingerprint, state]
+      required:
+        [
+          id,
+          feedbackItemId,
+          draftId,
+          paragraphIndex,
+          startOffset,
+          endOffset,
+          contentFingerprint,
+          state,
+        ]
       properties:
         id:
           type: string
@@ -394,7 +494,16 @@ components:
 
     FeedbackItem:
       type: object
-      required: [id, documentId, errorCategoryId, kind, questionText, sourceDraftId, createdAt]
+      required:
+        [
+          id,
+          documentId,
+          errorCategoryId,
+          kind,
+          questionText,
+          sourceDraftId,
+          createdAt,
+        ]
       properties:
         id:
           type: string
@@ -549,6 +658,12 @@ components:
             $ref: "#/components/schemas/HelpfulnessComment"
 
   responses:
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Unauthorized:
       description: Missing or invalid authentication token
       content:
@@ -661,13 +776,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                      format: uuid
-                    name:
-                      type: string
+                  $ref: "#/components/schemas/Department"
         "401":
           $ref: "#/components/responses/Unauthorized"
       x-amazon-apigateway-integration:
@@ -766,7 +875,7 @@ paths:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     post:
-      summary: Create a new Document Type (DepartmentAdmin only)
+      summary: Create a new Document Type (DepartmentAdmin in scope or TechnicalAdmin)
       tags: [DocumentTypes]
       operationId: createDocumentType
       requestBody:
@@ -832,7 +941,7 @@ paths:
 
   /v1/document-types/{documentTypeId}:
     delete:
-      summary: Delete a Document Type (DepartmentAdmin for administered department)
+      summary: Delete a Document Type (DepartmentAdmin in scope or TechnicalAdmin)
       tags: [DocumentTypes]
       operationId: deleteDocumentType
       parameters:
@@ -904,7 +1013,7 @@ paths:
 
   /v1/document-types/{documentTypeId}/access-state:
     put:
-      summary: Set Document Type student access state (OPEN or LOCKED)
+      summary: Set the owning Department's student access state (OPEN or LOCKED; TechnicalAdmin only)
       tags: [DocumentTypes]
       operationId: setDocumentTypeAccessState
       parameters:
@@ -1100,6 +1209,7 @@ paths:
                   type: string
                 metadata:
                   type: object
+                  description: Values keyed by CustomMetadataField id; unknown ids are rejected.
                   additionalProperties:
                     type: string
                 source:
@@ -1121,12 +1231,18 @@ paths:
                     type:
                       type: string
                       enum: [doc]
+                ocrEngine:
+                  type: string
+                  enum: [textract]
+      responses:
+        "201":
+          description: Document created, or PDF ingestion queued
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Document"
         "400":
-          description: Validation error (unsupported format, oversize, missing required fields, extraction failure)
+          description: Validation error (unsupported format, oversize, unknown or missing required metadata fields, extraction failure)
           content:
             application/json:
               schema:
@@ -1854,7 +1970,7 @@ paths:
           schema:
             type: string
             format: uuid
-            pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
         - name: draftId
           in: query
           required: true
@@ -1917,7 +2033,7 @@ paths:
           schema:
             type: string
             format: uuid
-            pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       requestBody:
         required: true
         content:
@@ -2064,6 +2180,68 @@ paths:
               schema:
                 type: string
 
+  /v1/document-types/{documentTypeId}/metadata-fields:
+    get:
+      summary: List custom metadata fields for a Document Type
+      tags: [DocumentTypes]
+      operationId: listCustomMetadataFields
+      parameters:
+        - name: documentTypeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Required and optional metadata fields for document creation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CustomMetadataField"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        passthroughBehavior: when_no_match
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   /v1/document-types/{documentTypeId}/config:
     get:
       summary: Get Document Type configuration (taxonomy, conventions, prompt)
@@ -2092,7 +2270,7 @@ paths:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     put:
-      summary: Update Document Type configuration (DepartmentAdmin only)
+      summary: Update Document Type configuration (DepartmentAdmin in scope or TechnicalAdmin)
       tags: [Config]
       operationId: updateDocumentTypeConfig
       parameters:
@@ -2151,7 +2329,6 @@ paths:
             Access-Control-Max-Age:
               schema:
                 type: string
-
 
   /v1/document-types/{documentTypeId}/error-categories:
     get:
@@ -2354,7 +2531,7 @@ paths:
 
   /v1/users:
     get:
-      summary: Search users (DeptAdmin/TechAdmin)
+      summary: Search users (TechnicalAdmin only)
       tags: [Users]
       operationId: searchUsers
       responses:
@@ -2703,7 +2880,6 @@ paths:
             Access-Control-Max-Age:
               schema:
                 type: string
-
 
   # ==================== Feedback Helpfulness Rating ====================
   /v1/feedback-helpfulness:
@@ -3056,7 +3232,14 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [categoryId, categoryName, applicableCount, notApplicableCount, total]
+                      required:
+                        [
+                          categoryId,
+                          categoryName,
+                          applicableCount,
+                          notApplicableCount,
+                          total,
+                        ]
                       properties:
                         categoryId:
                           type: string
@@ -3307,6 +3490,8 @@ paths:
                   - debriefGenerationLimit
                   - documentUploadLimit
                   - draftsPerDocumentLimit
+                  - maxUploadFileSizeBytes
+                  - maxWordCount
                 properties:
                   messageLimit:
                     type: integer
@@ -3320,6 +3505,14 @@ paths:
                   draftsPerDocumentLimit:
                     type: integer
                     minimum: 1
+                  maxUploadFileSizeBytes:
+                    type: integer
+                    minimum: 1048576
+                    maximum: 1073741824
+                  maxWordCount:
+                    type: integer
+                    minimum: 100
+                    maximum: 100000
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3344,6 +3537,8 @@ paths:
                 - debriefGenerationLimit
                 - documentUploadLimit
                 - draftsPerDocumentLimit
+                - maxUploadFileSizeBytes
+                - maxWordCount
               properties:
                 messageLimit:
                   type: integer
@@ -3357,6 +3552,14 @@ paths:
                 draftsPerDocumentLimit:
                   type: integer
                   minimum: 1
+                maxUploadFileSizeBytes:
+                  type: integer
+                  minimum: 1048576
+                  maximum: 1073741824
+                maxWordCount:
+                  type: integer
+                  minimum: 100
+                  maximum: 100000
       responses:
         "200":
           description: Updated lifetime usage policy
@@ -3369,6 +3572,8 @@ paths:
                   - debriefGenerationLimit
                   - documentUploadLimit
                   - draftsPerDocumentLimit
+                  - maxUploadFileSizeBytes
+                  - maxWordCount
                 properties:
                   messageLimit:
                     type: integer
@@ -3377,6 +3582,10 @@ paths:
                   documentUploadLimit:
                     type: integer
                   draftsPerDocumentLimit:
+                    type: integer
+                  maxUploadFileSizeBytes:
+                    type: integer
+                  maxWordCount:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -3648,6 +3857,212 @@ paths:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
 
+  # ==================== Department visibility ====================
+  /v1/departments/{departmentId}/visibility-state:
+    put:
+      summary: Set student-catalog visibility (TechnicalAdmin only)
+      tags: [Departments]
+      operationId: setDepartmentVisibilityState
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [visibilityState]
+              properties:
+                visibilityState:
+                  type: string
+                  enum: [VISIBLE, PERMITTED_ONLY]
+      responses:
+        "200":
+          description: Updated department, or current department for an idempotent request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Department"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'PUT,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+      responses:
+        "200":
+          description: CORS response
+          headers:
+            Access-Control-Allow-Headers: { schema: { type: string } }
+            Access-Control-Allow-Methods: { schema: { type: string } }
+            Access-Control-Allow-Origin: { schema: { type: string } }
+
+  /v1/departments/{departmentId}/visibility-grants:
+    get:
+      summary: List active explicit Department visibility permissions (TechnicalAdmin only)
+      tags: [Departments]
+      operationId: listDepartmentVisibilityGrants
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: Active visibility permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentVisibilityPermissionList"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    post:
+      summary: Grant explicit Department visibility (TechnicalAdmin only)
+      tags: [Departments]
+      operationId: createDepartmentVisibilityGrant
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [userId]
+              properties:
+                userId: { type: string }
+      responses:
+        "200":
+          description: Existing active permission (idempotent request)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentVisibilityGrant"
+        "201":
+          description: Created permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentVisibilityGrant"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+      responses:
+        "200":
+          description: CORS response
+          headers:
+            Access-Control-Allow-Headers: { schema: { type: string } }
+            Access-Control-Allow-Methods: { schema: { type: string } }
+            Access-Control-Allow-Origin: { schema: { type: string } }
+
+  /v1/departments/{departmentId}/visibility-grants/{grantId}:
+    delete:
+      summary: Revoke explicit Department visibility (TechnicalAdmin only)
+      tags: [Departments]
+      operationId: revokeDepartmentVisibilityGrant
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: grantId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Revoked permission, or current revoked permission for an idempotent request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentVisibilityGrant"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      security: []
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: '{"statusCode": 200}'
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+      responses:
+        "200":
+          description: CORS response
+          headers:
+            Access-Control-Allow-Headers: { schema: { type: string } }
+            Access-Control-Allow-Methods: { schema: { type: string } }
+            Access-Control-Allow-Origin: { schema: { type: string } }
+
   # ==================== Department prompt ====================
   /v1/departments/{departmentId}/access-state:
     put:
@@ -3791,7 +4206,136 @@ paths:
               schema:
                 type: string
 
-  # ==================== Upload (presigned URL) ====================
+  # ==================== Department Ask WREN prompt ====================
+  /v1/departments/{departmentId}/ask-wren-prompt:
+    put:
+      summary: Update department-level Ask WREN prompt (DepartmentAdmin only)
+      tags: [Departments]
+      operationId: updateDepartmentAskWrenPrompt
+      parameters:
+        - name: departmentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [askWrenPrompt]
+              properties:
+                askWrenPrompt:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Updated department
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
+  # ==================== Upload (presigned URL + config) ====================
+  /v1/uploads/config:
+    get:
+      summary: Get upload configuration (maximum file size) for the authenticated user
+      tags: [Documents]
+      operationId: getUploadConfig
+      responses:
+        "200":
+          description: Upload configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [maxFileSizeBytes, maxWordCount]
+                properties:
+                  maxFileSizeBytes:
+                    type: integer
+                    description: Maximum allowed upload file size in bytes
+                  maxWordCount:
+                    type: integer
+                    description: Maximum allowed document word count
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentFunctionArn}/invocations"
+
+    options:
+      summary: CORS preflight
+      x-amazon-apigateway-integration:
+        type: mock
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+      responses:
+        "200":
+          description: 200 response
+          headers:
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Max-Age:
+              schema:
+                type: string
+
   /v1/uploads/presign:
     post:
       summary: Get a presigned S3 URL for document upload
@@ -3816,7 +4360,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [uploadUrl, fields, key]
+                required: [uploadUrl, fields, key, maxFileSizeBytes]
                 properties:
                   uploadUrl:
                     type: string
@@ -3826,6 +4370,9 @@ paths:
                       type: string
                   key:
                     type: string
+                  maxFileSizeBytes:
+                    type: integer
+                    description: Maximum allowed file size in bytes for this upload
         "401":
           $ref: "#/components/responses/Unauthorized"
       x-amazon-apigateway-integration:
@@ -3862,7 +4409,6 @@ paths:
             Access-Control-Max-Age:
               schema:
                 type: string
-
 
   # ==================== Notifications ====================
   /v1/notifications:
@@ -4108,7 +4654,8 @@ paths:
           application/json:
             schema:
               type: object
-              required: [slug, label, targetRoles, displayTemplate, dedupStrategy]
+              required:
+                [slug, label, targetRoles, displayTemplate, dedupStrategy]
               properties:
                 slug:
                   type: string

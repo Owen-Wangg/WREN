@@ -67,13 +67,35 @@ describe('DataAccess.execute', () => {
 });
 
 describe('DataAccess.transaction', () => {
-  it('runs the callback inside sql.begin', async () => {
-    const { sql, begin } = mockSql([]);
+  it('runs the callback through a transaction-scoped parameterized adapter', async () => {
+    const rows = [{ id: 'inside-transaction' }];
+    const { sql, begin, unsafe } = mockSql(rows);
     const db = new DataAccess(sql);
 
-    const value = await db.transaction(async () => 'ok');
+    const value = await db.transaction((tx) => {
+      expect(tx).not.toHaveProperty('close');
+      expect(tx).not.toHaveProperty('transaction');
+      return tx.query<{ id: string }>('SELECT id FROM document WHERE id = $1', ['doc-1']);
+    });
 
     expect(begin).toHaveBeenCalledTimes(1);
-    expect(value).toBe('ok');
+    expect(unsafe).toHaveBeenCalledWith(
+      'SELECT id FROM document WHERE id = $1',
+      ['doc-1'],
+    );
+    expect(value).toBe(rows);
+  });
+
+  it('propagates callback failures so postgres.js can roll the transaction back', async () => {
+    const { sql } = mockSql([]);
+    const db = new DataAccess(sql);
+    const failure = new Error('draft insert failed');
+
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.query('UPDATE user_lifetime_usage SET document_upload_count = 1');
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
   });
 });

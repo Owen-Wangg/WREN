@@ -5,9 +5,10 @@
  * `app_user` + default `Student` role when a verified IdP subject has no row
  * yet. Roles remain owned by Postgres — never copied from IdP claims.
  *
- * Exception: members of the Cognito "SystemAdmin" group are provisioned as
- * TechnicalAdmin on their first login. This is a one-time bootstrap path only —
- * after provisioning the DB is the sole source of truth and groups are ignored.
+ * Exception: an explicitly configured exact Cognito subject may receive
+ * TechnicalAdmin only while a genuinely new app_user is provisioned and the
+ * verified token also contains SystemAdmin. Missing configuration is default-off;
+ * existing or email-relinked users never escalate from group membership.
  */
 import type { QueryExecutor } from './identityMapping';
 
@@ -18,6 +19,8 @@ export interface ProvisionUserInput {
   readonly lastName: string;
   /** Cognito group names from the verified JWT — used only at provisioning time. */
   readonly groups?: readonly string[];
+  /** Exact subject allowlist. Missing or non-matching values disable admin bootstrap. */
+  readonly technicalAdminBootstrapSubject?: string;
 }
 
 const UPSERT_USER_SQL = `
@@ -82,6 +85,7 @@ export async function ensureAppUser(
     input.idpSubject,
   ]);
   let userId = rows[0]?.id;
+  let createdNewUser = false;
 
   // Seeded / recycled users often already have this email with a different
   // Cognito `sub`. Relink instead of failing the unique email constraint.
@@ -106,6 +110,7 @@ export async function ensureAppUser(
       input.idpSubject,
     ]);
     userId = rows[0]?.id;
+    createdNewUser = userId !== undefined;
   }
 
   if (!userId) {
@@ -114,7 +119,11 @@ export async function ensureAppUser(
     );
   }
 
-  if (input.groups?.includes('SystemAdmin')) {
+  const bootstrapAdmin =
+    createdNewUser &&
+    input.technicalAdminBootstrapSubject === input.idpSubject &&
+    input.groups?.includes('SystemAdmin') === true;
+  if (bootstrapAdmin) {
     await db.query(ENSURE_TECHNICAL_ADMIN_ROLE_SQL, [userId]);
   } else {
     await db.query(ENSURE_STUDENT_ROLE_SQL, [userId]);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AuthError } from './authService';
 import { MockAuthService } from './mockAuthService';
@@ -15,8 +15,9 @@ describe('MockAuthService', () => {
     });
   });
 
-  it('signs up then signs in with the same credentials', async () => {
+  it('signs up, confirms, then signs in with the same credentials', async () => {
     const service = new MockAuthService();
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
 
     const signUpResult = await service.signUp({
       email: 'writer@example.com',
@@ -24,13 +25,16 @@ describe('MockAuthService', () => {
       firstName: 'Ada',
       lastName: 'Lovelace',
     });
-    expect(signUpResult.confirmationRequired).toBe(false);
+    expect(signUpResult.confirmationRequired).toBe(true);
 
+    await service.confirmSignUp('writer@example.com', '000000');
     const session = await service.signIn({
       email: 'writer@example.com',
       password: 'correct-password',
     });
     expect(session.idToken).toContain(signUpResult.userSub);
+
+    randomSpy.mockRestore();
   });
 
   it('rejects sign-in with the wrong password', async () => {

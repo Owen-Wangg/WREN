@@ -18,11 +18,47 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiDebriefModal } from './components/AiDebriefModal';
 
+import * as debriefApi from './debriefApi';
+
 import { useState, type ReactNode } from 'react';
+import type { Debrief } from './debriefTypes';
+
+const feedbackDebrief: Debrief = {
+  documentId: 'doc-1',
+  draftId: 'draft-1',
+  generatedAt: '2024-01-02T00:00:00.000Z',
+  categoryNames: { clarity: 'Clarity', organization: 'Organization' },
+  progressSummary: [],
+  items: [
+    {
+      id: 'feedback-clarity',
+      documentId: 'doc-1',
+      errorCategoryId: 'clarity',
+      kind: 'inline',
+      questionText: 'Where could this conclusion be stated more directly?',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+    {
+      id: 'feedback-organization',
+      documentId: 'doc-1',
+      errorCategoryId: 'organization',
+      kind: 'structural',
+      questionText: 'The distinct sections make the argument easy to follow.',
+      sourceDraftId: 'draft-1',
+      createdAt: '2024-01-02T00:00:00.000Z',
+    },
+  ],
+};
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.spyOn(debriefApi, 'fetchDebrief').mockResolvedValue(feedbackDebrief);
+});
 
 function renderWithQueryClient(children: ReactNode) {
   const queryClient = new QueryClient({

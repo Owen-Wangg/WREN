@@ -5,25 +5,19 @@ import {
   runMigrations,
 } from './migrate';
 
+const CURRENT_MIGRATIONS = listMigrationFiles(DEFAULT_MIGRATIONS_DIR);
+const FIRST_MIGRATION = CURRENT_MIGRATIONS[0]!;
+
 describe('listMigrationFiles — lexical ordering', () => {
-  it('returns the real migrations in forward-only lexical order', () => {
-    const files = listMigrationFiles(DEFAULT_MIGRATIONS_DIR);
-    expect(files).toEqual([
-      '0001_enable_extensions.sql',
-      '0002_initial_schema.sql',
-      '0003_v4_terminology_migration.sql',
-      '0004_seed_reference_data.sql',
-      '0005_identity_mapping.sql',
-      '0006_writing_type_config_prompts.sql',
-      '0007_department_prompt_and_doctype_extra_fields.sql',
-      '0008_feedback_item_quoted_text.sql',
-    ]);
+  it('returns every real migration exactly once', () => {
+    expect(CURRENT_MIGRATIONS.length).toBeGreaterThan(0);
+    expect(new Set(CURRENT_MIGRATIONS).size).toBe(CURRENT_MIGRATIONS.length);
+    expect(CURRENT_MIGRATIONS.every((file) => /^\d+_.*\.sql$/.test(file))).toBe(true);
   });
 
   it('orders by zero-padded numeric prefix, not insertion order', () => {
-    const sorted = [...listMigrationFiles(DEFAULT_MIGRATIONS_DIR)];
-    const manual = [...sorted].sort();
-    expect(sorted).toEqual(manual);
+    const manual = [...CURRENT_MIGRATIONS].sort();
+    expect(CURRENT_MIGRATIONS).toEqual(manual);
   });
 });
 
@@ -38,7 +32,7 @@ function mockSql(alreadyApplied: string[]): {
   begin: jest.Mock;
 } {
   const unsafe = jest.fn(async (text: string) => {
-    if (/SELECT filename FROM schema_migrations/i.test(text)) {
+    if (/SELECT filename FROM public\.schema_migrations/i.test(text)) {
       return alreadyApplied.map((filename) => ({ filename }));
     }
     return [];
@@ -56,47 +50,21 @@ describe('runMigrations — idempotent forward-only application', () => {
 
     const applied = await runMigrations(sql);
 
-    expect(applied).toEqual([
-      '0001_enable_extensions.sql',
-      '0002_initial_schema.sql',
-      '0003_v4_terminology_migration.sql',
-      '0004_seed_reference_data.sql',
-      '0005_identity_mapping.sql',
-      '0006_writing_type_config_prompts.sql',
-      '0007_department_prompt_and_doctype_extra_fields.sql',
-      '0008_feedback_item_quoted_text.sql',
-    ]);
-    expect(begin).toHaveBeenCalledTimes(8);
+    expect(applied).toEqual(CURRENT_MIGRATIONS);
+    expect(begin).toHaveBeenCalledTimes(CURRENT_MIGRATIONS.length);
   });
 
   it('skips migrations already recorded in schema_migrations', async () => {
-    const { sql, begin } = mockSql(['0001_enable_extensions.sql']);
+    const { sql, begin } = mockSql([FIRST_MIGRATION]);
 
     const applied = await runMigrations(sql);
 
-    expect(applied).toEqual([
-      '0002_initial_schema.sql',
-      '0003_v4_terminology_migration.sql',
-      '0004_seed_reference_data.sql',
-      '0005_identity_mapping.sql',
-      '0006_writing_type_config_prompts.sql',
-      '0007_department_prompt_and_doctype_extra_fields.sql',
-      '0008_feedback_item_quoted_text.sql',
-    ]);
-    expect(begin).toHaveBeenCalledTimes(7);
+    expect(applied).toEqual(CURRENT_MIGRATIONS.slice(1));
+    expect(begin).toHaveBeenCalledTimes(CURRENT_MIGRATIONS.length - 1);
   });
 
   it('is a no-op when the database is already current', async () => {
-    const { sql, begin } = mockSql([
-      '0001_enable_extensions.sql',
-      '0002_initial_schema.sql',
-      '0003_v4_terminology_migration.sql',
-      '0004_seed_reference_data.sql',
-      '0005_identity_mapping.sql',
-      '0006_writing_type_config_prompts.sql',
-      '0007_department_prompt_and_doctype_extra_fields.sql',
-      '0008_feedback_item_quoted_text.sql',
-    ]);
+    const { sql, begin } = mockSql(CURRENT_MIGRATIONS);
 
     const applied = await runMigrations(sql);
 
@@ -110,9 +78,9 @@ describe('runMigrations — idempotent forward-only application', () => {
     await runMigrations(sql);
 
     const insertCalls = unsafe.mock.calls.filter(([text]) =>
-      /INSERT INTO schema_migrations/i.test(text as string),
+      /INSERT INTO public\.schema_migrations/i.test(text as string),
     );
-    expect(insertCalls).toHaveLength(8);
+    expect(insertCalls).toHaveLength(CURRENT_MIGRATIONS.length);
     for (const [text, params] of insertCalls) {
       expect(text).toContain('VALUES ($1)');
       expect(Array.isArray(params)).toBe(true);

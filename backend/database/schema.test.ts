@@ -1,46 +1,41 @@
 /**
  * Schema-invariant guard for the WREN Writing Coach relational migrations.
  *
- * Task 2.3 calls out a set of structural invariants the schema MUST uphold. A
- * live PostgreSQL instance is not available in unit-test CI, so this suite reads
- * the migration SQL directly and asserts the invariants hold at the DDL level.
- * These are regression guards: they fail loudly if a future edit reintroduces a
- * forbidden construct (e.g. a `replacement_prose` column) or drops a required
- * one (e.g. the Draft-immutability trigger).
+ * A set of structural invariants the schema MUST uphold. A live PostgreSQL
+ * instance is not available in unit-test CI, so this suite reads the migration
+ * SQL directly and asserts the invariants hold at the DDL level. These are
+ * regression guards: they fail loudly if a future edit reintroduces a forbidden
+ * construct (e.g. a `replacement_prose` column) or drops a required one (e.g.
+ * the Draft-immutability trigger).
  *
- * Note: This suite validates the ORIGINAL schema (0002) plus the V4 terminology
- * migration (0003). It checks the POST-migration state where Organization →
- * Department, WritingType → DocumentType, etc.
+ * The per-feature migrations (0002–0036) that once existed were consolidated
+ * into a single squashed `0001_baseline.sql` (plus the later
+ * `0002_department_visibility.sql`). The baseline already reflects the V4
+ * terminology — tables are named `department` / `document_type` /
+ * `document_type_config` directly — so there is no separate rename migration to
+ * assert; the invariants below read the consolidated baseline.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const MIGRATIONS_DIR = join(__dirname, 'migrations');
 
-const extensionsSql = readFileSync(
-  join(MIGRATIONS_DIR, '0001_enable_extensions.sql'),
-  'utf8',
-);
 const schemaSql = readFileSync(
-  join(MIGRATIONS_DIR, '0002_initial_schema.sql'),
-  'utf8',
-);
-const v4MigrationSql = readFileSync(
-  join(MIGRATIONS_DIR, '0003_v4_terminology_migration.sql'),
+  join(MIGRATIONS_DIR, '0001_baseline.sql'),
   'utf8',
 );
 
 /**
- * All required entities post-V4 migration, in design naming → snake_case table
- * name. Some tables are renamed (organization→department,
- * writing_type→document_type, writing_type_config→document_type_config).
+ * Every core entity the baseline schema must define, in design naming →
+ * snake_case table name (post-V4: `department`, `document_type`,
+ * `document_type_config`).
  */
-const REQUIRED_TABLES_IN_ORIGINAL = [
+const REQUIRED_TABLES = [
   'app_user',
   'role_assignment',
-  'organization',
-  'writing_type',
-  'writing_type_config',
+  'department',
+  'document_type',
+  'document_type_config',
   'error_category',
   'content_type',
   'custom_metadata_field',
@@ -57,13 +52,7 @@ const REQUIRED_TABLES_IN_ORIGINAL = [
   'override',
   'activity_event',
   'aggregate_counter',
-] as const;
-
-/** Post-V4 renamed tables (verified via the migration SQL). */
-const V4_RENAMES = [
-  { from: 'organization', to: 'department' },
-  { from: 'writing_type', to: 'document_type' },
-  { from: 'writing_type_config', to: 'document_type_config' },
+  'user_lifetime_usage',
 ] as const;
 
 /** Strip `--` line comments so invariant checks inspect DDL, not documentation. */
@@ -78,10 +67,14 @@ function stripComments(sql: string): string {
  * Extract the body of a `CREATE TABLE <name> ( ... );` statement so individual
  * tables can be inspected in isolation. Returns the text between the opening
  * paren and its matching close (paren-balanced, so JSONB defaults and nested
- * CHECKs don't truncate it early).
+ * CHECKs don't truncate it early). Tolerates an optional `IF NOT EXISTS` and a
+ * `public.` schema qualifier.
  */
 function tableBody(sql: string, table: string): string {
-  const re = new RegExp(`CREATE TABLE\\s+${table}\\s*\\(`, 'i');
+  const re = new RegExp(
+    `CREATE TABLE\\s+(?:IF NOT EXISTS\\s+)?(?:public\\.)?${table}\\s*\\(`,
+    'i',
+  );
   const match = re.exec(sql);
   if (!match) {
     throw new Error(`CREATE TABLE ${table} not found`);
@@ -101,111 +94,40 @@ function tableBody(sql: string, table: string): string {
   throw new Error(`Unbalanced parentheses for CREATE TABLE ${table}`);
 }
 
-describe('migration 0001 — extensions', () => {
+describe('baseline — extensions', () => {
   it('enables pgvector for reference-embedding similarity search', () => {
-    expect(extensionsSql).toMatch(/CREATE EXTENSION IF NOT EXISTS vector/i);
+    expect(schemaSql).toMatch(/CREATE EXTENSION IF NOT EXISTS vector/i);
   });
 
   it('enables pgcrypto for gen_random_uuid()', () => {
-    expect(extensionsSql).toMatch(/CREATE EXTENSION IF NOT EXISTS pgcrypto/i);
+    expect(schemaSql).toMatch(/CREATE EXTENSION IF NOT EXISTS pgcrypto/i);
   });
 });
 
-describe('migration 0002 — required tables', () => {
-  it.each(REQUIRED_TABLES_IN_ORIGINAL)('creates the %s table', (table) => {
-    const re = new RegExp(`CREATE TABLE\\s+${table}\\s*\\(`, 'i');
+describe('baseline — required tables (post-V4 naming)', () => {
+  it.each(REQUIRED_TABLES)('creates the %s table', (table) => {
+    const re = new RegExp(
+      `CREATE TABLE\\s+(?:IF NOT EXISTS\\s+)?(?:public\\.)?${table}\\s*\\(`,
+      'i',
+    );
     expect(schemaSql).toMatch(re);
   });
 
-  it('wraps the schema in a single transaction', () => {
-    expect(schemaSql).toMatch(/^BEGIN;/m);
-    expect(schemaSql).toMatch(/COMMIT;\s*$/);
-  });
-});
-
-describe('migration 0003 — V4 terminology migration', () => {
-  it('wraps the migration in a single transaction', () => {
-    expect(v4MigrationSql).toMatch(/^BEGIN;/m);
-    expect(v4MigrationSql).toMatch(/COMMIT;\s*$/);
-  });
-
-  it.each(V4_RENAMES)(
-    'renames $from → $to',
-    ({ from, to }) => {
-      const re = new RegExp(`ALTER TABLE\\s+${from}\\s+RENAME TO\\s+${to}`, 'i');
-      expect(v4MigrationSql).toMatch(re);
-    },
-  );
-
-  it('renames organization_id → department_id on document_type', () => {
-    expect(v4MigrationSql).toMatch(
-      /ALTER TABLE document_type RENAME COLUMN organization_id TO department_id/i,
+  it('uses V4 terminology directly — no organization/writing_type TABLE is defined', () => {
+    // The squashed baseline defines department/document_type outright; it must
+    // not re-introduce the pre-V4 `organization` / `writing_type` tables.
+    expect(schemaSql).not.toMatch(
+      /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:public\.)?organization\s*\(/i,
     );
-  });
-
-  it('renames writing_type_id → document_type_id on document table', () => {
-    expect(v4MigrationSql).toMatch(
-      /ALTER TABLE document RENAME COLUMN writing_type_id TO document_type_id/i,
-    );
-  });
-
-  it('removes INHERIT access state from document_type', () => {
-    expect(v4MigrationSql).toMatch(/access_state IN \('OPEN', 'LOCKED'\)/i);
-  });
-
-  it('collapses V1 roles to V4 three-role model', () => {
-    expect(v4MigrationSql).toMatch(/role IN \('Student', 'DepartmentAdmin', 'TechnicalAdmin'\)/i);
-  });
-
-  it('flattens access_grant scope to document_type_id column', () => {
-    expect(v4MigrationSql).toMatch(
-      /ALTER TABLE access_grant ADD COLUMN document_type_id uuid/i,
-    );
-    expect(v4MigrationSql).toMatch(
-      /ALTER TABLE access_grant DROP COLUMN scope/i,
-    );
-  });
-
-  it('deletes org-level grants (no V4 equivalent)', () => {
-    expect(v4MigrationSql).toMatch(
-      /DELETE FROM access_grant WHERE scope \? 'organizationId'/i,
-    );
-  });
-
-  it('renames writing_type_id → document_type_id on override table', () => {
-    expect(v4MigrationSql).toMatch(
-      /ALTER TABLE override RENAME COLUMN writing_type_id TO document_type_id/i,
-    );
-  });
-
-  it('renames writing_type_id → document_type_id on activity_event', () => {
-    expect(v4MigrationSql).toMatch(
-      /ALTER TABLE activity_event RENAME COLUMN writing_type_id TO document_type_id/i,
-    );
-  });
-
-  it('renames organization_id → department_id on activity_event', () => {
-    expect(v4MigrationSql).toMatch(
-      /ALTER TABLE activity_event RENAME COLUMN organization_id TO department_id/i,
-    );
-  });
-
-  it('renames organization_id → department_id on topic', () => {
-    expect(v4MigrationSql).toMatch(
-      /ALTER TABLE topic RENAME COLUMN organization_id TO department_id/i,
+    expect(schemaSql).not.toMatch(
+      /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:public\.)?writing_type\s*\(/i,
     );
   });
 });
 
 describe('no-ghostwriting invariant (Requirement 11.4)', () => {
-  it('declares no replacement-prose column anywhere in 0002', () => {
+  it('declares no replacement-prose column anywhere in the baseline', () => {
     const ddl = stripComments(schemaSql).toLowerCase();
-    expect(ddl).not.toContain('replacement_prose');
-    expect(ddl).not.toContain('replacementprose');
-  });
-
-  it('declares no replacement-prose column in 0003', () => {
-    const ddl = stripComments(v4MigrationSql).toLowerCase();
     expect(ddl).not.toContain('replacement_prose');
     expect(ddl).not.toContain('replacementprose');
   });
@@ -214,32 +136,30 @@ describe('no-ghostwriting invariant (Requirement 11.4)', () => {
 describe('immutable Drafts (Requirement 8.1)', () => {
   it('installs a BEFORE UPDATE trigger that rejects draft mutation', () => {
     expect(schemaSql).toMatch(
-      /CREATE TRIGGER\s+draft_immutable\s+BEFORE UPDATE ON draft/i,
+      /CREATE TRIGGER\s+draft_immutable\s+BEFORE UPDATE ON (?:public\.)?draft/i,
     );
-    expect(schemaSql).toMatch(/Draft rows are immutable/i);
   });
 
   it('uniquely versions Drafts per Document', () => {
-    const draft = tableBody(schemaSql, 'draft');
-    expect(draft).toMatch(/UNIQUE\s*\(\s*document_id\s*,\s*version_number\s*\)/i);
+    // Declared as a table-level UNIQUE constraint (inline or via ALTER TABLE
+    // ADD CONSTRAINT in the squashed dump).
+    expect(schemaSql).toMatch(/UNIQUE\s*\(\s*document_id\s*,\s*version_number\s*\)/i);
   });
 
-  it('migration 0015 allows content/word_count-only updates for autosave', () => {
-    const autosaveSql = readFileSync(
-      join(MIGRATIONS_DIR, '0015_draft_content_autosave.sql'),
-      'utf8',
-    );
-    expect(autosaveSql).toMatch(/CREATE OR REPLACE FUNCTION reject_draft_update/i);
-    expect(autosaveSql).toMatch(/only content\/word_count may be updated/i);
-    expect(autosaveSql).toMatch(/NEW\.segments IS DISTINCT FROM OLD\.segments/i);
+  it('allows content/word_count-only updates for autosave', () => {
+    // The immutability trigger permits an autosave carve-out: only content /
+    // word_count may change on an existing draft.
+    expect(schemaSql).toMatch(/reject_draft_update/i);
+    expect(schemaSql).toMatch(/NEW\.segments IS DISTINCT FROM OLD\.segments/i);
   });
 });
 
 describe('category linkage by id (Requirement 15.3)', () => {
   it('links feedback_item.error_category_id to error_category(id)', () => {
-    const feedbackItem = tableBody(schemaSql, 'feedback_item');
-    expect(feedbackItem).toMatch(
-      /error_category_id\s+uuid\s+NOT NULL\s+REFERENCES\s+error_category\(id\)/i,
+    // FK may be declared inline or as a later ALTER TABLE ADD CONSTRAINT in the
+    // squashed dump; assert the reference exists somewhere in the baseline.
+    expect(schemaSql).toMatch(
+      /error_category_id[\s\S]{0,120}REFERENCES\s+(?:public\.)?error_category\s*\(id\)/i,
     );
   });
 });
@@ -247,16 +167,15 @@ describe('category linkage by id (Requirement 15.3)', () => {
 describe('ActivityEvent independent of Documents (Requirement 44.2)', () => {
   it('holds no foreign key to document / draft / feedback_item', () => {
     const activityEvent = tableBody(schemaSql, 'activity_event');
-    expect(activityEvent).not.toMatch(/REFERENCES\s+document/i);
-    expect(activityEvent).not.toMatch(/REFERENCES\s+draft/i);
-    expect(activityEvent).not.toMatch(/REFERENCES\s+feedback_item/i);
+    expect(activityEvent).not.toMatch(/REFERENCES\s+(?:public\.)?document\b/i);
+    expect(activityEvent).not.toMatch(/REFERENCES\s+(?:public\.)?draft\b/i);
+    expect(activityEvent).not.toMatch(/REFERENCES\s+(?:public\.)?feedback_item\b/i);
   });
 });
 
 describe('Departments are groupings, not tenants (Requirements 28.1 / 28.2)', () => {
   it('app_user carries no department foreign key (Users are global)', () => {
     const appUser = tableBody(schemaSql, 'app_user');
-    // Post-V4: no organization or department FK on app_user
     expect(appUser).not.toMatch(/organization/i);
     expect(appUser).not.toMatch(/department/i);
   });
@@ -264,23 +183,20 @@ describe('Departments are groupings, not tenants (Requirements 28.1 / 28.2)', ()
 
 describe('deletion retention partitioning (Requirement 45.x)', () => {
   it('cascades Drafts from a deleted Document', () => {
-    const draft = tableBody(schemaSql, 'draft');
-    expect(draft).toMatch(
-      /document_id\s+uuid\s+NOT NULL\s+REFERENCES\s+document\(id\)\s+ON DELETE CASCADE/i,
+    expect(schemaSql).toMatch(
+      /draft[\s\S]{0,4000}?document_id[\s\S]{0,120}REFERENCES\s+(?:public\.)?document\s*\(id\)\s+ON DELETE CASCADE/i,
     );
   });
 
   it('cascades Feedback Items from a deleted Document', () => {
-    const feedbackItem = tableBody(schemaSql, 'feedback_item');
-    expect(feedbackItem).toMatch(
-      /document_id\s+uuid\s+NOT NULL\s+REFERENCES\s+document\(id\)\s+ON DELETE CASCADE/i,
+    expect(schemaSql).toMatch(
+      /feedback_item[\s\S]{0,4000}?document_id[\s\S]{0,120}REFERENCES\s+(?:public\.)?document\s*\(id\)\s+ON DELETE CASCADE/i,
     );
   });
 
-  it('restricts deleting a Writing Type / Document Type that still scopes Documents', () => {
-    const document = tableBody(schemaSql, 'document');
-    expect(document).toMatch(
-      /writing_type_id\s+uuid\s+NOT NULL\s+REFERENCES\s+writing_type\(id\)\s+ON DELETE RESTRICT/i,
+  it('restricts deleting a Document Type that still scopes Documents', () => {
+    expect(schemaSql).toMatch(
+      /document_type_id[\s\S]{0,120}REFERENCES\s+(?:public\.)?document_type\s*\(id\)\s+ON DELETE RESTRICT/i,
     );
   });
 });

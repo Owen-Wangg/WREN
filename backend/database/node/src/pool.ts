@@ -6,6 +6,7 @@ import postgres, { type Sql } from 'postgres';
 import { buildConnectionOptions, type PgConnectionOptions, type PoolTuning } from './config';
 import { DataAccess } from './client';
 import { resolveDatabaseCredentials } from './secrets';
+import { ConnectionGuard, ConnectionGuardOpenError } from './connectionGuard';
 
 /** Create a pooled `postgres` client from fully-resolved options. */
 export function createSql(options: PgConnectionOptions): Sql {
@@ -13,6 +14,15 @@ export function createSql(options: PgConnectionOptions): Sql {
 }
 
 let cachedSql: Sql | undefined;
+
+/**
+ * Process-local bounded failure guard (authorizer throttling remediation).
+ * Only credential-class failures (Postgres 28P01) trip it, and only for a very
+ * short window, so a desynced password fails fast instead of hammering Secrets
+ * Manager + Postgres on every invocation — while a transient blip still retries
+ * immediately. See `connectionGuard.ts`.
+ */
+const connectionGuard = new ConnectionGuard();
 
 /**
  * Minimal Lambda `context` shape. `@wren/db-node` does not depend on `aws-lambda`.
@@ -64,6 +74,14 @@ export async function getDataAccess(
     return new DataAccess(cachedSql);
   }
 
+  // Fail fast while the guard is open (a recent credential-class failure). This
+  // avoids re-paying the Secrets Manager fetch + TLS connect + failed handshake
+  // on every invocation during a password-desync window. The window is tiny and
+  // becomes probeable immediately once it elapses, so recovery is near-instant.
+  if (connectionGuard.isOpen()) {
+    throw new ConnectionGuardOpenError();
+  }
+
   const secretId = env.DB_SECRET_ARN;
   if (!secretId) {
     throw new Error('DB_SECRET_ARN environment variable is required.');
@@ -77,25 +95,33 @@ export async function getDataAccess(
     },
   });
 
-  cachedSql = createSql(buildConnectionOptions(credentials, tuning));
+  const sql = createSql(buildConnectionOptions(credentials, tuning));
   try {
     // Fail here — not on a later query — so a bad password is not cached
     // and postgres.js cannot reject an idle socket after the handler returns.
-    await cachedSql.unsafe('SELECT 1');
+    await sql.unsafe('SELECT 1');
   } catch (error) {
-    try {
-      await cachedSql.end({ timeout: 1 });
-    } catch {
+    // Tear down the half-open pool WITHOUT letting its rejection escape after
+    // the handler returns (an unhandled postgres.js socket rejection can crash
+    // the runtime -> forced cold start -> concurrency amplification).
+    void sql.end({ timeout: 1 }).catch(() => {
       // ignore close errors on a failed handshake
-    }
+    });
     cachedSql = undefined;
+    // Only a credential-class failure (28P01) opens the guard; a transient
+    // failure leaves it closed so the next invocation retries immediately.
+    connectionGuard.recordFailure(error);
     throw error;
   }
+  // Success: cache the pool and close the guard immediately (instant recovery).
+  cachedSql = sql;
+  connectionGuard.recordSuccess();
   return new DataAccess(cachedSql);
 }
 
 /** Reset the cached pool (closes connections). Primarily for tests/shutdown. */
 export async function resetPool(): Promise<void> {
+  connectionGuard.reset();
   if (cachedSql) {
     await cachedSql.end({ timeout: 5 });
     cachedSql = undefined;
