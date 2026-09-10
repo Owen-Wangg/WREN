@@ -277,8 +277,10 @@ You can apply limits platform-wide or per department. **We recommend a prudent e
 To set usuage limits:
 1. Go to **System Admin Dashboard → System Configuration → Usage Limits**.
 2. You can set limits for:
-   - **AI Debriefs allowed** — the maximum number of debriefs a user or department can generate in a given period.
-   - **Documents allowed** — the maximum number of documents a user or department can create or process in a given period.
+   - Ask WREN messages (LEON message limit in the image below)
+   - How many times the AI Debrief can be regenerated (Max AI Debrief)
+   - The maximum number of document uploads
+   - The maximum number of drafts
 3. Choose whether limits apply platform-wide or per department.
 4. Click **Save Changes**.
 <img width="931" height="413" alt="image" src="https://github.com/user-attachments/assets/4e046f13-c2c6-4150-8bcc-68c60f85a331" />
@@ -349,8 +351,7 @@ The department prompt sets instructions the AI applies across every document typ
    - **Restricted Topics** — topics, terms, or content areas the AI should avoid or flag when interacting with this department's users.
 3. Click **Save Prompt**.
 4. Optionally, test the configuration by generating a sample document or debrief before rolling it out.
-
-<img width="1536" height="1024" alt="Manage Department Prompt fields" src="https://github.com/user-attachments/assets/c739a17c-7454-493e-b3f5-2e526a76cff6" />
+<img width="710" height="412" alt="image" src="https://github.com/user-attachments/assets/d5dbb115-2f24-4ee2-94ea-86d64940729d" />
 
 ## 4.7 Manage Ask WREN Prompt
 In addition to department prompts, as a System Admin you can configure a prompt for Ask WREN. This will shape how WREN frames its Socratic questions across every document type in the department. Once you fill in the blank field, **hit 'Save Ask Wren Prompt.'**
