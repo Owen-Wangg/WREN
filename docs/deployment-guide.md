@@ -203,15 +203,26 @@ npm run deploy
 1. Open the **Amplify sign-up URL** the deploy printed.
 2. Sign up using the exact address in `WREN_ADMIN_EMAIL`, and confirm the email.
 3. **Do not use the app yet** — do not make any writing request. (An early request can invalidate the first-admin identity check. Just sign up, confirm, and stop.)
-4. Run `npm run deploy` again.
+4. Run `npm run deploy` again. This is your first rerun, so you can skip the dependency reinstall to save time — Step 2 already ran `npm ci` for the root and `cdk/` directories:
+
+   ```bash
+   export WREN_SKIP_INSTALL=true   # PowerShell: $env:WREN_SKIP_INSTALL = "true"
+   npm run deploy
+   ```
+
+   Keep it set for the Step 4 rerun too. Only leave it out (or set `false`) if you deleted `node_modules` or changed dependencies since Step 2; the workflow errors clearly if either `node_modules` directory is missing.
 
 **What you should see:** the workflow finds your confirmed user, adds them to the Cognito `SystemAdmin` group, flags the account for one-time admin verification, then **pauses again (exit code 3)** asking for `WREN_SMOKE_ACCESS_TOKEN`. Go to Step 4.
+
+> Run #2 may briefly redeploy the Compute stack to arm the one-time admin-verification gate, so it can take a little longer than a pure no-op rerun even with the reinstall skipped.
 
 ### Step 4 — Prove the admin identity with a token, then rerun (run #3)
 
 You now fetch the **smoke access token** — a temporary login token for the admin user — and give it to the final run. It expires in ~1 hour, so do this right before rerunning.
 
 **Recommended: fetch it from the command line (no browser needed).** Run the block for your shell; it looks up your deployment's Cognito client for you. Set `prefix` to your stack prefix (`wren-dev` unless you changed project/environment).
+
+> The blocks below keep `WREN_SKIP_INSTALL=true` (introduced in Step 3) so this rerun skips the dependency reinstall and goes straight to synthesis and the admin-verification checks. This run is typically the fastest, since the smoke token is verified against the API without redeploying stacks.
 
 <details open>
 <summary>macOS/Linux (bash) — fetch the token and rerun</summary>
@@ -232,6 +243,7 @@ export WREN_SMOKE_ACCESS_TOKEN=$(aws cognito-idp admin-initiate-auth \
   --query "AuthenticationResult.AccessToken" --output text)
 
 export WREN_REQUIRE_APPROVAL=never   # keep set from Step 2; re-export here if you opened a new shell
+export WREN_SKIP_INSTALL=true        # Step 2 already ran npm ci; skip the reinstall to speed up this rerun
 npm run deploy
 ```
 
@@ -257,6 +269,7 @@ $env:WREN_SMOKE_ACCESS_TOKEN = aws cognito-idp admin-initiate-auth `
   --query "AuthenticationResult.AccessToken" --output text
 
 $env:WREN_REQUIRE_APPROVAL = "never"   # keep set from Step 2; re-set here if you opened a new shell
+$env:WREN_SKIP_INSTALL = "true"        # Step 2 already ran npm ci; skip the reinstall to speed up this rerun
 npm run deploy
 ```
 
