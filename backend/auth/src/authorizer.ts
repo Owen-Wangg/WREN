@@ -12,9 +12,15 @@
  *      administered Departments, grants) that downstream services consume and
  *      RE-CHECK against the specific operation (dual enforcement).
  *
- * The only group-based exception is a default-off first-login bootstrap: an
- * exact configured Cognito subject must also carry SystemAdmin, and the app
- * user must be genuinely new. Existing and email-relinked users cannot escalate.
+ * The only escalation exception is a default-off first-admin bootstrap gated on
+ * an exact configured Cognito subject (`TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT`),
+ * armed only by the guided deploy and stripped immediately after. For a
+ * genuinely new user it runs inside first-login provisioning (and additionally
+ * requires the SystemAdmin group claim). Because the app auto-loads the
+ * dashboard on signup — so the intended admin usually already has a Student row
+ * before the subject is armed — the same armed-subject gate is also
+ * re-evaluated for an already-provisioned user below, elevating in place. No
+ * user whose exact subject is not armed can ever escalate.
  *
  * The authorizer produces a COARSE stage-wide allow; REST authorizer caching is
  * disabled in `cdk/lib/openapi.yaml`, so roles/grants are loaded from the DB on
@@ -41,7 +47,7 @@ import {
   type CognitoProfileLookup,
 } from './cognitoProfile';
 import { mapSubjectToAuthContext, type QueryExecutor } from './identityMapping';
-import { ensureAppUser } from './provisionUser';
+import { ensureAppUser, ensureTechnicalAdminForArmedSubject } from './provisionUser';
 import type { TokenVerifier } from './tokenVerifier';
 
 /** Collaborators the authorizer needs; injectable for testing. */
@@ -159,6 +165,9 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         throw new Error(UNAUTHORIZED);
       }
 
+      const armedSubject =
+        process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT?.trim() || undefined;
+
       // Authorization is resolved ENTIRELY from the app DB using only the verified
       // subject — never from token claims (Requirement 37.2, 37.3).
       // Exception: `groups` is passed to ensureAppUser ONCE on first login so the
@@ -172,8 +181,7 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
           firstName: profile.firstName,
           lastName: profile.lastName,
           groups,
-          technicalAdminBootstrapSubject:
-            process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT?.trim() || undefined,
+          technicalAdminBootstrapSubject: armedSubject,
         });
         context = await mapSubjectToAuthContext(subject, db);
         if (!context) {
@@ -184,6 +192,20 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
             policyDocument: policy('Deny', resource),
           };
         }
+      } else if (armedSubject === subject && !context.roles.includes('TechnicalAdmin')) {
+        // First-admin bootstrap for an ALREADY-PROVISIONED candidate. The app
+        // auto-loads the dashboard right after signup, so the intended admin
+        // almost always has an app_user (Student) row before the deploy arms
+        // their subject — which makes the ensureAppUser first-login elevation
+        // above unreachable for them. Re-evaluate the elevation here, gated
+        // SOLELY on the operator-armed exact-subject match (set only by the
+        // guided deploy and stripped immediately after verification). This does
+        // not trust `cognito:groups`: the access tokens the REST authorizer
+        // verifies do not reliably carry that claim, and the armed subject is
+        // itself the operator-controlled signal. Re-read the context so this
+        // same request is authorized with the freshly granted role.
+        await ensureTechnicalAdminForArmedSubject(db, context.userId);
+        context = (await mapSubjectToAuthContext(subject, db)) ?? context;
       }
 
       return {

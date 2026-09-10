@@ -73,6 +73,34 @@ WHERE NOT EXISTS (
 `;
 
 /**
+ * Grant TechnicalAdmin to an ALREADY-PROVISIONED user during first-admin
+ * bootstrap (REQ-SEC-ROLE-01).
+ *
+ * The authorizer only calls {@link ensureAppUser} when a subject has no
+ * app_user row yet, so its group-seeded elevation is unreachable for a
+ * candidate who already signed in (which the app forces immediately after
+ * signup by auto-loading the dashboard). This function closes that gap: it is
+ * called on any authenticated request while the deploy has armed the exact
+ * candidate subject, and adds the TechnicalAdmin role in place.
+ *
+ * Safety: the SOLE gate is the operator-armed exact-subject match, which the
+ * caller MUST verify before calling (`armedSubject === idpSubject`). That is an
+ * operator-controlled signal set only by the guided deploy and stripped again
+ * immediately after verification. Unlike {@link ensureAppUser}, this path does
+ * NOT consult `cognito:groups`: the REST authorizer verifies access tokens,
+ * which do not reliably carry `cognito:groups`, so a group claim cannot be
+ * relied on here. The armed subject is sufficient and is never derived from the
+ * token. Idempotent: the insert is a no-op if the role already exists, and this
+ * is only invoked when the caller has confirmed the role is absent.
+ */
+export async function ensureTechnicalAdminForArmedSubject(
+  db: QueryExecutor,
+  userId: string,
+): Promise<void> {
+  await db.query(ENSURE_TECHNICAL_ADMIN_ROLE_SQL, [userId]);
+}
+
+/**
  * Ensure an `app_user` exists for the verified IdP subject and has at least the
  * default Student role. Idempotent under concurrent first-login requests.
  */
@@ -129,6 +157,17 @@ export async function ensureAppUser(
   // armed subject must match, and the verified token must carry SystemAdmin.
   // A normal user can satisfy neither. The candidate keeps Student and also
   // gains TechnicalAdmin.
+  // NOTE: the `groups.includes('SystemAdmin')` half of this gate is NOT a hard
+  // second factor. It only constrains this first-login provisioning path. The
+  // authorizer additionally re-evaluates elevation for an already-provisioned
+  // user via ensureTechnicalAdminForArmedSubject, gated ONLY on the armed
+  // exact-subject match (no group check, because access tokens do not reliably
+  // carry cognito:groups). So an armed subject that fails this group check on
+  // first login is elevated on their very next request regardless. The real
+  // security boundary for both paths is the operator-armed
+  // TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT, set only by the guided deploy and
+  // stripped immediately after verification. Do not treat this group check as
+  // an independent constraint.
   const bootstrapAdmin =
     input.technicalAdminBootstrapSubject === input.idpSubject &&
     input.groups?.includes('SystemAdmin') === true;
