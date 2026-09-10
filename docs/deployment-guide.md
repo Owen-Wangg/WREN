@@ -192,7 +192,7 @@ npm run deploy
 
 </details>
 
-> **Why `WREN_REQUIRE_APPROVAL=never`?** `npm run deploy` runs the CDK CLI as a piped subprocess with no attached terminal. CDK's default `broadening` approval mode would try to prompt you to confirm IAM changes and, finding no TTY, abort with `terminal (TTY) is not attached`. Setting `never` lets the deploy apply those changes without an interactive prompt. This auto-approves IAM-broadening changes, which is fine for a dev account; for production, review the diff first with `WREN_DRY_RUN=true` and only then deploy.
+> 
 
 **What you should see:** the workflow verifies AWS/Bedrock, bootstraps, builds the image in CodeBuild, deploys the stacks, and then **pauses with exit code 3**, printing an Amplify sign-up URL and asking you to create the first-admin account. That pause is expected — go to Step 3.
 
