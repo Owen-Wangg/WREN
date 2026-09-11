@@ -301,6 +301,26 @@ describe("CodeBuild bootstrap image build (S3 source snapshot)", () => {
     await expect(resolveCleanCommit(runner, "/repo")).rejects.toThrow("uncommitted or untracked changes");
   });
 
+  it("tolerates an auto-generated cdk.context.json change", async () => {
+    // A new account causes CDK to (re)write cached AZ lookups here. The image
+    // build regenerates it via synth, so a change limited to it must not block.
+    const runner = {
+      run: async (spec: CommandSpec): Promise<CommandResult> =>
+        spec.args?.[0] === "status" ? okResult(" M cdk/cdk.context.json\n") : okResult(cleanSha),
+    };
+    await expect(resolveCleanCommit(runner, "/repo")).resolves.toBe(cleanSha);
+  });
+
+  it("still fails when real source changes accompany cdk.context.json", async () => {
+    const runner = {
+      run: async (spec: CommandSpec): Promise<CommandResult> =>
+        spec.args?.[0] === "status"
+          ? okResult(" M cdk/cdk.context.json\n M backend/engine/python/handler.py\n")
+          : okResult(cleanSha),
+    };
+    await expect(resolveCleanCommit(runner, "/repo")).rejects.toThrow("uncommitted or untracked changes");
+  });
+
   it("fails clearly when the bootstrap assets bucket is unavailable", async () => {
     const aws = { command: async () => { throw new Error("Not Found"); } };
     await expect(verifyBootstrapAssetsBucket(aws, "cdk-hnb659fds-assets-123-ca-central-1"))

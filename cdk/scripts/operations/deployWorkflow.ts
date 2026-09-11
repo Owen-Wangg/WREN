@@ -430,10 +430,39 @@ export interface ImageBuildDeps {
 }
 
 /**
+ * The one path the clean-tree guard tolerates being dirty.
+ *
+ * `cdk.context.json` is an auto-generated CDK cache. On the first synth in a new
+ * account the framework may (re)write cached lookups here, which would otherwise
+ * make the working tree "dirty" and block the deploy. The image build never
+ * needs this file — `cdk synth` regenerates it — so a change limited to it must
+ * not fail the guard. Every other path is still treated as a hard error.
+ */
+const CDK_CONTEXT_RELPATH = "cdk/cdk.context.json";
+
+/**
+ * Parse `git status --porcelain` output into the list of changed paths,
+ * excluding {@link CDK_CONTEXT_RELPATH}. Porcelain lines are `XY <path>`
+ * (two status columns, a space, then the path). Rename entries (`orig -> new`)
+ * don't apply to the context file, so the plain trailing-path read is
+ * sufficient. Paths equal to the CDK context file (bare or `cdk/`-prefixed) are
+ * dropped; anything else is retained so real uncommitted source still fails.
+ */
+function dirtyPathsExcludingCdkContext(porcelain: string): string[] {
+  return porcelain
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+    .map((line) => line.slice(3).trim())
+    .filter((p) => p !== CDK_CONTEXT_RELPATH && p !== "cdk.context.json");
+}
+
+/**
  * Resolve the exact Git revision being deployed and enforce a clean working
  * tree. CodeBuild builds from a `git archive <sha>` snapshot, not the working
  * directory, so uncommitted changes would silently not be in the image — a
- * dirty tree is therefore a hard, actionable error.
+ * dirty tree is therefore a hard, actionable error. The sole exception is the
+ * auto-generated `cdk.context.json` (see {@link dirtyPathsExcludingCdkContext}).
  */
 export async function resolveCleanCommit(runner: Runner, repoRoot: string): Promise<string> {
   // `--untracked-files=all` makes the guard independent of the operator's
@@ -445,7 +474,7 @@ export async function resolveCleanCommit(runner: Runner, repoRoot: string): Prom
     args: ["status", "--porcelain", "--untracked-files=all"],
     cwd: repoRoot,
   });
-  if (status.stdout.trim().length > 0) {
+  if (dirtyPathsExcludingCdkContext(status.stdout).length > 0) {
     throw new ActionRequiredError(
       "The working tree has uncommitted or untracked changes. The Feedback Engine image is " +
       "built in CodeBuild from a snapshot of the committed revision (git archive), so those " +
