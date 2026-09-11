@@ -152,7 +152,7 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
 // reference. This creates a CloudFormation dependency instead of relying on a
 // constructed ARN whose policy may not exist yet.
 iam.PermissionsBoundary.of(computeStack).apply(cicdStack.computeBoundaryPolicy);
-computeStack.addDependency(cicdStack);
+computeStack.addStackDependency(cicdStack);
 
 // API Gateway stack (depends on Compute for Lambda function ARNs).
 // `crossRegionReferences` lets the us-east-1 CloudFront/WAF stack consume this
