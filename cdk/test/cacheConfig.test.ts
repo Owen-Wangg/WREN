@@ -77,6 +77,18 @@ describe("resolveAppConfig — optional custom domain", () => {
     expect(resolve({ customDomain: "cloud-inov.com" }).customDomain).toBe("cloud-inov.com");
   });
 
+  it("defaults allowedEmailDomains to unrestricted and maps context", () => {
+    expect(resolve().allowedEmailDomains).toEqual([]);
+    expect(resolve({ allowedEmailDomains: "ubc.ca, alumni.ubc.ca" }).allowedEmailDomains).toEqual([
+      "ubc.ca",
+      "alumni.ubc.ca",
+    ]);
+  });
+
+  it("rejects a malformed allowedEmailDomains context value", () => {
+    expect(() => resolve({ allowedEmailDomains: "UBC.CA" })).toThrow("allowedEmailDomains");
+  });
+
   it("parses corsAllowedOrigins and defaults to none", () => {
     expect(resolve().corsAllowedOrigins).toEqual([]);
     expect(

@@ -100,4 +100,18 @@ describe("AmplifyStack custom domain", () => {
     template.resourceCountIs("AWS::Amplify::Domain", 0);
     expect(Object.keys(template.findOutputs("CustomDomainUrl"))).toHaveLength(0);
   });
+
+  it("injects VITE_ALLOWED_EMAIL_DOMAINS from app config", () => {
+    const config = testConfig({ allowedEmailDomains: ["ubc.ca"] });
+    const stack = new AmplifyStack(new App(), "Amplify", baseProps(config));
+    const template = Template.fromStack(stack);
+    template.hasResourceProperties("AWS::Amplify::App", {
+      EnvironmentVariables: Match.arrayWith([
+        Match.objectLike({
+          Name: "VITE_ALLOWED_EMAIL_DOMAINS",
+          Value: "ubc.ca",
+        }),
+      ]),
+    });
+  });
 });

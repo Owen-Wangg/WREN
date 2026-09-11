@@ -81,6 +81,8 @@ In this section, you will learn how to create an account and log into WREN. **Co
 
    Follow the password rules listed on the page (length, letters, numbers, or symbols as shown).
 
+   Some deployments only accept email addresses from a list of domains (for example `@ubc.ca`). If sign-up is rejected, use the address your administrator specified.
+
 3. After you submit, WREN sends a **verification code** to that email.
 
 **Important:** Keep the sign-up page open while you check email.

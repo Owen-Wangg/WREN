@@ -11,6 +11,7 @@ import {
   CognitoUserAttribute,
 } from 'amazon-cognito-identity-js';
 import { appConfig } from '@/config/env';
+import { signupEmailDomainRestrictionMessage } from '@wren/types';
 import { AuthError } from './authService';
 import type {
   AuthService,
@@ -81,7 +82,17 @@ export class CognitoAuthService implements AuthService {
 
       this.userPool.signUp(input.email, input.password, attributes, [], (error: any, result: any) => {
         if (error) {
-          const kind: AuthErrorKind = (error as any).code === 'UsernameExistsException' ? 'user_exists' : 'unknown';
+          if ((error as { code?: string }).code === 'UserLambdaValidationException') {
+            reject(
+              new AuthError(
+                signupEmailDomainRestrictionMessage(appConfig.allowedEmailDomains),
+                'unknown',
+                error,
+              ),
+            );
+            return;
+          }
+          const kind: AuthErrorKind = (error as { code?: string }).code === 'UsernameExistsException' ? 'user_exists' : 'unknown';
           reject(new AuthError(`Sign up failed: ${error.message}`, kind, error));
           return;
         }

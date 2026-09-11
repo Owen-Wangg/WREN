@@ -223,6 +223,9 @@ export function cdkContextArgs(
     ...(config.githubRepo ? ["-c", `githubRepo=${config.githubRepo}`] : []),
     "-c", `githubBranch=${config.githubBranch}`,
     ...(config.customDomain ? ["-c", `customDomain=${config.customDomain}`] : []),
+    ...(config.allowedEmailDomains.length > 0
+      ? ["-c", `allowedEmailDomains=${config.allowedEmailDomains.join(",")}`]
+      : []),
     ...(technicalAdminBootstrapSubject
       ? ["-c", `technicalAdminBootstrapSubject=${technicalAdminBootstrapSubject}`]
       : []),

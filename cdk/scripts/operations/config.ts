@@ -1,4 +1,9 @@
 import {
+  isSignupEmailDomainAllowed,
+  parseAllowedEmailDomains,
+} from "../../lib/signupEmailDomains.js";
+
+import {
   CACHE_WORKLOADS,
   DEFAULT_APP_NAME,
   DEFAULT_BEDROCK_MODEL_ID,
@@ -43,6 +48,11 @@ export interface DeploymentConfig {
    * domain. No domain is ever hard-coded.
    */
   readonly customDomain?: string;
+  /**
+   * Exact email hostnames allowed for new Cognito self-signups (e.g. `ubc.ca`).
+   * Empty by default (unrestricted). Subdomains are not implied.
+   */
+  readonly allowedEmailDomains: readonly string[];
   readonly adminEmail?: string;
   readonly smokeAccessToken?: string;
   readonly adminAlreadyConfigured: boolean;
@@ -222,6 +232,10 @@ export function parseDeploymentConfig(
   const smokeAccessToken = value(env, "WREN_SMOKE_ACCESS_TOKEN");
   const engineImageTag = value(env, "WREN_ENGINE_IMAGE_TAG");
   const customDomain = value(env, "WREN_CUSTOM_DOMAIN");
+  const allowedEmailDomains = parseAllowedEmailDomains(
+    value(env, "WREN_ALLOWED_EMAIL_DOMAINS"),
+    "WREN_ALLOWED_EMAIL_DOMAINS",
+  );
 
   validateAccountId(expectedAccountId);
   validateRegion(region);
@@ -230,6 +244,15 @@ export function parseDeploymentConfig(
   validateImageTag(engineImageTag);
   validateEmail(adminEmail);
   validateCustomDomain(customDomain);
+  if (
+    allowedEmailDomains.length > 0 &&
+    adminEmail !== undefined &&
+    !isSignupEmailDomainAllowed(adminEmail, allowedEmailDomains)
+  ) {
+    throw new Error(
+      "WREN_ADMIN_EMAIL must use a domain listed in WREN_ALLOWED_EMAIL_DOMAINS.",
+    );
+  }
 
   if (stackPrefix !== derivedPrefix) {
     throw new Error(
@@ -275,6 +298,7 @@ export function parseDeploymentConfig(
       "managed",
     ),
     ...(customDomain ? { customDomain } : {}),
+    allowedEmailDomains,
     ...(adminEmail ? { adminEmail } : {}),
     ...(smokeAccessToken ? { smokeAccessToken } : {}),
     adminAlreadyConfigured: parseBoolean(
@@ -323,6 +347,8 @@ export function publicDeploymentConfig(
     // an in-flight checkpoint — intended, since a domain change is a real
     // config change that should force reconfirmation.
     customDomain: config.customDomain ?? "(amplify default)",
+    allowedEmailDomains:
+      config.allowedEmailDomains.join(",") || "(unrestricted)",
     adminConfiguredOverride: config.adminAlreadyConfigured,
     dryRun: config.dryRun,
     nonInteractive: config.nonInteractive,

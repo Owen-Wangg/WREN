@@ -33,6 +33,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     stackPrefix: "wren-test",
     lambdaConcurrency: DEFAULT_LAMBDA_CONCURRENCY,
     corsAllowedOrigins: [],
+    allowedEmailDomains: [],
     env: { account: TEST_ACCOUNT, region: TEST_REGION },
     ...overrides,
   };

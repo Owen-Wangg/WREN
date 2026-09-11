@@ -26,6 +26,7 @@ This guide deploys the WREN writing coach into an AWS account.
       - [Hosting, CI/CD, images, and ECR ownership](#hosting-cicd-images-and-ecr-ownership)
         - [External ECR safety requirement](#external-ecr-safety-requirement)
       - [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain)
+      - [Restricting signup to email domains](#restricting-signup-to-email-domains)
       - [Recovery and automation controls](#recovery-and-automation-controls)
       - [Preview and protected teardown](#preview-and-protected-teardown)
   - [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
@@ -99,8 +100,6 @@ Enable the target Bedrock model in your Region **before** deploying — without 
 
 Authenticate with an AWS identity that has broad first-rollout deployment rights (`AdministratorAccess`, or a dedicated CDK deploy role). For the standard workflow, prefer AWS IAM Identity Center/SSO or another standard AWS credential-chain method; the workflow uses those credentials and never asks for long-lived access keys.
 
-**The standard way to select your account is a named AWS CLI profile.** Set `AWS_PROFILE` and the deploy uses that profile for every AWS call — this is the environment-variable equivalent of passing `--profile <name>` to the AWS CLI, and it means you do **not** need to look up or type your 12-digit account ID. The account WREN deploys into is always resolved from your active credentials (`aws sts get-caller-identity`).
-
 Configure and sign in with SSO, then point the deploy at that profile:
 
 ```bash
@@ -133,7 +132,7 @@ This is the recommended path for a first-time deployment. Follow the steps in or
 ### Step 1 — Prerequisites (one-time setup)
 
 1. Install the tools in [Requirements](#requirements) (git, AWS CLI v2, Node.js 22+).
-2. Sign in to AWS and select your profile: `aws sso login --profile <your-profile>`, then `export AWS_PROFILE=<your-profile>` (PowerShell: `$env:AWS_PROFILE = "<your-profile>"`). Confirm the target account with `aws sts get-caller-identity` — it shows the account you intend to deploy into. Selecting the profile is how you choose the account; you do not need to type the account ID.
+2. Sign in to AWS and select your profile: `aws sso login --profile <your-profile>`, then `export AWS_PROFILE=<your-profile>` (PowerShell: `$env:AWS_PROFILE = "<your-profile>"`). Confirm the target account with `aws sts get-caller-identity` — it shows the account you intend to deploy into.
 3. **Enable the Bedrock model.** In the AWS Console, open **Amazon Bedrock → Model access** in your target Region and enable the default model (`us.anthropic.claude-sonnet-4-6`) or the one you set in `WREN_BEDROCK_MODEL_ID`. Without this, the app deploys but feedback generation fails at runtime. The deploy verifies model access early and pauses with an actionable message if it's missing.
 4. **Create a GitHub personal access token (PAT).** You need a GitHub repo this account can read (a fork of WREN or the original). Create a token at **GitHub → Settings → Developer settings → Personal access tokens**:
    - Classic token: enable the **`repo`** scope (and **`admin:repo_hook`** so the CI/CD pipeline can register its webhook).
@@ -387,6 +386,7 @@ Do not commit access tokens or GitHub personal access tokens to source control. 
 | --- | --- | --- |
 | `WREN_ENABLE_AMPLIFY` | `true` | Running an API-only deployment with `false`. GitHub owner/repository variables become optional only when both Amplify and CI/CD are disabled. |
 | `WREN_CUSTOM_DOMAIN` | unset | Serving the frontend on your own domain instead of only the Amplify default. Set a bare hostname such as `example.com`; the production branch is mapped to the root and `www`. When unset, the frontend is reachable only via the Amplify default `*.amplifyapp.com` domain. No domain is hard-coded. See [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain). |
+| `WREN_ALLOWED_EMAIL_DOMAINS` | unset | Restricting **new** self-signups to specific email hostnames (for example `example.ca`). Unset keeps signup open to any valid email; existing accounts can always sign in. See [Restricting signup to email domains](#restricting-signup-to-email-domains). |
 | `WREN_ENABLE_CICD` | `true` | Skipping the CodePipeline CI/CD pipeline with `false`. Enabled by default, so the standard path builds it and needs `WREN_GITHUB_TOKEN` on first setup; the `Cicd` prerequisite stack is created regardless. |
 | `WREN_ECR_OWNERSHIP` | `managed` | Reusing a verified pre-existing repository by setting `external`. New deployments should keep `managed`; ownership is never silently adopted. |
 | `WREN_ENGINE_IMAGE_TAG` | commit-scoped `src-<shortsha>` | Forcing a specific ECR image tag instead of the commit-derived one. By default the workflow builds the image under `src-<first 12 of the commit sha>` and pins the deployed Lambda to the resulting immutable **digest**; leave this unset for that commit-safe behavior. Setting it bypasses commit-scoping, so safe reuse then relies on the checkpoint's recorded source commit matching the revision being deployed. See [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built). |
@@ -411,6 +411,22 @@ There are two DNS paths, and WREN supports both because it only creates the Ampl
 - **DNS elsewhere (manual verification).** If the zone is in a different AWS account or with an external provider (Cloudflare, GoDaddy, etc.), Amplify surfaces certificate-validation and CNAME records that you add by hand in that provider. Open **AWS Console → Amplify → your app → Domain management** to copy the exact records.
 
 In both cases the certificate and domain association can take several minutes (occasionally longer) to become live. Until then the Amplify default domain keeps working, and the deploy workflow automatically falls back to it for its post-deploy smoke test if the custom domain is not yet reachable.
+
+#### Restricting signup to email domains
+
+By default anyone with a valid email can create an account. To allow **new** sign-ups only from listed hostnames, set `WREN_ALLOWED_EMAIL_DOMAINS` before deploying:
+
+```bash
+export WREN_ALLOWED_EMAIL_DOMAINS=ubc.ca
+```
+
+Matching is exact and case-insensitive. `example.ca` allows `user@example.ca` and `user@EXAMPLE.CA`. It does **not** allow `user@department.example.ca` — list every hostname you need, comma-separated (`example.ca,department.example.ca`).
+
+This applies only to new Cognito self-signups. Sign-in, password reset, and accounts that already exist are unchanged. Unset the variable (or set it empty) and deploy again to return to unrestricted signup.
+
+If you also set `WREN_ADMIN_EMAIL`, that address must use one of the listed domains; otherwise the first-admin signup cannot complete.
+
+The Cognito PreSignUp trigger is the authoritative gate. The Amplify frontend receives the same list so the sign-up form can show a clear error before Cognito.
 
 #### Recovery and automation controls
 

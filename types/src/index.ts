@@ -16,6 +16,7 @@ export * from './wrapContinuation';
 export * from './ocrTextCleanup';
 export * from './auth';
 export * from './authorization';
+export * from './signupEmailDomains';
 
 import type { AuthContext } from './auth';
 import type { AuthorizationDecision, CapabilityRequest } from './authorization';

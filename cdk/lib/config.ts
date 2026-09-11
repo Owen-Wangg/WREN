@@ -1,5 +1,6 @@
 import type { App } from "aws-cdk-lib";
 import type { Environment } from "aws-cdk-lib";
+import { parseAllowedEmailDomains } from "./signupEmailDomains.js";
 
 import {
   resolveLambdaConcurrency,
@@ -171,6 +172,12 @@ export interface AppConfig {
    */
   readonly customDomain?: string;
   /**
+   * Exact email hostnames allowed for new Cognito self-signups. Empty by
+   * default (unrestricted). Set with `-c allowedEmailDomains=ubc.ca`.
+   * Subdomains are not implied: `ubc.ca` does not allow `law.ubc.ca`.
+   */
+  readonly allowedEmailDomains: readonly string[];
+  /**
    * Extra exact browser origins for API/S3 CORS (scheme://host[:port]).
    * Local Vite (`http://localhost:5173`, `http://127.0.0.1:5173`) and
    * {@link customDomain} (plus `www`) are always included. Amplify default
@@ -259,6 +266,7 @@ function resolveCacheEnabledWorkloads(raw: string | undefined): CacheWorkload[] 
  *   - `cacheEnabledWorkloads` -> comma-separated workloads, defaults to none
  *   - `stackPrefix`     -> defaults to `${projectName}-${environmentName}`
  *   - `corsAllowedOrigins` -> extra exact CORS origins, comma-separated
+ *   - `allowedEmailDomains` -> exact signup email hostnames, comma-separated
  *
  * Override at synth/deploy time, e.g.:
  *   cdk synth -c appName="My Coach" -c environmentName=prod
@@ -284,6 +292,10 @@ export function resolveAppConfig(app: App): AppConfig {
   const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
   const lambdaConcurrency = resolveLambdaConcurrency((key) => readContext(app, key));
   const customDomain = readContext(app, "customDomain");
+  const allowedEmailDomains = parseAllowedEmailDomains(
+    readContext(app, "allowedEmailDomains"),
+    "allowedEmailDomains",
+  );
   const corsAllowedOrigins = parseCorsAllowedOrigins(readContext(app, "corsAllowedOrigins"));
 
   // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
@@ -308,6 +320,7 @@ export function resolveAppConfig(app: App): AppConfig {
     stackPrefix,
     lambdaConcurrency,
     ...(customDomain ? { customDomain } : {}),
+    allowedEmailDomains,
     corsAllowedOrigins,
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,

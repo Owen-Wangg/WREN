@@ -82,6 +82,24 @@ describe("deployment workflow command construction", () => {
     expect(cdkContextArgs(domainConfig, "sha-abc123", false)).toContain("customDomain=cloud-inov.com");
   });
 
+  it("adds the allowed-email-domains context only when configured", () => {
+    const withoutDomains = cdkContextArgs(config, "sha-abc123", false);
+    expect(withoutDomains.some((value) => value.startsWith("allowedEmailDomains="))).toBe(false);
+
+    const domainConfig = parseDeploymentConfig({
+      WREN_GITHUB_OWNER: "owner",
+      WREN_GITHUB_REPO: "repo",
+      WREN_GITHUB_BRANCH: "release",
+      WREN_EXPECTED_ACCOUNT_ID: "123456789012",
+      WREN_NON_INTERACTIVE: "true",
+      WREN_ECR_OWNERSHIP: "external",
+      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca,alumni.ubc.ca",
+    });
+    expect(cdkContextArgs(domainConfig, "sha-abc123", false)).toContain(
+      "allowedEmailDomains=ubc.ca,alumni.ubc.ca",
+    );
+  });
+
   it("prefers the custom domain over the Amplify default for the frontend host", () => {
     expect(primaryFrontendHost("cloud-inov.com", "main.d123.amplifyapp.com")).toBe("cloud-inov.com");
     expect(primaryFrontendHost(undefined, "main.d123.amplifyapp.com")).toBe("main.d123.amplifyapp.com");

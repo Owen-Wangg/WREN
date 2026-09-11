@@ -179,7 +179,7 @@ Roles are stored in the **database**, not read from Cognito groups on every requ
 
 Key files:
 
-- `cdk/lib/stacks/CognitoStack.ts` — user pool, app client, password policy, `SystemAdmin` group
+- `cdk/lib/stacks/CognitoStack.ts` — user pool, app client, password policy, PreSignUp email-domain allowlist, `SystemAdmin` group
 - `backend/auth/src/authorizer.ts` — JWT verify and identity mapping
 - `backend/auth/src/capabilityMatrix.ts` — per-operation allow/deny
 - `frontend/src/features/auth/` — Cognito session and token provider
@@ -187,6 +187,12 @@ Key files:
 - `frontend/src/services/apiClient.ts` — attaches `Authorization: Bearer` on every call
 
 Local UI uses `VITE_USE_LIVE_API=false` (the default), which runs an in-memory mock and **does not** enforce login. Set it to `true` plus Cognito IDs to hit a deployed API.
+
+### Signup email-domain allowlist
+
+Self-signup is open to any valid email unless you set `WREN_ALLOWED_EMAIL_DOMAINS` at deploy time (for example `ubc.ca`). Matching is exact: list every hostname you want to allow. The Cognito PreSignUp Lambda on `CognitoStack` is the real gate; Amplify injects the same list as `VITE_ALLOWED_EMAIL_DOMAINS` so the sign-up form can fail clearly. Clearing the variable and redeploying restores open signup. Existing users are not signed out or blocked from login.
+
+See the [deployment guide](./deployment-guide.md#restricting-signup-to-email-domains).
 
 ### Bootstrap admin
 
