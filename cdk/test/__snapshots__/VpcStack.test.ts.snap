@@ -333,7 +333,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcIsolatedSubnet1Subnet0400477E": {
       "Properties": {
-        "AvailabilityZone": "dummy1a",
+        "AvailabilityZone": "ca-central-1a",
         "CidrBlock": "10.0.12.0/24",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -383,7 +383,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcIsolatedSubnet2SubnetF65B365A": {
       "Properties": {
-        "AvailabilityZone": "dummy1b",
+        "AvailabilityZone": "ca-central-1b",
         "CidrBlock": "10.0.13.0/24",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -445,7 +445,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcPrivateSubnet1Subnet6DD86AE6": {
       "Properties": {
-        "AvailabilityZone": "dummy1a",
+        "AvailabilityZone": "ca-central-1a",
         "CidrBlock": "10.0.4.0/22",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -507,7 +507,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcPrivateSubnet2Subnet1BDBE877": {
       "Properties": {
-        "AvailabilityZone": "dummy1b",
+        "AvailabilityZone": "ca-central-1b",
         "CidrBlock": "10.0.8.0/22",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -608,7 +608,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcPublicSubnet1Subnet36933139": {
       "Properties": {
-        "AvailabilityZone": "dummy1a",
+        "AvailabilityZone": "ca-central-1a",
         "CidrBlock": "10.0.0.0/24",
         "MapPublicIpOnLaunch": true,
         "Tags": [
@@ -673,7 +673,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcPublicSubnet2SubnetC427CCE0": {
       "Properties": {
-        "AvailabilityZone": "dummy1b",
+        "AvailabilityZone": "ca-central-1b",
         "CidrBlock": "10.0.1.0/24",
         "MapPublicIpOnLaunch": true,
         "Tags": [
