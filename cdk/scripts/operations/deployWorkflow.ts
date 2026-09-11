@@ -36,8 +36,12 @@ interface ImagesResponse {
   readonly imageDetails?: readonly { readonly imageDigest?: string; readonly imageTags?: readonly string[] }[];
 }
 
-interface AmplifyJobsResponse {
-  readonly jobSummaries?: readonly { readonly status?: string; readonly jobId?: string }[];
+interface AmplifyStartJobResponse {
+  readonly jobSummary?: { readonly jobId?: string; readonly status?: string };
+}
+
+interface AmplifyGetJobResponse {
+  readonly job?: { readonly summary?: { readonly jobId?: string; readonly status?: string } };
 }
 
 interface ParameterResponse {
@@ -605,6 +609,71 @@ export function isCompletedDeployCheckpoint(checkpoint: DeploymentCheckpoint): b
   return DEPLOY_STAGES.every((stage) => checkpoint.stages[stage]?.state === "complete");
 }
 
+/**
+ * Start a RELEASE build of the frontend branch and return its job id.
+ *
+ * Amplify's branch `autoBuild` only reacts to push webhooks, so deploying the
+ * Amplify stack alone never builds the current revision — the frontend is never
+ * published. `start-job --job-type RELEASE` queues a build from the latest
+ * change on the branch (supported for repository-connected apps), giving every
+ * deploy a deterministic build to wait on. The `start-job` response nests the
+ * new job under `jobSummary`.
+ */
+export async function startAmplifyReleaseBuild(
+  aws: Pick<AwsCli, "json">,
+  appId: string,
+  branch: string,
+): Promise<string> {
+  const started = await aws.json<AmplifyStartJobResponse>([
+    "amplify", "start-job",
+    "--app-id", appId,
+    "--branch-name", branch,
+    "--job-type", "RELEASE",
+  ]);
+  const jobId = started.jobSummary?.jobId;
+  if (!jobId) {
+    throw new Error(`Amplify start-job did not return a job id for app ${appId} branch ${branch}.`);
+  }
+  console.log(`[wren] Started Amplify build job ${jobId} for branch ${branch}.`);
+  return jobId;
+}
+
+/**
+ * Poll `amplify get-job` for a specific job id until it reaches a terminal
+ * state. Unlike `start-job`, the `get-job` response nests the status under
+ * `job.summary.status` (not `jobSummary`), so the path here intentionally
+ * differs. `CANCELLING` is transient and polled through; only `SUCCEED`
+ * resolves, while `FAILED`/`CANCELLED` throw with the job id for triage.
+ */
+export async function awaitAmplifyBuild(
+  aws: Pick<AwsCli, "json">,
+  appId: string,
+  branch: string,
+  jobId: string,
+  options: { readonly pollIntervalMs?: number; readonly timeoutMs?: number; readonly sleep?: (ms: number) => Promise<void> } = {},
+): Promise<void> {
+  const pollIntervalMs = options.pollIntervalMs ?? 15_000;
+  const timeoutMs = options.timeoutMs ?? 60 * 60 * 1000;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const job = await aws.json<AmplifyGetJobResponse>([
+      "amplify", "get-job",
+      "--app-id", appId,
+      "--branch-name", branch,
+      "--job-id", jobId,
+    ]);
+    const status = job.job?.summary?.status;
+    if (status === "SUCCEED") return;
+    if (status === "FAILED" || status === "CANCELLED") {
+      throw new Error(`Amplify build ${jobId} ended with ${status}.`);
+    }
+    await sleep(pollIntervalMs);
+  }
+  throw new Error(`Timed out waiting for the Amplify branch build ${jobId}.`);
+}
+
 function secretFileUri(filePath: string): string {
   return `file://${filePath.replace(/\\/g, "/")}`;
 }
@@ -994,7 +1063,12 @@ export class DeployWorkflow {
     const stack = await this.discovery.stack(stackName);
     const appId = stack.outputs.AmplifyAppId;
     if (!appId) throw new Error(`${stackName} did not return AmplifyAppId.`);
-    await this.waitForAmplify(appId);
+    // Amplify's `autoBuild` only fires on a new push webhook, so deploying the
+    // stack alone never produces a build of the current revision. Explicitly
+    // start a RELEASE job (latest change on the branch) and wait for that exact
+    // job so a fresh deploy always builds and publishes the frontend.
+    const jobId = await this.startAmplifyBuild(appId);
+    await this.waitForAmplify(appId, jobId);
     const amplifyDefaultDomain = stack.outputs.AmplifyDefaultDomain;
     const host = primaryFrontendHost(this.config.customDomain, amplifyDefaultDomain);
     if (host) console.log(`[wren] Hosted application: https://${host}`);
@@ -1310,20 +1384,12 @@ export class DeployWorkflow {
     }
   }
 
-  private async waitForAmplify(appId: string): Promise<void> {
-    const deadline = Date.now() + 60 * 60 * 1000;
-    while (Date.now() < deadline) {
-      const jobs = await this.aws.json<AmplifyJobsResponse>([
-        "amplify", "list-jobs", "--app-id", appId, "--branch-name", this.config.githubBranch, "--max-results", "1",
-      ]);
-      const status = jobs.jobSummaries?.[0]?.status;
-      if (status === "SUCCEED") return;
-      if (status === "FAILED" || status === "CANCELLED") {
-        throw new Error(`Amplify build ${jobs.jobSummaries?.[0]?.jobId ?? "unknown"} ended with ${status}.`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 15_000));
-    }
-    throw new Error("Timed out waiting for the Amplify branch build.");
+  private async startAmplifyBuild(appId: string): Promise<string> {
+    return startAmplifyReleaseBuild(this.aws, appId, this.config.githubBranch);
+  }
+
+  private async waitForAmplify(appId: string, jobId: string): Promise<void> {
+    await awaitAmplifyBuild(this.aws, appId, this.config.githubBranch, jobId);
   }
 
   private async resolveAuditPseudonymSaltOwnership(): Promise<void> {

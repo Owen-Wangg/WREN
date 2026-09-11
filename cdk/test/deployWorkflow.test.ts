@@ -1,6 +1,8 @@
 import {
   assertCorsPreflight,
   assertPipelineStages,
+  awaitAmplifyBuild,
+  startAmplifyReleaseBuild,
   buildCacheSmokeRequestBody,
   cacheSmokeSystemPrompt,
   checkpointImageMatchesCommit,
@@ -404,6 +406,90 @@ describe("CodeBuild bootstrap image build (S3 source snapshot)", () => {
       "src-abc",
       { sleep: async () => undefined },
     )).rejects.toThrow("build-2");
+  });
+});
+
+describe("Amplify frontend build trigger", () => {
+  it("starts a RELEASE job and returns the job id from the start-job jobSummary shape", async () => {
+    const calls: string[][] = [];
+    const aws = {
+      json: async (args: readonly string[]): Promise<never> => {
+        calls.push([...args]);
+        // start-job nests the new job under `jobSummary`.
+        return { jobSummary: { jobId: "42", status: "PENDING" } } as never;
+      },
+    };
+    await expect(startAmplifyReleaseBuild(aws, "d123abc", "release")).resolves.toBe("42");
+    expect(calls[0]).toEqual([
+      "amplify", "start-job",
+      "--app-id", "d123abc",
+      "--branch-name", "release",
+      "--job-type", "RELEASE",
+    ]);
+  });
+
+  it("fails clearly when start-job returns no job id", async () => {
+    const aws = { json: async (): Promise<never> => ({ jobSummary: {} }) as never };
+    await expect(startAmplifyReleaseBuild(aws, "d123abc", "release"))
+      .rejects.toThrow("did not return a job id");
+  });
+
+  it("polls get-job (job.summary.status) and resolves only on SUCCEED", async () => {
+    const statuses = ["PROVISIONING", "RUNNING", "SUCCEED"];
+    let index = 0;
+    const calls: string[][] = [];
+    const aws = {
+      json: async (args: readonly string[]): Promise<never> => {
+        calls.push([...args]);
+        // get-job nests status under `job.summary`, NOT `jobSummary`.
+        return { job: { summary: { jobId: "42", status: statuses[index++] } } } as never;
+      },
+    };
+    await expect(awaitAmplifyBuild(aws, "d123abc", "release", "42", { sleep: async () => undefined }))
+      .resolves.toBeUndefined();
+    expect(calls[0]).toEqual([
+      "amplify", "get-job",
+      "--app-id", "d123abc",
+      "--branch-name", "release",
+      "--job-id", "42",
+    ]);
+    expect(calls).toHaveLength(3);
+  });
+
+  it("regression: the start-job shape (jobSummary) is NOT treated as a terminal get-job status", async () => {
+    // A get-job response carrying only the start-job-style `jobSummary` (as an
+    // earlier version of the waiter incorrectly read) leaves status undefined,
+    // so the waiter must keep polling rather than resolve — the bug this guards
+    // against silently timed out instead of ever seeing SUCCEED.
+    let calls = 0;
+    const aws = {
+      json: async (): Promise<never> => {
+        calls += 1;
+        if (calls < 2) return { jobSummary: { status: "SUCCEED" } } as never; // wrong shape → ignored
+        return { job: { summary: { status: "SUCCEED" } } } as never; // correct shape → resolves
+      },
+    };
+    await expect(awaitAmplifyBuild(aws, "app", "release", "42", { sleep: async () => undefined }))
+      .resolves.toBeUndefined();
+    expect(calls).toBe(2);
+  });
+
+  it("throws with the job id when the build fails or is cancelled", async () => {
+    const failing = { json: async (): Promise<never> => ({ job: { summary: { status: "FAILED" } } }) as never };
+    await expect(awaitAmplifyBuild(failing, "app", "release", "99", { sleep: async () => undefined }))
+      .rejects.toThrow("Amplify build 99 ended with FAILED");
+
+    const cancelled = { json: async (): Promise<never> => ({ job: { summary: { status: "CANCELLED" } } }) as never };
+    await expect(awaitAmplifyBuild(cancelled, "app", "release", "99", { sleep: async () => undefined }))
+      .rejects.toThrow("ended with CANCELLED");
+  });
+
+  it("times out when the build never reaches a terminal state", async () => {
+    const aws = { json: async (): Promise<never> => ({ job: { summary: { status: "RUNNING" } } }) as never };
+    await expect(awaitAmplifyBuild(aws, "app", "release", "7", {
+      timeoutMs: -1,
+      sleep: async () => undefined,
+    })).rejects.toThrow("Timed out waiting for the Amplify branch build 7");
   });
 });
 
