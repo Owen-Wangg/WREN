@@ -122,6 +122,66 @@ describe("deployment configuration", () => {
     expect(configFingerprint(withDomain)).not.toBe(configFingerprint(base));
   });
 
+  it("parses an optional signup email-domain allowlist and omits it when absent", () => {
+    expect(parseDeploymentConfig(github).allowedEmailDomains).toEqual([]);
+    const config = parseDeploymentConfig({
+      ...github,
+      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca, alumni.ubc.ca",
+    });
+    expect(config.allowedEmailDomains).toEqual(["ubc.ca", "alumni.ubc.ca"]);
+  });
+
+  it.each([
+    "https://ubc.ca",
+    "UBC.CA",
+    "ubc.ca/app",
+    "ubc.ca.",
+    "ubc",
+  ])("rejects a malformed allowed email domain (%s)", (raw) => {
+    expect(() =>
+      parseDeploymentConfig({ ...github, WREN_ALLOWED_EMAIL_DOMAINS: raw }),
+    ).toThrow("WREN_ALLOWED_EMAIL_DOMAINS");
+  });
+
+  it("echoes allowed email domains in public configuration", () => {
+    expect(publicDeploymentConfig(parseDeploymentConfig(github)).allowedEmailDomains).toBe(
+      "(unrestricted)",
+    );
+    const restricted = parseDeploymentConfig({
+      ...github,
+      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca",
+    });
+    expect(publicDeploymentConfig(restricted).allowedEmailDomains).toBe("ubc.ca");
+  });
+
+  it("changes the checkpoint fingerprint when allowed email domains change", () => {
+    const base = parseDeploymentConfig(github);
+    const restricted = parseDeploymentConfig({
+      ...github,
+      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca",
+    });
+    expect(configFingerprint(restricted)).not.toBe(configFingerprint(base));
+  });
+
+  it("rejects an admin email outside the signup allowlist", () => {
+    expect(() =>
+      parseDeploymentConfig({
+        ...github,
+        WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca",
+        WREN_ADMIN_EMAIL: "admin@example.com",
+      }),
+    ).toThrow("WREN_ADMIN_EMAIL");
+  });
+
+  it("accepts an admin email on the signup allowlist", () => {
+    const config = parseDeploymentConfig({
+      ...github,
+      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca",
+      WREN_ADMIN_EMAIL: "admin@ubc.ca",
+    });
+    expect(config.adminEmail).toBe("admin@ubc.ca");
+  });
+
   it("never includes tokens in public configuration", () => {
     const config = parseDeploymentConfig({
       ...github,

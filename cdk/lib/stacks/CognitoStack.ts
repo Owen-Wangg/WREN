@@ -1,8 +1,12 @@
 import { Stack, type StackProps, Duration } from "aws-cdk-lib";
+import * as path from "path";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import type { Construct } from "constructs";
 
+import { allowedEmailDomainsEnv } from "../signupEmailDomains.js";
 import { ssmParameterNames, type AppConfig } from "../config.js";
 
 export interface CognitoStackProps extends StackProps {
@@ -14,8 +18,10 @@ export interface CognitoStackProps extends StackProps {
  *
  * Instantiates a User Pool (email sign-in, SRP auth, self-signup enabled)
  * and a User Pool Client (public client for SPA, no secret, OAuth hosted-UI
- * disabled). Admin USER_PASSWORD_AUTH is available only via IAM
- * `AdminInitiateAuth` for operator smoke tokens — not the public app client.
+ * disabled). A PreSignUp Lambda enforces an optional exact email-domain
+ * allowlist for new accounts only; an empty list is unrestricted. Admin
+ * USER_PASSWORD_AUTH is available only via IAM `AdminInitiateAuth` for
+ * operator smoke tokens — not the public app client.
  * Pool and client IDs are published to SSM for Lambdas and the frontend.
  */
 export class CognitoStack extends Stack {
@@ -96,6 +102,35 @@ export class CognitoStack extends Stack {
 
     this.userPoolId = this.userPool.userPoolId;
     this.userPoolClientId = this.userPoolClient.userPoolClientId;
+
+    // -----------------------------------------------------------------------
+    // PreSignUp email-domain allowlist (new accounts only)
+    // -----------------------------------------------------------------------
+    // Always attached so enabling/disabling the list is an env change rather
+    // than adding or removing the trigger. Empty ALLOWED_EMAIL_DOMAINS allows
+    // every valid email (current behaviour). No VPC or database: this is a
+    // hostname check only.
+    const monorepoRoot = path.join(__dirname, "../../..");
+    const preSignUp = new lambdaNodejs.NodejsFunction(this, "PreSignUpFn", {
+      functionName: `${config.stackPrefix}-pre-signup`,
+      entry: path.join(monorepoRoot, "backend/auth/src/preSignUp.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 128,
+      timeout: Duration.seconds(5),
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
+      environment: {
+        ALLOWED_EMAIL_DOMAINS: allowedEmailDomainsEnv(config.allowedEmailDomains),
+        NODE_OPTIONS: "--enable-source-maps",
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        target: "node22",
+      },
+    });
+    this.userPool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignUp);
 
     // -----------------------------------------------------------------------
     // Cognito Groups

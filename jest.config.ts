@@ -27,6 +27,9 @@ const config: Config = {
             '@wren/admin/lifetimeUsagePolicy': [
               './backend/admin/src/lifetimeUsagePolicy.ts',
             ],
+            '@wren/types/signupEmailDomains': [
+              './types/src/signupEmailDomains.ts',
+            ],
           },
         },
       },
@@ -49,6 +52,8 @@ const config: Config = {
     // tests importing modules that depend on it resolve without a build step.
     '^@wren/admin/lifetimeUsagePolicy$':
       '<rootDir>/backend/admin/src/lifetimeUsagePolicy.ts',
+    '^@wren/types/signupEmailDomains$':
+      '<rootDir>/types/src/signupEmailDomains.ts',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   clearMocks: true,

@@ -99,6 +99,7 @@ export class AmplifyStack extends Stack {
         VITE_COGNITO_CLIENT_ID: props.cognitoClientId,
         VITE_AWS_REGION: config.env.region || "ca-central-1",
         VITE_APPSYNC_URL: props.appSyncGraphqlUrl,
+        VITE_ALLOWED_EMAIL_DOMAINS: config.allowedEmailDomains.join(","),
         // Build config
         NODE_VERSION: "22",
       },
