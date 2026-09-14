@@ -1,6 +1,7 @@
 import { Stack, type StackProps, CfnOutput, SecretValue } from "aws-cdk-lib";
 import * as amplify from "@aws-cdk/aws-amplify-alpha";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
+import * as iam from "aws-cdk-lib/aws-iam";
 import type { Construct } from "constructs";
 
 import type { AppConfig } from "../config";
@@ -107,6 +108,25 @@ export class AmplifyStack extends Stack {
 
     // SPA rewrite rule: all paths → index.html (except /api/* and assets).
     this.amplifyApp.addCustomRule(amplify.CustomRule.SINGLE_PAGE_APPLICATION_REDIRECT);
+
+    // Grant the Amplify service role the minimum permissions it needs during builds:
+    // - Secrets Manager read for the GitHub OAuth token
+    // - CloudWatch Logs write for build logs
+    // Without these the role trust policy is correct but the build fails at env setup.
+    if (this.amplifyApp.role) {
+      this.amplifyApp.role.addToPrincipalPolicy(new iam.PolicyStatement({
+        sid: "AmplifySecretsRead",
+        actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+        resources: [
+          `arn:aws:secretsmanager:${config.env.region || "ca-central-1"}:${this.account}:secret:${props.githubTokenSecretName}*`,
+        ],
+      }));
+      this.amplifyApp.role.addToPrincipalPolicy(new iam.PolicyStatement({
+        sid: "AmplifyLogs",
+        actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+        resources: [`arn:aws:logs:${config.env.region || "ca-central-1"}:${this.account}:log-group:/aws/amplify/*`],
+      }));
+    }
 
     // -------------------------------------------------------------------
     // Production branch follows the configured GitHub source branch.
