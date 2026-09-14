@@ -440,8 +440,10 @@ The analytics dashboard provides a high-level view of platform adoption and AI u
 1. Go to **System Admin Dashboard → Departments → [Department Name] → View Analytics** (or a platform-wide analytics view, if available).
 2. Review key metrics, including:
    - **Active Users** — number of users who logged in or used the platform within a selected time range. Active User metrics help administrators understand adoption and engagement levels within a department.
-   - **Documents Generated** — total document creation volume over time. Document generation totals help identify which departments or document types are receiving the most use.
-   - **Debriefs Generated** — total AI Debrief volume over time. Debrief activity provides insight into how frequently users are engaging with AI-assisted feedback during the writing process.
+   - **Total documents** — total document creation volume over time. Document generation totals help identify which departments or document types are receiving the most use.
+   - **Total drafts** — reflects how many times AI Debrief is being used for revision. Debrief activity provides insight into how frequently users are engaging with AI-assisted feedback during the writing process.
+   - **Breakdown by document type** - provides a bar graph to illustrate which document type is being used the most.
+   - **Platform total usage over time** - demonstrates how many users are engaging with the platform over time.
 
 <img width="911" height="302" alt="Department analytics totals" src="https://github.com/user-attachments/assets/539979ef-8a54-41a8-bfc3-764fc87d4b43" />
 <img width="725" height="296" alt="Usage over time" src="https://github.com/user-attachments/assets/3b319c83-71de-4e06-8862-42ef7101baa6" />
