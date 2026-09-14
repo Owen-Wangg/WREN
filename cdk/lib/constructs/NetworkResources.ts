@@ -25,7 +25,12 @@ export interface NetworkResourcesProps {
  * (REQ-SEC-PII-01 / AWS Well-Architected Security):
  *
  *   - Gateway endpoints   : S3, DynamoDB (free, route-table based)
- *   - Interface endpoints : Secrets Manager, SSM, RDS, API Gateway, Bedrock
+ *   - Interface endpoints : Secrets Manager, SSM, Bedrock Runtime
+ *
+ * RDS control-plane and API Gateway interface endpoints are intentionally not
+ * created: application traffic uses RDS Proxy over private PostgreSQL/TLS and
+ * a Regional API Gateway, respectively. The private-subnet NAT gateway is the
+ * approved fallback path for any future public AWS service calls.
  *
  * The VPC is defined with explicit subnet configuration (not `Vpc.fromLookup`)
  * so the app synthesizes without live AWS account/region context lookups.
@@ -111,14 +116,6 @@ export class NetworkResources extends Construct {
     });
     this.vpc.addInterfaceEndpoint("SsmEndpoint", {
       service: InterfaceVpcEndpointAwsService.SSM,
-      subnets,
-    });
-    this.vpc.addInterfaceEndpoint("RdsEndpoint", {
-      service: InterfaceVpcEndpointAwsService.RDS,
-      subnets,
-    });
-    this.vpc.addInterfaceEndpoint("ApiGatewayEndpoint", {
-      service: InterfaceVpcEndpointAwsService.APIGATEWAY,
       subnets,
     });
     this.vpc.addInterfaceEndpoint("BedrockRuntimeEndpoint", {

@@ -115,6 +115,7 @@ from .output_guardrail import (
 )
 from .prompt_assembly import (
     AssembledPrompt,
+    StructuredFeedbackPrompt,
     DocumentTypePromptConfig,
     PromptAssembler,
     SystemScaffolding,
@@ -171,6 +172,7 @@ __all__ = [
     "DocumentTypePromptConfig",
     "UntrustedContent",
     "AssembledPrompt",
+    "StructuredFeedbackPrompt",
     # Model invocation (Requirement 51 / REQ-NFR-MODEL-01 / Task 9.3)
     "ModelInvoker",
     "LangChainBedrockInvoker",

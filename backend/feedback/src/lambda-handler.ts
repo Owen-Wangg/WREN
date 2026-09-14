@@ -7,6 +7,7 @@ import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
 import { publishNotificationEvent } from '@wren/notification';
+import { bindCorsOrigin, withCorsHeaders } from '@wren/auth';
 
 import {
   appendAskWrenTurn,
@@ -25,22 +26,7 @@ import {
   UsageLimitReachedError,
 } from '@wren/admin/lifetimeUsagePolicy';
 // Shared utilities (parseAuthContext, wrapHandler, CORS)
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-};
-
-function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
-  return {
-    ...result,
-    headers: {
-      ...CORS_HEADERS,
-      ...(result.headers as Record<string, string> | undefined),
-    },
-  };
-}
+const withCors = withCorsHeaders;
 
 function parseAuthContext(event: any) {
   const ctx = event.requestContext?.authorizer || {};
@@ -52,6 +38,27 @@ function parseAuthContext(event: any) {
     administeredDepartmentIds: JSON.parse(ctx.administeredDepartmentIds || '[]'),
     grants: JSON.parse(ctx.grants || '[]'),
   };
+}
+
+/**
+ * All REST routes in this Lambda are Student feedback workflows. Require the
+ * Student role in production code; ownership checks remain the second boundary.
+ */
+function studentAccessFailure(event: any): APIGatewayProxyResult | null {
+  const actor = parseAuthContext(event);
+  if (!actor.userId) {
+    return withCors({
+      statusCode: 401,
+      body: JSON.stringify({ code: 'UNAUTHORIZED', message: 'Authentication required' }),
+    });
+  }
+  if (!actor.roles.includes('Student')) {
+    return withCors({
+      statusCode: 403,
+      body: JSON.stringify({ code: 'PERMISSION_DENIED', message: 'Student role required' }),
+    });
+  }
+  return null;
 }
 
 async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>, event?: any): Promise<APIGatewayProxyResult> {
@@ -433,8 +440,11 @@ const sqsClient = new SQSClient({ region: process.env.AWS_REGION || 'ca-central-
 
 export const handler: APIGatewayProxyHandler = async (event, context): Promise<APIGatewayProxyResult> => {
   freezeEventLoopOnReturn(context);
+  bindCorsOrigin(event);
   try {
     const { httpMethod, resource } = event;
+    const accessFailure = studentAccessFailure(event);
+    if (accessFailure) return accessFailure;
 
     if (resource === '/v1/documents/{documentId}/feedback' && httpMethod === 'GET') {
       return await wrapHandler(() => handleGetFeedback(event));
@@ -1131,6 +1141,37 @@ async function loadDocumentTypeContext(
   }
 }
 
+/**
+ * Load the department-level Ask WREN prompt for the document's owning
+ * Department, or `undefined` when unset/blank. Independent of the Feedback
+ * Engine's `department.prompt` — this reads `department.ask_wren_prompt`, the
+ * DepartmentAdmin-authored Socratic coaching context.
+ *
+ * Resilient by design (same posture as {@link loadDocumentTypeContext}): any
+ * failure returns `undefined` so Ask WREN keeps working with just the universal
+ * system prompt and document-type context.
+ */
+async function loadDepartmentAskWrenContext(
+  documentId: string,
+): Promise<string | undefined> {
+  try {
+    const db = await getDataAccess();
+    const rows = await db.query<{ ask_wren_prompt: string | null }>(
+      `SELECT dep.ask_wren_prompt
+       FROM document d
+       JOIN document_type dt ON dt.id = d.document_type_id
+       JOIN department dep ON dep.id = dt.department_id
+       WHERE d.id = $1`,
+      [documentId],
+    );
+    const value = rows[0]?.ask_wren_prompt;
+    return value && value.trim().length > 0 ? value : undefined;
+  } catch (err) {
+    console.warn('Failed to load department Ask WREN context:', err);
+    return undefined;
+  }
+}
+
 async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const documentId = parseUuidParam(event.pathParameters?.documentId);
@@ -1164,7 +1205,10 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
   const userMessageCount = (conversation?.messages ?? []).filter((m) => m.role === 'user').length;
   const policy = await getPlatformUsagePolicy(db);
 
-  const documentTypeContext = await loadDocumentTypeContext(documentId);
+  const [documentTypeContext, departmentAskWrenContext] = await Promise.all([
+    loadDocumentTypeContext(documentId),
+    loadDepartmentAskWrenContext(documentId),
+  ]);
 
   // Read model override from platform_usage_policy; fall back to env var.
   const policyRows = await db.query<{ bedrock_model_id: string | null }>(
@@ -1179,6 +1223,7 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
     userText: text,
     draftSegments: draft.segments,
     documentTypeContext,
+    departmentAskWrenContext,
     modelId,
     messageLimit: policy.messageLimit,
   });

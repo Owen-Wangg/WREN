@@ -2,11 +2,12 @@
 
 REST API for WREN (project prefix **WREN**): endpoints, authentication, request and response shapes, and examples.
 
-The product display name is **WREN**. AWS resources, CDK stacks, and this repository use the project prefix **WREN**. The contract used to deploy API Gateway lives in [`cdk/lib/openapi.yaml`](../cdk/lib/openapi.yaml). Shared Zod/TypeScript DTOs live in [`types/`](../types/README.md). In the UI, the `TechnicalAdmin` role is labeled **System Admin**.
-
 ## Table of Contents
 
 - [Authentication](#authentication)
+  - [Roles](#roles)
+  - [Authorization Model](#authorization-model)
+  - [Shared Endpoints](#shared-endpoints)
 - [Base URL](#base-url)
 - [Common Headers](#common-headers)
 - [Error Responses](#error-responses)
@@ -32,9 +33,9 @@ All REST endpoints require authentication except CORS `OPTIONS` preflight. The R
 Authorization is enforced in two layers:
 
 1. **Lambda authorizer** (coarse) — verifies the Cognito JWT (signature, issuer, expiry), maps `sub` to an application user in PostgreSQL, and attaches roles, administered department IDs, and access grants to the request context. First login provisions an `app_user` with the default **Student** role. Cognito groups are used only during that first-login bootstrap; the database is the source of truth afterward.
-2. **Service Lambdas** (fine-grained) — each handler re-checks the requested capability against the actor using the capability matrix. A cached authorizer Allow does not grant a privileged operation.
+2. **Service Lambdas** (fine-grained) — each handler re-checks the requested capability against the actor using the capability matrix. An authorizer Allow proves authentication only; it does not grant a privileged operation.
 
-The authorizer result is cached for **30 seconds**. Downstream services parse `requestContext.authorizer` (`userId`, `email`, `roles`, `administeredDepartmentIds`, `grants`).
+The authorizer result is **not cached** (`authorizerResultTtlInSeconds: 0`) — authorization is resolved from the application database on every request, so role and grant revocations take effect immediately. Downstream services parse `requestContext.authorizer` (`userId`, `email`, `roles`, `administeredDepartmentIds`, `grants`).
 
 ---
 
@@ -70,7 +71,34 @@ There is no implicit role hierarchy. Authority is the explicit capability matrix
 
 A user may hold more than one role. An operation is allowed if any held role authorizes it in the requested scope.
 
-`DepartmentAdmin` operations are limited to departments in `administeredDepartmentIds`. `TechnicalAdmin` is **not** a superuser for educational content (topics and access grants remain department-scoped).
+`DepartmentAdmin` operations are limited to departments in `administeredDepartmentIds`. `TechnicalAdmin` is **not** a superuser.
+
+### Authorization Model
+
+Unlike role-prefixed APIs, WREN paths are **not** segmented by role (there is no `/student/*`, `/instructor/*`, `/admin/*` split). Every REST path lives under `/v1`, and authority is decided per operation by the capability matrix. The two enforcement layers work together:
+
+| Layer | What it checks | Where | Cached |
+| --- | --- | --- | --- |
+| Lambda authorizer | Cognito JWT (signature, issuer, expiry); maps `sub` → `app_user`; attaches `userId`, `email`, `roles`, `administeredDepartmentIds`, `grants` | API Gateway (`wren-{stage}-authorizer`) | No (TTL 0) |
+| Service Lambda | `authorizeCapability(actor, { capability, scope })` for the specific operation and scope | Each handler (`@wren/auth`) | No |
+
+An authorizer Allow only proves the caller is authenticated with some role set. It never grants a privileged operation — the service Lambda re-checks the exact capability against the actor's roles and administered departments, and a denial returns an authorization error with **no** data mutation. Because the authorizer result is not cached (`authorizerResultTtlInSeconds: 0`), role and grant changes take effect on the next request.
+
+**Identity is derived from the token, never from the request.** Handlers read the actor (`userId`, `email`, `roles`, `administeredDepartmentIds`) from `requestContext.authorizer`, which the authorizer populated from the verified JWT. There are no email/user query parameters to spoof: ownership and scope are resolved from the token-derived `userId` and the capability matrix. Passing another user's ID in a path or body does not widen access — the ownership or capability check fails with `403 PERMISSION_DENIED` (or `404 NOT_FOUND` where existence should not leak).
+
+**Roles are OR-combined, with no hierarchy.** A user may hold several roles; an operation is allowed if any held role authorizes it in the requested scope. `TechnicalAdmin` authorizes platform operations only; `DepartmentAdmin` authorizes educational operations limited to `administeredDepartmentIds`; `Student` holds no privileged capability.
+
+**Database is the source of truth.** Cognito groups are consulted only during first-login provisioning, which creates an `app_user` with the default **Student** role. All ongoing authorization reads roles and administered departments from PostgreSQL via the authorizer.
+
+### Shared Endpoints
+
+These endpoints are available to any authenticated user regardless of role — they operate on the caller's own token-derived identity or inbox:
+
+- `GET /v1/auth/me` — Current application identity and database-backed roles
+- `GET /v1/access-grants` — The caller's own active access grants
+- `GET /v1/notifications`, `GET /v1/notifications/unread-count`, `PATCH /v1/notifications/{id}`, `POST /v1/notifications/bulk` — The caller's own inbox
+
+Privileged endpoints list their required capability inline (e.g. **Authorization:** `TechnicalAdmin`). Where no authorization line is shown, the endpoint is student-owned data guarded by an ownership check on the token-derived `userId`.
 
 ## Base URL
 
@@ -103,6 +131,8 @@ Accept: application/json
 The authorizer also accepts a raw JWT without the `Bearer ` prefix.
 
 API Gateway throttling: **100** requests/second sustained, **200** burst.
+
+**CORS:** REST methods return CORS headers on both success and gateway-generated `401`/`403` responses. Preflight echoes `Access-Control-Allow-Origin` only for local Vite, the configured custom domain, extra `corsAllowedOrigins`, and Amplify default hosts — never `*`. See [CORS](#cors) under Security Considerations for the full allowed methods and headers.
 
 ## Error Responses
 
@@ -172,6 +202,8 @@ Return the authenticated application identity and database-backed roles.
 - `roles` (array): `Student`, `DepartmentAdmin`, and/or `TechnicalAdmin`
 - `administeredDepartmentIds` (array): Department UUIDs if the user is a Department Admin
 
+The handler returns the identity resolved by the authorizer and placed in the request context; it does not include name fields.
+
 **Example (cURL):**
 
 ```bash
@@ -217,6 +249,8 @@ List the caller’s documents.
 }
 ```
 
+`total` reflects the number of items returned for the current page (equal to `items.length`), not the overall row count across all pages.
+
 **Example (cURL):**
 
 ```bash
@@ -254,9 +288,13 @@ Create a document from a pasted text, TipTap JSON, or a previously uploaded file
 - `metadata` (object, optional): Custom field values as string map
 - `content` (object, optional): TipTap `JSONContent` (`type: "doc"`) so rich formatting is stored on the first draft
 
-LOCKED document types require an active access grant. PDF uploads may return ingest fields (`ingestStatus`, `ingestJobId`) instead of a fully extracted draft.
+LOCKED document types require an active access grant.
 
-**Response:** `200 OK` with a document object
+**Response:** `201 Created` with a document object (`id`, `ownerUserId`, `documentTypeId`, `contentTypeId`, `name`, `metadata`, `status`, `createdAt`).
+
+For a large PDF that is ingested asynchronously, the same `201` body additionally includes `ingestStatus` (`"queued"`, or `"failed"` if the ingest could not be enqueued) and `ingestJobId`. Poll [Get Ingest Status](#get-ingest-status) to track completion.
+
+Subject to the lifetime document-upload cap — returns `429 USAGE_LIMIT_REACHED` when exceeded.
 
 **Example (cURL):**
 
@@ -292,13 +330,23 @@ curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/docu
 
 ## Delete Document
 
-Delete a document owned by the authenticated student, including drafts and feedback.
+Delete a document owned by the authenticated student, including drafts and feedback. Requires explicit confirmation in the request body.
 
 **Endpoint:** `DELETE /v1/documents/{documentId}`
 
 **Path Parameters:**
 
 - `documentId` (string, required): Document UUID
+
+**Request Body:**
+
+```json
+{ "confirmed": true }
+```
+
+**Parameters:**
+
+- `confirmed` (boolean, required): Must be `true`, or the request returns `400 CONFIRMATION_REQUIRED`.
 
 **Response:** `200 OK`
 
@@ -314,7 +362,9 @@ Delete a document owned by the authenticated student, including drafts and feedb
 
 ```bash
 curl -X DELETE "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/documents/uuid" \
-  -H "Authorization: Bearer eyJraWQiOiJ..."
+  -H "Authorization: Bearer eyJraWQiOiJ..." \
+  -H "Content-Type: application/json" \
+  -d '{"confirmed":true}'
 ```
 
 ---
@@ -340,7 +390,7 @@ Poll async PDF ingest (Textract) for a document.
 }
 ```
 
-`status` is one of `queued`, `processing`, `completed`, `failed`.
+`status` is one of `pending`, `queued`, `processing`, `completed`, `failed`. When `status` is `pending` (no ingest job row exists yet) only the `status` field is present. `jobId`, `draftId`, `errorMessage`, `ocrEngine`, and `comparison` are included only when set.
 
 **Example (cURL):**
 
@@ -359,7 +409,14 @@ curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/docu
 
 - `documentId` (string, required): Document UUID
 
-**Response:** `200 OK` with a draft object (`id`, `documentId`, `versionNumber`, `s3Key`, `segments`, `wordCount`, `createdAt`, optional TipTap `content`)
+**Response:** `200 OK` with a draft object:
+
+- `id`, `documentId`, `versionNumber`, `s3Key`, `wordCount`, `createdAt`
+- `contentUpdatedAt` (string or `null`)
+- `segments`: array of `{ index, text }` objects
+- optional (present only when set): TipTap `content`, `header`, `footer`, `ocrConfidence`
+
+Returns `404` when the document has no draft.
 
 **Example (cURL):**
 
@@ -392,7 +449,7 @@ Create a new immutable draft version. Provide TipTap `content`, `segments`, and/
 
 **Response:**
 
-- `201 Created` — draft object
+- `201 Created` — draft object (same shape as [Get Latest Draft](#get-latest-draft))
 - `202 Accepted` — PDF ingest queued
 
 ```json
@@ -402,6 +459,10 @@ Create a new immutable draft version. Provide TipTap `content`, `segments`, and/
   "documentId": "uuid"
 }
 ```
+
+If the ingest job cannot be enqueued, the `202` body instead carries `ingestStatus: "failed"` plus an `errorMessage` field.
+
+Subject to the per-document draft cap — returns `429 USAGE_LIMIT_REACHED` when exceeded.
 
 **Example (cURL):**
 
@@ -475,7 +536,8 @@ Get a presigned S3 POST for `.docx` or `.pdf` upload. Use the returned `key` as 
 {
   "uploadUrl": "https://s3.amazonaws.com/...",
   "fields": { "key": "documents/user-id/uploads/...", "Policy": "..." },
-  "key": "documents/user-id/uploads/uuid-essay.docx"
+  "key": "documents/user-id/uploads/uuid-essay.docx",
+  "maxFileSizeBytes": 31457280
 }
 ```
 
@@ -489,6 +551,32 @@ curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/upl
 ```
 
 POST the file to `uploadUrl` as `multipart/form-data` using `fields`, then create the document with `"source": { "kind": "file", "key": "<key>" }`.
+
+---
+
+## Get Upload Config
+
+Get the upload limits enforced for the authenticated user (used by the client to validate files before requesting a presigned URL).
+
+**Endpoint:** `GET /v1/uploads/config`
+
+**Response:** `200 OK`
+
+```json
+{
+  "maxFileSizeBytes": 10485760,
+  "maxWordCount": 5000
+}
+```
+
+Values come from the platform usage policy; `maxWordCount` may be `null` when unset.
+
+**Example (cURL):**
+
+```bash
+curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/uploads/config" \
+  -H "Authorization: Bearer eyJraWQiOiJ..."
+```
 
 ---
 
@@ -545,12 +633,19 @@ Get feedback items and anchors for a draft (defaults to latest).
     }
   ],
   "anchors": [],
+  "categoryNames": { "error-category-uuid": "Clarity" },
   "progressSummary": [],
   "draftId": "uuid"
 }
 ```
 
-`kind` is `inline`, `structural`, or `strength`. Anchor `state` is `active` or `removed`. Resolution status on progress is `resolved`, `partially_resolved`, `still_unresolved`, `removed`, or `unchanged`.
+Response fields:
+
+- `items`: feedback items. Each has `id`, `documentId`, `errorCategoryId`, `kind`, `questionText`, `sourceDraftId`, `createdAt`, and optional (present only when set) `quotedText`, `currentAnchorId`, `resolvedHighlight` (`{ paragraphIndex, startOffset, endOffset }`), `positiveNote`, and `citationReferenceId`. `kind` is typically `inline`, `structural`, or `strength` (the handler passes the stored value through without constraining it).
+- `anchors`: each has `id`, `feedbackItemId`, `draftId`, `paragraphIndex`, `startOffset`, `endOffset`, `contentFingerprint`, `state` (`active` or `removed`).
+- `categoryNames`: object map of `errorCategoryId` → category name.
+- `progressSummary`: array of `{ category, tendency, description }` objects, where `tendency` is `improving`, `persistent`, or `emerging`.
+- `draftId`: the draft the returned feedback was generated against.
 
 **Example (cURL):**
 
@@ -642,9 +737,12 @@ Poll generation status (UI fallback when AppSync is unavailable).
 ```json
 {
   "status": "completed",
-  "itemCount": 8
+  "itemCount": 8,
+  "latestDraftId": "uuid"
 }
 ```
+
+`status` is `completed` (items exist), `queued` (a draft exists but no items yet), or `pending` (no draft exists). In the `pending` case the body is just `{ "status": "pending" }` — `itemCount` and `latestDraftId` are omitted.
 
 **Example (cURL):**
 
@@ -665,7 +763,7 @@ Record a student’s helpful/not-helpful rating for a debrief. Stored anonymousl
 
 ```json
 {
-  "documentId": "uuid",
+  "environmentId": "uuid",
   "draftId": "uuid",
   "helpful": false,
   "comment": "The questions did not match this assignment."
@@ -674,10 +772,10 @@ Record a student’s helpful/not-helpful rating for a debrief. Stored anonymousl
 
 **Parameters:**
 
-- `documentId` (uuid, required): Document ID
+- `environmentId` (uuid, required): The document ID. The handler reads this field as `environmentId` (not `documentId`); sending `documentId` results in a `400`.
 - `helpful` (boolean, required)
-- `draftId` (uuid, optional): Draft the debrief was generated against
-- `comment` (string, optional): Max 1000 characters
+- `draftId` (uuid, required): Draft the debrief was generated against (the handler returns `400` if it cannot parse a valid `draftId`)
+- `comment` (string, optional)
 
 **Response:** `200 OK` — `{ "recorded": true }`
 
@@ -687,7 +785,7 @@ Record a student’s helpful/not-helpful rating for a debrief. Stored anonymousl
 curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-helpfulness" \
   -H "Authorization: Bearer eyJraWQiOiJ..." \
   -H "Content-Type: application/json" \
-  -d '{"documentId":"uuid","helpful":true}'
+  -d '{"environmentId":"uuid","draftId":"uuid","helpful":true}'
 ```
 
 ---
@@ -700,9 +798,8 @@ Fetch the owning student’s per-section applicable/not-applicable votes.
 
 **Query Parameters:**
 
-- `documentId` (uuid, required): Document ID
-- `draftId` (uuid, required): Draft ID
-
+- `environmentId` (uuid, required): The document ID. Read as `environmentId` (not `documentId`).
+- `draftId` (uuid, required): Draft ID (when absent or `none`, the response is `{ "votes": {} }
 **Response:** `200 OK`
 
 ```json
@@ -713,10 +810,12 @@ Fetch the owning student’s per-section applicable/not-applicable votes.
 }
 ```
 
+`votes` is an object map of `errorCategoryId` → boolean.
+
 **Example (cURL):**
 
 ```bash
-curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-section-applicability?documentId=uuid&draftId=uuid" \
+curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-section-applicability?environmentId=uuid&draftId=uuid" \
   -H "Authorization: Bearer eyJraWQiOiJ..."
 ```
 
@@ -732,12 +831,19 @@ Upsert a vote for one error-category section. Toggling replaces the previous vot
 
 ```json
 {
-  "documentId": "uuid",
+  "environmentId": "uuid",
   "draftId": "uuid",
   "errorCategoryId": "uuid",
   "applicable": false
 }
 ```
+
+**Parameters:**
+
+- `environmentId` (uuid, required): The document ID. Read as `environmentId` (not `documentId`).
+- `draftId` (uuid, required)
+- `errorCategoryId` (uuid, required)
+- `applicable` (boolean, required)
 
 **Response:** `200 OK` — `{ "recorded": true }`
 
@@ -747,7 +853,7 @@ Upsert a vote for one error-category section. Toggling replaces the previous vot
 curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/feedback-section-applicability" \
   -H "Authorization: Bearer eyJraWQiOiJ..." \
   -H "Content-Type: application/json" \
-  -d '{"documentId":"uuid","draftId":"uuid","errorCategoryId":"uuid","applicable":true}'
+  -d '{"environmentId":"uuid","draftId":"uuid","errorCategoryId":"uuid","applicable":true}'
 ```
 
 ---
@@ -819,6 +925,8 @@ curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/docu
 - `draftId` (string, required)
 - `text` (string, required): Min length 1
 
+Subject to the per-document Ask WREN message cap — returns `429 USAGE_LIMIT_REACHED` when exceeded.
+
 **Response:** `200 OK`
 
 ```json
@@ -850,9 +958,9 @@ curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/doc
 
 **Endpoint:** `GET /v1/departments`
 
-**Response:** `200 OK` — array of `{ "id", "name" }`
+**Response:** `200 OK` — array of Department objects. Each includes `id`, `name`, `accessState` (`OPEN`/`LOCKED`), `visibilityState` (`VISIBLE`/`PERMITTED_ONLY`), `viewerCanDiscover` (boolean), `activeUserCount`, `archivedAt` (null for active), and `askWrenPrompt`. The `prompt` field is included only for Technical Admins (stripped for other callers).
 
-Department Admins only see departments they administer.
+The list is not filtered to administered departments; use `viewerCanDiscover` for client-side catalog filtering.
 
 **Example (cURL):**
 
@@ -1015,6 +1123,165 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/depa
 
 ---
 
+## Update Department Ask WREN Prompt
+
+Update the department-level Ask WREN coaching prompt.
+
+**Endpoint:** `PUT /v1/departments/{departmentId}/ask-wren-prompt`
+
+**Authorization:** Department Admin for this department (capability `department.manageAskWrenPrompt`); a Technical Admin may also edit it at platform scope
+
+**Path Parameters:**
+
+- `departmentId` (uuid, required)
+
+**Request Body:**
+
+```json
+{ "askWrenPrompt": "Ask WREN coaching instructions..." }
+```
+
+The field is `askWrenPrompt` (not `prompt`); the request body is strict, so an unrecognized field is rejected. `askWrenPrompt` may be `null` to clear. Admin-submitted text is run through both the no-ghostwriting guardrail (`GHOSTWRITING_DETECTED`) and Bedrock Guardrails prompt-injection check (`PROMPT_INJECTION_DETECTED`) before any write.
+
+**Response:** `200 OK` with updated department
+
+**Example (cURL):**
+
+```bash
+curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/departments/uuid/ask-wren-prompt" \
+  -H "Authorization: Bearer eyJraWQiOiJ..." \
+  -H "Content-Type: application/json" \
+  -d '{"askWrenPrompt":"Ask WREN coaching instructions."}'
+```
+
+---
+
+## Set Department Visibility State
+
+Set student-catalog visibility for a department. Distinct from access-state: visibility controls whether the department appears in the student catalog.
+
+**Endpoint:** `PUT /v1/departments/{departmentId}/visibility-state`
+
+**Authorization:** `TechnicalAdmin` (`departmentVisibility.manage`)
+
+**Path Parameters:**
+
+- `departmentId` (uuid, required)
+
+**Request Body:**
+
+```json
+{ "visibilityState": "PERMITTED_ONLY" }
+```
+
+**Parameters:**
+
+- `visibilityState` (string, required): `VISIBLE` or `PERMITTED_ONLY` (strict body — other fields rejected)
+
+**Response:** `200 OK` with the updated department
+
+**Example (cURL):**
+
+```bash
+curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/departments/uuid/visibility-state" \
+  -H "Authorization: Bearer eyJraWQiOiJ..." \
+  -H "Content-Type: application/json" \
+  -d '{"visibilityState":"PERMITTED_ONLY"}'
+```
+
+---
+
+## List Department Visibility Grants
+
+List the active explicit visibility permissions for a department.
+
+**Endpoint:** `GET /v1/departments/{departmentId}/visibility-grants`
+
+**Authorization:** `TechnicalAdmin` (`departmentVisibility.manage`)
+
+**Path Parameters:**
+
+- `departmentId` (uuid, required)
+
+**Query Parameters:**
+
+- `q` (string, optional): Search term
+- `limit` (integer, optional): 1–100
+- `offset` (integer, optional): Default `0`
+
+**Response:** `200 OK` — paginated visibility-grant result
+
+**Example (cURL):**
+
+```bash
+curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/departments/uuid/visibility-grants?limit=50&offset=0" \
+  -H "Authorization: Bearer eyJraWQiOiJ..."
+```
+
+---
+
+## Create Department Visibility Grant
+
+Grant a user explicit visibility of a department's catalog.
+
+**Endpoint:** `POST /v1/departments/{departmentId}/visibility-grants`
+
+**Authorization:** `TechnicalAdmin` (`departmentVisibility.manage`)
+
+**Path Parameters:**
+
+- `departmentId` (uuid, required)
+
+**Request Body:**
+
+```json
+{ "userId": "uuid" }
+```
+
+**Parameters:**
+
+- `userId` (string, required)
+
+**Response:**
+
+- `201 Created` with the created grant
+- `200 OK` with the existing active grant (idempotent — the user already has visibility)
+
+**Example (cURL):**
+
+```bash
+curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/departments/uuid/visibility-grants" \
+  -H "Authorization: Bearer eyJraWQiOiJ..." \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"uuid"}'
+```
+
+---
+
+## Revoke Department Visibility Grant
+
+Revoke an explicit department visibility permission.
+
+**Endpoint:** `DELETE /v1/departments/{departmentId}/visibility-grants/{grantId}`
+
+**Authorization:** `TechnicalAdmin` (`departmentVisibility.manage`)
+
+**Path Parameters:**
+
+- `departmentId` (uuid, required)
+- `grantId` (uuid, required)
+
+**Response:** `200 OK`
+
+**Example (cURL):**
+
+```bash
+curl -X DELETE "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/departments/uuid/visibility-grants/uuid" \
+  -H "Authorization: Bearer eyJraWQiOiJ..."
+```
+
+---
+
 # Document Type Endpoints
 
 ## List Document Types
@@ -1025,7 +1292,7 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/depa
 
 - `departmentId` (uuid, optional)
 
-**Response:** `200 OK` with an array of document type objects (`id`, `departmentId`, `name`, `accessState`, optional `sizeLimitWords`)
+**Response:** `200 OK` with an array of document type objects (`id`, `departmentId`, `name`, `accessState`, `sizeLimitWords`). `sizeLimitWords` is always present but may be `null`.
 
 `accessState` is `OPEN` (any authenticated student) or `LOCKED` (requires an access grant).
 
@@ -1095,6 +1362,33 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/docu
 
 ---
 
+## Delete Document Type
+
+Delete a document type. Catalog children (config, content types, error categories, access grants) cascade; submitted documents do not.
+
+**Endpoint:** `DELETE /v1/document-types/{documentTypeId}`
+
+**Authorization:** Department Admin (administered department) or Technical Admin (`documentType.manageCatalog`)
+
+**Path Parameters:**
+
+- `documentTypeId` (uuid, required)
+
+**Response:**
+
+- `200 OK` — `{ "documentTypeId": "uuid" }`
+- `404 Not Found` — no such document type
+- `409 CONFLICT` — the document type still has submitted documents; deletion is blocked until they are removed
+
+**Example (cURL):**
+
+```bash
+curl -X DELETE "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/document-types/uuid" \
+  -H "Authorization: Bearer eyJraWQiOiJ..."
+```
+
+---
+
 ## List Content Types
 
 **Endpoint:** `GET /v1/document-types/{documentTypeId}/content-types`
@@ -1107,13 +1401,34 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/docu
 
 ---
 
+## List Custom Metadata Fields
+
+List the custom metadata fields a Document Type defines. Students need this to satisfy required fields before submission; Department Admins are constrained to administered departments.
+
+**Endpoint:** `GET /v1/document-types/{documentTypeId}/metadata-fields`
+
+**Path Parameters:**
+
+- `documentTypeId` (string, required)
+
+**Response:** `200 OK` — array of `{ "id", "documentTypeId", "label", "required" }`
+
+**Example (cURL):**
+
+```bash
+curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/document-types/uuid/metadata-fields" \
+  -H "Authorization: Bearer eyJraWQiOiJ..."
+```
+
+---
+
 ## Get Document Type Config
 
 **Endpoint:** `GET /v1/document-types/{documentTypeId}/config`
 
 **Authorization:** `documentType.readConfig` (Department Admin in scope, or Technical Admin)
 
-**Response:** `200 OK` — `DocumentTypeConfig` (`tone`, `density`, `categoryPriority`, `typePromptText`, description fields, `updatedAt`)
+**Response:** `200 OK` — a `DocumentTypeConfig` object, or `null` when the document type has no config row yet (before its first edit). Fields: `documentTypeId`, `tone`, `density`, `categoryPriority` (string array), `typePromptText`, `toneDescription`, `densityDescription`, `structureDescription`, `restrictionsDescription`, `notesDescription`, `citationConfig` (object or `null`), `updatedAt`.
 
 ---
 
@@ -1154,6 +1469,8 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/docu
 
 **Endpoint:** `POST /v1/document-types/{documentTypeId}/error-categories`
 
+**Authorization:** `documentType.modifyConfig` (Department Admin of the owning department, or Technical Admin)
+
 **Request Body:**
 
 ```json
@@ -1171,6 +1488,8 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/docu
 
 **Endpoint:** `PATCH /v1/document-types/{documentTypeId}/error-categories/{categoryId}`
 
+**Authorization:** `documentType.modifyConfig` (Department Admin of the owning department, or Technical Admin)
+
 **Request Body:** `{ "name": "Citation format", "internalGuidance": "..." }` (fields optional)
 
 **Response:** `200 OK`
@@ -1180,6 +1499,8 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/docu
 ## Delete Error Category
 
 **Endpoint:** `DELETE /v1/document-types/{documentTypeId}/error-categories/{categoryId}`
+
+**Authorization:** `documentType.modifyConfig` (Department Admin of the owning department, or Technical Admin)
 
 **Response:** `204 No Content`
 
@@ -1224,7 +1545,7 @@ curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/user
 {
   "userId": "uuid",
   "role": "DepartmentAdmin",
-  "scope": {},
+  "scope": { "kind": "department", "departmentId": "uuid" },
   "departmentId": "uuid"
 }
 ```
@@ -1233,7 +1554,7 @@ curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/user
 
 - `userId` (string, required)
 - `role` (string, required): `Student`, `DepartmentAdmin`, or `TechnicalAdmin`
-- `scope` (object, required)
+- `scope` (object, required): Either `{ "kind": "platform" }` (for `Student`/`TechnicalAdmin`) or `{ "kind": "department", "departmentId": "uuid" }` (for `DepartmentAdmin`). An empty object is rejected.
 - `departmentId` (string, optional): Required when assigning `DepartmentAdmin`
 
 **Response:** `200 OK` — `{ "success": true, "userId": "uuid", "role": "DepartmentAdmin" }`
@@ -1244,7 +1565,7 @@ curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/user
 curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/roles" \
   -H "Authorization: Bearer eyJraWQiOiJ..." \
   -H "Content-Type: application/json" \
-  -d '{"userId":"uuid","role":"DepartmentAdmin","scope":{},"departmentId":"uuid"}'
+  -d '{"userId":"uuid","role":"DepartmentAdmin","scope":{"kind":"department","departmentId":"uuid"},"departmentId":"uuid"}'
 ```
 
 ---
@@ -1255,7 +1576,7 @@ curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/rol
 
 **Authorization:** `TechnicalAdmin`
 
-**Request Body:** same shape as assign (`userId`, `role`, `scope`, optional `departmentId`)
+**Request Body:** same shape as assign (`userId`, `role`, `scope`, optional `departmentId`); `scope` must be `{ "kind": "platform" }` or `{ "kind": "department", "departmentId": "uuid" }`
 
 **Response:** `200 OK` — `{ "success": true, "userId": "uuid", "role": "DepartmentAdmin" }`
 
@@ -1265,7 +1586,7 @@ curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/rol
 curl -X DELETE "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/roles" \
   -H "Authorization: Bearer eyJraWQiOiJ..." \
   -H "Content-Type: application/json" \
-  -d '{"userId":"uuid","role":"DepartmentAdmin","scope":{},"departmentId":"uuid"}'
+  -d '{"userId":"uuid","role":"DepartmentAdmin","scope":{"kind":"department","departmentId":"uuid"},"departmentId":"uuid"}'
 ```
 
 ---
@@ -1324,7 +1645,27 @@ Grant a temporary extra-action allowance for a student on a document type.
 }
 ```
 
-**Response:** `200 OK` with override object
+**Parameters:**
+
+- `userId` (uuid, required)
+- `documentTypeId` (uuid, required)
+- `bounds` (object, required): `{ "additionalActions": <positive integer> }`
+- `reason` (string, required, non-empty)
+- `expiresAt` (ISO datetime, required)
+
+**Response:** `200 OK` with the override object:
+
+```json
+{
+  "id": "uuid",
+  "userId": "uuid",
+  "documentTypeId": "uuid",
+  "bounds": { "additionalActions": 5 },
+  "reason": "Extension after system outage",
+  "grantedBy": "uuid",
+  "expiresAt": "2024-02-01T00:00:00.000Z"
+}
+```
 
 **Example (cURL):**
 
@@ -1339,11 +1680,13 @@ curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/ove
 
 # Analytics Endpoints
 
-Department Admins are scoped to administered departments. Technical Admins may query platform-wide. Aggregates never include per-student identity.
+**Authorization:** All analytics endpoints require the `analytics.view` capability. Department Admins are scoped to administered departments; Technical Admins may query platform-wide. Aggregates never include per-student identity.
 
 ## Get Aggregate Analytics
 
 **Endpoint:** `GET /v1/analytics`
+
+**Authorization:** `analytics.view` (Department Admin scoped to administered departments, or Technical Admin platform-wide)
 
 **Query Parameters:**
 
@@ -1355,14 +1698,18 @@ Department Admins are scoped to administered departments. Technical Admins may q
 {
   "totals": [
     {
+      "id": "uuid",
       "scopeKind": "platform",
       "scopeId": null,
       "metric": "documents_created",
+      "windowStart": "2024-01-01T00:00:00.000Z",
       "value": 120
     }
   ]
 }
 ```
+
+Each entry includes `id`, `scopeKind` (`platform` or `documentType`), `scopeId` (omitted for platform scope), `metric`, `windowStart` (ISO), and `value`.
 
 **Example (cURL):**
 
@@ -1394,10 +1741,12 @@ curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/anal
     { "id": "uuid", "name": "Legal memo", "feedbackGenerated": 80 }
   ],
   "platformUsageOverTime": [
-    { "month": "2024-01", "feedbackGenerated": 40 }
+    { "month": "Jan 2024", "feedbackGenerated": 40 }
   ]
 }
 ```
+
+`breakdownByDocumentType` items are `{ id, name, feedbackGenerated }`; `platformUsageOverTime` items are `{ month, feedbackGenerated }` where `month` is formatted like `"Jan 2024"`.
 
 ---
 
@@ -1643,11 +1992,15 @@ curl -X PATCH "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/no
 ```json
 {
   "messageLimit": 100,
-  "debriefGenerationLimit": 50,
-  "documentUploadLimit": 20,
-  "draftsPerDocumentLimit": 10
+  "debriefGenerationLimit": 15,
+  "documentUploadLimit": 30,
+  "draftsPerDocumentLimit": 15,
+  "maxUploadFileSizeBytes": 31457280,
+  "maxWordCount": 10000
 }
 ```
+
+This is the platform lifetime usage policy (a single row). Defaults when unset: `messageLimit` 100, `debriefGenerationLimit` 15, `documentUploadLimit` 30, `draftsPerDocumentLimit` 15, `maxUploadFileSizeBytes` 31457280 (30 MiB), `maxWordCount` 10000.
 
 ---
 
@@ -1657,9 +2010,9 @@ curl -X PATCH "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/no
 
 **Authorization:** `TechnicalAdmin`
 
-**Request Body:** same four integer fields as the GET response (all required, minimum 1)
+**Request Body:** all six fields from the GET response are required (`messageLimit`, `debriefGenerationLimit`, `documentUploadLimit`, `draftsPerDocumentLimit`, `maxUploadFileSizeBytes`, `maxWordCount`). This is a full replacement, not a partial update.
 
-**Response:** `200 OK` with updated policy
+**Response:** `200 OK` with the updated policy (same shape as GET)
 
 **Example (cURL):**
 
@@ -1667,7 +2020,7 @@ curl -X PATCH "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/no
 curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/admin/config/usage-limits" \
   -H "Authorization: Bearer eyJraWQiOiJ..." \
   -H "Content-Type: application/json" \
-  -d '{"messageLimit":100,"debriefGenerationLimit":50,"documentUploadLimit":20,"draftsPerDocumentLimit":10}'
+  -d '{"messageLimit":100,"debriefGenerationLimit":15,"documentUploadLimit":30,"draftsPerDocumentLimit":15,"maxUploadFileSizeBytes":31457280,"maxWordCount":10000}'
 ```
 
 ---
@@ -1684,11 +2037,11 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/admi
 {
   "modelId": "us.anthropic.claude-sonnet-4-6",
   "writable": true,
-  "allowedModels": [{ "id": "us.anthropic.claude-sonnet-4-6" }]
+  "allowedModels": [{ "id": "us.anthropic.claude-sonnet-4-6", "label": "Claude Sonnet 4.6" }]
 }
 ```
 
-Runtime value is stored in SSM (`/wren-dev/config/bedrock-model-id`) and the platform usage policy row.
+Runtime value is read from SSM (`/{stackPrefix}/config/bedrock-model-id`, e.g. `/wren-dev/config/bedrock-model-id`), falling back to the platform usage policy row and then the `BEDROCK_MODEL_ID` env default. `allowedModels` is derived from the account's Bedrock inference profiles (with a fallback list).
 
 ---
 
@@ -1729,7 +2082,7 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/admi
 
 ### Dual Enforcement
 
-- The authorizer Allow is stage-wide and cacheable (30s TTL)
+- The authorizer Allow proves authentication only; it is not cached (`authorizerResultTtlInSeconds: 0`), so role/grant revocations apply on the next request
 - Privileged mutations must still pass `authorizeCapability` inside the service Lambda
 - IdP groups/claims are not used for ongoing authorization
 
@@ -1737,11 +2090,11 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/admi
 
 REST methods support CORS. Deployed gateway responses include:
 
-- `Access-Control-Allow-Origin: *`
+- `Access-Control-Allow-Origin: <request Origin>` when that origin is local Vite, the configured custom domain, an extra `corsAllowedOrigins` value, or an Amplify default host
 - `Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS`
 - `Access-Control-Allow-Headers: Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent`
 
-Tighten origins for production (the Api stack currently allows `*`).
+Add extra exact origins at synth with `-c corsAllowedOrigins=https://a.example,https://b.example`.
 
 ### Input Validation
 

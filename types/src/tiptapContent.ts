@@ -181,7 +181,7 @@ export const CLIENT_TIPTAP_NODE_TYPES = new Set([
   'date',
 ]);
 
-export const TIPTAP_FIELD_MAX_BYTES = 1_048_576;
+export const TIPTAP_FIELD_MAX_BYTES = 8 * 1_048_576;
 
 /** Return the first disallowed node type, or null if the tree is allowed. */
 export function findDisallowedTipTapNodeType(node: TipTapNode): string | null {

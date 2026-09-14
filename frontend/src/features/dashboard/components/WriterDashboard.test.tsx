@@ -68,7 +68,7 @@ const populatedRoutes: MockRoutes = {
     },
   ],
   'GET /v1/departments': [
-    { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Allard Law' },
+    { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Allard Law', viewerCanDiscover: true },
   ],
   'GET /v1/access-grants': [],
 };
@@ -85,7 +85,7 @@ const lockedRoutes: MockRoutes = {
     },
   ],
   'GET /v1/departments': [
-    { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Allard Law' },
+    { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Allard Law', viewerCanDiscover: true },
   ],
   'GET /v1/access-grants': [],
 };

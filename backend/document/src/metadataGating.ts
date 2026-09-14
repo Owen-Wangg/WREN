@@ -31,9 +31,9 @@
  *     matches how the size gate treats whitespace-only text as zero words.
  *
  *   - **Optional fields never gate.** Optional fields — present, empty, or absent
- *     — never affect the decision (Requirement 30.4 enforces *required* fields
- *     only). Unknown extra keys in the metadata map are likewise ignored here;
- *     the shared `documentSchema` is the authority on the stored map's shape.
+ *     — never affect the required-field decision (Requirement 30.4). The
+ *     submission validator below separately rejects unknown field ids so stale
+ *     or forged keys are never persisted.
  */
 import type { CustomMetadataField } from '@wren/types';
 
@@ -92,6 +92,34 @@ export function evaluateRequiredFields(
     missingRequiredFieldIds: missing.map((field) => field.id),
     missingRequiredFieldLabels: missing.map((field) => field.label),
   };
+}
+
+export interface MetadataFieldsInvalid {
+  readonly status: 'invalid-metadata-fields';
+  readonly unknownMetadataFieldIds: readonly string[];
+}
+
+export type DocumentMetadataValidationResult =
+  | MetadataFieldsInvalid
+  | RequiredFieldGateResult;
+
+/**
+ * Validate a complete submitted metadata map before persistence. Unknown field
+ * ids fail before required-field evaluation; otherwise the required-field gate
+ * reports any configured fields that still need values.
+ */
+export function validateDocumentMetadata(
+  fields: readonly CustomMetadataField[],
+  metadata: Readonly<Record<string, string>>,
+): DocumentMetadataValidationResult {
+  const configuredIds = new Set(fields.map((field) => field.id));
+  const unknownMetadataFieldIds = Object.keys(metadata).filter(
+    (fieldId) => !configuredIds.has(fieldId),
+  );
+  if (unknownMetadataFieldIds.length > 0) {
+    return { status: 'invalid-metadata-fields', unknownMetadataFieldIds };
+  }
+  return evaluateRequiredFields(fields, metadata);
 }
 
 /**

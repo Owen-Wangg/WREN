@@ -152,11 +152,13 @@ export async function getPresignedUrl(
   uploadUrl: string;
   fields: Record<string, string>;
   key: string;
+  maxFileSizeBytes: number;
 }> {
   const responseSchema = z.object({
     uploadUrl: z.string().url(),
     fields: z.record(z.string()),
     key: z.string().min(1),
+    maxFileSizeBytes: z.number().int().positive(),
   });
 
   const body = { filename, contentType };

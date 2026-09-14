@@ -16,6 +16,7 @@ export * from './wrapContinuation';
 export * from './ocrTextCleanup';
 export * from './auth';
 export * from './authorization';
+export * from './signupEmailDomains';
 
 import type { AuthContext } from './auth';
 import type { AuthorizationDecision, CapabilityRequest } from './authorization';
@@ -31,12 +32,16 @@ import type {
   AssignRoleInput,
   ContentType,
   CreateAccessGrantInput,
+  CreateDepartmentVisibilityGrantInput,
   CreateErrorCategoryInput,
   CreateOverrideInput,
   CreateReferenceMaterialInput,
   CreateUsageLimitInput,
   CustomMetadataField,
   Department,
+  DepartmentVisibilityGrant,
+  DepartmentVisibilityPermission,
+  DepartmentVisibilityPermissionList,
   Document,
   DocumentType,
   DocumentTypeConfig,
@@ -53,6 +58,7 @@ import type {
   Topic,
   CreateTopicInput,
   UpdateDocumentTypeConfigInput,
+  UpdateDepartmentVisibilityInput,
   UpdateErrorCategoryInput,
   UpdateTopicInput,
   UpdateUsageLimitInput,
@@ -90,6 +96,19 @@ type _GuardDraft = Expect<LacksReplacementProse<Draft>>;
 type _GuardAnchor = Expect<LacksReplacementProse<Anchor>>;
 type _GuardFeedbackItem = Expect<LacksReplacementProse<FeedbackItem>>;
 type _GuardAccessGrant = Expect<LacksReplacementProse<AccessGrant>>;
+type _GuardDepartmentVisibilityGrant = Expect<LacksReplacementProse<DepartmentVisibilityGrant>>;
+type _GuardDepartmentVisibilityPermission = Expect<
+  LacksReplacementProse<DepartmentVisibilityPermission>
+>;
+type _GuardDepartmentVisibilityPermissionList = Expect<
+  LacksReplacementProse<DepartmentVisibilityPermissionList>
+>;
+type _GuardUpdateDepartmentVisibilityInput = Expect<
+  LacksReplacementProse<UpdateDepartmentVisibilityInput>
+>;
+type _GuardCreateDepartmentVisibilityGrantInput = Expect<
+  LacksReplacementProse<CreateDepartmentVisibilityGrantInput>
+>;
 type _GuardOverrideBounds = Expect<LacksReplacementProse<OverrideBounds>>;
 type _GuardOverride = Expect<LacksReplacementProse<Override>>;
 type _GuardCreateOverrideInput = Expect<LacksReplacementProse<CreateOverrideInput>>;
@@ -152,6 +171,11 @@ export type NoGhostwritingGuards = [
   _GuardAnchor,
   _GuardFeedbackItem,
   _GuardAccessGrant,
+  _GuardDepartmentVisibilityGrant,
+  _GuardDepartmentVisibilityPermission,
+  _GuardDepartmentVisibilityPermissionList,
+  _GuardUpdateDepartmentVisibilityInput,
+  _GuardCreateDepartmentVisibilityGrantInput,
   _GuardOverrideBounds,
   _GuardOverride,
   _GuardCreateOverrideInput,

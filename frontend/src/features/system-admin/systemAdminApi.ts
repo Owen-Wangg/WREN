@@ -5,7 +5,13 @@
  * Responses validated against `@wren/types` schemas (frontend steering §7).
  */
 import { z } from 'zod';
-import { departmentSchema, userSummarySchema } from '@wren/types';
+import {
+  departmentSchema,
+  departmentVisibilityGrantSchema,
+  departmentVisibilityPermissionListSchema,
+  userSummarySchema,
+  type DepartmentVisibilityState,
+} from '@wren/types';
 import { apiClient } from '@/services';
 import { usageLimitsSchema, type UsageLimits } from './systemAdminSchemas';
 
@@ -83,6 +89,24 @@ export async function updateDepartmentPrompt(departmentId: string, prompt: strin
   });
 }
 
+/**
+ * Update a Department's Ask WREN prompt — the department-level Socratic coaching
+ * context. Editable by TechnicalAdmins (platform scope) and DepartmentAdmins for
+ * their departments (distinct from {@link updateDepartmentPrompt}, which targets
+ * the TechnicalAdmin-owned Feedback-Engine prompt). A ghostwriting or
+ * prompt-injection rejection surfaces as a 400 the caller can display.
+ */
+export async function updateDepartmentAskWrenPrompt(
+  departmentId: string,
+  askWrenPrompt: string | null,
+) {
+  return apiClient.request(`/v1/departments/${departmentId}/ask-wren-prompt`, {
+    method: 'PUT',
+    body: { askWrenPrompt },
+    schema: departmentSchema,
+  });
+}
+
 export async function deleteDepartment(departmentId: string) {
   return apiClient.request(`/v1/departments/${departmentId}`, {
     method: 'DELETE',
@@ -99,6 +123,53 @@ export async function setDepartmentAccessState(
     body: { accessState },
     schema: departmentSchema,
   });
+}
+
+export async function setDepartmentVisibilityState(
+  departmentId: string,
+  visibilityState: DepartmentVisibilityState,
+) {
+  return apiClient.request(`/v1/departments/${departmentId}/visibility-state`, {
+    method: 'PUT',
+    body: { visibilityState },
+    schema: departmentSchema,
+  });
+}
+
+export async function listDepartmentVisibilityGrants(
+  departmentId: string,
+  options?: { q?: string; limit?: number; offset?: number },
+) {
+  const params = new URLSearchParams();
+  if (options?.q) params.append('q', options.q);
+  if (options?.limit !== undefined) params.append('limit', String(options.limit));
+  if (options?.offset !== undefined) params.append('offset', String(options.offset));
+  const queryString = params.toString();
+  return apiClient.request(
+    `/v1/departments/${departmentId}/visibility-grants${queryString ? `?${queryString}` : ''}`,
+    { schema: departmentVisibilityPermissionListSchema },
+  );
+}
+
+export async function createDepartmentVisibilityGrant(
+  departmentId: string,
+  userId: string,
+) {
+  return apiClient.request(`/v1/departments/${departmentId}/visibility-grants`, {
+    method: 'POST',
+    body: { userId },
+    schema: departmentVisibilityGrantSchema,
+  });
+}
+
+export async function revokeDepartmentVisibilityGrant(
+  departmentId: string,
+  grantId: string,
+) {
+  return apiClient.request(
+    `/v1/departments/${departmentId}/visibility-grants/${grantId}`,
+    { method: 'DELETE', schema: departmentVisibilityGrantSchema },
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -302,7 +373,12 @@ export const systemAdminApi = {
   getDepartment,
   deleteDepartment,
   updateDepartmentPrompt,
+  updateDepartmentAskWrenPrompt,
   setDepartmentAccessState,
+  setDepartmentVisibilityState,
+  listDepartmentVisibilityGrants,
+  createDepartmentVisibilityGrant,
+  revokeDepartmentVisibilityGrant,
   searchAllUsers,
   getUsageReport,
   getPlatformUsageLimits,

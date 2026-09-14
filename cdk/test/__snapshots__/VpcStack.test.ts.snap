@@ -86,89 +86,6 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
       },
       "Type": "AWS::EC2::VPC",
     },
-    "NetworkVpcApiGatewayEndpointEC1A864B": {
-      "Properties": {
-        "PrivateDnsEnabled": true,
-        "SecurityGroupIds": [
-          {
-            "Fn::GetAtt": [
-              "NetworkVpcApiGatewayEndpointSecurityGroup3D1CAB50",
-              "GroupId",
-            ],
-          },
-        ],
-        "ServiceName": "com.amazonaws.ca-central-1.execute-api",
-        "SubnetIds": [
-          {
-            "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
-          },
-          {
-            "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
-          },
-        ],
-        "Tags": [
-          {
-            "Key": "Name",
-            "Value": "wren-test-vpc",
-          },
-        ],
-        "VpcEndpointType": "Interface",
-        "VpcId": {
-          "Ref": "NetworkVpc7FB7348F",
-        },
-      },
-      "Type": "AWS::EC2::VPCEndpoint",
-    },
-    "NetworkVpcApiGatewayEndpointSecurityGroup3D1CAB50": {
-      "Properties": {
-        "GroupDescription": "wren-test-Vpc/Network/Vpc/ApiGatewayEndpoint/SecurityGroup",
-        "SecurityGroupEgress": [
-          {
-            "CidrIp": "0.0.0.0/0",
-            "Description": "Allow all outbound traffic by default",
-            "IpProtocol": "-1",
-          },
-        ],
-        "SecurityGroupIngress": [
-          {
-            "CidrIp": {
-              "Fn::GetAtt": [
-                "NetworkVpc7FB7348F",
-                "CidrBlock",
-              ],
-            },
-            "Description": {
-              "Fn::Join": [
-                "",
-                [
-                  "from ",
-                  {
-                    "Fn::GetAtt": [
-                      "NetworkVpc7FB7348F",
-                      "CidrBlock",
-                    ],
-                  },
-                  ":443",
-                ],
-              ],
-            },
-            "FromPort": 443,
-            "IpProtocol": "tcp",
-            "ToPort": 443,
-          },
-        ],
-        "Tags": [
-          {
-            "Key": "Name",
-            "Value": "wren-test-vpc",
-          },
-        ],
-        "VpcId": {
-          "Ref": "NetworkVpc7FB7348F",
-        },
-      },
-      "Type": "AWS::EC2::SecurityGroup",
-    },
     "NetworkVpcBedrockRuntimeEndpoint3A96BF2A": {
       "Properties": {
         "PrivateDnsEnabled": true,
@@ -416,7 +333,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcIsolatedSubnet1Subnet0400477E": {
       "Properties": {
-        "AvailabilityZone": "dummy1a",
+        "AvailabilityZone": "ca-central-1a",
         "CidrBlock": "10.0.12.0/24",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -466,7 +383,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcIsolatedSubnet2SubnetF65B365A": {
       "Properties": {
-        "AvailabilityZone": "dummy1b",
+        "AvailabilityZone": "ca-central-1b",
         "CidrBlock": "10.0.13.0/24",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -528,7 +445,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcPrivateSubnet1Subnet6DD86AE6": {
       "Properties": {
-        "AvailabilityZone": "dummy1a",
+        "AvailabilityZone": "ca-central-1a",
         "CidrBlock": "10.0.4.0/22",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -590,7 +507,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcPrivateSubnet2Subnet1BDBE877": {
       "Properties": {
-        "AvailabilityZone": "dummy1b",
+        "AvailabilityZone": "ca-central-1b",
         "CidrBlock": "10.0.8.0/22",
         "MapPublicIpOnLaunch": false,
         "Tags": [
@@ -691,7 +608,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcPublicSubnet1Subnet36933139": {
       "Properties": {
-        "AvailabilityZone": "dummy1a",
+        "AvailabilityZone": "ca-central-1a",
         "CidrBlock": "10.0.0.0/24",
         "MapPublicIpOnLaunch": true,
         "Tags": [
@@ -756,7 +673,7 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
     },
     "NetworkVpcPublicSubnet2SubnetC427CCE0": {
       "Properties": {
-        "AvailabilityZone": "dummy1b",
+        "AvailabilityZone": "ca-central-1b",
         "CidrBlock": "10.0.1.0/24",
         "MapPublicIpOnLaunch": true,
         "Tags": [
@@ -778,89 +695,6 @@ exports[`VpcStack matches the synthesized template snapshot 1`] = `
         },
       },
       "Type": "AWS::EC2::Subnet",
-    },
-    "NetworkVpcRdsEndpointADB50EF7": {
-      "Properties": {
-        "PrivateDnsEnabled": true,
-        "SecurityGroupIds": [
-          {
-            "Fn::GetAtt": [
-              "NetworkVpcRdsEndpointSecurityGroup365EDE15",
-              "GroupId",
-            ],
-          },
-        ],
-        "ServiceName": "com.amazonaws.ca-central-1.rds",
-        "SubnetIds": [
-          {
-            "Ref": "NetworkVpcPrivateSubnet1Subnet6DD86AE6",
-          },
-          {
-            "Ref": "NetworkVpcPrivateSubnet2Subnet1BDBE877",
-          },
-        ],
-        "Tags": [
-          {
-            "Key": "Name",
-            "Value": "wren-test-vpc",
-          },
-        ],
-        "VpcEndpointType": "Interface",
-        "VpcId": {
-          "Ref": "NetworkVpc7FB7348F",
-        },
-      },
-      "Type": "AWS::EC2::VPCEndpoint",
-    },
-    "NetworkVpcRdsEndpointSecurityGroup365EDE15": {
-      "Properties": {
-        "GroupDescription": "wren-test-Vpc/Network/Vpc/RdsEndpoint/SecurityGroup",
-        "SecurityGroupEgress": [
-          {
-            "CidrIp": "0.0.0.0/0",
-            "Description": "Allow all outbound traffic by default",
-            "IpProtocol": "-1",
-          },
-        ],
-        "SecurityGroupIngress": [
-          {
-            "CidrIp": {
-              "Fn::GetAtt": [
-                "NetworkVpc7FB7348F",
-                "CidrBlock",
-              ],
-            },
-            "Description": {
-              "Fn::Join": [
-                "",
-                [
-                  "from ",
-                  {
-                    "Fn::GetAtt": [
-                      "NetworkVpc7FB7348F",
-                      "CidrBlock",
-                    ],
-                  },
-                  ":443",
-                ],
-              ],
-            },
-            "FromPort": 443,
-            "IpProtocol": "tcp",
-            "ToPort": 443,
-          },
-        ],
-        "Tags": [
-          {
-            "Key": "Name",
-            "Value": "wren-test-vpc",
-          },
-        ],
-        "VpcId": {
-          "Ref": "NetworkVpc7FB7348F",
-        },
-      },
-      "Type": "AWS::EC2::SecurityGroup",
     },
     "NetworkVpcS3Endpoint87783328": {
       "Properties": {

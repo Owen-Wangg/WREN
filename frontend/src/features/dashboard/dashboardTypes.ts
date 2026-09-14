@@ -48,15 +48,17 @@ export const writingTypeSchema = z
 export type WritingType = z.infer<typeof writingTypeSchema>;
 
 /**
- * The minimal Organization projection the dashboard consumes: its id, a display
- * name, and its effective access state (`OPEN`/`LOCKED`). A Writing Type set to
- * `INHERIT` resolves its effective access against the matching organization.
+ * The minimal Organization projection the dashboard consumes: its id, display
+ * name, effective access state, and caller-specific catalog discovery decision.
+ * The shared query remains unfiltered so existing-document screens can resolve
+ * historical department names even when new selection is not allowed.
  */
 export const organizationAccessSchema = z
   .object({
     id: idSchema,
     name: z.string().min(1),
     accessState: accessStateSchema,
+    viewerCanDiscover: z.boolean(),
   })
   .strict();
 export type OrganizationAccess = z.infer<typeof organizationAccessSchema>;

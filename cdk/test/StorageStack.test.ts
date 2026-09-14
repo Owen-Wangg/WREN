@@ -1,5 +1,5 @@
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { synthStacks } from "./helpers";
+import { synthStacks, testConfig } from "./helpers";
 
 /**
  * Security-posture and snapshot tests for `${StackPrefix}-Storage`.
@@ -86,6 +86,43 @@ describe("StorageStack", () => {
     template.hasResourceProperties("AWS::KMS::Key", {
       EnableKeyRotation: true,
     });
+  });
+
+  it("scopes documents-bucket CORS to frontend origins and leaves the reference bucket without CORS", () => {
+    const buckets = template.findResources("AWS::S3::Bucket");
+    const withCors = Object.values(buckets).filter(
+      (bucket) => bucket.Properties?.CorsConfiguration,
+    );
+    const withoutCors = Object.values(buckets).filter(
+      (bucket) => !bucket.Properties?.CorsConfiguration,
+    );
+    expect(withCors).toHaveLength(1);
+    expect(withoutCors).toHaveLength(1);
+
+    const corsRule = withCors[0]?.Properties?.CorsConfiguration?.CorsRules?.[0];
+    const origins = corsRule?.AllowedOrigins ?? [];
+    expect(origins).toEqual([
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "https://*.amplifyapp.com",
+    ]);
+    expect(origins).not.toContain("*");
+  });
+
+  it("adds the custom domain to documents-bucket CORS when configured", () => {
+    const { storageStack } = synthStacks(testConfig({ customDomain: "coach.example.com" }));
+    const customTemplate = Template.fromStack(storageStack);
+    const buckets = customTemplate.findResources("AWS::S3::Bucket");
+    const withCors = Object.values(buckets).find(
+      (bucket) => bucket.Properties?.CorsConfiguration,
+    );
+    const origins = withCors?.Properties?.CorsConfiguration?.CorsRules?.[0]?.AllowedOrigins ?? [];
+    expect(origins).toEqual(expect.arrayContaining([
+      "https://coach.example.com",
+      "https://www.coach.example.com",
+      "https://*.amplifyapp.com",
+    ]));
+    expect(origins).not.toContain("*");
   });
 
   it("matches the synthesized template snapshot", () => {

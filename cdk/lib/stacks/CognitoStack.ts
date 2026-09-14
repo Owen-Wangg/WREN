@@ -1,8 +1,12 @@
 import { Stack, type StackProps, Duration } from "aws-cdk-lib";
+import * as path from "path";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import type { Construct } from "constructs";
 
+import { allowedEmailDomainsEnv } from "../signupEmailDomains.js";
 import { ssmParameterNames, type AppConfig } from "../config.js";
 
 export interface CognitoStackProps extends StackProps {
@@ -12,9 +16,13 @@ export interface CognitoStackProps extends StackProps {
 /**
  * `${StackPrefix}-Cognito` — Amazon Cognito user authentication.
  *
- * Instantiates a User Pool (email sign-in, SRP + password auth, self-signup enabled)
- * and a User Pool Client (public client for SPA, no secret). Both are published to
- * SSM Parameter Store so downstream Lambdas and the frontend can resolve them.
+ * Instantiates a User Pool (email sign-in, SRP auth, self-signup enabled)
+ * and a User Pool Client (public client for SPA, no secret, OAuth hosted-UI
+ * disabled). A PreSignUp Lambda enforces an optional exact email-domain
+ * allowlist for new accounts only; an empty list is unrestricted. Admin
+ * USER_PASSWORD_AUTH is available only via IAM `AdminInitiateAuth` for
+ * operator smoke tokens — not the public app client.
+ * Pool and client IDs are published to SSM for Lambdas and the frontend.
  */
 export class CognitoStack extends Stack {
   public readonly userPool: cognito.UserPool;
@@ -83,8 +91,10 @@ export class CognitoStack extends Stack {
       generateSecret: false,
       authFlows: {
         userSrp: true,
-        userPassword: true,
+        userPassword: false,
+        adminUserPassword: true,
       },
+      disableOAuth: true,
       accessTokenValidity: Duration.hours(1),
       idTokenValidity: Duration.hours(1),
       refreshTokenValidity: Duration.days(30),
@@ -94,15 +104,45 @@ export class CognitoStack extends Stack {
     this.userPoolClientId = this.userPoolClient.userPoolClientId;
 
     // -----------------------------------------------------------------------
+    // PreSignUp email-domain allowlist (new accounts only)
+    // -----------------------------------------------------------------------
+    // Always attached so enabling/disabling the list is an env change rather
+    // than adding or removing the trigger. Empty ALLOWED_EMAIL_DOMAINS allows
+    // every valid email (current behaviour). No VPC or database: this is a
+    // hostname check only.
+    const monorepoRoot = path.join(__dirname, "../../..");
+    const preSignUp = new lambdaNodejs.NodejsFunction(this, "PreSignUpFn", {
+      functionName: `${config.stackPrefix}-pre-signup`,
+      entry: path.join(monorepoRoot, "backend/auth/src/preSignUp.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 128,
+      timeout: Duration.seconds(5),
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
+      environment: {
+        ALLOWED_EMAIL_DOMAINS: allowedEmailDomainsEnv(config.allowedEmailDomains),
+        NODE_OPTIONS: "--enable-source-maps",
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        target: "node22",
+      },
+    });
+    this.userPool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignUp);
+
+    // -----------------------------------------------------------------------
     // Cognito Groups
     // -----------------------------------------------------------------------
-    // SystemAdmin group: adding an existing user here before their first login
-    // seeds them as TechnicalAdmin in the DB. After that the DB is the
-    // sole source of truth — Cognito group membership is never re-consulted.
+    // SystemAdmin is an eligibility signal, not an authorization grant. The
+    // Compute stack must also carry an exact subject allowlist, and only a
+    // genuinely new app_user can receive TechnicalAdmin during provisioning.
+    // Group membership alone never grants or changes an application role.
     new cognito.CfnUserPoolGroup(this, 'SystemAdminGroup', {
       userPoolId: this.userPool.userPoolId,
       groupName: 'SystemAdmin',
-      description: 'Bootstrap group: members are provisioned as TechnicalAdmin on first login.',
+      description: 'Bootstrap eligibility only; requires an exact configured subject and a genuinely new app user.',
     });
 
     // -----------------------------------------------------------------------

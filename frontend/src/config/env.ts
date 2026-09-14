@@ -10,6 +10,7 @@
  * The raw env is validated with Zod at module load so misconfiguration fails
  * fast and predictably rather than surfacing as a broken UI later.
  */
+import { parseAllowedEmailDomains } from '@wren/types';
 import { z } from 'zod';
 
 const envSchema = z.object({
@@ -30,6 +31,12 @@ const envSchema = z.object({
    * polling fallback in DocumentEditorPage handles completion detection.
    */
   VITE_APPSYNC_URL: z.string().url().optional(),
+  /**
+   * Optional comma-separated exact email hostnames allowed for self-signup.
+   * Unset or empty keeps signup unrestricted. The Cognito PreSignUp trigger
+   * is the authoritative gate; this value is UX only.
+   */
+  VITE_ALLOWED_EMAIL_DOMAINS: z.string().optional(),
   /**
    * When `"true"`, the app talks to the real API Gateway (`liveApiClient`) and
    * enforces Cognito auth + role-guarded routes. Defaults to `false` so local
@@ -53,6 +60,17 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
+let allowedEmailDomains: readonly string[] = [];
+try {
+  allowedEmailDomains = parseAllowedEmailDomains(
+    env.VITE_ALLOWED_EMAIL_DOMAINS,
+    'VITE_ALLOWED_EMAIL_DOMAINS',
+  );
+} catch (cause) {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  throw new Error(`Invalid frontend environment configuration:\n${detail}`);
+}
+
 export interface AppConfig {
   /** The single application display-name value (Requirement 53.2). */
   readonly appName: string;
@@ -69,6 +87,10 @@ export interface AppConfig {
   };
   /** AppSync endpoint for real-time subscriptions. Undefined in local mock mode. */
   readonly appSyncUrl: string | undefined;
+  /**
+   * Exact email hostnames allowed for new sign-ups. Empty means unrestricted.
+   */
+  readonly allowedEmailDomains: readonly string[];
 }
 
 export const appConfig: AppConfig = {
@@ -82,6 +104,7 @@ export const appConfig: AppConfig = {
     region: env.VITE_AWS_REGION,
   },
   appSyncUrl: env.VITE_APPSYNC_URL,
+  allowedEmailDomains,
 };
 
 /** True when Cognito pool configuration is present (auth can run for real). */

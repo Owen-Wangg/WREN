@@ -8,6 +8,11 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import type { Construct } from "constructs";
 
 import type { AppConfig } from "../config";
+import {
+  CORS_ALLOW_HEADERS,
+  CORS_ALLOW_METHODS,
+  corsPreflightResponseTemplate,
+} from "../corsOrigins";
 
 /**
  * Props for the Api stack. Receives the Lambda function ARNs that the OpenAPI
@@ -104,21 +109,28 @@ export class ApiStack extends Stack {
     // requestTemplates and cause API Gateway 500 on preflight).
     // security: [] bypasses the Lambda authorizer for OPTIONS.
     // -----------------------------------------------------------------------
-    const allowedOrigins = "*"; // Tighten to Amplify domain in prod
-    // Include PATCH for content-only draft autosave and admin category updates.
-    const allowedMethods = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
+    // Reflect Origin when it is localhost, customDomain, corsAllowedOrigins, or
+    // an Amplify default host. Never `*` — the smoke test requires an exact echo.
     const corsResponseParams = {
-      "method.response.header.Access-Control-Allow-Origin": `'${allowedOrigins}'`,
-      "method.response.header.Access-Control-Allow-Methods": `'${allowedMethods}'`,
-      "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+      "method.response.header.Access-Control-Allow-Methods": `'${CORS_ALLOW_METHODS}'`,
+      "method.response.header.Access-Control-Allow-Headers": `'${CORS_ALLOW_HEADERS}'`,
       "method.response.header.Access-Control-Max-Age": "'86400'",
     };
+    const corsPreflightTemplate = corsPreflightResponseTemplate(config);
 
     if (resolvedSpec.paths) {
       for (const pathValue of Object.values(resolvedSpec.paths as Record<string, any>)) {
         pathValue.options = {
           summary: "CORS preflight",
           security: [],
+          parameters: [
+            {
+              name: "Origin",
+              in: "header",
+              required: false,
+              schema: { type: "string" },
+            },
+          ],
           responses: {
             "200": {
               description: "CORS preflight response",
@@ -127,6 +139,7 @@ export class ApiStack extends Stack {
                 "Access-Control-Allow-Methods": { schema: { type: "string" } },
                 "Access-Control-Allow-Headers": { schema: { type: "string" } },
                 "Access-Control-Max-Age": { schema: { type: "string" } },
+                Vary: { schema: { type: "string" } },
               },
             },
           },
@@ -140,12 +153,38 @@ export class ApiStack extends Stack {
               default: {
                 statusCode: "200",
                 responseParameters: corsResponseParams,
+                responseTemplates: {
+                  "application/json": corsPreflightTemplate,
+                },
               },
             },
           },
         };
       }
     }
+
+    // Handwritten OpenAPI method responses still map ACAO to '*'. Lambda proxy
+    // ignores those mappings, but strip them so the deployed spec never
+    // publishes a wildcard origin.
+    function stripWildcardCorsOrigin(obj: unknown): void {
+      if (typeof obj !== "object" || obj === null) return;
+      if (Array.isArray(obj)) {
+        for (const item of obj) stripWildcardCorsOrigin(item);
+        return;
+      }
+      const record = obj as Record<string, unknown>;
+      for (const [key, value] of Object.entries(record)) {
+        if (
+          key === "method.response.header.Access-Control-Allow-Origin" &&
+          value === "'*'"
+        ) {
+          delete record[key];
+          continue;
+        }
+        stripWildcardCorsOrigin(value);
+      }
+    }
+    stripWildcardCorsOrigin(resolvedSpec);
 
     // Remove the global security requirement from the spec — we'll rely on
     // per-method security instead. This prevents API Gateway from applying
@@ -203,11 +242,15 @@ export class ApiStack extends Stack {
     // the specific authorizer/integration types — those responses omit
     // Access-Control-Allow-Origin, so the browser reports a CORS failure
     // instead of the real 401/500 (confirmed on GET /v1/auth/me).
+    //
+    // Gateway responses only support static headers or echoing the request
+    // Origin (they cannot run the OPTIONS allowlist VTL). Preflight is the
+    // actual gate; echoing Origin here keeps 401/403 readable for allowlisted
+    // SPAs without publishing `*`.
     const gatewayCorsHeaders = {
-      "Access-Control-Allow-Origin": `'${allowedOrigins}'`,
-      "Access-Control-Allow-Headers":
-        "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
-      "Access-Control-Allow-Methods": `'${allowedMethods}'`,
+      "Access-Control-Allow-Origin": "method.request.header.Origin",
+      "Access-Control-Allow-Headers": `'${CORS_ALLOW_HEADERS}'`,
+      "Access-Control-Allow-Methods": `'${CORS_ALLOW_METHODS}'`,
     };
     const gatewayErrorTypes: Array<[string, apigateway.ResponseType]> = [
       ["Default4xx", apigateway.ResponseType.DEFAULT_4XX],

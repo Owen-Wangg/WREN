@@ -31,7 +31,18 @@ export {
   renameDepartment,
   archiveDepartment,
   setDepartmentAccessState,
+  setDepartmentVisibilityState,
 } from './departmentService';
+export type { DepartmentVisibilityUpdateResult } from './departmentService';
+export {
+  createDepartmentVisibilityGrant,
+  listDepartmentVisibilityGrants,
+  revokeDepartmentVisibilityGrant,
+} from './departmentVisibilityGrantService';
+export type {
+  VisibilityGrantListOptions,
+  VisibilityGrantMutationResult,
+} from './departmentVisibilityGrantService';
 export {
   isTechnicalAdmin,
   isDepartmentAdmin,
@@ -102,6 +113,7 @@ export {
 export type { DeletionReceipt } from './documentDeletionService';
 export {
   auditConfigEdit,
+  auditDepartmentVisibilityChange,
   auditGuardrailOutcome,
   auditOverrideGrant,
   auditPromptEdit,

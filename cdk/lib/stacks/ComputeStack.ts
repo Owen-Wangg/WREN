@@ -1,5 +1,5 @@
 import * as path from "path";
-import { Stack, type StackProps, Duration, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, Duration, CfnOutput, RemovalPolicy } from "aws-cdk-lib";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as ecr from "aws-cdk-lib/aws-ecr";
@@ -17,7 +17,8 @@ import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct
 import { NotificationInfraConstruct } from "../constructs/NotificationInfraConstruct";
 
 import type { AppDbRole } from "../appDbRoles.js";
-import { bedrockModelIdParameterName, type AppConfig } from "../config";
+import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, type AppConfig } from "../config";
+import { corsLambdaEnvironment } from "../corsOrigins";
 
 /** IAM resources for us.anthropic.* / us.meta.* cross-region inference profiles. */
 function crisBedrockInvokeResources(region: string, account: string): string[] {
@@ -45,6 +46,8 @@ function crisBedrockInvokeResources(region: string, account: string): string[] {
 export interface ComputeStackProps extends StackProps {
   readonly config: AppConfig;
   readonly vpc: ec2.IVpc;
+  /** Existing Feedback Engine ECR repository owned or explicitly imported by Cicd. */
+  readonly feedbackEngineRepository: ecr.IRepository;
   /** RDS Proxy endpoint hostname (from Database stack via SSM). */
   readonly databaseProxyEndpoint: string;
   /** Per-Lambda Secrets Manager ARNs (Postgres role secrets, not dbadmin). */
@@ -96,6 +99,7 @@ export class ComputeStack extends Stack {
   public readonly documentIngestQueue: sqs.Queue;
   public readonly documentIngestDlq: sqs.Queue;
   public readonly notificationFunction: lambda.Function;
+  public readonly notificationDlq: sqs.Queue;
   public readonly notificationTopicArn: string;
   public readonly appSyncGraphqlUrl: string;
   public readonly appSyncAuthorizerFunction: lambda.Function;
@@ -121,6 +125,7 @@ export class ComputeStack extends Stack {
       NODE_OPTIONS: "--enable-source-maps",
     });
     const secrets = props.databaseSecretArns;
+    const corsEnv = corsLambdaEnvironment(config);
 
     // Shared bundling config: workspace packages are resolved from the monorepo
     // root node_modules (npm workspaces hoist them there). esbuild runs from the
@@ -142,14 +147,24 @@ export class ComputeStack extends Stack {
     // Manager (never a guessable path). CloudFormation injects the value into
     // Lambda env via a dynamic reference — activityLogService reads
     // WREN_ACTIVITY_PSEUDONYM_SALT at runtime.
-    const activityPseudonymSalt = new secretsmanager.Secret(this, "ActivityPseudonymSalt", {
-      secretName: `${config.stackPrefix}/audit/pseudonym-salt`,
-      description: "One-way salt for activity-log actor pseudonyms",
-      generateSecretString: {
-        passwordLength: 48,
-        excludePunctuation: true,
-      },
-    });
+    const activityPseudonymSaltName = `${config.stackPrefix}/audit/pseudonym-salt`;
+    const activityPseudonymSalt = config.auditPseudonymSaltOwnership === "external"
+      ? secretsmanager.Secret.fromSecretNameV2(
+        this,
+        "ActivityPseudonymSalt",
+        activityPseudonymSaltName,
+      )
+      : new secretsmanager.Secret(this, "ActivityPseudonymSalt", {
+        secretName: activityPseudonymSaltName,
+        description: "One-way salt for activity-log actor pseudonyms",
+        generateSecretString: {
+          passwordLength: 48,
+          excludePunctuation: true,
+        },
+      });
+    if (config.auditPseudonymSaltOwnership === "managed") {
+      activityPseudonymSalt.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    }
     const activitySaltEnv = {
       WREN_ACTIVITY_PSEUDONYM_SALT: activityPseudonymSalt.secretValue.unsafeUnwrap(),
     };
@@ -165,6 +180,10 @@ export class ComputeStack extends Stack {
       memorySize: 256,
       // VPC cold start (ENI + Secrets Manager + RDS Proxy + JWKS) can exceed 10s.
       timeout: Duration.seconds(20),
+      // Guaranteed concurrency FLOOR on the auth critical path. Prevents the
+      // shared account pool from being starved by long-running functions
+      // (authorizer throttling remediation — see lambdaConcurrency.ts).
+      reservedConcurrentExecutions: config.lambdaConcurrency.authorizer,
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,
@@ -173,6 +192,9 @@ export class ComputeStack extends Stack {
         ...dbEnv(secrets.wren_authorizer),
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
+        ...(config.technicalAdminBootstrapSubject
+          ? { TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT: config.technicalAdminBootstrapSubject }
+          : {}),
       },
       bundling: sharedBundling,
     });
@@ -190,12 +212,17 @@ export class ComputeStack extends Stack {
       // abort large OCR jobs — the worker uses this full timeout.
       memorySize: 2048,
       timeout: Duration.minutes(3),
+      // Reserved CAP so a burst of long-running OCR jobs cannot consume the
+      // whole account pool and starve the authorizer. Aligns with the ingest
+      // SQS maxConcurrency below (authorizer throttling remediation).
+      reservedConcurrentExecutions: config.lambdaConcurrency.document,
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_document),
+        ...corsEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
         DOCUMENTS_KMS_KEY_ARN: props.storageEncryptionKey.keyArn,
         PDF_OCR_ENABLED: "true",
@@ -252,6 +279,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_admin),
+        ...corsEnv,
         ...activitySaltEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
@@ -279,6 +307,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_audit),
+        ...corsEnv,
         ...activitySaltEnv,
       },
       bundling: sharedBundling,
@@ -318,10 +347,16 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_feedback_orch),
+        ...corsEnv,
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
         CONVERSATION_TABLE_NAME: props.conversationTableName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         STACK_PREFIX: config.stackPrefix,
+        // Prompt-cache decision layer (plan §15). Safe defaults keep caching
+        // effectively OFF (observe / 5m / none); the runtime reads these keys.
+        CACHE_MODE: config.cacheMode,
+        CACHE_TTL: config.cacheTtl,
+        CACHE_ENABLED_WORKLOADS: cacheEnabledWorkloadsEnv(config),
       },
       bundling: sharedBundling,
     });
@@ -330,21 +365,20 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Feedback Engine Lambda (Python 3.12, container — AI workload via Bedrock)
     // -----------------------------------------------------------------------
-    const feedbackEngineRepo = ecr.Repository.fromRepositoryName(
-      this,
-      "FeedbackEngineRepo",
-      `${config.stackPrefix}-feedback-engine`,
-    );
-
     this.feedbackEngineFunction = new lambda.Function(this, "FeedbackEngineFn", {
       functionName: `${config.stackPrefix}-feedback-engine`,
       runtime: lambda.Runtime.FROM_IMAGE,
-      code: lambda.Code.fromEcrImage(feedbackEngineRepo, {
-        tagOrDigest: "bootstrap",
+      code: lambda.Code.fromEcrImage(props.feedbackEngineRepository, {
+        tagOrDigest: config.feedbackEngineImageTag,
       }),
       handler: lambda.Handler.FROM_IMAGE,
       memorySize: 1024,
       timeout: Duration.minutes(15), // long documents can exceed 5m on Bedrock
+      // Reserved CAP so the longest-running function (15-min timeout, holds a
+      // slot for minutes) cannot exhaust the shared account pool and starve the
+      // authorizer. Aligns with the SQS maxConcurrency below (authorizer
+      // throttling remediation — see lambdaConcurrency.ts).
+      reservedConcurrentExecutions: config.lambdaConcurrency.feedbackEngine,
       vpc,
       vpcSubnets: privateSubnets,
       environment: {
@@ -356,6 +390,11 @@ export class ComputeStack extends Stack {
         STACK_PREFIX: config.stackPrefix,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
+        // Prompt-cache decision layer (plan §15). Same safe defaults as the
+        // orchestrator; the Python runtime reads these keys.
+        CACHE_MODE: config.cacheMode,
+        CACHE_TTL: config.cacheTtl,
+        CACHE_ENABLED_WORKLOADS: cacheEnabledWorkloadsEnv(config),
       },
     });
     // SQS event source: the engine is triggered by messages on the feedback queue.
@@ -387,6 +426,7 @@ export class ComputeStack extends Stack {
       stackPrefix: config.stackPrefix,
     });
     this.notificationTopicArn = notificationInfra.topic.topicArn;
+    this.notificationDlq = notificationInfra.dlq;
 
     // -----------------------------------------------------------------------
     // Notification Service Lambda (Node 22) — processes SQS events, REST API,
@@ -405,6 +445,7 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_notification),
+        ...corsEnv,
         NOTIFICATION_TOPIC_ARN: notificationInfra.topic.topicArn,
         OVERRIDE_EXPIRY_WARNING_HOURS: "24",
       },
@@ -463,6 +504,9 @@ export class ComputeStack extends Stack {
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
       timeout: Duration.seconds(20),
+      // Guaranteed concurrency FLOOR for realtime auth (authorizer throttling
+      // remediation — see lambdaConcurrency.ts).
+      reservedConcurrentExecutions: config.lambdaConcurrency.appsyncAuthorizer,
       vpc,
       vpcSubnets: privateSubnets,
       projectRoot: monorepoRoot,

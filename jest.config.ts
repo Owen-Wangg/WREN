@@ -12,6 +12,29 @@ import type { Config } from 'jest';
 const config: Config = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  transform: {
+    '^.+\\.tsx?$': [
+      'ts-jest',
+      {
+        // The base tsconfig uses classic (Node10) resolution, which does not
+        // read package.json "exports" subpaths. Add a compiler `paths` mapping
+        // so ts-jest type-checks the @wren/admin subpath import used by
+        // askWren.ts / lambda handlers (runtime resolution is handled by
+        // moduleNameMapper below).
+        tsconfig: {
+          baseUrl: '.',
+          paths: {
+            '@wren/admin/lifetimeUsagePolicy': [
+              './backend/admin/src/lifetimeUsagePolicy.ts',
+            ],
+            '@wren/types/signupEmailDomains': [
+              './types/src/signupEmailDomains.ts',
+            ],
+          },
+        },
+      },
+    ],
+  },
   testMatch: ['<rootDir>/**/*.test.ts'],
   testPathIgnorePatterns: [
     '/node_modules/',
@@ -24,6 +47,13 @@ const config: Config = {
   modulePathIgnorePatterns: ['/node_modules/', '/cdk.out/', '/dist/'],
   // Map NodeNext-style ".js" relative imports onto their ".ts" sources.
   moduleNameMapper: {
+    // Workspace package subpath exports Jest's resolver doesn't read from
+    // package.json "exports". Map the @wren/admin subpath to its source so
+    // tests importing modules that depend on it resolve without a build step.
+    '^@wren/admin/lifetimeUsagePolicy$':
+      '<rootDir>/backend/admin/src/lifetimeUsagePolicy.ts',
+    '^@wren/types/signupEmailDomains$':
+      '<rootDir>/types/src/signupEmailDomains.ts',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   clearMocks: true,

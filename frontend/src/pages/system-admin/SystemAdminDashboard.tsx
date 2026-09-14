@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Trash2, ChevronDown } from 'lucide-react';
 
-import { listDepartments, getAnalytics, getModelConfig, updateModelConfig, createDepartment, getPlatformUsageLimits, updatePlatformUsageLimits } from '@/features/system-admin/systemAdminApi';
+import { listDepartments, getAnalytics, getModelConfig, updateModelConfig, createDepartment, deleteDepartment, getPlatformUsageLimits, updatePlatformUsageLimits } from '@/features/system-admin/systemAdminApi';
+import { ApiError } from '@/services/apiClient';
 import { SystemUsageLimitsForm } from '@/features/system-admin/components/SystemUsageLimitsForm';
 import type { UsageLimits } from '@/features/system-admin/systemAdminSchemas';
 
@@ -16,6 +17,7 @@ export function SystemAdminDashboard() {
   const [expandedSection, setExpandedSection] = useState<'model' | 'limits' | null>(null);
   const [showCreateDept, setShowCreateDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState('');
+  const [deletingDeptId, setDeletingDeptId] = useState<string | null>(null);
 
   const { data: rawDepartments = [], isLoading } = useQuery({
     queryKey: ['system-departments'],
@@ -53,6 +55,21 @@ export function SystemAdminDashboard() {
     },
   });
 
+  const deleteDeptMutation = useMutation({
+    mutationFn: (id: string) => deleteDepartment(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+      setDeletingDeptId(null);
+    },
+    onError: (err) => {
+      // 404 means already archived — treat as success and refresh the list
+      if (err instanceof ApiError && err.status === 404) {
+        void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+        setDeletingDeptId(null);
+      }
+    },
+  });
+
   const { data: usageLimits, isLoading: usageLimitsLoading } = useQuery({
     queryKey: ['system-usage-limits'],
     queryFn: () => getPlatformUsageLimits(),
@@ -74,9 +91,11 @@ export function SystemAdminDashboard() {
     name: string;
     accessState?: string;
     userCount?: number;
+    archivedAt?: string | null;
   }
 
   const filteredDepartments = (departments as Department[]).filter((dept) => {
+    if (dept.archivedAt) return false;
     const matchesSearch = dept.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter = filterState === 'All' || dept.accessState === filterState;
     return matchesSearch && matchesFilter;
@@ -338,8 +357,10 @@ export function SystemAdminDashboard() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    setDeletingDeptId(dept.id);
                   }}
                   className="p-1 text-gray-400 hover:text-red-500 transition hover:bg-gray-100 rounded"
+                  title="Archive department"
                 >
                   <Trash2 size={18} />
                 </button>
@@ -369,6 +390,44 @@ export function SystemAdminDashboard() {
           ))}
         </div>
       </div>
+
+      {/* Archive Department Confirmation */}
+      {deletingDeptId && (() => {
+        const dept = departments.find((d) => d.id === deletingDeptId);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+              <h2 className="text-lg font-semibold text-gray-900">Archive department?</h2>
+              <p className="mt-2 text-sm text-gray-600">
+                <strong>{dept?.name}</strong> will be archived — it will no longer appear to students and will not accept new submissions. All existing student documents, feedback, and configuration are preserved.
+              </p>
+              {deleteDeptMutation.isError && (
+                <p role="alert" className="mt-3 text-sm text-red-600">
+                  Failed to archive department. Please try again.
+                </p>
+              )}
+              <div className="mt-5 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setDeletingDeptId(null); deleteDeptMutation.reset(); }}
+                  disabled={deleteDeptMutation.isPending}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteDeptMutation.mutate(deletingDeptId)}
+                  disabled={deleteDeptMutation.isPending}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteDeptMutation.isPending ? 'Archiving…' : 'Yes, archive'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Create Department Dialog */}
       {showCreateDept && (

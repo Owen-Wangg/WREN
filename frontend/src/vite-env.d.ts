@@ -21,6 +21,11 @@ interface ImportMetaEnv {
   readonly VITE_COGNITO_CLIENT_ID?: string;
   /** AWS region for Cognito / API resources. */
   readonly VITE_AWS_REGION?: string;
+  /**
+   * Optional comma-separated exact email hostnames allowed for self-signup.
+   * Unset keeps signup unrestricted.
+   */
+  readonly VITE_ALLOWED_EMAIL_DOMAINS?: string;
 }
 
 interface ImportMeta {

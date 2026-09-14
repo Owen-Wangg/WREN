@@ -6,6 +6,8 @@
  * content-kind/content-source pairing, tier-1 vs tier-2 visibility scoping,
  * and capability enforcement (deny with no mutation).
  */
+import type { AuthContext } from '@wren/types';
+
 import { AuthorizationError, NotFoundError } from './errors';
 import { FakeDb } from './fakeDb';
 import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
@@ -21,6 +23,14 @@ import {
 const DEPT = 'dept-1';
 const OTHER_DEPT = 'dept-2';
 const DT = 'dt-1';
+
+function mixedAdminContext(departmentIds: string[]): AuthContext {
+  return {
+    ...techAdminContext(),
+    roles: ['TechnicalAdmin', 'DepartmentAdmin'],
+    administeredDepartmentIds: departmentIds,
+  };
+}
 
 function seed(db: FakeDb): void {
   db.seedDepartment({ id: DEPT, name: 'Allard Law' });
@@ -146,6 +156,47 @@ describe('createReferenceMaterial — tier 1 (department-wide)', () => {
     await expect(
       createReferenceMaterial(
         studentContext(),
+        { tier: 'department', departmentId: DEPT, title: 'X', contentKind: 'text', inlineContent: 'y' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+  });
+
+  it('denies a TechnicalAdmin with no mutation', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      createReferenceMaterial(
+        techAdminContext(),
+        { tier: 'department', departmentId: DEPT, title: 'X', contentKind: 'text', inlineContent: 'y' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+  });
+
+  it('allows a mixed-role actor through a correctly scoped DepartmentAdmin appointment', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    const material = await createReferenceMaterial(
+      mixedAdminContext([DEPT]),
+      { tier: 'department', departmentId: DEPT, title: 'Guide', contentKind: 'text', inlineContent: 'y' },
+      db,
+    );
+
+    expect(material.departmentId).toBe(DEPT);
+  });
+
+  it('does not let a mixed-role actor bypass DepartmentAdmin scope', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      createReferenceMaterial(
+        mixedAdminContext([OTHER_DEPT]),
         { tier: 'department', departmentId: DEPT, title: 'X', contentKind: 'text', inlineContent: 'y' },
         db,
       ),

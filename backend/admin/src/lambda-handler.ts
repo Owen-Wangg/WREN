@@ -5,7 +5,22 @@
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { publishNotificationEvent } from '@wren/notification';
-import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState, listDepartmentUsers, archiveDepartment } from './departmentService';
+import {
+  listDepartments,
+  getDepartment,
+  createDepartment,
+  updateDepartmentPrompt,
+  updateDepartmentAskWrenPrompt,
+  setDepartmentAccessState,
+  setDepartmentVisibilityState,
+  listDepartmentUsers,
+  archiveDepartment,
+} from './departmentService';
+import {
+  createDepartmentVisibilityGrant,
+  listDepartmentVisibilityGrants,
+  revokeDepartmentVisibilityGrant,
+} from './departmentVisibilityGrantService';
 import {
   listDocumentTypes,
   listAllDocumentTypes,
@@ -17,6 +32,7 @@ import {
 import { listErrorCategories, createErrorCategory, updateErrorCategory, deleteErrorCategory } from './errorCategoryService';
 import { getDocumentTypeConfig, upsertDocumentTypeConfig } from './documentTypeConfigService';
 import { listContentTypes } from './contentTypeService';
+import { listCustomMetadataFields } from './customMetadataFieldService';
 import { searchUsers } from './userService';
 import { assignRole, revokeRole } from './roleAssignmentService';
 import { getUsageReport } from './usageLimitService';
@@ -31,11 +47,13 @@ import {
   updatePlatformUsagePolicy,
 } from './lifetimeUsagePolicy';
 import type { QueryExecutor } from './db';
-import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
-import { AuthorizationError, NotFoundError } from './errors';
+import { parseAuthContext, wrapHandler, withCors, bindCorsOrigin } from './lambda-utils';
+import { AuthorizationError, NotFoundError, PromptInjectionError } from './errors';
+import { PromptGuardrailError } from './promptGuardrail';
 import { assertCanListDepartmentUsers, requireCapability } from './capabilityGuard';
 import {
   auditConfigEdit,
+  auditDepartmentVisibilityChange,
   auditOverrideGrant,
   auditPromptEdit,
   auditRoleOrGrantChange,
@@ -92,6 +110,23 @@ async function lookupDepartmentId(
   return rows[0]?.department_id;
 }
 
+/** Enforce nested URL parentage before category mutation and capability checks. */
+async function assertErrorCategoryParent(
+  categoryId: string,
+  documentTypeId: string,
+  db: QueryExecutor,
+): Promise<void> {
+  const rows = await db.query<{ id: string }>(
+    'SELECT id FROM error_category WHERE id = $1 AND document_type_id = $2',
+    [categoryId, documentTypeId],
+  );
+  if (rows.length === 0) {
+    throw new NotFoundError(
+      `Error category '${categoryId}' not found for Document Type '${documentTypeId}'`,
+    );
+  }
+}
+
 export const handler: APIGatewayProxyHandler = async (event: any, context): Promise<APIGatewayProxyResult> => {
   freezeEventLoopOnReturn(context);
   // One-shot admin scripts invoked directly via `aws lambda invoke --payload '{"_script":"..."}'`
@@ -99,6 +134,7 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
     return syncCognitoAdminsHandler(event);
   }
 
+  bindCorsOrigin(event);
   try {
     const { httpMethod, resource } = event;
 
@@ -124,8 +160,26 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
     if (resource === '/v1/departments/{departmentId}/prompt' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateDepartmentPrompt(event));
     }
+    if (resource === '/v1/departments/{departmentId}/ask-wren-prompt' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleUpdateDepartmentAskWrenPrompt(event));
+    }
     if (resource === '/v1/departments/{departmentId}/access-state' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleSetDepartmentAccessState(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/visibility-state' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleSetDepartmentVisibilityState(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/visibility-grants' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListDepartmentVisibilityGrants(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/visibility-grants' && httpMethod === 'POST') {
+      return await wrapHandler(() => handleCreateDepartmentVisibilityGrant(event));
+    }
+    if (
+      resource === '/v1/departments/{departmentId}/visibility-grants/{grantId}' &&
+      httpMethod === 'DELETE'
+    ) {
+      return await wrapHandler(() => handleRevokeDepartmentVisibilityGrant(event));
     }
     if (resource === '/v1/document-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocumentTypes(event));
@@ -138,6 +192,9 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
     }
     if (resource === '/v1/document-types/{documentTypeId}/content-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListContentTypes(event));
+    }
+    if (resource === '/v1/document-types/{documentTypeId}/metadata-fields' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListCustomMetadataFields(event));
     }
     if (resource === '/v1/document-types/{documentTypeId}/error-categories' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListErrorCategories(event));
@@ -237,7 +294,7 @@ async function handleGetMe(event: any): Promise<APIGatewayProxyResult> {
 async function handleListDepartments(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const departments = await listDepartments(db);
+  const departments = await listDepartments(actor, db);
   // The department `prompt` field is a TechnicalAdmin-authored system instruction
   // injected into Bedrock prompts. Strip it for non-TechnicalAdmin callers so that
   // DeptAdmins and Students cannot enumerate another department's prompt content.
@@ -308,6 +365,20 @@ async function handleListContentTypes(event: any): Promise<APIGatewayProxyResult
   return {
     statusCode: 200,
     body: JSON.stringify(contentTypes),
+  };
+}
+
+async function handleListCustomMetadataFields(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { documentTypeId } = event.pathParameters || {};
+  // Students need this catalog to satisfy required fields before submission;
+  // DepartmentAdmins remain constrained to their administered departments.
+  await assertDocumentTypeReadableByActor(actor, documentTypeId, db);
+  const fields = await listCustomMetadataFields(documentTypeId, db);
+  return {
+    statusCode: 200,
+    body: JSON.stringify(fields),
   };
 }
 
@@ -394,6 +465,121 @@ async function handleSetDepartmentAccessState(event: any): Promise<APIGatewayPro
     statusCode: 200,
     body: JSON.stringify(updated),
   };
+}
+
+async function handleSetDepartmentVisibilityState(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const result = await db.transaction(async (tx) => {
+    const updated = await setDepartmentVisibilityState(actor, departmentId, body, tx);
+    if (updated.changed) {
+      await auditDepartmentVisibilityChange(
+        actor,
+        {
+          action: 'department.visibility.updated',
+          departmentId,
+          previousState: updated.previousState,
+          newState: updated.department.visibilityState,
+        },
+        tx,
+      );
+    }
+    return updated;
+  });
+  return {
+    statusCode: 200,
+    body: JSON.stringify(result.department),
+  };
+}
+
+function parseOptionalIntegerQuery(
+  raw: unknown,
+  name: string,
+  minimum: number,
+  maximum?: number,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || !/^(0|[1-9]\d*)$/.test(raw)) {
+    throw Object.assign(new Error(`${name} must be an integer`), { statusCode: 400 });
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < minimum || (maximum !== undefined && value > maximum)) {
+    const range = maximum === undefined ? `at least ${minimum}` : `between ${minimum} and ${maximum}`;
+    throw Object.assign(new Error(`${name} must be ${range}`), { statusCode: 400 });
+  }
+  return value;
+}
+
+async function handleListDepartmentVisibilityGrants(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const qs = event.queryStringParameters || {};
+  const limit = parseOptionalIntegerQuery(qs.limit, 'limit', 1, 100);
+  const offset = parseOptionalIntegerQuery(qs.offset, 'offset', 0);
+  const result = await listDepartmentVisibilityGrants(actor, departmentId, db, {
+    q: qs.q,
+    limit,
+    offset,
+  });
+  return { statusCode: 200, body: JSON.stringify(result) };
+}
+
+async function handleCreateDepartmentVisibilityGrant(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const result = await db.transaction(async (tx) => {
+    const created = await createDepartmentVisibilityGrant(actor, departmentId, body, tx);
+    if (created.changed) {
+      await auditDepartmentVisibilityChange(
+        actor,
+        {
+          action: 'department_visibility_grant.created',
+          departmentId,
+          grantId: created.grant.id,
+          targetUserId: created.grant.userId,
+        },
+        tx,
+      );
+    }
+    return created;
+  });
+  return {
+    statusCode: result.changed ? 201 : 200,
+    body: JSON.stringify(result.grant),
+  };
+}
+
+async function handleRevokeDepartmentVisibilityGrant(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId, grantId } = event.pathParameters || {};
+  const result = await db.transaction(async (tx) => {
+    const revoked = await revokeDepartmentVisibilityGrant(
+      actor,
+      departmentId,
+      grantId,
+      tx,
+    );
+    if (revoked.changed) {
+      await auditDepartmentVisibilityChange(
+        actor,
+        {
+          action: 'department_visibility_grant.revoked',
+          departmentId,
+          grantId: revoked.grant.id,
+          targetUserId: revoked.grant.userId,
+        },
+        tx,
+      );
+    }
+    return revoked;
+  });
+  return { statusCode: 200, body: JSON.stringify(result.grant) };
 }
 
 async function handleSearchUsers(event: any): Promise<APIGatewayProxyResult> {
@@ -724,6 +910,45 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
   };
 }
 
+async function handleUpdateDepartmentAskWrenPrompt(
+  event: any,
+): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+
+  try {
+    const department = await updateDepartmentAskWrenPrompt(actor, departmentId, body, db);
+    await auditPromptEdit(
+      actor,
+      { departmentId, scope: 'department', guardrailOutcome: 'passed' },
+      db,
+    );
+    return {
+      statusCode: 200,
+      body: JSON.stringify(department),
+    };
+  } catch (err) {
+    // Requirement 32.6: record the edit attempt with its guardrail outcome even
+    // when the content is rejected. The error is rethrown so wrapHandler maps it
+    // to the appropriate 400 (GHOSTWRITING_DETECTED / prompt-injection).
+    if (err instanceof PromptGuardrailError || err instanceof PromptInjectionError) {
+      await auditPromptEdit(
+        actor,
+        {
+          departmentId,
+          scope: 'department',
+          guardrailOutcome: 'rejected',
+          rejectionReason: err.message,
+        },
+        db,
+      );
+    }
+    throw err;
+  }
+}
+
 async function handleListErrorCategories(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
@@ -788,7 +1013,8 @@ async function handleCreateErrorCategory(event: any): Promise<APIGatewayProxyRes
 async function handleUpdateErrorCategory(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { categoryId } = event.pathParameters || {};
+  const { documentTypeId, categoryId } = event.pathParameters || {};
+  await assertErrorCategoryParent(categoryId, documentTypeId, db);
   const body = event.body ? JSON.parse(event.body) : {};
   const category = await updateErrorCategory(actor, categoryId, body, db);
   return {
@@ -800,7 +1026,8 @@ async function handleUpdateErrorCategory(event: any): Promise<APIGatewayProxyRes
 async function handleDeleteErrorCategory(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { categoryId } = event.pathParameters || {};
+  const { documentTypeId, categoryId } = event.pathParameters || {};
+  await assertErrorCategoryParent(categoryId, documentTypeId, db);
   await deleteErrorCategory(actor, categoryId, db);
   return {
     statusCode: 204,

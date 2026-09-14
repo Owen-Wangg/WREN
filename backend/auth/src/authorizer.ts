@@ -8,14 +8,25 @@
  *      scopes + Access Grants by querying Postgres (the authz source of truth).
  *   3. If no app_user exists yet, provision one (default Student role) using
  *      Cognito profile attributes for email/name — still never using IdP groups.
- *   4. Emit an IAM policy plus an authorization context (roles, administered
- *      Departments, grants) that downstream services consume and
+ *   4. Emit a stage-wide IAM Allow plus authorization context (roles,
+ *      administered Departments, grants) that downstream services consume and
  *      RE-CHECK against the specific operation (dual enforcement).
  *
- * The authorizer produces a COARSE, cacheable allow across the API stage; the
- * fine-grained per-operation decision is made inside each service. The IdP is
- * used only to prove identity — no groups/claims/attributes influence the
- * decision (Requirement 37.3).
+ * The only escalation exception is a default-off first-admin bootstrap gated on
+ * an exact configured Cognito subject (`TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT`),
+ * armed only by the guided deploy and stripped immediately after. For a
+ * genuinely new user it runs inside first-login provisioning (and additionally
+ * requires the SystemAdmin group claim). Because the app auto-loads the
+ * dashboard on signup — so the intended admin usually already has a Student row
+ * before the subject is armed — the same armed-subject gate is also
+ * re-evaluated for an already-provisioned user below, elevating in place. No
+ * user whose exact subject is not armed can ever escalate.
+ *
+ * The authorizer produces a COARSE stage-wide allow; REST authorizer caching is
+ * disabled in `cdk/lib/openapi.yaml`, so roles/grants are loaded from the DB on
+ * every request. Fine-grained per-operation decisions remain the responsibility
+ * of each service. The IdP is used only to prove identity — token groups are not
+ * used after the explicitly documented first-login bootstrap below.
  *
  * Heavy runtime dependencies (`@wren/db-node`, the Cognito verifier) are loaded
  * lazily by the default deps provider so the module stays cheaply importable and
@@ -36,7 +47,7 @@ import {
   type CognitoProfileLookup,
 } from './cognitoProfile';
 import { mapSubjectToAuthContext, type QueryExecutor } from './identityMapping';
-import { ensureAppUser } from './provisionUser';
+import { ensureAppUser, ensureTechnicalAdminForArmedSubject } from './provisionUser';
 import type { TokenVerifier } from './tokenVerifier';
 
 /** Collaborators the authorizer needs; injectable for testing. */
@@ -154,6 +165,9 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         throw new Error(UNAUTHORIZED);
       }
 
+      const armedSubject =
+        process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT?.trim() || undefined;
+
       // Authorization is resolved ENTIRELY from the app DB using only the verified
       // subject — never from token claims (Requirement 37.2, 37.3).
       // Exception: `groups` is passed to ensureAppUser ONCE on first login so the
@@ -167,6 +181,7 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
           firstName: profile.firstName,
           lastName: profile.lastName,
           groups,
+          technicalAdminBootstrapSubject: armedSubject,
         });
         context = await mapSubjectToAuthContext(subject, db);
         if (!context) {
@@ -177,6 +192,20 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
             policyDocument: policy('Deny', resource),
           };
         }
+      } else if (armedSubject === subject && !context.roles.includes('TechnicalAdmin')) {
+        // First-admin bootstrap for an ALREADY-PROVISIONED candidate. The app
+        // auto-loads the dashboard right after signup, so the intended admin
+        // almost always has an app_user (Student) row before the deploy arms
+        // their subject — which makes the ensureAppUser first-login elevation
+        // above unreachable for them. Re-evaluate the elevation here, gated
+        // SOLELY on the operator-armed exact-subject match (set only by the
+        // guided deploy and stripped immediately after verification). This does
+        // not trust `cognito:groups`: the access tokens the REST authorizer
+        // verifies do not reliably carry that claim, and the armed subject is
+        // itself the operator-controlled signal. Re-read the context so this
+        // same request is authorized with the freshly granted role.
+        await ensureTechnicalAdminForArmedSubject(db, context.userId);
+        context = (await mapSubjectToAuthContext(subject, db)) ?? context;
       }
 
       return {
@@ -188,8 +217,9 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
       if (error instanceof Error && error.message === UNAUTHORIZED) {
         throw error;
       }
-      // Do not remap identity/DB failures to 401 — API Gateway caches authorizer
-      // results by token, so a transient mapping error would lock the user out.
+      // Keep verified-identity infrastructure failures distinct from bad
+      // credentials: callers should receive a retryable 5xx, not a misleading
+      // 401 that prompts them to repeatedly re-enter valid credentials.
       console.error('Authorizer failed after token present:', error);
       throw error;
     }

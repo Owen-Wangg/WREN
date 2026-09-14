@@ -20,6 +20,39 @@ describe("VpcStack", () => {
     template.resourceCountIs("AWS::EC2::FlowLog", 1);
   });
 
+  it("retains only the cost-justified endpoint allowlist", () => {
+    const endpointResources = Object.values(template.findResources("AWS::EC2::VPCEndpoint")) as Array<{
+      Properties?: {
+        VpcEndpointType?: string;
+        PrivateDnsEnabled?: boolean;
+        SubnetIds?: unknown[];
+        ServiceName?: unknown;
+      };
+    }>;
+    const interfaceEndpoints = endpointResources.filter(
+      (endpoint) => endpoint.Properties?.VpcEndpointType === "Interface",
+    );
+    const gatewayEndpoints = endpointResources.filter(
+      (endpoint) => endpoint.Properties?.VpcEndpointType === "Gateway",
+    );
+    const renderedInterfaces = JSON.stringify(interfaceEndpoints);
+    const renderedGateways = JSON.stringify(gatewayEndpoints);
+
+    expect(interfaceEndpoints).toHaveLength(3);
+    expect(gatewayEndpoints).toHaveLength(2);
+    expect(renderedInterfaces).toContain("secretsmanager");
+    expect(renderedInterfaces).toContain("ssm");
+    expect(renderedInterfaces).toContain("bedrock-runtime");
+    expect(renderedInterfaces).not.toContain("execute-api");
+    expect(renderedInterfaces).not.toContain(".rds");
+    expect(renderedGateways).toContain("dynamodb");
+    expect(renderedGateways).toContain("s3");
+    for (const endpoint of interfaceEndpoints) {
+      expect(endpoint.Properties?.PrivateDnsEnabled).toBe(true);
+      expect(endpoint.Properties?.SubnetIds).toHaveLength(2);
+    }
+  });
+
   it("matches the synthesized template snapshot", () => {
     expect(template.toJSON()).toMatchSnapshot();
   });

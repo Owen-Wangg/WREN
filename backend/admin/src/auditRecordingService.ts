@@ -74,18 +74,31 @@ export async function auditPromptEdit(
   detail: {
     documentTypeId?: string;
     departmentId?: string;
-    scope: 'documentType' | 'system';
+    /**
+     * Which prompt surface was edited:
+     *  - `documentType` — Document-Type prompt config (`type_prompt_text`).
+     *  - `system`       — TechnicalAdmin-owned Feedback-Engine `department.prompt`.
+     *  - `department`   — DepartmentAdmin-owned department Ask WREN prompt
+     *                     (`department.ask_wren_prompt`).
+     */
+    scope: 'documentType' | 'system' | 'department';
     guardrailOutcome: 'passed' | 'rejected';
     rejectionReason?: string;
   },
   db: QueryExecutor,
 ): Promise<void> {
+  const objectRef =
+    detail.scope === 'system'
+      ? 'system-scaffolding'
+      : detail.scope === 'department'
+        ? `department:${detail.departmentId}`
+        : `documentType:${detail.documentTypeId}`;
   await recordActivityEvent(
     {
       actorUserId: actor.userId,
       verb: 'prompt.edited',
       objectType: 'Prompt',
-      objectRef: detail.scope === 'system' ? 'system-scaffolding' : `documentType:${detail.documentTypeId}`,
+      objectRef,
       documentTypeId: detail.documentTypeId,
       departmentId: detail.departmentId,
       context: {
@@ -128,6 +141,40 @@ export async function auditRoleOrGrantChange(
         action: detail.action,
         targetUserId: detail.targetUserId, // recorded for audit trail (pseudonymized by recordActivityEvent for the actor)
         ...(detail.targetRole ? { targetRole: detail.targetRole } : {}),
+      },
+    },
+    db,
+  );
+}
+
+export async function auditDepartmentVisibilityChange(
+  actor: AuthContext,
+  detail: {
+    action:
+      | 'department.visibility.updated'
+      | 'department_visibility_grant.created'
+      | 'department_visibility_grant.revoked';
+    departmentId: string;
+    grantId?: string;
+    targetUserId?: string;
+    previousState?: 'VISIBLE' | 'PERMITTED_ONLY';
+    newState?: 'VISIBLE' | 'PERMITTED_ONLY';
+  },
+  db: QueryExecutor,
+): Promise<void> {
+  const isGrant = detail.action.startsWith('department_visibility_grant.');
+  await recordActivityEvent(
+    {
+      actorUserId: actor.userId,
+      verb: detail.action,
+      objectType: isGrant ? 'DepartmentVisibilityGrant' : 'Department',
+      objectRef: detail.grantId ?? detail.departmentId,
+      departmentId: detail.departmentId,
+      context: {
+        role: actor.roles[0],
+        ...(detail.targetUserId ? { targetUserId: detail.targetUserId } : {}),
+        ...(detail.previousState ? { previousState: detail.previousState } : {}),
+        ...(detail.newState ? { newState: detail.newState } : {}),
       },
     },
     db,

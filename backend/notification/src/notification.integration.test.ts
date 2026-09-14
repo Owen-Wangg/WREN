@@ -109,7 +109,7 @@ class MockDatabase implements NotificationServiceDeps {
       return [{ count: String(count) }] as Row[];
     }
 
-    if (text.includes('FROM usage_override')) {
+    if (text.includes('FROM override o') && text.includes('JOIN document_type')) {
       return [] as Row[];
     }
 

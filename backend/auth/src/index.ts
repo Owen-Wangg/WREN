@@ -54,10 +54,21 @@ export {
   isCapabilityAllowed,
 } from './capabilityMatrix';
 export {
+  canDiscoverDepartment,
+  type DepartmentVisibilityInput,
+} from './departmentVisibility';
+export {
   authorizeRoleAssignment,
   isRoleAssignmentAllowed,
   type RoleAssignmentRequest,
 } from './roleAssignment';
+export {
+  bindCorsOrigin,
+  corsResponseHeaders,
+  originFromEvent,
+  resolveAllowedOrigin,
+  withCorsHeaders,
+} from './cors';
 
 export type {
   AccessDecision,

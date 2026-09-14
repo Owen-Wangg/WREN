@@ -98,8 +98,8 @@ export class MigrationRunner extends CustomResource {
         // Trigger re-run on environment changes
         databaseProxyEndpoint: props.databaseProxyEndpoint,
         databaseSecretArn: props.databaseSecretArn,
-        // Re-invoke when a new *.sql file is added (otherwise CloudFormation
-        // updates the migrate Lambda code but never runs it).
+        // Re-invoke whenever migration inventory or SQL content changes
+        // (otherwise CloudFormation may update code without running it).
         migrationsFingerprint: hashMigrationFiles(),
       },
     });
@@ -108,12 +108,19 @@ export class MigrationRunner extends CustomResource {
   }
 }
 
-/** Stable hash of migration filenames so adding SQL forces a custom-resource update. */
+/** Stable hash of migration names and contents so every SQL change forces an update. */
 function hashMigrationFiles(): string {
   const dir = path.join(__dirname, '../../../backend/database/migrations');
   const files = fs
     .readdirSync(dir)
     .filter((name) => name.endsWith('.sql'))
     .sort();
-  return crypto.createHash('sha256').update(files.join('\n')).digest('hex').slice(0, 16);
+  const hash = crypto.createHash('sha256');
+  for (const file of files) {
+    hash.update(file);
+    hash.update('\0');
+    hash.update(fs.readFileSync(path.join(dir, file)));
+    hash.update('\0');
+  }
+  return hash.digest('hex').slice(0, 16);
 }

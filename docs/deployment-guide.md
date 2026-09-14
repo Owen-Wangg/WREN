@@ -1,6 +1,6 @@
 # WREN — AWS Deployment Guide
 
-This guide deploys the WREN writing coach (repository and AWS prefix **WREN**) into an AWS account using the CDK app in `cdk/`. AWS resource names use the `wren` project prefix; **LEON** is the user-facing display name shown in the UI and emails. Follow the numbered steps in order — commands are given for **bash (macOS/Linux)**, **PowerShell**, and **Windows CMD** where the syntax differs.
+This guide deploys the WREN writing coach into an AWS account.
 
 ## Table of Contents
 
@@ -9,31 +9,33 @@ This guide deploys the WREN writing coach (repository and AWS prefix **WREN**) i
   - [What You'll Have When You're Done](#what-youll-have-when-youre-done)
   - [Architecture at a Glance](#architecture-at-a-glance)
   - [Requirements](#requirements)
-    - [People and Access](#people-and-access)
-    - [Cost and Time Expectations](#cost-and-time-expectations)
+    - [Access Tokens](#access-tokens)
     - [Enable and Verify Bedrock Model Access](#enable-and-verify-bedrock-model-access)
-    - [Service Quotas](#service-quotas)
-    - [Request Higher Bedrock Invocation Quotas](#request-higher-bedrock-invocation-quotas)
-    - [Cognito Email](#cognito-email)
-  - [Pre-Deployment](#pre-deployment)
-    - [Step 0: Configure AWS Credentials](#step-0-configure-aws-credentials)
+  - [AWS credentials](#aws-credentials)
+  - [First Deployment — Step by Step](#first-deployment--step-by-step)
+    - [Step 1 — Prerequisites (one-time setup)](#step-1--prerequisites-one-time-setup)
+    - [Step 2 — Start the deploy (run #1)](#step-2--start-the-deploy-run-1)
+    - [Step 3 — Create the admin account, then rerun (run #2)](#step-3--create-the-admin-account-then-rerun-run-2)
+    - [Step 4 — Prove the admin identity with a token, then rerun (run #3)](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3)
+    - [Step 5 — Confirm it's up](#step-5--confirm-its-up)
   - [Deployment](#deployment)
-    - [Step 1: Clone the Repository and Install Dependencies](#step-1-clone-the-repository-and-install-dependencies)
-    - [Step 2: Bootstrap CDK (Two Regions)](#step-2-bootstrap-cdk-two-regions)
-    - [Step 3: Choose Configuration](#step-3-choose-configuration)
-    - [Step 4: Build and Push the Feedback Engine Image](#step-4-build-and-push-the-feedback-engine-image)
-    - [Step 5: CDK Deployment](#step-5-cdk-deployment)
-  - [Post-Deployment](#post-deployment)
-    - [Step 6: Connect GitHub, Amplify, and CI/CD](#step-6-connect-github-amplify-and-cicd)
-    - [Step 7: Configure the First Administrator](#step-7-configure-the-first-administrator)
-    - [Step 8: Open the Web App](#step-8-open-the-web-app)
-    - [Step 9: Confirm the Application Is Running](#step-9-confirm-the-application-is-running)
-  - [Day-2 Operations](#day-2-operations)
+    - [Deployment workflow implementation](#deployment-workflow-implementation)
+    - [Variables for the standard deployment](#variables-for-the-standard-deployment)
+    - [Advanced deployment configuration](#advanced-deployment-configuration)
+      - [AWS target and application identity](#aws-target-and-application-identity)
+      - [Hosting, CI/CD, images, and ECR ownership](#hosting-cicd-images-and-ecr-ownership)
+        - [External ECR safety requirement](#external-ecr-safety-requirement)
+      - [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain)
+      - [Restricting signup to email domains](#restricting-signup-to-email-domains)
+      - [Recovery and automation controls](#recovery-and-automation-controls)
+      - [Preview and protected teardown](#preview-and-protected-teardown)
+  - [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
   - [Troubleshooting](#troubleshooting)
     - [Common Issues](#common-issues)
+  - [Custom Domain Support](#custom-domain-support)
   - [Cleanup](#cleanup)
-    - [Taking Down the Deployed Stack](#taking-down-the-deployed-stack)
-  - [Quick Reference - First-Time Commands](#quick-reference---first-time-commands)
+    - [Protected application teardown (recommended)](#protected-application-teardown-recommended)
+    - [Full data destruction is a separate manual operation](#full-data-destruction-is-a-separate-manual-operation)
 
 ---
 
@@ -44,7 +46,7 @@ This guide deploys the WREN writing coach (repository and AWS prefix **WREN**) i
 - Node.js and Python **Lambda** backends running in a VPC
 - **Amazon RDS PostgreSQL 16** (private), behind **RDS Proxy**
 - **Cognito** sign-up / sign-in
-- **Amazon Bedrock** for writing feedback (Feedback Engine container Lambda)
+- **Amazon Bedrock** for writing feedback
 - Database schema applied automatically via a migration Lambda
 
 Default naming uses project `wren` and environment `dev`, so stacks are named `wren-dev-<Concern>` (e.g. `wren-dev-Vpc`). The **data-plane Region** is CDK context `region` (examples in this guide use `ca-central-1`; override with `-c region=...`). **Amazon CloudFront is a global CDN** — it is not “the API in us-east-1.” The `CloudFrontWaf` *CloudFormation stack* is created in `us-east-1` because AWS manages CloudFront-scoped WAF web ACLs there. That stack does not store student drafts or chat history.
@@ -58,16 +60,15 @@ Default naming uses project `wren` and environment `dev`, so stacks are named `w
 | `Storage` | Data-plane Region | S3 buckets (documents, reference material) and DynamoDB conversation table |
 | `Cognito` | Data-plane Region | User pool, app client, `SystemAdmin` group |
 | `Database` | Data-plane Region | RDS PostgreSQL 16.13 (`db.t3.medium`), RDS Proxy, schema migrations |
-| `Cicd` | Data-plane Region | ECR repo + CodePipeline (only if GitHub owner/repo are set) |
+| `Cicd` | Data-plane Region | Always-present ECR repo/import + Compute permissions boundary; CodePipeline built by default (opt out with `WREN_ENABLE_CICD=false`) |
 | `Compute` | Data-plane Region | Named Lambdas (Document, Admin, Audit, Feedback Orchestrator, Feedback Engine, Notification, authorizers), SQS, AppSync |
 | `Api` | Data-plane Region | REST API Gateway from `cdk/lib/openapi.yaml` |
 | `Observability` | Data-plane Region | CloudWatch log retention and alarms |
 | `CloudFrontWaf` | `us-east-1` (WAF control plane for CloudFront scope) | CloudFront distribution + CloudFront-scoped WAF |
 | `Amplify` | Data-plane Region | Frontend hosting (only if GitHub owner/repo are set) |
 
-> **Deploy order matters.** `Compute` looks up an existing ECR repository named `{stackPrefix}-feedback-engine` and an image tagged `bootstrap`. Create that repo and push that tag **before** deploying `Compute` — see [Step 4: Build and Push the Feedback Engine Image](#step-4-build-and-push-the-feedback-engine-image).
->
-> `Amplify` and `Cicd` are **skipped** unless GitHub owner and repo context are set. You can deploy the API and data plane first, then add hosting afterward.
+
+> `Amplify` and the CI/CD pipeline are both enabled by default, so the standard path builds them and requires GitHub owner/repo variables plus a `WREN_GITHUB_TOKEN` on first setup. 
 
 ---
 
@@ -76,54 +77,85 @@ Default naming uses project `wren` and environment `dev`, so stacks are named `w
 Before you deploy, you must have the following installed on your device:
 
 - [git](https://git-scm.com/downloads)
-- An [AWS Account](https://aws.amazon.com/account/) with permission to create IAM, VPC, RDS, Lambda, API Gateway, Cognito, CloudFront, WAF, Amplify, Bedrock, and KMS resources
-- A [GitHub Account](https://github.com/) — only required for hosted frontend / CI-CD (see [Step 6: Connect GitHub, Amplify, and CI/CD](#step-6-connect-github-amplify-and-cicd))
+- An [AWS Account](https://aws.amazon.com/account/) with permission to create IAM, VPC, RDS, Lambda, API Gateway, Cognito, CloudFront, WAF, Amplify, Bedrock, KMS, ECR, and CodeBuild resources (ECR + CodeBuild back the Feedback Engine image build)
+- A [GitHub Account](https://github.com/) — required for the default hosted frontend and CI/CD; set its details in the [standard deployment variables](#variables-for-the-standard-deployment)
 - [AWS CLI](https://aws.amazon.com/cli/) _(v2.0.0+ required)_
 - [Node.js](https://nodejs.org/en/learn/getting-started/how-to-install-nodejs) _(v22.x+ required)_
 - [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) _(comes with Node)_
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with the daemon running — required to build the Feedback Engine image and for CDK asset bundling
+
 
 > The AWS CDK CLI (`aws-cdk`) is a **dev dependency** of `cdk/` — you do not need a global `cdk` install. All commands below use `npx cdk`. The pinned version is **`2.1138.0`** (see `cdk/package.json`); Node.js v22+ is required by the project's `engines` field and by Amplify's build environment.
 
-### People and Access
+### Access Tokens
 
-For a hosted frontend or CI/CD pipeline you'll also need a GitHub repository this account can read (fork or the original), plus a GitHub personal access token (PAT) — covered in [Step 6: Connect GitHub, Amplify, and CI/CD](#step-6-connect-github-amplify-and-cicd).
-
-### Cost and Time Expectations
-
-This is not a free-tier stack. Typical always-on costs include:
-
-- NAT Gateway (**one** NAT in a two-AZ VPC — private subnets in both AZs send egress through that single NAT)
-- RDS `db.t3.medium` + RDS Proxy
-- Several **VPC interface endpoints** (Secrets Manager, SSM, RDS, API Gateway, Bedrock), billed per AZ
-- CloudFront, WAF, S3, DynamoDB, Lambda, Amplify (usage-based)
-
-Plan for **hundreds of dollars per month** in a running `dev` environment — not a few dollars. Tear down unused environments (see [Cleanup](#cleanup)).
-
-A first deploy from an empty account typically takes **45–90 minutes**, dominated by VPC, RDS, and CloudFront.
+You also need a GitHub repository this account can read (a fork of WREN) and a GitHub personal access token (PAT). The exact scopes and where to create it are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup). A separate, short-lived token (`WREN_SMOKE_ACCESS_TOKEN`) is used once during first-admin setup — see [Step 4](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3).
 
 ### Enable and Verify Bedrock Model Access
 
-The default model id is `us.anthropic.claude-sonnet-4-6` (a US cross-region inference profile). Lambdas run in `ca-central-1` and invoke Bedrock there.
+Enable the target Bedrock model in your Region **before** deploying — without model access the app deploys but **feedback generation fails at runtime**. The concrete console steps are in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup); the deploy also verifies access early and pauses with an actionable message if it's missing.
 
-**Step 1: Enable model access**
+---
 
-1. Open the AWS Console → **Amazon Bedrock** in **`ca-central-1`**.
-2. Open **Model access** (or **Playground** → request access) and enable the Anthropic Claude models your account needs, including the model behind that inference profile.
-3. If the console also requires access in US regions for `us.*` profiles, enable the same models in **`us-east-1`** and follow any account-level "cross-region inference" prompts.
+## AWS credentials
 
-**Step 2: Verify the inference profile before deploying**
+Authenticate with an AWS identity that has broad first-rollout deployment rights (`AdministratorAccess`, or a dedicated CDK deploy role). For the standard workflow, prefer AWS IAM Identity Center/SSO or another standard AWS credential-chain method; the workflow uses those credentials and never asks for long-lived access keys.
 
-The configured id (`us.anthropic.claude-sonnet-4-6`) is a **cross-region inference profile**, not a foundation-model id. Confirm it is listed:
-
-<details>
-<summary>macOS/Linux</summary>
+Configure and sign in with SSO, then point the deploy at that profile:
 
 ```bash
-aws bedrock list-inference-profiles \
-  --region ca-central-1 \
-  --query "inferenceProfileSummaries[?contains(inferenceProfileId, 'anthropic')].inferenceProfileId" \
-  --output text
+aws configure sso
+aws sso login --profile <your-profile>
+export AWS_PROFILE=<your-profile>          # PowerShell: $env:AWS_PROFILE = "<your-profile>"
+```
+
+Confirm the account before any deployment:
+
+```bash
+aws sts get-caller-identity                # honors AWS_PROFILE
+```
+
+> Setting `WREN_EXPECTED_ACCOUNT_ID` is optional for interactive deploys and acts only as a safety guard: if set, the workflow refuses to proceed when the profile resolves to a different account. It becomes **required** only for production (`WREN_ENVIRONMENT=prod`) or non-interactive/CI runs. For a normal interactive deploy, selecting the right profile is enough.
+---
+
+## First Deployment — Step by Step
+
+This is the recommended path for a first-time deployment. Follow the steps in order. Each step says what to do and what you should see before moving on. The [Deployment](#deployment) and [Advanced deployment configuration](#advanced-deployment-configuration) sections below are reference material for the same workflow.
+
+> **Read this first — the deploy runs more than once, on purpose.**
+>
+> `npm run deploy` is safe to run repeatedly. It will **pause and exit with code `3`** whenever it needs you to do something (sign up, confirm an email, provide a token). **Exit code 3 is not an error and not a rollback** — it is a checkpoint. You read the printed instruction, do the one thing it asks, and run the same command again. Setting up the first administrator takes **three** runs in total, because the system refuses to grant admin rights from a config value alone: the intended admin must sign in and prove their identity. That is deliberate and cannot be skipped.
+>
+> You will handle **two different tokens**. Don't mix them up:
+> - **GitHub personal access token (PAT)** — set once (`WREN_GITHUB_TOKEN`). Lets AWS read your repo for the frontend/pipeline. Long-lived.
+> - **Smoke access token** (`WREN_SMOKE_ACCESS_TOKEN`) — a temporary Cognito login token for the first admin, used once near the end to prove they can sign in. **Expires in about an hour**, so you fetch it right before the final run.
+
+### Step 1 — Prerequisites (one-time setup)
+
+1. Install the tools in [Requirements](#requirements) (git, AWS CLI v2, Node.js 22+).
+2. Sign in to AWS and select your profile: `aws sso login --profile <your-profile>`, then `export AWS_PROFILE=<your-profile>` (PowerShell: `$env:AWS_PROFILE = "<your-profile>"`). Confirm the target account with `aws sts get-caller-identity` — it shows the account you intend to deploy into.
+3. **Enable the Bedrock model.** In the AWS Console, open **Amazon Bedrock → Model access** in your target Region and enable the default model (`us.anthropic.claude-sonnet-4-6`) or the one you set in `WREN_BEDROCK_MODEL_ID`. Without this, the app deploys but feedback generation fails at runtime. The deploy verifies model access early and pauses with an actionable message if it's missing.
+4. **Create a GitHub personal access token (PAT).** You need a GitHub repo this account can read (a fork of WREN or the original). Create a token at **GitHub → Settings → Developer settings → Personal access tokens**:
+   - Classic token: enable the **`repo`** scope (and **`admin:repo_hook`** so the CI/CD pipeline can register its webhook).
+   - Fine-grained token: grant the target repository **Contents: read** and **Webhooks: read and write**.
+
+5. Ensure a **clean git working tree** at the commit you want to deploy (`git status` shows nothing to commit). The image is built from a snapshot of the committed revision, so uncommitted changes are not included.
+
+### Step 2 — Start the deploy (run #1)
+
+Set the variables and run the command from the repository root. Replace the placeholder values. Pick the block for your shell:
+
+<details open>
+<summary>macOS/Linux (bash)</summary>
+
+```bash
+export AWS_PROFILE=your-profile                  # selects the account (like `--profile`); no account ID needed
+export WREN_GITHUB_OWNER=YourOrgOrUser
+export WREN_GITHUB_REPO=WREN
+export WREN_GITHUB_BRANCH=main
+export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'       # the PAT from Step 1
+export WREN_ADMIN_EMAIL=admin@example.com        # who will be the first admin
+export WREN_REQUIRE_APPROVAL=never               # skips the interactive IAM prompt
+npm run deploy
 ```
 
 </details>
@@ -132,10 +164,14 @@ aws bedrock list-inference-profiles \
 <summary>PowerShell</summary>
 
 ```powershell
-aws bedrock list-inference-profiles `
-  --region ca-central-1 `
-  --query "inferenceProfileSummaries[?contains(inferenceProfileId, 'anthropic')].inferenceProfileId" `
-  --output text
+$env:AWS_PROFILE = "your-profile"        # selects the account (like --profile); no account ID needed
+$env:WREN_GITHUB_OWNER = "YourOrgOrUser"
+$env:WREN_GITHUB_REPO = "WREN"
+$env:WREN_GITHUB_BRANCH = "main"
+$env:WREN_GITHUB_TOKEN = "YOUR_GITHUB_PAT"
+$env:WREN_ADMIN_EMAIL = "admin@example.com"
+$env:WREN_REQUIRE_APPROVAL = "never"     # skips the interactive IAM prompt
+npm run deploy
 ```
 
 </details>
@@ -144,639 +180,374 @@ aws bedrock list-inference-profiles `
 <summary>Windows CMD</summary>
 
 ```cmd
-aws bedrock list-inference-profiles ^
-  --region ca-central-1 ^
-  --query "inferenceProfileSummaries[?contains(inferenceProfileId, 'anthropic')].inferenceProfileId" ^
-  --output text
+set AWS_PROFILE=your-profile
+set WREN_GITHUB_OWNER=YourOrgOrUser
+set WREN_GITHUB_REPO=WREN
+set WREN_GITHUB_BRANCH=main
+set WREN_GITHUB_TOKEN=YOUR_GITHUB_PAT
+set WREN_ADMIN_EMAIL=admin@example.com
+set WREN_REQUIRE_APPROVAL=never
+npm run deploy
 ```
 
 </details>
 
-&nbsp;
+> 
 
-Without model access, the app deploys but **feedback generation fails at runtime**.
+**What you should see:** the workflow verifies AWS/Bedrock, bootstraps, builds the image in CodeBuild, deploys the stacks, and then **pauses with exit code 3**, printing an Amplify sign-up URL and asking you to create the first-admin account. That pause is expected — go to Step 3.
 
-### Service Quotas
+> Keep the same variables set for every rerun in Steps 3–4 (in the same terminal session, or re-export them). Rerunning is how you advance; live AWS state is rediscovered each time.
 
-Default quotas are usually fine for `dev`. You should have headroom on:
+### Step 3 — Create the admin account, then rerun (run #2)
 
-- VPCs, Elastic IPs (NAT), RDS instances
-- Lambda concurrent executions
-- CloudFormation stacks (this app creates ~9–11 stacks)
+1. Open the **Amplify sign-up URL** the deploy printed.
+2. Sign up using the exact address in `WREN_ADMIN_EMAIL`, and confirm the email.
+3. You can stop after confirming the email; you don't need to do anything else in the app. (Signing in early is fine — the guided flow still elevates you to admin in place on the final run. It's simplest to just sign up, confirm, and continue.)
+4. Run `npm run deploy` again. This is your first rerun, so you can skip the dependency reinstall to save time — Step 2 already ran `npm ci` for the root and `cdk/` directories:
 
-If a deploy fails with a quota error, request an increase in **Service Quotas** and retry the same `cdk deploy` command.
+   ```bash
+   export WREN_SKIP_INSTALL=true   # PowerShell: $env:WREN_SKIP_INSTALL = "true"
+   npm run deploy
+   ```
 
-### Request Higher Bedrock Invocation Quotas
+   Keep it set for the Step 4 rerun too. Only leave it out (or set `false`) if you deleted `node_modules` or changed dependencies since Step 2; the workflow errors clearly if either `node_modules` directory is missing.
 
-For heavier or concurrent usage, request a higher Bedrock "requests per minute" quota before deploying:
+**What you should see:** the workflow finds your confirmed user, adds them to the Cognito `SystemAdmin` group, flags the account for one-time admin verification, then **pauses again (exit code 3)** asking for `WREN_SMOKE_ACCESS_TOKEN`. Go to Step 4.
 
-1. Navigate to the **AWS Service Quotas** console.
-2. Search for "Bedrock" and select the Anthropic Claude model behind your configured inference profile.
-3. Request a quota increase for "Requests per minute" based on expected usage.
-4. Submit and wait for AWS approval — this can take 24–48 hours.
+> Run #2 may briefly redeploy the Compute stack to arm the one-time admin-verification gate, so it can take a little longer than a pure no-op rerun even with the reinstall skipped.
 
-### Cognito Email
+### Step 4 — Prove the admin identity with a token, then rerun (run #3)
 
-Cognito uses Cognito's default email for verification codes (limited volume). For production, configure a Cognito SES identity later — it is not required to get the app running.
+You now fetch the **smoke access token** — a temporary login token for the admin user — and give it to the final run. It expires in ~1 hour, so do this right before rerunning.
 
----
+**Recommended: fetch it from the command line (no browser needed).** Run the block for your shell; it looks up your deployment's Cognito client for you. Set `prefix` to your stack prefix (`wren-dev` unless you changed project/environment).
 
-## Pre-Deployment
+> The blocks below keep `WREN_SKIP_INSTALL=true` (introduced in Step 3) so this rerun skips the dependency reinstall and goes straight to synthesis and the admin-verification checks. This run is typically the fastest, since the smoke token is verified against the API without redeploying stacks.
 
-### Step 0: Configure AWS Credentials
-
-Create or choose an IAM principal with broad deploy rights for the first rollout (`AdministratorAccess`, or a dedicated CDK deploy role).
-
-```bash
-aws configure
-```
-
-Set:
-
-- Access key / secret (or use SSO: `aws configure sso`)
-- Default region `ca-central-1` (the app still pins residency via CDK context)
-- Output `json`
-
-Confirm the account you will deploy into:
+<details open>
+<summary>macOS/Linux (bash) — fetch the token and rerun</summary>
 
 ```bash
-aws sts get-caller-identity
+PREFIX="wren-dev"                 # change if your prefix differs
+EMAIL="admin@example.com"         # the first admin's email
+read -rsp "Admin password: " PASSWORD; echo   # prompted; nothing is saved
+
+CLIENT_ID=$(aws ssm get-parameter --name "/$PREFIX/auth/client-id" --query Parameter.Value --output text)
+POOL_ID=$(aws ssm get-parameter --name "/$PREFIX/auth/user-pool-id" --query Parameter.Value --output text)
+
+export WREN_SMOKE_ACCESS_TOKEN=$(aws cognito-idp admin-initiate-auth \
+  --user-pool-id "$POOL_ID" \
+  --client-id "$CLIENT_ID" \
+  --auth-flow ADMIN_USER_PASSWORD_AUTH \
+  --auth-parameters "USERNAME=$EMAIL,PASSWORD=$PASSWORD" \
+  --query "AuthenticationResult.AccessToken" --output text)
+
+export WREN_REQUIRE_APPROVAL=never   # keep set from Step 2; re-export here if you opened a new shell
+export WREN_SKIP_INSTALL=true        # Step 2 already ran npm ci; skip the reinstall to speed up this rerun
+npm run deploy
 ```
 
-> Note the `Account` value — CDK uses `CDK_DEFAULT_ACCOUNT` from this identity when you run `npx cdk` from `cdk/`.
+</details>
 
-Bootstrap CDK **after** you clone the repo and install dependencies ([Deployment Step 2](#step-2-bootstrap-cdk-two-regions)). `npx cdk` must run from `cdk/` with that package's `node_modules` present.
+<details>
+
+<summary>PowerShell — fetch the token and rerun</summary>
+
+```powershell
+$prefix = "wren-dev"                 # change if your prefix differs
+$email  = "admin@example.com"        # the first admin's email
+$password = Read-Host "Admin password"   # prompted; nothing is saved
+
+$clientId = aws ssm get-parameter --name "/$prefix/auth/client-id" --query Parameter.Value --output text
+$poolId = aws ssm get-parameter --name "/$prefix/auth/user-pool-id" --query Parameter.Value --output text
+
+$env:WREN_SMOKE_ACCESS_TOKEN = aws cognito-idp admin-initiate-auth `
+  --user-pool-id $poolId `
+  --client-id $clientId `
+  --auth-flow ADMIN_USER_PASSWORD_AUTH `
+  --auth-parameters "USERNAME=$email,PASSWORD=$password" `
+  --query "AuthenticationResult.AccessToken" --output text
+
+$env:WREN_REQUIRE_APPROVAL = "never"   # keep set from Step 2; re-set here if you opened a new shell
+npm run deploy
+```
+
+</details>
+
+> **If the token comes back empty** (instead of a long string), the account needs a first interactive sign-in — sign in once in the browser to set a permanent password or complete MFA, then run the block again.
+
+<details>
+<summary>Alternative: copy the token from the browser</summary>
+
+Sign in to the app, open developer tools (F12), go to **Application → Local Storage**, and copy the value whose key ends in **`.accessToken`**. Set it as `WREN_SMOKE_ACCESS_TOKEN` and run `npm run deploy`.
+
+</details>
+
+**What you should see:** the workflow confirms the signed-in user really is the admin, removes the temporary verification flag, runs its final smoke checks, and completes. **You're done.** Don't save or commit the token — it expires on its own and was only needed for this run.
+
+### Step 5 — Confirm it's up
+
+- If Amplify is enabled, the deploy prints the hosted application URL. Open it and sign in as the admin.
+- The first admin can now assign roles to other users from within the app.
+
+If any step stops with exit code 3 or an error, read the printed instruction, complete that one action, and rerun `npm run deploy`. See [Troubleshooting](#troubleshooting) for specific messages.
 
 ---
 
 ## Deployment
 
-### Step 1: Clone the Repository and Install Dependencies
+**New here? Follow [First Deployment — Step by Step](#first-deployment--step-by-step) instead** — it walks the same workflow linearly, including the three-run first-admin setup and the smoke-token step. This section is a condensed reference for the same command.
+
+The default hosted deployment sets the target account, GitHub source + PAT, and the intended first administrator, then runs `npm run deploy` from the repository root:
 
 ```bash
-git clone <YOUR_REPO_URL> WREN
-cd WREN
+export AWS_PROFILE=your-profile                  # selects the account (like `--profile`)
+export WREN_GITHUB_OWNER=YourOrgOrUser
+export WREN_GITHUB_REPO=WREN
+export WREN_GITHUB_BRANCH=main
+export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'
+export WREN_ADMIN_EMAIL=admin@example.com
+export WREN_REQUIRE_APPROVAL=never               # deploy runs CDK without a TTY; skips the interactive IAM prompt
+npm run deploy
 ```
 
-Install **both** the monorepo root and the CDK package. The `Compute` stack bundles workspace packages (`@wren/auth`, `@wren/db-node`, …) from the root `node_modules`.
+For production or non-interactive/CI runs, also set `export WREN_EXPECTED_ACCOUNT_ID=YourAccountId` as a guard; it is optional for interactive deploys where the profile already selects the account.
+
+(PowerShell/CMD equivalents are shown in the [step-by-step walkthrough](#step-2--start-the-deploy-run-1).)
+
+The command is **idempotent and rerun-driven**: it pauses with exit code **3** whenever human action is required, and you rerun the same command after doing it. First-admin setup takes three runs — create/confirm the account, claim the `SystemAdmin` role, then prove identity with a temporary `WREN_SMOKE_ACCESS_TOKEN`. The workflow never grants admin from a config value alone; the intended user must sign in and prove their identity. See [Step 3](#step-3--create-the-admin-account-then-rerun-run-2) and [Step 4](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3) for the exact actions and the token-fetch commands.
+
+Preview without changing AWS resources:
 
 ```bash
-npm ci
-cd cdk
-npm ci
-cd ..
+WREN_DRY_RUN=true npm run deploy       # macOS/Linux
 ```
-
-_Note: If `npm ci` fails with a lockfile mismatch, use `npm install` in the same directories instead._
-
-How Node workspaces, uv/pip pins, and the Feedback Engine image relate: [Dependency Management Guide](./dependency-management.md).
-
-### Step 2: Bootstrap CDK (Two Regions)
-
-AWS requires a CDK bootstrap in the **data-plane Region** and in **`us-east-1`** (only because the CloudFront-scoped WAF stack is created there). CloudFront itself remains a global CDN. Run this from `cdk/` **after** `npm ci` in that directory.
-
-<details>
-<summary>macOS/Linux</summary>
-
-```bash
-cd cdk
-ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-
-npx cdk bootstrap "aws://$ACCOUNT/ca-central-1"
-npx cdk bootstrap "aws://$ACCOUNT/us-east-1"
-cd ..
-```
-
-</details>
-
-<details>
-<summary>PowerShell</summary>
 
 ```powershell
-cd cdk
-$ACCOUNT = (aws sts get-caller-identity --query Account --output text)
-
-npx cdk bootstrap "aws://$ACCOUNT/ca-central-1"
-npx cdk bootstrap "aws://$ACCOUNT/us-east-1"
-cd ..
+$env:WREN_DRY_RUN = "true"; npm run deploy
 ```
 
-</details>
+Dry run performs identity, Bedrock availability, CloudFormation discovery, and local CDK synthesis only. It does not acquire the mutation lock or create/load a deployment checkpoint. Remove/unset `WREN_DRY_RUN` before the real deployment.
 
-<details>
-<summary>Windows CMD</summary>
+### Deployment workflow implementation
 
-```cmd
-cd cdk
-for /f %%A in ('aws sts get-caller-identity --query Account --output text') do set ACCOUNT=%%A
+The runnable workflow is intentionally kept in source alongside the infrastructure rather than duplicated as a second runbook:
 
-npx cdk bootstrap "aws://%ACCOUNT%/ca-central-1"
-npx cdk bootstrap "aws://%ACCOUNT%/us-east-1"
-cd ..
-```
+- Root command bootstrap: [`scripts/wren-ops.mjs`](../scripts/wren-ops.mjs)
+- Deploy orchestration: [`cdk/scripts/deploy.ts`](../cdk/scripts/deploy.ts) and [`cdk/scripts/operations/deployWorkflow.ts`](../cdk/scripts/operations/deployWorkflow.ts)
+- Protected teardown: [`cdk/scripts/undeploy.ts`](../cdk/scripts/undeploy.ts) and [`cdk/scripts/operations/undeployWorkflow.ts`](../cdk/scripts/operations/undeployWorkflow.ts)
+- Configuration, checkpointing, AWS discovery, redaction, and shell-free execution: [`cdk/scripts/operations/`](../cdk/scripts/operations/)
 
-</details>
+Use this guide for operator inputs, safety gates, and recovery behavior. Consult the linked workflow modules when extending the deployment sequence or diagnosing an implementation-specific failure; changes should preserve the documented ordering, secret-handling, and retention guarantees.
 
-&nbsp;
+### Variables for the standard deployment
 
-You should see CloudFormation stacks named `CDKToolkit` in both regions.
+For the default hosted deployment, set only the following variables before the first `npm run deploy`. The first-admin token is a follow-up input, not a first-run requirement.
 
-### Step 3: Choose Configuration
-
-All naming and display settings are **CDK context** (or environment variables) — you do not edit source to rebrand.
-
-| Context key | Default | Meaning |
+| Variable | Default | Standard deployment use |
 | --- | --- | --- |
-| `appName` | `LEON` | UI / email display name (SSM `/wren-dev/config/app-name`) |
-| `projectName` | `wren` | Resource naming |
-| `environmentName` | `dev` (also in `cdk/cdk.json`) | `dev` / `staging` / `prod` |
-| `stackPrefix` | `{projectName}-{environmentName}` | e.g. `wren-dev` |
-| `bedrockModelId` | `us.anthropic.claude-sonnet-4-6` | Bedrock model |
-| `region` | `ca-central-1` | Data-plane region (not taken from your AWS CLI default region) |
-| `githubOwner` | unset | GitHub org or user (enables Amplify + CI/CD) |
-| `githubRepo` | unset | Repository name |
-| `githubBranch` | `main` | Pipeline source branch |
+| `AWS_PROFILE` | AWS CLI default credential chain | The named AWS CLI/SSO profile that selects the target account — the environment-variable equivalent of `--profile <name>`. This is how you choose which account WREN deploys into; set it and you do not need to supply the account ID. |
+| `WREN_EXPECTED_ACCOUNT_ID` | unset | Optional safety guard: your expected 12-digit AWS account ID. When set, the deploy aborts if the active profile resolves to a different account. Optional for interactive deploys (the profile already selects the account); **required** for production or non-interactive deployments. |
+| `WREN_GITHUB_OWNER` / `WREN_GITHUB_REPO` | unset | GitHub owner and repository for the default Amplify-hosted frontend. |
+| `WREN_GITHUB_BRANCH` | `main` | GitHub branch deployed by Amplify. |
+| `WREN_GITHUB_TOKEN` | unset | GitHub personal access token used to create the Amplify and CI/CD secrets. **Required on first setup** because CI/CD is built by default; it can be omitted on later runs once both secrets already exist. |
+| `WREN_ENABLE_CICD` | `true` | Builds the CodePipeline CI/CD pipeline by default. Leave it at `true` for the standard path; set `false` only to skip the pipeline. |
+| `WREN_REQUIRE_APPROVAL` | `broadening` interactively; otherwise `never` | Set to `never` for the standard `npm run deploy`. The deploy runs CDK without an attached terminal, so the default `broadening` prompt for IAM changes cannot be answered and aborts with `terminal (TTY) is not attached`. `never` applies those changes without prompting; for production, review the change first with `WREN_DRY_RUN=true`. |
+| `WREN_ADMIN_EMAIL` | unset | Email address for the intended first administrator. The guided first-admin flow uses this value to pick who becomes admin. |
+| `WREN_SMOKE_ACCESS_TOKEN` | unset | The first administrator's fresh Cognito **access token**, set only for the final first-admin run (step 3 above). It proves that user authenticates as an admin so the temporary elevation can be removed, and completes the authenticated smoke checks. Copy it from the signed-in session; never commit or persist it. |
 
-Set the GitHub values now if you're ready for hosting; otherwise leave them unset for the core deploy.
+All target customization, API-only hosting, CI/CD, ECR ownership, image, recovery, automation, preview, and teardown variables are in [Advanced deployment configuration](#advanced-deployment-configuration). Leave them unset for the standard path.
 
-> **GitHub context note:** Setting `GITHUB_OWNER`/`GITHUB_REPO` tells CDK to include the `Amplify` and `Cicd` stacks, but those stacks also require Secrets Manager entries (`wren-dev/github/token` and `wren-dev/cicd/github-pat`) that aren't created until [Step 6](#step-6-connect-github-amplify-and-cicd). If you set these variables now and run `npx cdk deploy --all` before creating those secrets, the Amplify/CICD deploys will fail. The safest path: leave GitHub unset for the core deploy, then return to Step 3 and set these variables before running [Step 6](#step-6-connect-github-amplify-and-cicd).
+Secrets are redacted from command errors/output. GitHub secret values are passed to AWS through temporary mode-`0600` files that are removed immediately after use.
 
-<details>
-<summary>macOS/Linux</summary>
+### Advanced deployment configuration
+
+This section documents environment variables for non-default deployment, recovery, automation, and teardown scenarios. For the normal hosted deployment, use only the short list in [Variables for the standard deployment](#variables-for-the-standard-deployment) and leave the variables below unset unless a scenario explicitly requires them.
+
+Do not commit access tokens or GitHub personal access tokens to source control. The deployment workflow redacts secrets from its output and removes its temporary secret files after use.
+
+#### AWS target and application identity
+
+| Variable | Default | Use only when |
+| --- | --- | --- |
+| `AWS_PROFILE` | AWS CLI default credential chain | Selecting a named AWS CLI profile or SSO session. This is the standard, recommended way to pick the target account (see [Variables for the standard deployment](#variables-for-the-standard-deployment)); it is listed here only for completeness. Standard AWS credential environment variables also work. |
+| `WREN_REGION` | `ca-central-1` | Deploying the data plane outside the default Region. The CloudFront WAF stack and its second CDK bootstrap remain in `us-east-1`. |
+| `WREN_APP_NAME` | `LEON` | Changing the user-facing display name in the UI and email. The default is `LEON` for backward compatibility with existing deployments; new deployments should set this to the intended display name (for example `WREN`). Should be done at the start of the deployment only |
+| `WREN_BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-6` | You only need this if your account/Region cannot access the default or you want to start on another model. A Technical Admin can change the model in-app afterward, and that choice overrides this deploy-time value. |
+| `WREN_PROJECT_NAME` | `wren` | Changing the lowercase resource-name prefix component. |
+| `WREN_ENVIRONMENT` | `dev` | Deploying a distinct environment, such as `staging` or `prod`. Production deployments require `WREN_EXPECTED_ACCOUNT_ID`. |
+| `WREN_STACK_PREFIX` | `{project}-{environment}` | Supplying the derived stack prefix explicitly. Its value must exactly equal `WREN_PROJECT_NAME-WREN_ENVIRONMENT`. |
+
+**Changing the stack prefix.** The stack prefix (default `wren-dev`, producing stacks like `wren-dev-Vpc`) is always derived as `{WREN_PROJECT_NAME}-{WREN_ENVIRONMENT}`. To change it, set those two variables — for example `WREN_PROJECT_NAME=myproject` and `WREN_ENVIRONMENT=staging` yields the prefix `myproject-staging`. Both must start with a lowercase letter and contain only lowercase letters, digits, or hyphens. `WREN_STACK_PREFIX` does **not** override the prefix freely; if set, it must exactly equal the derived value, so it only serves to assert the prefix you expect (the deploy fails otherwise). A prefix change names an entirely separate deployment (distinct stacks, resource names, and `/{prefix}/…` SSM paths) rather than renaming an existing one, and it starts a fresh deployment operation.
+
+#### Hosting, CI/CD, images, and ECR ownership
+
+| Variable | Default | Use only when |
+| --- | --- | --- |
+| `WREN_ENABLE_AMPLIFY` | `true` | Running an API-only deployment with `false`. GitHub owner/repository variables become optional only when both Amplify and CI/CD are disabled. |
+| `WREN_CUSTOM_DOMAIN` | unset | Serving the frontend on your own domain instead of only the Amplify default. Set a bare hostname such as `example.com`; the production branch is mapped to the root and `www`. When unset, the frontend is reachable only via the Amplify default `*.amplifyapp.com` domain. No domain is hard-coded. See [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain). |
+| `WREN_ALLOWED_EMAIL_DOMAINS` | unset | Restricting **new** self-signups to specific email hostnames (for example `example.ca`). Unset keeps signup open to any valid email; existing accounts can always sign in. See [Restricting signup to email domains](#restricting-signup-to-email-domains). |
+| `WREN_ENABLE_CICD` | `true` | Skipping the CodePipeline CI/CD pipeline with `false`. Enabled by default, so the standard path builds it and needs `WREN_GITHUB_TOKEN` on first setup; the `Cicd` prerequisite stack is created regardless. |
+| `WREN_ECR_OWNERSHIP` | `managed` | Reusing a verified pre-existing repository by setting `external`. New deployments should keep `managed`; ownership is never silently adopted. |
+| `WREN_ENGINE_IMAGE_TAG` | commit-scoped `src-<shortsha>` | Forcing a specific ECR image tag instead of the commit-derived one. By default the workflow builds the image under `src-<first 12 of the commit sha>` and pins the deployed Lambda to the resulting immutable **digest**; leave this unset for that commit-safe behavior. Setting it bypasses commit-scoping, so safe reuse then relies on the checkpoint's recorded source commit matching the revision being deployed. See [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built). |
+
+##### External ECR safety requirement
+
+Use `WREN_ECR_OWNERSHIP=external` only when the expected `{prefix}-feedback-engine` repository already exists outside CloudFormation. Its repository policy must allow the `lambda.amazonaws.com` service principal to call `ecr:GetDownloadUrlForLayer`, `ecr:BatchGetImage`, and `ecr:BatchCheckLayerAvailability`. The workflow stops before deployment if this policy is absent or incomplete.
+
+#### Serving the frontend on a custom domain
+
+By default the frontend is reachable only at the Amplify default domain (`https://<branch>.<app-id>.amplifyapp.com`). To serve it on your own domain instead, set `WREN_CUSTOM_DOMAIN` to a bare hostname before deploying:
 
 ```bash
-export GITHUB_OWNER=YourOrgOrUser
-export GITHUB_REPO=WREN
-export GITHUB_BRANCH=main
+export WREN_CUSTOM_DOMAIN=example.com
 ```
 
-</details>
+This is entirely optional and no domain is baked into the project — omit the variable and deployment behaves exactly as before. When set, WREN maps the Amplify production branch to both the domain root (`https://example.com`) and its `www` subdomain (`https://www.example.com`), and prints a `CustomDomainUrl` stack output. WREN does not create or modify any Route 53 or ACM resources itself, so the feature works regardless of where your DNS is hosted; Amplify manages the TLS certificate.
 
-<details>
-<summary>PowerShell</summary>
+There are two DNS paths, and WREN supports both because it only creates the Amplify domain association:
+
+- **Hosted zone in the same AWS account (automatic).** If the domain's Route 53 hosted zone lives in the account you deploy into, Amplify provisions the certificate and creates the required DNS records automatically. No manual steps.
+- **DNS elsewhere (manual verification).** If the zone is in a different AWS account or with an external provider (Cloudflare, GoDaddy, etc.), Amplify surfaces certificate-validation and CNAME records that you add by hand in that provider. Open **AWS Console → Amplify → your app → Domain management** to copy the exact records.
+
+In both cases the certificate and domain association can take several minutes (occasionally longer) to become live. Until then the Amplify default domain keeps working, and the deploy workflow automatically falls back to it for its post-deploy smoke test if the custom domain is not yet reachable.
+
+#### Restricting signup to email domains
+
+By default anyone with a valid email can create an account. To allow **new** sign-ups only from listed hostnames, set `WREN_ALLOWED_EMAIL_DOMAINS` before deploying:
+
+```bash
+export WREN_ALLOWED_EMAIL_DOMAINS=ubc.ca
+```
+
+Matching is exact and case-insensitive. `example.ca` allows `user@example.ca` and `user@EXAMPLE.CA`. It does **not** allow `user@department.example.ca` — list every hostname you need, comma-separated (`example.ca,department.example.ca`).
+
+This applies only to new Cognito self-signups. Sign-in, password reset, and accounts that already exist are unchanged. Unset the variable (or set it empty) and deploy again to return to unrestricted signup.
+
+If you also set `WREN_ADMIN_EMAIL`, that address must use one of the listed domains; otherwise the first-admin signup cannot complete.
+
+The Cognito PreSignUp trigger is the authoritative gate. The Amplify frontend receives the same list so the sign-up form can show a clear error before Cognito.
+
+#### Recovery and automation controls
+
+| Variable | Default | Use only when |
+| --- | --- | --- |
+| `WREN_ADMIN_ALREADY_CONFIGURED` | `false` | Recovering a legacy environment that already has an administrator but cannot complete the guided first-admin sign-in flow. |
+| `WREN_BOOTSTRAP_MISSING` | `true` interactively; otherwise `false` | Allowing the workflow to create missing CDK bootstrap stacks. Existing bootstraps are always discovered and reused. |
+| `WREN_REQUIRE_APPROVAL` | `broadening` interactively; otherwise `never` | Choosing the CDK approval mode: `broadening` or `never`. |
+| `WREN_NON_INTERACTIVE` | `CI=true` | Enforcing non-interactive safety behavior. It requires `WREN_EXPECTED_ACCOUNT_ID` and defaults CDK approval to `never`. |
+| `WREN_SKIP_INSTALL` | `false` | Skipping both `npm ci` operations only when the root and `cdk/` `node_modules` directories already exist and are known-good. |
+
+#### Preview and protected teardown
+
+| Variable | Default | Use only when |
+| --- | --- | --- |
+| `WREN_DRY_RUN` | `false` | Discovering and synthesizing deployment or teardown state without mutating AWS resources. |
+| `WREN_UNDEPLOY_CONFIRM` | unset | Authorizing `npm run undeploy`. It is ignored by `npm run deploy`. |
+
+`npm run undeploy` is deliberately protected and retains application data and foundational resources. Before it makes changes, the command prints the exact confirmation value required for `WREN_UNDEPLOY_CONFIRM`; it has the form `<account-id>/<region>/<stack-prefix>`. Set that complete value exactly, then rerun the command. See [Cleanup](#cleanup) for retained-resource behavior. Implementation details are in the [deployment workflow modules](#deployment-workflow-implementation).
+
+## Monitoring and Operational Ownership
+
+The `Observability` stack creates CloudWatch alarms and publishes every alarm to the SNS topic `${stackPrefix}-alarms`. By default, that topic has no recipient. Set the optional `alarmEmail` CDK context during deployment to create an email subscription. AWS sends a confirmation link to that address; alarms are not delivered until the recipient accepts it.
+
+This setup is portable to another AWS account. Replace the profile, stack prefix, Region, and email below with values for that deployment. Do not copy the `wren-dev` identifiers unless that is actually the new environment.
 
 ```powershell
-$env:GITHUB_OWNER = "YourOrgOrUser"
-$env:GITHUB_REPO = "WREN"
-$env:GITHUB_BRANCH = "main"
-```
+$Profile = "my-aws-profile"
+$StackPrefix = "myproject-dev"
+$Region = "ca-central-1"
+$AlarmEmail = "oncall@example.com"
 
-</details>
-
-<details>
-<summary>Windows CMD</summary>
-
-```cmd
-set GITHUB_OWNER=YourOrgOrUser
-set GITHUB_REPO=WREN
-set GITHUB_BRANCH=main
-```
-
-</details>
-
-&nbsp;
-
-> **appName note:** You can override the display name at deploy time without touching context defaults: `npx cdk deploy -c appName="My Coach" -c environmentName=dev`. The default display name is `LEON`.
-
-### Step 4: Build and Push the Feedback Engine Image
-
-`Compute` **will fail** if this repository or the `bootstrap` tag is missing.
-
-**4.1 Create the ECR repository**
-
-Use the same prefix as your stacks (default `wren-dev`):
-
-<details>
-<summary>macOS/Linux</summary>
-
-```bash
-aws ecr create-repository \
-  --repository-name wren-dev-feedback-engine \
-  --region ca-central-1 \
-  --image-scanning-configuration scanOnPush=true
-```
-
-</details>
-
-<details>
-<summary>PowerShell</summary>
-
-```powershell
-aws ecr create-repository `
-  --repository-name wren-dev-feedback-engine `
-  --region ca-central-1 `
-  --image-scanning-configuration scanOnPush=true
-```
-
-</details>
-
-<details>
-<summary>Windows CMD</summary>
-
-```cmd
-aws ecr create-repository ^
-  --repository-name wren-dev-feedback-engine ^
-  --region ca-central-1 ^
-  --image-scanning-configuration scanOnPush=true
-```
-
-</details>
-
-&nbsp;
-
-If the repository already exists, continue.
-
-> **Choosing an ECR ownership path.** If you later deploy the `Cicd` stack, it creates this same repository — do not deploy `Cicd` first and also create a conflicting repo with different settings. The reliable first-time path used in this guide is: **manual ECR create → push `bootstrap` → deploy `Compute`**. Add `Cicd` afterward only if you want the pipeline; if `Cicd` fails because the repo name is taken, keep the manual repo and skip `Cicd`, or remove the CDK-managed repo resource and keep using manual pushes. Many teams run CDK CLI deploys and skip `Cicd` entirely.
-
-**4.2 Build and push the engine image**
-
-Run this from the **repository root** (not `cdk/`):
-
-<details>
-<summary>macOS/Linux</summary>
-
-```bash
-ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-REGION=ca-central-1
-REPO="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/wren-dev-feedback-engine"
-
-aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
-
-docker build -t "${REPO}:bootstrap" backend/engine/python/
-docker push "${REPO}:bootstrap"
-```
-
-</details>
-
-<details>
-<summary>PowerShell</summary>
-
-```powershell
-$ACCOUNT = (aws sts get-caller-identity --query Account --output text)
-$REGION = "ca-central-1"
-$REPO = "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/wren-dev-feedback-engine"
-
-aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
-
-docker build -t "${REPO}:bootstrap" backend/engine/python/
-docker push "${REPO}:bootstrap"
-```
-
-</details>
-
-<details>
-<summary>Windows CMD</summary>
-
-```cmd
-for /f %%A in ('aws sts get-caller-identity --query Account --output text') do set ACCOUNT=%%A
-set REGION=ca-central-1
-set REPO=%ACCOUNT%.dkr.ecr.%REGION%.amazonaws.com/wren-dev-feedback-engine
-
-aws ecr get-login-password --region %REGION% | docker login --username AWS --password-stdin %ACCOUNT%.dkr.ecr.%REGION%.amazonaws.com
-
-docker build -t %REPO%:bootstrap backend/engine/python/
-docker push %REPO%:bootstrap
-```
-
-</details>
-
-&nbsp;
-
-> Do **not** push only the empty `public.ecr.aws/lambda/python:3.12` base image — CloudFormation will succeed, but the Feedback Engine won't run the WREN handler.
-
-Confirm the push:
-
-```bash
-aws ecr describe-images --repository-name wren-dev-feedback-engine --region ca-central-1
-```
-
-You should see tag `bootstrap`.
-
-### Step 5: CDK Deployment
-
-From `cdk/`, synth once to catch errors early:
-
-```bash
 cd cdk
-npx cdk synth
+npx cdk deploy "$StackPrefix-Observability" `
+  --profile $Profile `
+  -c stackPrefix=$StackPrefix `
+  -c region=$Region `
+  -c alarmEmail=$AlarmEmail
 ```
 
-You should see a warning that Amplify and CI/CD are skipped if GitHub context is not set — that's expected.
+Keep `alarmEmail` in the deployment pipeline or pass it on every future `Observability` deployment. If a later synth omits the context value, CloudFormation will remove the managed email subscription.
 
-Deploy in this order, approving IAM changes when prompted (`y`), or pass `--require-approval never` if your security process allows it:
+The configured alarms are:
 
-```bash
-npx cdk deploy wren-dev-Config
-npx cdk deploy wren-dev-Vpc
-npx cdk deploy wren-dev-Storage
-npx cdk deploy wren-dev-Cognito
-npx cdk deploy wren-dev-Database
-```
+| Signal | Alarm condition | What it can indicate |
+| --- | --- | --- |
+| Lambda errors | More than 5 errors in one 5-minute period, per monitored function | Broken dependencies, permissions, networking, or application failures |
+| Lambda throttles | More than 1 throttle in each of two 5-minute periods | Insufficient concurrency or a traffic spike |
+| Feedback queue depth | More than 50 visible messages for two 5-minute periods | Feedback processing is falling behind |
+| Feedback dead-letter queue | At least 1 visible message | A feedback job exhausted its retries and needs investigation |
+| API Gateway latency | p99 latency above 10 seconds for three 5-minute periods | Slow API integrations or downstream services |
 
-`Database` takes the longest (RDS + proxy + migration custom resource) — wait until it reaches `CREATE_COMPLETE`. Migrations run automatically against the proxy.
+The stack sets Lambda log retention to 30 days for non-production environments and 90 days when `environmentName=prod`. Separately, the VPC stack records accepted and rejected traffic in VPC Flow Logs for 30 days. Flow Logs support investigation but do not currently send an alarm by themselves.
 
-Then:
-
-```bash
-npx cdk deploy wren-dev-Compute
-npx cdk deploy wren-dev-Api
-npx cdk deploy wren-dev-Observability
-npx cdk deploy wren-dev-CloudFrontWaf
-```
-
-`CloudFrontWaf` deploys to `us-east-1` and may take 10–20 minutes.
-
-Alternatively, once `Config` through `Database` are up and the ECR image exists:
-
-```bash
-npx cdk deploy --all
-```
-
-_Note: `--all` still skips Amplify/CI-CD without GitHub settings, but it **will** include `Compute` — the ECR `bootstrap` image must already exist._
-
-#### Stacks Deployed
-
-| Stack | Description |
-| --- | --- |
-| `wren-dev-Config` | SSM parameters and Bedrock Guardrail |
-| `wren-dev-Vpc` | VPC, subnets, NAT gateway, VPC endpoints, flow logs |
-| `wren-dev-Storage` | S3 buckets and DynamoDB conversation table |
-| `wren-dev-Cognito` | User pool, app client, `SystemAdmin` group |
-| `wren-dev-Database` | RDS PostgreSQL 16.13, RDS Proxy, schema migrations |
-| `wren-dev-Compute` | Lambdas, SQS queues, AppSync (realtime) |
-| `wren-dev-Api` | REST API Gateway |
-| `wren-dev-Observability` | CloudWatch log retention and alarms |
-| `wren-dev-CloudFrontWaf` | CloudFront distribution + CloudFront-scoped WAF (stack in `us-east-1`) |
-| `wren-dev-Cicd` | ECR repo + CodePipeline (GitHub context only) |
-| `wren-dev-Amplify` | Frontend hosting (GitHub context only) |
-
-#### Capture Important Outputs
-
-```bash
-aws cloudformation describe-stacks --stack-name wren-dev-Api --region ca-central-1 --query "Stacks[0].Outputs"
-aws cloudformation describe-stacks --stack-name wren-dev-Compute --region ca-central-1 --query "Stacks[0].Outputs"
-aws cloudformation describe-stacks --stack-name wren-dev-CloudFrontWaf --region us-east-1 --query "Stacks[0].Outputs"
-```
-
-Record:
-
-- **ApiEndpoint** — `https://{apiId}.execute-api.ca-central-1.amazonaws.com/dev/`
-- Cognito **user pool id** and **client id** from SSM (the Cognito stack does not export CloudFormation outputs):
-
-```bash
-aws ssm get-parameter --name /wren-dev/auth/user-pool-id --region ca-central-1 --query Parameter.Value --output text
-aws ssm get-parameter --name /wren-dev/auth/client-id --region ca-central-1 --query Parameter.Value --output text
-```
-
-- **AppSyncGraphqlUrl** from the `Compute` stack
-- **DistributionDomainName** from `CloudFrontWaf` (API CDN)
-
-_Note: The frontend should call the API Gateway URL (Amplify injects `VITE_API_BASE_URL` from the `Api` stack). CloudFront fronts the API as its default origin, so you can also use the CloudFront domain as an alternate API hostname._
-
----
-
-## Post-Deployment
-
-### Step 6: Connect GitHub, Amplify, and CI/CD
-
-Skip this step if you'll only run the UI locally (see [Step 8: Open the Web App](#step-8-open-the-web-app)). For a public URL, complete it.
-
-**6.1 Create a GitHub personal access token**
-
-Create a **classic** PAT with:
-
-- `repo` (private repo access if the repo is private)
-- `admin:repo_hook` (webhooks for Amplify / CodePipeline)
-
-See GitHub's [guide to creating a classic personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic) for step-by-step instructions. Fine-grained tokens are not supported by Amplify or the CodePipeline GitHub source action used in this project.
-
-**Once you create a token, note down its value** — you'll store it in Secrets Manager, not in git.
-
-**6.2 Store secrets in AWS**
-
-Names must match the CDK app (default prefix `wren-dev`):
-
-<details>
-<summary>macOS/Linux</summary>
-
-```bash
-aws secretsmanager create-secret \
-  --name "wren-dev/github/token" \
-  --secret-string "YOUR_GITHUB_PAT" \
-  --region ca-central-1
-
-aws secretsmanager create-secret \
-  --name "wren-dev/cicd/github-pat" \
-  --secret-string "YOUR_GITHUB_PAT" \
-  --region ca-central-1
-```
-
-</details>
-
-<details>
-<summary>PowerShell</summary>
+After deploying, open the SNS confirmation email and accept it. Then verify that AWS no longer reports the subscription as `PendingConfirmation`:
 
 ```powershell
-aws secretsmanager create-secret `
-  --name "wren-dev/github/token" `
-  --secret-string "YOUR_GITHUB_PAT" `
-  --region ca-central-1
-
-aws secretsmanager create-secret `
-  --name "wren-dev/cicd/github-pat" `
-  --secret-string "YOUR_GITHUB_PAT" `
-  --region ca-central-1
+$Account = aws sts get-caller-identity --profile $Profile --query Account --output text
+$TopicArn = "arn:aws:sns:$Region:$Account:$StackPrefix-alarms"
+aws sns list-subscriptions-by-topic `
+  --profile $Profile `
+  --region $Region `
+  --topic-arn $TopicArn `
+  --query "Subscriptions[].{Protocol:Protocol,Endpoint:Endpoint,Status:SubscriptionArn}" `
+  --output table
 ```
 
-</details>
+After confirmation, send a harmless delivery test and verify that the recipient receives it:
 
-<details>
-<summary>Windows CMD</summary>
-
-```cmd
-aws secretsmanager create-secret ^
-  --name "wren-dev/github/token" ^
-  --secret-string "YOUR_GITHUB_PAT" ^
-  --region ca-central-1
-
-aws secretsmanager create-secret ^
-  --name "wren-dev/cicd/github-pat" ^
-  --secret-string "YOUR_GITHUB_PAT" ^
-  --region ca-central-1
+```powershell
+aws sns publish `
+  --profile $Profile `
+  --region $Region `
+  --topic-arn $TopicArn `
+  --subject "Monitoring delivery test" `
+  --message "SNS alarm delivery is configured for $StackPrefix."
 ```
 
-</details>
-
-&nbsp;
-
-`Amplify` uses `wren-dev/github/token`. The pipeline uses `wren-dev/cicd/github-pat`. The same PAT can be stored in both secrets.
-
-If a secret already exists, update it instead:
-
-```bash
-aws secretsmanager put-secret-value --secret-id "wren-dev/github/token" --secret-string "YOUR_GITHUB_PAT" --region ca-central-1
-```
-
-**6.3 Deploy Amplify (required for hosted UI)**
-
-From `cdk/`:
-
-```bash
-npx cdk deploy wren-dev-Amplify \
-  -c githubOwner=YourOrgOrUser \
-  -c githubRepo=WREN \
-  -c githubBranch=main
-```
-
-Or set `GITHUB_OWNER` / `GITHUB_REPO` in the environment (see [Step 3: Choose Configuration](#step-3-choose-configuration)) and run `npx cdk deploy wren-dev-Amplify`.
-
-Amplify builds `frontend/` with Node 22 and injects:
-
-- `VITE_API_BASE_URL` — API Gateway stage URL
-- `VITE_APP_NAME` — CDK `appName`
-- `VITE_ENVIRONMENT` — `dev` (or your `environmentName`)
-- `VITE_USE_LIVE_API=true`
-- `VITE_COGNITO_USER_POOL_ID` / `VITE_COGNITO_CLIENT_ID`
-- `VITE_AWS_REGION`
-- `VITE_APPSYNC_URL`
-
-Get the URL:
-
-```bash
-aws cloudformation describe-stacks --stack-name wren-dev-Amplify --region ca-central-1 --query "Stacks[0].Outputs"
-```
-
-`AmplifyDefaultDomain` looks like `main.dxxxxxxxx.amplifyapp.com`. The first Amplify build starts on deploy — watch **Amplify → Hosting → your app → main** until the build is green.
-
-> Amplify tracks branches **`main`** and **`develop`**. If your default branch is not `main`, pass `-c githubBranch=...` for the pipeline and add/rename the Amplify branch in the console or in `cdk/lib/stacks/AmplifyStack.ts`.
-
-**6.4 Deploy CI/CD (optional)**
-
-The pipeline builds the Python engine image, pushes it to ECR, and updates the `Compute` Lambda.
-
-```bash
-npx cdk deploy wren-dev-Cicd \
-  -c githubOwner=YourOrgOrUser \
-  -c githubRepo=WREN \
-  -c githubBranch=main
-```
-
-Requirements:
-
-- Secret `wren-dev/cicd/github-pat` exists
-- The PAT can read the repo and create webhooks
-- Source branch exists (`main` by default)
-
-_Note: If the repo name `wren-dev-feedback-engine` already exists, this stack may fail on ECR create. Prefer skipping `Cicd` and pushing images with the docker commands in [Step 4: Build and Push the Feedback Engine Image](#step-4-build-and-push-the-feedback-engine-image), then updating the Lambda directly:_
-
-```bash
-aws lambda update-function-code \
-  --function-name wren-dev-feedback-engine \
-  --image-uri ACCOUNT.dkr.ecr.ca-central-1.amazonaws.com/wren-dev-feedback-engine:bootstrap \
-  --region ca-central-1
-```
-
-### Step 7: Configure the First Administrator
-
-1. Open the Amplify URL and **sign up** with email.
-2. Enter the verification code from email (Cognito).
-3. In **AWS Console → Cognito → User pools → `wren-dev-pool` → Groups → `SystemAdmin`**, add that user **before they log in for the first time**.
-
-> The `SystemAdmin` Cognito group is only used to seed **TechnicalAdmin** in the database on first login. After that, roles live in Postgres. If the user already logged in without the group, they'll be a normal user — fix by assigning the admin role in the app (once a Technical Admin exists) or by updating the corresponding row in the database.
-
-### Step 8: Open the Web App
-
-Navigate to the Amplify URL (found in the Amplify console, or via `AmplifyDefaultDomain` above) to see the application running.
-
-**Default URL format:** `https://main.<app-id>.amplifyapp.com`
-
-#### Run the Frontend Locally (without Amplify)
-
-From `frontend/`:
-
-```bash
-cp .env.example .env.local
-```
-
-Edit `.env.local`:
-
-```
-VITE_APP_NAME="LEON"
-VITE_ENVIRONMENT="dev"
-VITE_API_BASE_URL="https://{apiId}.execute-api.ca-central-1.amazonaws.com/dev"
-VITE_USE_LIVE_API="true"
-VITE_COGNITO_USER_POOL_ID="..."
-VITE_COGNITO_CLIENT_ID="..."
-VITE_AWS_REGION="ca-central-1"
-VITE_APPSYNC_URL="https://....appsync-api.ca-central-1.amazonaws.com/graphql"
-```
-
-Then:
-
-```bash
-cd frontend
-npm ci
-npm run dev
-```
-
-### Step 9: Confirm the Application Is Running
-
-Work through this checklist:
-
-1. Amplify URL loads the React web app (not a 404 on refresh — the rewrite to `index.html` is configured).
-2. Sign-up / sign-in with Cognito succeeds.
-3. After login, the dashboard loads (API authorizer + database are reachable).
-4. As System Admin (TechnicalAdmin), open **System Configuration** (model and usage limits).
-5. Upload or create a document and request feedback — the job is queued on SQS, and the Python engine Lambda must succeed.
-6. If debrief realtime is enabled, AppSync subscriptions should connect; otherwise the UI falls back to polling.
-
-Useful log groups in `ca-central-1` (prefix `wren-dev-`):
-
-- `/aws/lambda/wren-dev-authorizer`
-- `/aws/lambda/wren-dev-document`
-- `/aws/lambda/wren-dev-feedback-orchestrator`
-- `/aws/lambda/wren-dev-feedback-engine`
-- `/aws/lambda/wren-dev-admin`
-
-_Note: If feedback fails, check Bedrock model access and the Feedback Engine logs first._
-
----
-
-## Day-2 Operations
-
-**Redeploy infrastructure after a code change** — from `cdk/`:
-
-```bash
-npx cdk deploy --all
-```
-
-Include GitHub context if you need Amplify/CI-CD in the synth.
-
-**Change display name or Bedrock model:**
-
-```bash
-npx cdk deploy wren-dev-Config -c appName="My Coach" -c bedrockModelId="YOUR_MODEL_ID"
-```
-
-Redeploy `Compute` if Lambdas bake `BEDROCK_MODEL_ID` from synth-time config. Runtime SSM is `/wren-dev/config/bedrock-model-id`. `VITE_APP_NAME` updates on the next Amplify stack deploy + frontend rebuild.
-
-**Update only the Feedback Engine image:** build, push a new tag (or overwrite `bootstrap`), then run `lambda update-function-code` as shown in [Step 6.4](#step-6-connect-github-amplify-and-cicd), or let the CI/CD pipeline run on push to `main`.
-
-**Database migrations:** SQL files live in `backend/database/migrations/`. The `Database` stack's migration Lambda runs them on deploy when the custom resource updates — new files must be included in the Lambda bundle (already copied by `MigrationRunner`). After adding a migration, redeploy `wren-dev-Database`.
-
----
+Monitoring is a detection and notification control, not an automatic rollback system. During an infrastructure change, an operator must still review API Gateway 4XX/5XX metrics, RDS Proxy connection errors in application logs, VPC Flow Log rejects, and NAT gateway bytes/errors. If health regresses, follow the affected feature's rollback procedure. The repository does not configure endpoint-specific alarms or Route 53 Resolver query logging. CloudTrail may be provided centrally by AWS Organizations or Control Tower, so each new account owner must verify its event selectors, retention, and access with their platform team.
 
 ## Troubleshooting
 
 ### Common Issues
 
+For a failed standard deployment, first complete the action printed by `npm run deploy` and rerun that same command. The direct CDK, bootstrap, ECR, and individual-stack commands in the entries below apply only when you deliberately drive CDK by hand (advanced recovery) instead of `npm run deploy`.
+
+**Issue: `Your session has expired. Please reauthenticate` (AWS CLI exits 255)**
+
+- Solution: your SSO session lapsed. Refresh it for your profile and rerun: `aws sso login --profile <your-profile>`, then `npm run deploy`. The deploy calls the AWS CLI directly, so there is no `--profile` flag to pass to `npm run deploy`; set `AWS_PROFILE` in the same terminal instead (see below).
+
+**Issue: the deploy uses the wrong account, or ignores the profile you expected**
+
+- Solution: the workflow selects the account from `AWS_PROFILE`, not from a `--profile` argument. Set it in the same shell before deploying — `export AWS_PROFILE=<your-profile>` (PowerShell: `$env:AWS_PROFILE = "<your-profile>"`) — and confirm with `aws sts get-caller-identity`. If you set `WREN_EXPECTED_ACCOUNT_ID` and see `AWS identity account ... does not match`, the profile resolves to a different account than the guard expects; point `AWS_PROFILE` at the intended account or clear `WREN_EXPECTED_ACCOUNT_ID` for an interactive deploy.
+
+**Issue: `Stack includes security-sensitive updates, but terminal (TTY) is not attached` (CDK exits 1)**
+
+- Solution: `npm run deploy` runs the CDK CLI as a piped subprocess, so CDK's default `broadening` approval mode has no terminal to prompt on and aborts. Set `WREN_REQUIRE_APPROVAL=never` in the same shell and rerun — `export WREN_REQUIRE_APPROVAL=never` (PowerShell: `$env:WREN_REQUIRE_APPROVAL = "never"`). This auto-approves the IAM-broadening changes; on production, first review them with `WREN_DRY_RUN=true`.
+
+**Issue: `npm run deploy` exits with code 3**
+
+- Solution: this is an intentional action-required pause, not a rollback. Complete the exact printed Bedrock, Cognito sign-up/confirmation, access-token, ownership, or CloudFormation recovery action and rerun the same command. Live AWS state is rediscovered.
+
+**Issue: checkpoint configuration does not match**
+
+- Solution: use the same account, Region, project/environment prefix, branch, and ownership mode as the original operation. If you intentionally changed the target configuration, archive the matching non-secret file under `.wren-deploy/` and start a new operation only after confirming no deploy/undeploy is active. Never copy checkpoints between accounts.
+
+**Issue: ECR exists outside the Cicd stack**
+
+- Solution: verify that `{prefix}-feedback-engine` is the intended legacy/manual repository, then set `WREN_ECR_OWNERSHIP=external`. Do not delete or import it merely to bypass the ownership gate.
+
+**Issue: an existing pipeline is detected while CI/CD is disabled**
+
+- Solution: this happens only when you explicitly set `WREN_ENABLE_CICD=false` against an environment that already has a pipeline. Normal deployment will not implicitly remove it. Unset the flag (or set `WREN_ENABLE_CICD=true`) and rerun to keep it. Protected undeploy explicitly disables it before destroying Compute.
+
 **Issue: `Source image …:bootstrap does not exist`**
 
-- Solution: ECR repo or tag is missing — complete [Step 4: Build and Push the Feedback Engine Image](#step-4-build-and-push-the-feedback-engine-image).
+- Solution: for the standard workflow, do not create or push the image manually—rerun `npm run deploy` after correcting its reported ECR/ownership or CodeBuild failure. The `feedback-image` stage builds and pushes the image in CodeBuild (see [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built)); if the build itself failed, open the reported `${prefix}-bootstrap-image` build in CloudWatch Logs. A hand-run `docker build` + ECR push is an emergency escape hatch only (see [docs/dependency-management.md](./dependency-management.md#feedback-engine-the-heavy-python-runtime)).
 
 **Issue: `Cannot find module '@aws-cdk/aws-amplify-alpha'`**
 
-- Solution: CDK deps aren't installed — run `npm ci` in `cdk/`.
+- Solution: for `npm run deploy`, resolve any reported dependency-install failure and rerun the command; it installs CDK dependencies itself. Run `npm ci` in `cdk/` manually only for direct-CDK recovery.
 
 **Issue: `Cannot find module '@wren/…'` in a Lambda**
 
@@ -788,7 +559,7 @@ Redeploy `Compute` if Lambdas bake `BEDROCK_MODEL_ID` from synth-time config. Ru
 
 **Issue: Database migrate fails with `ECONNRESET`**
 
-- Solution: The proxy target wasn't ready. This is already wired around in `DatabaseStack` — retry the `Database` deploy.
+- Solution: the proxy target was not ready. For the standard workflow, rerun `npm run deploy`; for direct-CDK recovery, retry the `Database` deployment.
 
 **Issue: `Cannot find version … for postgres`**
 
@@ -796,7 +567,7 @@ Redeploy `Compute` if Lambdas bake `BEDROCK_MODEL_ID` from synth-time config. Ru
 
 **Issue: Amplify stack fails on the GitHub token**
 
-- Solution: The secret is missing or misnamed — create `wren-dev/github/token` in `ca-central-1`.
+- Solution: for the standard workflow, re-export `WREN_GITHUB_TOKEN` and rerun `npm run deploy`; it creates or updates the required secret. Creating `wren-dev/github/token` directly is a direct-CDK recovery operation.
 
 **Issue: Pipeline error `[GitHub] No Branch [main]`**
 
@@ -816,7 +587,7 @@ Redeploy `Compute` if Lambdas bake `BEDROCK_MODEL_ID` from synth-time config. Ru
 
 **Issue: User is not Technical Admin**
 
-- Solution: They weren't in `SystemAdmin` before first login — add them to the group before first login, or fix the role directly in the database.
+- Solution: Two operator-controlled gates must both hold when the candidate signs in: the exact armed `technicalAdminBootstrapSubject` and `SystemAdmin` group membership. The candidate does **not** need to be a brand-new account — if they signed in once before the gate was armed (and so already have a `Student` row), completing the guided flow now elevates them in place, and they keep `Student` while also gaining `TechnicalAdmin`. If setup still fails, confirm the signed-in user's Cognito `sub` matches the armed subject and that they are in the `SystemAdmin` group, then rerun. Assign the role through the application once a Technical Admin exists, or follow your controlled database recovery procedure.
 
 **Issue: `cdk deploy` puts resources in the wrong region**
 
@@ -824,7 +595,7 @@ Redeploy `Compute` if Lambdas bake `BEDROCK_MODEL_ID` from synth-time config. Ru
 
 **Issue: CloudFront stack fails in `us-east-1`**
 
-- Solution: That region isn't bootstrapped — run `npx cdk bootstrap aws://ACCOUNT/us-east-1`.
+- Solution: for a standard deployment, rerun `npm run deploy` after resolving the reported bootstrap permission/account issue; it bootstraps both Regions. Run `npx cdk bootstrap aws://ACCOUNT/us-east-1` only for direct-CDK recovery.
 
 **Issue: `Fn::Sub` / OpenAPI errors on the `Api` stack**
 
@@ -834,63 +605,49 @@ _The issues listed above represent the most common historical deploy bugs encoun
 
 ---
 
-## Cleanup
+## Custom Domain Support
 
-### Taking Down the Deployed Stack
+WREN can serve the frontend on your own domain instead of only the default Amplify URL (`https://<branch>.<app-id>.amplifyapp.com`). The feature is entirely optional — no domain is baked into the project, and omitting it leaves deployment behavior unchanged.
 
-Do **not** run `cdk destroy --all` expecting a clean bill — RDS is created with **deletion protection** and **RETAIN**, S3 buckets may retain objects, ECR images may remain, and Secrets Manager secrets may have a recovery window.
+To enable it, set a bare hostname before deploying:
 
-To actually stop spend:
-
-1. **Empty S3 buckets.**
-2. **Disable RDS deletion protection**, then delete the instance — this deletes student data. CDK does **not** set `instanceIdentifier`, so the DB name is CloudFormation-generated (not `wren-dev`).
-   - Navigate to **Amazon RDS** → **Databases**. Open the instance created by stack `wren-dev-Database` (proxy name `wren-dev-db-proxy` is a reliable companion resource). You can also filter by the `Project` tag `wren-dev`.
-   - Select that instance → **Modify**.
-   - Scroll to **Deletion protection**, uncheck the box, then **Continue** → **Modify DB instance**.
-   - Wait for the modification to complete before proceeding.
-3. **Delete the NAT Gateway / VPC** (or destroy the `Vpc` stack after dependents are gone).
-4. **Delete CloudFormation stacks in reverse dependency order:**
-
-```text
-Amplify → CloudFrontWaf → Observability → Api → Compute → Cicd → Database → Cognito → Storage → Vpc → Config
+```bash
+export WREN_CUSTOM_DOMAIN=example.com     # PowerShell: $env:WREN_CUSTOM_DOMAIN = "example.com"
+npm run deploy
 ```
 
-5. **Delete leftovers:** ECR repositories, Secrets Manager secrets, log groups, and the two `CDKToolkit` bootstrap stacks — only if you won't use CDK in those regions again.
+When set, WREN maps the Amplify production branch to both the domain root (`https://example.com`) and its `www` subdomain (`https://www.example.com`), and prints a `CustomDomainUrl` stack output. WREN only creates the Amplify domain association — it does not create or modify any Route 53 or ACM resources, so the feature works regardless of where your DNS is hosted; Amplify manages the TLS certificate.
 
-_Note: Wait for each stack to finish deleting before starting the next one — some resources have dependencies that must be removed first._
+There are two DNS paths:
 
-**Cost Warning:** Ensure all resources are deleted to avoid ongoing charges. Pay special attention to RDS instances, NAT Gateways, and Elastic IPs.
+- **Hosted zone in the same AWS account (automatic).** If the domain's Route 53 hosted zone is in the account you deploy into, Amplify provisions the certificate and creates the DNS records automatically. No manual steps.
+- **DNS elsewhere (manual verification).** If the zone is in a different AWS account or with an external provider (Cloudflare, GoDaddy, etc.), open **AWS Console → Amplify → your app → Domain management** and add the certificate-validation and CNAME records it surfaces to your provider by hand.
+
+In both cases the certificate and domain association can take several minutes to become live. Until then the Amplify default domain keeps working, and the deploy workflow falls back to it for the post-deploy smoke test if the custom domain is not yet reachable.
+
+For the full reference, see [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain) and the `WREN_CUSTOM_DOMAIN` row in [Hosting, CI/CD, images, and ECR ownership](#hosting-cicd-images-and-ecr-ownership).
 
 ---
 
-## Quick Reference - First-Time Commands
+## Cleanup
 
-From a clean machine, after AWS CLI login, Docker running, and Bedrock access enabled:
+### Protected application teardown (recommended)
+
+`npm run undeploy` is intentionally conservative. It validates the current AWS account, inventories both Regions, and quiesces an existing WREN CodePipeline before removing it: inbound transitions to `Build`, `Deploy`, and `UpdateLambda` are disabled, active executions are stopped without abandoning in-flight actions, and the workflow waits for executions plus the Compute stack to settle. Only then does it update `Cicd` to remove pipeline resources and destroy:
+
+```text
+Amplify → CloudFrontWaf → Observability → Api → Compute
+```
+
+It does **not** destroy `Cicd` prerequisites, `Database`, `Cognito`, `Storage`, `Vpc`, `Config`, or either `CDKToolkit` stack. It never disables RDS deletion protection and never explicitly deletes retained RDS, S3, DynamoDB, KMS, ECR, Secrets Manager, CloudWatch Logs, or bootstrap resources. At completion it prints a retained manifest. The Compute audit pseudonym salt is one of those retained secrets; a later `npm run deploy` detects and imports the orphaned fixed-name salt instead of recreating it, preserving stable pseudonyms across protected teardown and redeploy.
+
+Inventory the target first; dry run requires no confirmation and performs no mutating command:
 
 <details>
 <summary>macOS/Linux</summary>
 
 ```bash
-git clone <YOUR_REPO_URL> WREN
-cd WREN
-npm ci
-cd cdk; npm ci; cd ..
-
-ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-cd cdk
-npx cdk bootstrap "aws://$ACCOUNT/ca-central-1"
-npx cdk bootstrap "aws://$ACCOUNT/us-east-1"
-cd ..
-
-aws ecr create-repository --repository-name wren-dev-feedback-engine --region ca-central-1
-REPO="$ACCOUNT.dkr.ecr.ca-central-1.amazonaws.com/wren-dev-feedback-engine"
-aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.ca-central-1.amazonaws.com"
-docker build -t "${REPO}:bootstrap" backend/engine/python/
-docker push "${REPO}:bootstrap"
-
-cd cdk
-npx cdk deploy wren-dev-Config wren-dev-Vpc wren-dev-Storage wren-dev-Cognito wren-dev-Database
-npx cdk deploy wren-dev-Compute wren-dev-Api wren-dev-Observability wren-dev-CloudFrontWaf
+WREN_DRY_RUN=true npm run undeploy
 ```
 
 </details>
@@ -899,26 +656,9 @@ npx cdk deploy wren-dev-Compute wren-dev-Api wren-dev-Observability wren-dev-Clo
 <summary>PowerShell</summary>
 
 ```powershell
-git clone <YOUR_REPO_URL> WREN
-cd WREN
-npm ci
-cd cdk; npm ci; cd ..
-
-$ACCOUNT = (aws sts get-caller-identity --query Account --output text)
-cd cdk
-npx cdk bootstrap "aws://$ACCOUNT/ca-central-1"
-npx cdk bootstrap "aws://$ACCOUNT/us-east-1"
-cd ..
-
-aws ecr create-repository --repository-name wren-dev-feedback-engine --region ca-central-1
-$REPO = "$ACCOUNT.dkr.ecr.ca-central-1.amazonaws.com/wren-dev-feedback-engine"
-aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.ca-central-1.amazonaws.com"
-docker build -t "${REPO}:bootstrap" backend/engine/python/
-docker push "${REPO}:bootstrap"
-
-cd cdk
-npx cdk deploy wren-dev-Config wren-dev-Vpc wren-dev-Storage wren-dev-Cognito wren-dev-Database
-npx cdk deploy wren-dev-Compute wren-dev-Api wren-dev-Observability wren-dev-CloudFrontWaf
+$env:WREN_DRY_RUN = "true"
+npm run undeploy
+Remove-Item Env:WREN_DRY_RUN
 ```
 
 </details>
@@ -927,30 +667,63 @@ npx cdk deploy wren-dev-Compute wren-dev-Api wren-dev-Observability wren-dev-Clo
 <summary>Windows CMD</summary>
 
 ```cmd
-git clone <YOUR_REPO_URL> WREN
-cd WREN
-npm ci
-cd cdk && npm ci && cd ..
-
-for /f %%A in ('aws sts get-caller-identity --query Account --output text') do set ACCOUNT=%%A
-cd cdk
-npx cdk bootstrap "aws://%ACCOUNT%/ca-central-1"
-npx cdk bootstrap "aws://%ACCOUNT%/us-east-1"
-cd ..
-
-aws ecr create-repository --repository-name wren-dev-feedback-engine --region ca-central-1
-set REPO=%ACCOUNT%.dkr.ecr.ca-central-1.amazonaws.com/wren-dev-feedback-engine
-aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin %ACCOUNT%.dkr.ecr.ca-central-1.amazonaws.com
-docker build -t %REPO%:bootstrap backend/engine/python/
-docker push %REPO%:bootstrap
-
-cd cdk
-npx cdk deploy wren-dev-Config wren-dev-Vpc wren-dev-Storage wren-dev-Cognito wren-dev-Database
-npx cdk deploy wren-dev-Compute wren-dev-Api wren-dev-Observability wren-dev-CloudFrontWaf
+set WREN_DRY_RUN=true
+npm run undeploy
+set WREN_DRY_RUN=
 ```
 
 </details>
 
-&nbsp;
+For the real protected teardown, set the exact confirmation string printed by the dry run: `{account}/{region}/{stackPrefix}`. If Amplify exists, also provide its GitHub owner/repository so CDK can synthesize that stack for deletion.
 
-Then create GitHub secrets, deploy `wren-dev-Amplify`, sign up, and add the user to Cognito group `SystemAdmin` before first login.
+<details>
+<summary>macOS/Linux</summary>
+
+```bash
+export AWS_PROFILE=your-profile                  # selects the account (like `--profile`)
+export WREN_GITHUB_OWNER=YourOrgOrUser
+export WREN_GITHUB_REPO=WREN
+export WREN_UNDEPLOY_CONFIRM=YourAccountId/DeploymentRegion/StackPrefix
+npm run undeploy
+```
+
+</details>
+
+<details>
+<summary>PowerShell</summary>
+
+```powershell
+$env:AWS_PROFILE = "your-profile"        # selects the account (like --profile)
+$env:WREN_GITHUB_OWNER = "YourOrgOrUser"
+$env:WREN_GITHUB_REPO = "WREN"
+$env:WREN_UNDEPLOY_CONFIRM = "YourAccountId/DeploymentRegion/StackPrefix"
+npm run undeploy
+```
+
+</details>
+
+<details>
+<summary>Windows CMD</summary>
+
+```cmd
+set AWS_PROFILE=your-profile
+set WREN_GITHUB_OWNER=YourOrgOrUser
+set WREN_GITHUB_REPO=WREN
+set WREN_UNDEPLOY_CONFIRM=YourAccountId/DeploymentRegion/StackPrefix
+npm run undeploy
+```
+
+</details>
+
+If the command stops, resolve the reported CloudFormation/ownership issue and rerun with the same target. Live AWS discovery remains authoritative; the undeploy checkpoint only records progress.
+
+> **Cost warning:** protected teardown does not stop all spend. In particular, retained RDS/RDS Proxy, NAT/VPC, interface endpoints, storage, backups, secrets, and ECR can continue incurring charges. Review the retained manifest and AWS Cost Explorer.
+
+### Full data destruction is a separate manual operation
+
+A complete purge is deliberately not automated by this repository. It is irreversible and may conflict with retention, legal, backup, or incident-response requirements. Use an approved runbook with independent account/prefix verification, backups or final snapshots where required, explicit authorization to disable RDS deletion protection, controlled emptying of retained buckets/repositories, and post-deletion cost/inventory checks. Never run `cdk destroy --all` as a substitute: protected and retained resources can remain while dependent deletions fail, leaving an ambiguous partial teardown.
+
+---
+
+
+

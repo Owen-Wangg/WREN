@@ -8,8 +8,12 @@ import { z } from 'zod';
 
 import {
   accessGrantSchema,
+  createDocumentInputSchema,
+  customMetadataFieldSchema,
   documentSchema,
   draftSchema,
+  type CreateDocumentInput,
+  type CustomMetadataField,
   type TipTapDoc,
 } from '@wren/types';
 
@@ -45,10 +49,11 @@ const organizationsSchema = z.array(organizationAccessSchema);
 const accessGrantsSchema = z.array(accessGrantSchema);
 const contentTypesSchema = z.array(contentTypeSchema);
 
-/** Backend Department DTO (V4) — no accessState; dashboard treats groupings as OPEN. */
+/** Backend Department DTO (V4), including the actor-specific catalog decision. */
 const departmentDtoSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  viewerCanDiscover: z.boolean(),
 });
 
 /** Backend DocumentType DTO mapped into the dashboard Writing Type shape. */
@@ -94,6 +99,7 @@ export async function fetchOrganizations(
       id: d.id,
       name: d.name,
       accessState: 'OPEN' as const,
+      viewerCanDiscover: d.viewerCanDiscover,
     })),
   );
 }
@@ -120,6 +126,16 @@ export async function fetchDocumentTypesForDepartment(
       sizeLimitWords: t.sizeLimitWords ?? null,
     })),
   );
+}
+
+/** Custom metadata fields configured for a Document Type. */
+export function fetchMetadataFields(
+  client: HttpClient,
+  documentTypeId: string,
+): Promise<CustomMetadataField[]> {
+  return client.request(`${WRITING_TYPES_PATH}/${documentTypeId}/metadata-fields`, {
+    schema: z.array(customMetadataFieldSchema),
+  });
 }
 
 /**
@@ -175,21 +191,12 @@ export function fetchDocument(client: HttpClient, documentId: string): Promise<D
 /** Creates a Document and ingests the first draft from file (S3 key) or paste. */
 export function createDocument(
   client: HttpClient,
-  input: {
-    documentTypeId: string;
-    contentTypeId?: string;
-    name: string;
-    metadata?: Record<string, string>;
-    source: { kind: 'file'; key: string } | { kind: 'paste'; text: string };
-    /** Optional TipTap JSON so rich formatting survives reload. */
-    content?: TipTapDoc;
-    /** OCR engine for PDF ingest. */
-    ocrEngine?: OcrEngineChoice;
-  },
+  input: CreateDocumentInput,
 ): Promise<Document> {
+  const body = createDocumentInputSchema.parse(input);
   return client.request(DOCUMENTS_PATH, {
     method: 'POST',
-    body: input,
+    body,
     schema: documentSchema,
   });
 }
@@ -199,12 +206,14 @@ export type PresignUploadResponse = {
   uploadUrl: string;
   fields: Record<string, string>;
   key: string;
+  maxFileSizeBytes: number;
 };
 
 const presignUploadSchema = z.object({
   uploadUrl: z.string().url(),
   fields: z.record(z.string()),
   key: z.string().min(1),
+  maxFileSizeBytes: z.number().int().positive(),
 });
 
 export function getPresignedUrl(
@@ -217,6 +226,16 @@ export function getPresignedUrl(
     body: { filename, contentType },
     schema: presignUploadSchema,
   });
+}
+
+const uploadConfigSchema = z.object({
+  maxFileSizeBytes: z.number().int().positive(),
+  maxWordCount: z.number().int().positive(),
+});
+export type UploadConfig = z.infer<typeof uploadConfigSchema>;
+
+export function getUploadConfig(client: HttpClient): Promise<UploadConfig> {
+  return client.request('/v1/uploads/config', { schema: uploadConfigSchema });
 }
 
 /** POST the file to S3 using the presigned POST fields (not a raw PUT). */
@@ -324,15 +343,17 @@ export function patchCurrentDraft(
 const draftFromSourceResponseSchema = z.union([
   draftSchema,
   z.object({
-    ingestStatus: z.literal('queued'),
+    ingestStatus: z.enum(['queued', 'failed']),
     jobId: z.string().min(1),
     documentId: z.string().min(1),
+    errorMessage: z.string().min(1).optional(),
   }),
 ]);
 
 export type DraftFromSourceResult =
   | { kind: 'draft'; draft: Draft }
-  | { kind: 'ingestQueued'; jobId: string; documentId: string };
+  | { kind: 'ingestQueued'; jobId: string; documentId: string }
+  | { kind: 'ingestFailed'; jobId: string; documentId: string; message: string };
 
 /** Creates a new draft by server-ingesting an uploaded file (or paste). */
 export async function createDraftFromSource(
@@ -353,6 +374,16 @@ export async function createDraftFromSource(
   });
   if ('ingestStatus' in result && result.ingestStatus === 'queued') {
     return { kind: 'ingestQueued', jobId: result.jobId, documentId: result.documentId };
+  }
+  if ('ingestStatus' in result && result.ingestStatus === 'failed') {
+    return {
+      kind: 'ingestFailed',
+      jobId: result.jobId,
+      documentId: result.documentId,
+      message:
+        result.errorMessage ??
+        'The upload was saved, but PDF processing could not be queued. Please try again.',
+    };
   }
   return { kind: 'draft', draft: result as Draft };
 }

@@ -1,0 +1,2460 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
+{
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "BootstrapImageBuild78A4EFC8": {
+      "Properties": {
+        "Artifacts": {
+          "Type": "NO_ARTIFACTS",
+        },
+        "Cache": {
+          "Type": "NO_CACHE",
+        },
+        "EncryptionKey": "alias/aws/s3",
+        "Environment": {
+          "ComputeType": "BUILD_GENERAL1_MEDIUM",
+          "EnvironmentVariables": [
+            {
+              "Name": "IMAGE_TAG",
+              "Type": "PLAINTEXT",
+              "Value": "bootstrap",
+            },
+          ],
+          "Image": "aws/codebuild/standard:7.0",
+          "ImagePullCredentialsType": "CODEBUILD",
+          "PrivilegedMode": true,
+          "Type": "LINUX_CONTAINER",
+        },
+        "Name": "wren-test-bootstrap-image",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "BootstrapImageBuildRoleB593BDCC",
+            "Arn",
+          ],
+        },
+        "Source": {
+          "BuildSpec": {
+            "Fn::Join": [
+              "",
+              [
+                "{
+  "version": "0.2",
+  "phases": {
+    "pre_build": {
+      "commands": [
+        "aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.ca-central-1.amazonaws.com"
+      ]
+    },
+    "build": {
+      "commands": [
+        "docker build -t ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG backend/engine/python/",
+        "docker push ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG",
+        "docker tag ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":bootstrap",
+        "docker push ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":bootstrap"
+      ]
+    }
+  }
+}",
+              ],
+            ],
+          },
+          "Location": "cdk-hnb659fds-assets-123456789012-ca-central-1/wren-bootstrap-source/wren-test/HEAD.zip",
+          "Type": "S3",
+        },
+      },
+      "Type": "AWS::CodeBuild::Project",
+    },
+    "BootstrapImageBuildRoleB593BDCC": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codebuild.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "BootstrapImageBuildRoleDefaultPolicyBCA552EB": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-ca-central-1",
+                    ],
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-ca-central-1/wren-bootstrap-source/wren-test/HEAD.zip",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":logs:ca-central-1:123456789012:log-group:/aws/codebuild/",
+                      {
+                        "Ref": "BootstrapImageBuild78A4EFC8",
+                      },
+                    ],
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":logs:ca-central-1:123456789012:log-group:/aws/codebuild/",
+                      {
+                        "Ref": "BootstrapImageBuild78A4EFC8",
+                      },
+                      ":*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "codebuild:CreateReportGroup",
+                "codebuild:CreateReport",
+                "codebuild:UpdateReport",
+                "codebuild:BatchPutTestCases",
+                "codebuild:BatchPutCodeCoverages",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":codebuild:ca-central-1:123456789012:report-group/",
+                    {
+                      "Ref": "BootstrapImageBuild78A4EFC8",
+                    },
+                    "-*",
+                  ],
+                ],
+              },
+            },
+            {
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+                "ecr:CompleteLayerUpload",
+                "ecr:UploadLayerPart",
+                "ecr:InitiateLayerUpload",
+                "ecr:PutImage",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "FeedbackEngineRepo9E90635E",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:GetBucketLocation",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-ca-central-1",
+                    ],
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-ca-central-1/wren-bootstrap-source/wren-test/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "BootstrapImageBuildRoleDefaultPolicyBCA552EB",
+        "Roles": [
+          {
+            "Ref": "BootstrapImageBuildRoleB593BDCC",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "BuildProject097C5DB7": {
+      "Properties": {
+        "Artifacts": {
+          "Type": "CODEPIPELINE",
+        },
+        "Cache": {
+          "Type": "NO_CACHE",
+        },
+        "EncryptionKey": {
+          "Fn::GetAtt": [
+            "PipelineArtifactsBucketEncryptionKey01D58D69",
+            "Arn",
+          ],
+        },
+        "Environment": {
+          "ComputeType": "BUILD_GENERAL1_MEDIUM",
+          "Image": "aws/codebuild/standard:7.0",
+          "ImagePullCredentialsType": "CODEBUILD",
+          "PrivilegedMode": true,
+          "Type": "LINUX_CONTAINER",
+        },
+        "Name": "wren-test-build",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "BuildProjectRoleAA92C755",
+            "Arn",
+          ],
+        },
+        "Source": {
+          "BuildSpec": {
+            "Fn::Join": [
+              "",
+              [
+                "{
+  "version": "0.2",
+  "phases": {
+    "install": {
+      "runtime-versions": {
+        "nodejs": "22"
+      },
+      "commands": [
+        "npm ci",
+        "cd cdk && npm ci && cd .."
+      ]
+    },
+    "pre_build": {
+      "commands": [
+        "npm run test:ci",
+        "cd cdk && npm run typecheck && npm test -- --runInBand && cd ..",
+        "aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ""
+      ]
+    },
+    "build": {
+      "commands": [
+        "IMAGE_TAG=src-\${CODEBUILD_RESOLVED_SOURCE_VERSION:0:12}",
+        "docker build -t ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG backend/engine/python/",
+        "docker push ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG",
+        "docker tag ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":bootstrap",
+        "docker push ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":bootstrap",
+        "echo \\"",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG\\" > image-uri.txt",
+        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
+      ]
+    }
+  },
+  "artifacts": {
+    "secondary-artifacts": {
+      "CdkOutput": {
+        "base-directory": "cdk/cdk.out",
+        "files": [
+          "**/*"
+        ]
+      },
+      "ImageUri": {
+        "files": [
+          "image-uri.txt"
+        ]
+      }
+    }
+  }
+}",
+              ],
+            ],
+          },
+          "Type": "CODEPIPELINE",
+        },
+      },
+      "Type": "AWS::CodeBuild::Project",
+    },
+    "BuildProjectRoleAA92C755": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codebuild.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "BuildProjectRoleDefaultPolicy3E9F248C": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":logs:ca-central-1:123456789012:log-group:/aws/codebuild/",
+                      {
+                        "Ref": "BuildProject097C5DB7",
+                      },
+                    ],
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":logs:ca-central-1:123456789012:log-group:/aws/codebuild/",
+                      {
+                        "Ref": "BuildProject097C5DB7",
+                      },
+                      ":*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "codebuild:CreateReportGroup",
+                "codebuild:CreateReport",
+                "codebuild:UpdateReport",
+                "codebuild:BatchPutTestCases",
+                "codebuild:BatchPutCodeCoverages",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":codebuild:ca-central-1:123456789012:report-group/",
+                    {
+                      "Ref": "BuildProject097C5DB7",
+                    },
+                    "-*",
+                  ],
+                ],
+              },
+            },
+            {
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+                "ecr:CompleteLayerUpload",
+                "ecr:UploadLayerPart",
+                "ecr:InitiateLayerUpload",
+                "ecr:PutImage",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "FeedbackEngineRepo9E90635E",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:ListBucket",
+                "s3:GetBucketLocation",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:s3:::cdk-*-assets-123456789012-ca-central-1",
+                "arn:aws:s3:::cdk-*-assets-123456789012-ca-central-1/*",
+              ],
+            },
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Resource": "arn:aws:iam::123456789012:role/cdk-*-file-publishing-role-123456789012-ca-central-1",
+            },
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+                "s3:PutObject",
+                "s3:PutObjectLegalHold",
+                "s3:PutObjectRetention",
+                "s3:PutObjectTagging",
+                "s3:PutObjectVersionTagging",
+                "s3:Abort*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "PipelineArtifactsBucket22248F97",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "PipelineArtifactsBucket22248F97",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "PipelineArtifactsBucketEncryptionKey01D58D69",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "PipelineArtifactsBucketEncryptionKey01D58D69",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "BuildProjectRoleDefaultPolicy3E9F248C",
+        "Roles": [
+          {
+            "Ref": "BuildProjectRoleAA92C755",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "ComputeBoundaryE410306C": {
+      "Properties": {
+        "Description": "Permissions boundary for every IAM role the Compute stack creates.",
+        "ManagedPolicyName": "wren-test-compute-boundary",
+        "Path": "/",
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:PutRetentionPolicy",
+                "logs:DeleteRetentionPolicy",
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:logs:ca-central-1:123456789012:*",
+              "Sid": "Logs",
+            },
+            {
+              "Action": [
+                "ec2:CreateNetworkInterface",
+                "ec2:DeleteNetworkInterface",
+                "ec2:DescribeNetworkInterfaces",
+                "ec2:AssignPrivateIpAddresses",
+                "ec2:UnassignPrivateIpAddresses",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeSecurityGroups",
+                "ec2:DescribeVpcs",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "VpcEni",
+            },
+            {
+              "Action": [
+                "xray:PutTraceSegments",
+                "xray:PutTelemetryRecords",
+                "xray:GetSamplingRules",
+                "xray:GetSamplingTargets",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "Tracing",
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:secretsmanager:ca-central-1:123456789012:secret:wren-test/database/*",
+                "arn:aws:secretsmanager:ca-central-1:123456789012:secret:wren-test/audit/*",
+              ],
+              "Sid": "Secrets",
+            },
+            {
+              "Action": [
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:GetParametersByPath",
+                "ssm:PutParameter",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:ca-central-1:123456789012:parameter/wren-test/*",
+              "Sid": "Parameters",
+            },
+            {
+              "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion",
+                "s3:GetObjectTagging",
+                "s3:PutObject",
+                "s3:PutObjectTagging",
+                "s3:DeleteObject",
+                "s3:DeleteObjects",
+                "s3:DeleteObjectTagging",
+                "s3:ListBucket",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:s3:::wren-test-storage-*",
+                "arn:aws:s3:::wren-test-storage-*/*",
+              ],
+              "Sid": "Objects",
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+                "kms:DescribeKey",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:kms:ca-central-1:123456789012:key/*",
+              "Sid": "Kms",
+            },
+            {
+              "Action": [
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:Query",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:dynamodb:ca-central-1:123456789012:table/wren-test-*",
+              "Sid": "Table",
+            },
+            {
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+                "sqs:ChangeMessageVisibility",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:sqs:ca-central-1:123456789012:wren-test-*",
+              "Sid": "Queues",
+            },
+            {
+              "Action": "sns:Publish",
+              "Effect": "Allow",
+              "Resource": "arn:aws:sns:ca-central-1:123456789012:wren-test-*",
+              "Sid": "Topics",
+            },
+            {
+              "Action": "appsync:GraphQL",
+              "Effect": "Allow",
+              "Resource": "arn:aws:appsync:ca-central-1:123456789012:apis/*",
+              "Sid": "Realtime",
+            },
+            {
+              "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+                "bedrock:GetInferenceProfile",
+                "bedrock:ApplyGuardrail",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:bedrock:*::foundation-model/*",
+                "arn:aws:bedrock:*:123456789012:inference-profile/*",
+                "arn:aws:bedrock:*:123456789012:guardrail/*",
+              ],
+              "Sid": "BedrockInvoke",
+            },
+            {
+              "Action": [
+                "bedrock:ListFoundationModels",
+                "bedrock:ListInferenceProfiles",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "BedrockList",
+            },
+            {
+              "Action": [
+                "textract:AnalyzeDocument",
+                "textract:DetectDocumentText",
+                "textract:StartDocumentAnalysis",
+                "textract:GetDocumentAnalysis",
+                "textract:StartDocumentTextDetection",
+                "textract:GetDocumentTextDetection",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "Ocr",
+            },
+            {
+              "Action": [
+                "cognito-idp:AdminGetUser",
+                "cognito-idp:ListUsersInGroup",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:cognito-idp:ca-central-1:123456789012:userpool/*",
+              "Sid": "Directory",
+            },
+            {
+              "Action": [
+                "iam:*",
+                "sts:AssumeRole",
+                "organizations:*",
+              ],
+              "Effect": "Deny",
+              "Resource": "*",
+              "Sid": "DenyPrivilegeEscalation",
+            },
+            {
+              "Action": "secretsmanager:*",
+              "Effect": "Deny",
+              "Resource": "arn:aws:secretsmanager:ca-central-1:123456789012:secret:wren-test/cicd/*",
+              "Sid": "DenyPipelineSecrets",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::ManagedPolicy",
+    },
+    "ComputeDeployRole98DF8D2D": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudformation.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Description": "Scoped CFN execution role for the Compute stack (not account admin).",
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "lambda:AddPermission",
+                    "lambda:CreateEventSourceMapping",
+                    "lambda:CreateFunction",
+                    "lambda:DeleteEventSourceMapping",
+                    "lambda:DeleteFunction",
+                    "lambda:DeleteFunctionConcurrency",
+                    "lambda:DeleteFunctionEventInvokeConfig",
+                    "lambda:GetEventSourceMapping",
+                    "lambda:GetFunction",
+                    "lambda:GetFunctionConfiguration",
+                    "lambda:ListTags",
+                    "lambda:ListVersionsByFunction",
+                    "lambda:PublishVersion",
+                    "lambda:PutFunctionConcurrency",
+                    "lambda:PutFunctionEventInvokeConfig",
+                    "lambda:RemovePermission",
+                    "lambda:TagResource",
+                    "lambda:UntagResource",
+                    "lambda:UpdateEventSourceMapping",
+                    "lambda:UpdateFunctionCode",
+                    "lambda:UpdateFunctionConfiguration",
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*",
+                  "Sid": "LambdaCompute",
+                },
+                {
+                  "Action": "lambda:InvokeFunction",
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-*",
+                  "Sid": "LambdaInvokeOwnedFunctions",
+                },
+                {
+                  "Action": [
+                    "iam:AttachRolePolicy",
+                    "iam:CreateRole",
+                    "iam:PutRolePermissionsBoundary",
+                    "iam:PutRolePolicy",
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PermissionsBoundary": "arn:aws:iam::123456789012:policy/wren-test-compute-boundary",
+                    },
+                  },
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:iam::123456789012:role/wren-test-Compute-*",
+                  "Sid": "IamRoleMutationWithBoundary",
+                },
+                {
+                  "Action": "iam:UpdateAssumeRolePolicy",
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:iam::123456789012:role/wren-test-Compute-*",
+                  "Sid": "IamRoleTrustPolicy",
+                },
+                {
+                  "Action": "iam:PassRole",
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PassedToService": [
+                        "lambda.amazonaws.com",
+                        "appsync.amazonaws.com",
+                      ],
+                    },
+                  },
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:iam::123456789012:role/wren-test-Compute-*",
+                  "Sid": "IamPassRoleToComputeServices",
+                },
+                {
+                  "Action": [
+                    "iam:DeleteRole",
+                    "iam:DeleteRolePolicy",
+                    "iam:DetachRolePolicy",
+                    "iam:GetRole",
+                    "iam:GetRolePolicy",
+                    "iam:ListAttachedRolePolicies",
+                    "iam:ListRolePolicies",
+                    "iam:TagRole",
+                    "iam:UntagRole",
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:iam::123456789012:role/wren-test-Compute-*",
+                  "Sid": "IamRoleReadTagAndTeardown",
+                },
+                {
+                  "Action": [
+                    "sqs:*",
+                    "sns:*",
+                    "events:*",
+                    "appsync:*",
+                    "logs:*",
+                    "ssm:AddTagsToResource",
+                    "ssm:DeleteParameter",
+                    "ssm:GetParameter",
+                    "ssm:GetParameters",
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*",
+                  "Sid": "MessagingRealtimeAndConfig",
+                },
+                {
+                  "Action": [
+                    "secretsmanager:CreateSecret",
+                    "secretsmanager:DeleteSecret",
+                    "secretsmanager:DescribeSecret",
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:PutSecretValue",
+                    "secretsmanager:TagResource",
+                    "secretsmanager:UntagResource",
+                    "secretsmanager:UpdateSecret",
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:secretsmanager:ca-central-1:123456789012:secret:wren-test/audit/*",
+                  "Sid": "SecretsManagerOwnedSecrets",
+                },
+                {
+                  "Action": "ssm:PutParameter",
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:ssm:ca-central-1:123456789012:parameter/wren-test/notifications/*",
+                  "Sid": "SsmPutNotificationParameters",
+                },
+                {
+                  "Action": [
+                    "ec2:AssignPrivateIpAddresses",
+                    "ec2:CreateNetworkInterface",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:DescribeNetworkInterfaces",
+                    "ec2:DescribeSecurityGroups",
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeVpcs",
+                    "ec2:UnassignPrivateIpAddresses",
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*",
+                  "Sid": "VpcLambdaEni",
+                },
+                {
+                  "Action": [
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:BatchGetImage",
+                    "ecr:GetAuthorizationToken",
+                    "ecr:GetDownloadUrlForLayer",
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*",
+                  "Sid": "EcrImageResolve",
+                },
+                {
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:GetBucketLocation",
+                    "s3:ListBucket",
+                  ],
+                  "Effect": "Allow",
+                  "Resource": [
+                    "arn:aws:s3:::cdk-hnb659fds-assets-123456789012-ca-central-1",
+                    "arn:aws:s3:::cdk-hnb659fds-assets-123456789012-ca-central-1/*",
+                  ],
+                  "Sid": "CdkAssetBucketRead",
+                },
+                {
+                  "Action": [
+                    "kms:CreateGrant",
+                    "kms:Decrypt",
+                    "kms:DescribeKey",
+                    "kms:Encrypt",
+                    "kms:GenerateDataKey",
+                    "kms:GenerateDataKeyWithoutPlaintext",
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*",
+                  "Sid": "KmsUseExistingStorageKey",
+                },
+                {
+                  "Action": [
+                    "rds:*",
+                    "cognito-idp:*",
+                    "apigateway:*",
+                    "organizations:*",
+                    "s3:CreateBucket",
+                    "s3:DeleteBucket",
+                    "iam:CreateUser",
+                    "iam:DeleteUser",
+                    "iam:CreateAccessKey",
+                    "iam:CreateRole",
+                    "iam:PutRolePolicy",
+                    "iam:AttachRolePolicy",
+                    "iam:UpdateAssumeRolePolicy",
+                    "iam:PutRolePermissionsBoundary",
+                  ],
+                  "Effect": "Deny",
+                  "NotResource": "arn:aws:iam::123456789012:role/wren-test-Compute-*",
+                  "Sid": "DenyOutOfScopeStacks",
+                },
+                {
+                  "Action": "iam:DeleteRolePermissionsBoundary",
+                  "Effect": "Deny",
+                  "Resource": "*",
+                  "Sid": "DenyBoundaryRemoval",
+                },
+                {
+                  "Action": "iam:*",
+                  "Effect": "Deny",
+                  "Resource": "arn:aws:iam::123456789012:role/wren-test-compute-cfn-deploy",
+                  "Sid": "DenySelfMutation",
+                },
+              ],
+              "Version": "2012-10-17",
+            },
+            "PolicyName": "ComputeDeploy",
+          },
+        ],
+        "RoleName": "wren-test-compute-cfn-deploy",
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "FeedbackEngineRepo9E90635E": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "ImageScanningConfiguration": {
+          "ScanOnPush": true,
+        },
+        "ImageTagMutability": "MUTABLE",
+        "LifecyclePolicy": {
+          "LifecyclePolicyText": "{"rules":[{"rulePriority":1,"description":"Remove only untagged images after 30 days; immutable release tags remain rollback-safe","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countNumber":30,"countUnit":"days"},"action":{"type":"expire"}}]}",
+        },
+        "RepositoryName": "wren-test-feedback-engine",
+        "RepositoryPolicyText": {
+          "Statement": [
+            {
+              "Action": [
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+                "ecr:BatchCheckLayerAvailability",
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::ECR::Repository",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "PipelineArtifactsBucket22248F97": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "KMSMasterKeyID": {
+                  "Fn::GetAtt": [
+                    "PipelineArtifactsBucketEncryptionKey01D58D69",
+                    "Arn",
+                  ],
+                },
+                "SSEAlgorithm": "aws:kms",
+              },
+            },
+          ],
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7,
+              },
+              "ExpirationInDays": 90,
+              "Id": "ExpirePipelineArtifacts",
+              "Status": "Enabled",
+            },
+          ],
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true,
+        },
+      },
+      "Type": "AWS::S3::Bucket",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "PipelineArtifactsBucketEncryptionKey01D58D69": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "KeyPolicy": {
+          "Statement": [
+            {
+              "Action": "kms:*",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":iam::123456789012:root",
+                    ],
+                  ],
+                },
+              },
+              "Resource": "*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::KMS::Key",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "PipelineArtifactsBucketEncryptionKeyAlias5C510EEE": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AliasName": "alias/codepipeline-wrentestcicdpipeline6dea8d81",
+        "TargetKeyId": {
+          "Fn::GetAtt": [
+            "PipelineArtifactsBucketEncryptionKey01D58D69",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::KMS::Alias",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "PipelineArtifactsBucketPolicyD4F9712A": {
+      "Properties": {
+        "Bucket": {
+          "Ref": "PipelineArtifactsBucket22248F97",
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false",
+                },
+              },
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "*",
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "PipelineArtifactsBucket22248F97",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "PipelineArtifactsBucket22248F97",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::S3::BucketPolicy",
+    },
+    "PipelineBuildBuildAndTestCodePipelineActionRoleBC0CBBB9": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "PipelineRoleD68726F7",
+                    "Arn",
+                  ],
+                },
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "PipelineBuildBuildAndTestCodePipelineActionRoleDefaultPolicyEF2BBC90": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "codebuild:BatchGetBuilds",
+                "codebuild:StartBuild",
+                "codebuild:StopBuild",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "BuildProject097C5DB7",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "PipelineBuildBuildAndTestCodePipelineActionRoleDefaultPolicyEF2BBC90",
+        "Roles": [
+          {
+            "Ref": "PipelineBuildBuildAndTestCodePipelineActionRoleBC0CBBB9",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "PipelineC660917D": {
+      "DependsOn": [
+        "PipelineRoleDefaultPolicyC7A05455",
+        "PipelineRoleD68726F7",
+      ],
+      "Properties": {
+        "ArtifactStore": {
+          "EncryptionKey": {
+            "Id": {
+              "Fn::GetAtt": [
+                "PipelineArtifactsBucketEncryptionKey01D58D69",
+                "Arn",
+              ],
+            },
+            "Type": "KMS",
+          },
+          "Location": {
+            "Ref": "PipelineArtifactsBucket22248F97",
+          },
+          "Type": "S3",
+        },
+        "Name": "wren-test-pipeline",
+        "RestartExecutionOnUpdate": true,
+        "RoleArn": {
+          "Fn::GetAtt": [
+            "PipelineRoleD68726F7",
+            "Arn",
+          ],
+        },
+        "Stages": [
+          {
+            "Actions": [
+              {
+                "ActionTypeId": {
+                  "Category": "Source",
+                  "Owner": "ThirdParty",
+                  "Provider": "GitHub",
+                  "Version": "1",
+                },
+                "Configuration": {
+                  "Branch": "main",
+                  "OAuthToken": "{{resolve:secretsmanager:wren-test/cicd/github-pat:SecretString:::}}",
+                  "Owner": "test-owner",
+                  "PollForSourceChanges": false,
+                  "Repo": "test-repo",
+                },
+                "Name": "GitHub_Source",
+                "OutputArtifacts": [
+                  {
+                    "Name": "SourceOutput",
+                  },
+                ],
+                "RunOrder": 1,
+              },
+            ],
+            "Name": "Source",
+          },
+          {
+            "Actions": [
+              {
+                "ActionTypeId": {
+                  "Category": "Build",
+                  "Owner": "AWS",
+                  "Provider": "CodeBuild",
+                  "Version": "1",
+                },
+                "Configuration": {
+                  "ProjectName": {
+                    "Ref": "BuildProject097C5DB7",
+                  },
+                },
+                "InputArtifacts": [
+                  {
+                    "Name": "SourceOutput",
+                  },
+                ],
+                "Name": "Build_And_Test",
+                "OutputArtifacts": [
+                  {
+                    "Name": "CdkOutput",
+                  },
+                  {
+                    "Name": "ImageUri",
+                  },
+                ],
+                "RoleArn": {
+                  "Fn::GetAtt": [
+                    "PipelineBuildBuildAndTestCodePipelineActionRoleBC0CBBB9",
+                    "Arn",
+                  ],
+                },
+                "RunOrder": 1,
+              },
+            ],
+            "Name": "Build",
+          },
+          {
+            "Actions": [
+              {
+                "ActionTypeId": {
+                  "Category": "Deploy",
+                  "Owner": "AWS",
+                  "Provider": "CloudFormation",
+                  "Version": "1",
+                },
+                "Configuration": {
+                  "ActionMode": "CREATE_UPDATE",
+                  "Capabilities": "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND",
+                  "RoleArn": {
+                    "Fn::GetAtt": [
+                      "ComputeDeployRole98DF8D2D",
+                      "Arn",
+                    ],
+                  },
+                  "StackName": "wren-test-Compute",
+                  "TemplatePath": "CdkOutput::wren-test-Compute.template.json",
+                },
+                "InputArtifacts": [
+                  {
+                    "Name": "CdkOutput",
+                  },
+                ],
+                "Name": "Deploy_CDK",
+                "RoleArn": {
+                  "Fn::GetAtt": [
+                    "PipelineDeployDeployCDKCodePipelineActionRole02382FF8",
+                    "Arn",
+                  ],
+                },
+                "RunOrder": 1,
+              },
+            ],
+            "Name": "Deploy",
+          },
+          {
+            "Actions": [
+              {
+                "ActionTypeId": {
+                  "Category": "Build",
+                  "Owner": "AWS",
+                  "Provider": "CodeBuild",
+                  "Version": "1",
+                },
+                "Configuration": {
+                  "ProjectName": {
+                    "Ref": "UpdateLambdaProject43A61374",
+                  },
+                },
+                "InputArtifacts": [
+                  {
+                    "Name": "ImageUri",
+                  },
+                ],
+                "Name": "Update_Feedback_Engine",
+                "RoleArn": {
+                  "Fn::GetAtt": [
+                    "PipelineUpdateLambdaUpdateFeedbackEngineCodePipelineActionRole4D43CFD8",
+                    "Arn",
+                  ],
+                },
+                "RunOrder": 1,
+              },
+            ],
+            "Name": "UpdateLambda",
+          },
+        ],
+      },
+      "Type": "AWS::CodePipeline::Pipeline",
+    },
+    "PipelineDeployDeployCDKCodePipelineActionRole02382FF8": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "PipelineRoleD68726F7",
+                    "Arn",
+                  ],
+                },
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "PipelineDeployDeployCDKCodePipelineActionRoleDefaultPolicy493039E3": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "iam:PassRole",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ComputeDeployRole98DF8D2D",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "PipelineArtifactsBucket22248F97",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "PipelineArtifactsBucket22248F97",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "PipelineArtifactsBucketEncryptionKey01D58D69",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "cloudformation:CreateStack",
+                "cloudformation:DescribeStack*",
+                "cloudformation:GetStackPolicy",
+                "cloudformation:GetTemplate*",
+                "cloudformation:SetStackPolicy",
+                "cloudformation:UpdateStack",
+                "cloudformation:ValidateTemplate",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":cloudformation:ca-central-1:123456789012:stack/wren-test-Compute/*",
+                  ],
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "PipelineDeployDeployCDKCodePipelineActionRoleDefaultPolicy493039E3",
+        "Roles": [
+          {
+            "Ref": "PipelineDeployDeployCDKCodePipelineActionRole02382FF8",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "PipelineRoleD68726F7": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codepipeline.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "PipelineRoleDefaultPolicyC7A05455": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+                "s3:PutObject",
+                "s3:PutObjectLegalHold",
+                "s3:PutObjectRetention",
+                "s3:PutObjectTagging",
+                "s3:PutObjectVersionTagging",
+                "s3:Abort*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "PipelineArtifactsBucket22248F97",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "PipelineArtifactsBucket22248F97",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "PipelineArtifactsBucketEncryptionKey01D58D69",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "PipelineBuildBuildAndTestCodePipelineActionRoleBC0CBBB9",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "PipelineDeployDeployCDKCodePipelineActionRole02382FF8",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "PipelineUpdateLambdaUpdateFeedbackEngineCodePipelineActionRole4D43CFD8",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "PipelineRoleDefaultPolicyC7A05455",
+        "Roles": [
+          {
+            "Ref": "PipelineRoleD68726F7",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "PipelineSourceGitHubSourceWebhookResource8EECEFFF": {
+      "Properties": {
+        "Authentication": "GITHUB_HMAC",
+        "AuthenticationConfiguration": {
+          "SecretToken": "{{resolve:secretsmanager:wren-test/cicd/github-pat:SecretString:::}}",
+        },
+        "Filters": [
+          {
+            "JsonPath": "$.ref",
+            "MatchEquals": "refs/heads/{Branch}",
+          },
+        ],
+        "RegisterWithThirdParty": true,
+        "TargetAction": "GitHub_Source",
+        "TargetPipeline": {
+          "Ref": "PipelineC660917D",
+        },
+        "TargetPipelineVersion": 1,
+      },
+      "Type": "AWS::CodePipeline::Webhook",
+    },
+    "PipelineUpdateLambdaUpdateFeedbackEngineCodePipelineActionRole4D43CFD8": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "PipelineRoleD68726F7",
+                    "Arn",
+                  ],
+                },
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "PipelineUpdateLambdaUpdateFeedbackEngineCodePipelineActionRoleDefaultPolicy5D9CBC08": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "codebuild:BatchGetBuilds",
+                "codebuild:StartBuild",
+                "codebuild:StopBuild",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "UpdateLambdaProject43A61374",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "PipelineUpdateLambdaUpdateFeedbackEngineCodePipelineActionRoleDefaultPolicy5D9CBC08",
+        "Roles": [
+          {
+            "Ref": "PipelineUpdateLambdaUpdateFeedbackEngineCodePipelineActionRole4D43CFD8",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "UpdateLambdaProject43A61374": {
+      "Properties": {
+        "Artifacts": {
+          "Type": "CODEPIPELINE",
+        },
+        "Cache": {
+          "Type": "NO_CACHE",
+        },
+        "EncryptionKey": {
+          "Fn::GetAtt": [
+            "PipelineArtifactsBucketEncryptionKey01D58D69",
+            "Arn",
+          ],
+        },
+        "Environment": {
+          "ComputeType": "BUILD_GENERAL1_SMALL",
+          "Image": "aws/codebuild/standard:7.0",
+          "ImagePullCredentialsType": "CODEBUILD",
+          "PrivilegedMode": false,
+          "Type": "LINUX_CONTAINER",
+        },
+        "Name": "wren-test-update-lambda",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "UpdateLambdaProjectRole8627FD2A",
+            "Arn",
+          ],
+        },
+        "Source": {
+          "BuildSpec": "{
+  "version": "0.2",
+  "phases": {
+    "build": {
+      "commands": [
+        "IMAGE_URI=$(cat image-uri.txt)",
+        "aws lambda update-function-code --function-name wren-test-feedback-engine --image-uri $IMAGE_URI",
+        "aws lambda wait function-updated --function-name wren-test-feedback-engine"
+      ]
+    }
+  }
+}",
+          "Type": "CODEPIPELINE",
+        },
+      },
+      "Type": "AWS::CodeBuild::Project",
+    },
+    "UpdateLambdaProjectRole8627FD2A": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codebuild.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "UpdateLambdaProjectRoleDefaultPolicy294574E0": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":logs:ca-central-1:123456789012:log-group:/aws/codebuild/",
+                      {
+                        "Ref": "UpdateLambdaProject43A61374",
+                      },
+                    ],
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":logs:ca-central-1:123456789012:log-group:/aws/codebuild/",
+                      {
+                        "Ref": "UpdateLambdaProject43A61374",
+                      },
+                      ":*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "codebuild:CreateReportGroup",
+                "codebuild:CreateReport",
+                "codebuild:UpdateReport",
+                "codebuild:BatchPutTestCases",
+                "codebuild:BatchPutCodeCoverages",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":codebuild:ca-central-1:123456789012:report-group/",
+                    {
+                      "Ref": "UpdateLambdaProject43A61374",
+                    },
+                    "-*",
+                  ],
+                ],
+              },
+            },
+            {
+              "Action": [
+                "lambda:UpdateFunctionCode",
+                "lambda:GetFunction",
+                "lambda:GetFunctionConfiguration",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:lambda:ca-central-1:*:function:wren-test-feedback-engine",
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "FeedbackEngineRepo9E90635E",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "PipelineArtifactsBucket22248F97",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "PipelineArtifactsBucket22248F97",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "PipelineArtifactsBucketEncryptionKey01D58D69",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "PipelineArtifactsBucketEncryptionKey01D58D69",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "UpdateLambdaProjectRoleDefaultPolicy294574E0",
+        "Roles": [
+          {
+            "Ref": "UpdateLambdaProjectRole8627FD2A",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

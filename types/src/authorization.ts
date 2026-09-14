@@ -46,6 +46,12 @@ import { idSchema } from './common';
  *   TechnicalAdmin).
  * - `department.manage` — rename or remove an administered Department
  *   (DepartmentAdmin for their own Department; TechnicalAdmin).
+ * - `department.manageAskWrenPrompt` — edit a Department's Ask WREN coaching
+ *   context. Shared educational-content operation: a `DepartmentAdmin` for
+ *   administered Departments, and a `TechnicalAdmin` at platform scope (the
+ *   Ask WREN prompt is surfaced within the Technical Admin domain).
+ * - `departmentVisibility.manage` — change student-catalog visibility and
+ *   manage explicit Department visibility grants (TechnicalAdmin only).
  * - `accessGrant.create` / `accessGrant.revoke` — create/revoke Access Grants
  *   (DepartmentAdmin within administered Departments; TechnicalAdmin).
  * - `usageLimit.configure` — configure usage limits (TechnicalAdmin only).
@@ -68,6 +74,8 @@ export const capabilitySchema = z.enum([
   'documentType.setAccessState',
   'topic.manage',
   'department.manage',
+  'department.manageAskWrenPrompt',
+  'departmentVisibility.manage',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageLimit.configure',
