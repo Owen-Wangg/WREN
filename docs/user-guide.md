@@ -2,14 +2,17 @@
 
 **Welcome to the WREN User Guide!**
 
-WREN (Write, Revise, Edit Notes) is an AI-assisted writing and feedback platform that helps users improve their writing through structured AI-generated feedback, guided revision, and conversational support. Writers can upload drafts, receive document-specific feedback through AI Debrief, and use Ask LEON to better understand feedback and identify opportunities for improvement.
+**WREN** (Write, Revise, Edit Notes) is an AI-assisted writing and feedback platform that helps users improve their writing through structured AI-generated feedback, guided revision, and conversational support. Writers can upload drafts, receive document-specific feedback through AI Debrief, and use Ask LEON to better understand feedback and identify opportunities for improvement.
 
 This guide covers how to get started with **WREN** — from creating your account to using its features as a **Writer**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
 
 ## Before you Begin
 _Why do some screenshots say LEON?_
-**WREN** was derived from the LEON platform. As a result, some screenshots and interface elements may still display the name LEON. Throughout the guide, WREN refers to the current platform and LEON refers to earlier naming conventions within the same solution. Both names refer to the same platform functionality.
+
+**WREN** was derived from the LEON platform. As a result, some screenshots and interface elements may still display the name LEON. Throughout the guide, WREN refers to the current platform and LEON refers to earlier naming conventions within the same solution. Both names refer to the same platform functionality. Given that LEON was originally developed within a legal education context, many of the screenshots in the user guide use legal document types such as legal memoranda or case briefs as examples.
+
 _Are there other instances of interchangable naming?_
+
 Yes. The term **'System Admin'** is used throughout the user guide to describe a role, but this role is referred to as the 'Technical Admin' role in the API and database.
 
 ## How to use this Guide
@@ -124,7 +127,7 @@ When a writer wants to receive AI-assisted feedback on a new document, they must
 
 6. Click **Choose File** and select the PDF or DOCX file from your computer that you want to upload. Uploading a DOCX file will provide formatting that is more accurate to the original document.
 
-[insert screenshot here]
+<img width="1913" height="823" alt="Screenshot 2026-09-14 133151" src="https://github.com/user-attachments/assets/3c925764-f5fa-4a85-8781-14048e112e98" />
 
 7. After uploading your draft, you will be taken to the following page:
 <img width="956" height="415" alt="image" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
@@ -169,17 +172,18 @@ Once the button has been clicked, wait for the feedback to be generated. As you 
 
 If you wish to see what's done well and what could be improved in your writing, you are able to use the AI Debrief function. Using the scroll function on the right side panel, you can view the feedback across the different categories for the document you uploaded. Clicking on the "where you did this well" or "one example - check your whole draft for this" highlights the referenced part of your document, allowing you to quickly navigate and make edits in your document.
 
-[insert two images here]
+<img width="1913" height="820" alt="Screenshot 2026-09-14 133522" src="https://github.com/user-attachments/assets/35bc0ac1-9583-4d73-8d3b-0e44fe0e3457" />
+<img width="1915" height="824" alt="Screenshot 2026-09-14 133713" src="https://github.com/user-attachments/assets/be0f7dc7-5aae-44a2-b6b2-5223e175b692" />
 
 ### 2.4 Using Ask LEON
 
 You might have questions about the feedback the AI Debrief generated, or want some assistance in improving your writing. This is where Ask LEON comes in. Clicking on the 'LEON' icon brings you to the Ask LEON screen, where you can ask questions about the debrief, your draft, or aspects of writing such as clarity, organization, tone, etc. 
 
-Think of AI Debrief as the assessment tool and Ask LEON as the conversational coaching tool. Writers typically review their AI Debrief first, then use Ask LEON to better understand and act on that feedback.
+Think of AI Debrief as the assessment tool and Ask LEON as the conversational coaching tool. Writers typically review their AI Debrief first, then use Ask LEON to better understand and act on that feedback. Ask LEON addresses questions directed towards specific aspects of writing, such as clarity, organization, persuasiveness, tone, coherence, spelling, grammar, and consistency related to the uploaded draft.
 
-Simply type a question directed towards improving your writing, and Ask LEON will answer it. **Ask LEON will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.**
+**Ask LEON will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.**
 
-[insert ask LEON image]
+<img width="957" height="412" alt="image" src="https://github.com/user-attachments/assets/7b929713-8f6f-40e1-94cc-baad77dc8f09" />
 
 After using Ask LEON to better understand your feedback, you can revise your document and generate a new AI Debrief to evaluate your progress.
 
@@ -566,7 +570,7 @@ When a writer wants to receive AI-assisted feedback on a new document, they must
 
 6. Click **Choose File** and select the PDF or DOCX file from your computer that you want to upload. Uploading a DOCX file will provide formatting that is more accurate to the original document.
 
-[insert screenshot here]
+<img width="956" height="412" alt="image" src="https://github.com/user-attachments/assets/a87a6989-6852-4ada-b253-4784fdec72f8" />
 
 7. After uploading your draft, you will be taken to the following page:
 <img width="956" height="415" alt="image" src="https://github.com/user-attachments/assets/c652ca27-01f6-4aa9-9314-985318bcb573" />
@@ -609,7 +613,9 @@ Once the button has been clicked, wait for the feedback to be generated. As you 
 
 If you wish to see what's done well and what could be improved in your writing, you are able to use the AI Debrief function. Using the scroll function on the right side panel, you can view the feedback across the different categories for the document you uploaded. Clicking on the "where you did this well" or "one example - check your whole draft for this" highlights the referenced part of your document, allowing you to quickly navigate and make edits in your document.
 
-[insert two images here]
+<img width="959" height="409" alt="image" src="https://github.com/user-attachments/assets/a6c73138-f45e-43d5-ac44-f55d9f3edb3d" />
+<img width="956" height="410" alt="image" src="https://github.com/user-attachments/assets/0f2e327d-6114-4b77-8f76-af7c68374f01" />
+<img width="958" height="412" alt="image" src="https://github.com/user-attachments/assets/d59a9573-f508-4e18-8f65-0c9bdc037173" />
 
 ### 2.4 Using Ask LEON
 
@@ -619,7 +625,7 @@ Think of AI Debrief as the assessment tool and Ask LEON as the conversational co
 
 Simply type a question directed towards improving your writing, and Ask LEON will answer it. **Ask LEON will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.**
 
-[insert ask LEON image]
+<img width="1914" height="823" alt="Screenshot 2026-09-14 132650" src="https://github.com/user-attachments/assets/1ff4f3fb-9fc9-429e-8624-0d6d43dedfad" />
 
 ### Quick Recap — User
 
