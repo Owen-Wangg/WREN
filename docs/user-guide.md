@@ -166,7 +166,7 @@ If you would like to view categorized feedback for your draft, click the 'regene
 
 <img width="956" height="413" alt="image" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
 
-Once the button has been clicked, wait for the feedback to be generated. As you go through various iterations of your work, you may click the regenerate button to see if you have made any improvements in your writing. When the new AI Debrief appears, click the **drop-down arrow** to view earlier drafts. 
+Once the button has been clicked, wait for the feedback to be generated. As you go through various iterations of your work, you can click the regenerate button to see if you have made any improvements in your writing. When the new AI Debrief appears, click the **drop-down arrow** to view earlier drafts. 
 
 <img width="959" height="416" alt="image" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
 
@@ -294,7 +294,9 @@ The System Admin Dashboard serves as the central management area for the WREN pl
 Let's begin with model configuration. 
 
 ### 4.2 Model Configuration
-The model configuration settings determine which AI model WREN uses to generate AI Debriefs and respond to Ask LEON prompts. As a System Admin, you can change the active model to balance response quality, performance, and cost requirements.
+In WREN, the model used to generate AI Debriefs can be configured. Changing the model has an impact on the response quality, performance, and cost requirements. Therefore, it should be selected with careful review and consideration.
+
+To change the AI model used, follow the instructions below:
 
 1. From the System Admin dashboard, click the drop-down arrow next to Model Configuration.
 <img width="910" height="385" alt="image" src="https://github.com/user-attachments/assets/b9ec4bef-0b50-4b22-9c22-aaab06e8ee62" />
@@ -322,7 +324,7 @@ After saving a model configuration, future AI Debrief and Ask LEON requests will
 ### 4.3 Setting Usage Limits
 Usage limits help administrators balance platform availability with AI operating costs. They are particularly useful during pilot projects, classroom deployments, or situations where AI usage budgets must be monitored carefully.
 
-For example, a department may choose to allow numerous document uploads while restricting the number of AI Debrief regenerations to encourage thoughtful revision rather than excessive regeneration.
+Usage limits may be especially helpful when encouraging thoughtful revision rather than excessive regeneration.
 
 Usage Limits restrict how many AI Debriefs and Ask LEON messages can be generated per document. Each debrief and Ask LEON interaction sends a request to a paid AI model and therefore **incurs usage costs.**
 
@@ -346,7 +348,9 @@ These limits apply to all users in all departments. They are not per-calendar-pe
 Once usage limits have been configured, the next step is typically to organize the platform into departments. Departments allow you to separate users, document types, prompts, and analytics into distinct administrative areas.
 
 ### 4.4 Creating New Departments
-Departments provide organizational boundaries within WREN. Each department can maintain its own document types, evaluation rubrics, prompts, analytics, and administrative staff.
+Departments provide separate areas of management within WREN. Each department can maintain its own document types, evaluation rubrics, prompts, analytics, and administrative staff. Consequently, departments can tailor the writing experience, feedback criteria, and administrative controls to meet their specific organizational needs.
+
+A department typically represents a distinct academic unit, program, faculty, or organization that has its own writing standards and evaluation requirements. For example, the Law Department shown throughout this guide uses legal document types and specialized evaluation criteria designed to assess legal writing. Other departments might configure WREN for disciplines such as business, engineering, healthcare, or communications, each with their own document types, rubrics, and AI guidance. By organizing content into departments, WREN can provide feedback that is more relevant to the expectations and standards of a particular field.
 
 To create new departments as a System Admin:
 
@@ -388,17 +392,25 @@ Let's begin with managing roles:
 2. Under **Manage Users**, you can search participants and assign or revoke roles.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/65b17290-e7e3-4d23-bd7d-d68bcf904d39" />
 
-3. Use **Student access → Open / Lock** to control who can submit documents for this document type:
-   - **When the button says lock, it means the access is open** — any user with access to the platform can submit documents for this document type. No document-type-specific Access Grant is required.
-   - **When the button says open, it means the access is locked** — only users who have been explicitly granted access to this document type can submit documents. Users must have an approved document-type Access Grant before they can upload or submit documents for evaluation.
-   - When a document type is locked, administrators can manage access by reviewing and approving Access Grant requests from users.
+3. Submission access controls who can submit documents for a document type. A document type can be configured in one of two access states:
+- **Open access**: Any user with access to WREN can submit documents for this document type. No additional approval is required. 
+- **Locked Access**: Only users who have been explicitly granted access can submit documents for this document type. Users must have an approved Access Grant before they can upload or submit documents for evaluation.
+Administrators can switch between these states using the **Student Access** control:
+   - If the document type is currently Open, the button displays Lock. Selecting it changes the document type to Locked Access.
+   - If the document type is currently Locked, the button displays Open. Selecting it changes the document type to Open Access.
+  
+When a document type is locked, administrators can manage access by reviewing and approving Access Grant requests from users.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/3aa639f4-909c-434f-9a2f-f47195cf074e" />
 
-After assigning user roles and configuring submission access, you may also want to control who can discover a department in the platform's catalog. This is managed through department visibility settings.
+After configuring roles and submission access, configure **Department Visibility** to determine who can discover the department in the WREN application.
 
-**Department visibility** controls whether a department appears in the catalog for all users or only for users who have been explicitly granted access. It can be configured by using the button on the right side to control visibility:
-   - **If you see the 'limit visibility' button** — the department is visible to all users.
-   - **If you see the 'make visible' button** — the department is shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
+**Department Visibility** can be configured in one of two states:
+- **Visible to All Users:** The department appears in the catalog for all users who have access to WREN.
+- **Restricted Visibility:** The department appears only to users who have been explicitly granted access, as well as System Admins and Department Admins assigned to the department.
+
+Administrators can switch between these states using the visibility control:
+- If the department is currently **Visible to All Users**, the button displays **Limit Visibility**. Selecting it changes the department to Restricted Visibility.
+- If the department currently has **Restricted Visibility**, the button displays **Make Visible**. Selecting it makes the department visible to all users.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/59cf4cd2-59df-41a4-b946-28a7648fa2ce" />
 <img width="122" height="176" alt="image" src="https://github.com/user-attachments/assets/89c31f2b-d4f6-4d58-a2bc-9252cbc57af1" />
 
@@ -409,45 +421,70 @@ After assigning user roles and configuring submission access, you may also want 
 Once department membership and access controls have been configured, the next step is often to customize how the AI behaves for that department. This is accomplished through department-level prompts.
 
 ### 4.6 Department-Level Prompt Management
+Department-level prompts define guidance that applies across all document types within a department. These prompts provide context that the AI uses whenever it generates an AI Debrief or responds through Ask LEON. As a result, the information configured here influences how feedback is framed, what standards are emphasized, and what topics or considerations the AI should account for when interacting with users.
 
-The department prompt sets instructions the AI applies across every document type in the department. Use it for guidance that should hold department-wide — who the writers are, the standards they follow, and topics the AI should avoid — rather than criteria specific to one document type (those live in the Department Admin Evaluation Rubric, see [3.2](#32-configuring-the-evaluation-rubric)). 
+Department prompts should be used for guidance that applies broadly across a department, such as the background of the writers, departmental writing expectations, or topics that should be avoided. More specific evaluation requirements can be configured within a document type's Evaluation Rubric (see [3.2](#32-configuring-the-evaluation-rubric)). 
 
 On the screen, you will see configurable fields for Department Context, Writing Standards, and Restricted Topics that together influence AI behavior across the department. 
 
-To accesss the department prompts:
-1. Go to **System Admin Dashboard → Departments → [Department Name] → Manage Department Prompt**.
+The Department Prompt contains three configurable settings:
+1. Department Context: Provides background information about the department, its users, and the types of documents being reviewed. This helps the AI better understand the environment in which the writing is being produced.
+2. Writing Standards: Defines department-wide expectations for style, tone, structure, formatting, citations, or other writing conventions that should be reflected in AI-generated feedback.
+3. Restricted Topics: Identifies topics, concepts, or content areas that the AI should avoid discussing or should handle with additional caution.
+Together, these settings help ensure that AI-generated feedback aligns with the standards and expectations of the department.
+
+To access the Department Prompt:
+1. Go to System Admin Dashboard → Departments → [Department Name] → Manage Department Prompt.
 2. Configure the following:
-   - **Department Context** — background the AI should always consider for this department (e.g., subject area, program level, institutional norms).
-   - **Writing Standards** — style, tone, formatting, and citation requirements the AI should follow when generating documents or debriefs for this department.
-   - **Restricted Topics** — topics, terms, or content areas the AI should avoid or flag when interacting with this department's users.
-3. Click **Save Prompt**.
-4. Optionally, test the configuration by generating a sample document or debrief before rolling it out.
+- Department Context
+- Writing Standards
+- Restricted Topics
+3.. Click Save Prompt.
+Optionally, test the configuration by generating a sample document or AI Debrief before rolling it out.
 <img width="710" height="412" alt="image" src="https://github.com/user-attachments/assets/d5dbb115-2f24-4ee2-94ea-86d64940729d" />
 
-Department-level prompts define guidance that applies across all document types within a department. In addition to these broad instructions, System Admins can also configure the behavior of the Ask LEON assistant itself.
+After configuring department-wide AI guidance, the next step is configuring the behavior of the Ask LEON assistant itself.
 
 ## 4.7 Manage Ask LEON Prompt
-The Ask LEON prompt controls how the conversational assistant interacts with writers. Unlike AI Debrief prompts, which determine evaluation feedback, Ask LEON prompts shape the guidance style, questioning approach, and overall tone of interactions with users.
+The Ask LEON prompt controls how the conversational assistant interacts with writers. Unlike AI Debrief prompts, which determine evaluation feedback, Ask LEON prompt influences how the assistant communicates with users.
 
-Once you fill in the blank field, **hit 'Save Ask LEON Prompt.'**
+For example, the Ask LEON Prompt can be used to:
+- Encourage a Socratic coaching style
+- Reinforce departmental writing expectations
+- Promote reflection and critical thinking
+
+When Ask LEON is asked a question, it responds by guiding the user through reflective questioning rather than simply providing answers. This approach is based on the Socratic method, which encourages writers to think more critically about their work, evaluate their reasoning, and identify improvements independently. 
+
+To update the Ask LEON prompt:
+1. Navigate to the **Manage Ask LEON Prompt** page
+2. Enter or modify the prompt text
+3. Click **Save ASK LEON Prompt**
 <img width="776" height="404" alt="image" src="https://github.com/user-attachments/assets/4aa0efb9-d517-4765-9d1f-af9cf9f3bee4" />
 
-After configuring department prompts and Ask LEON behavior, administrators may want to evaluate how users are engaging with the platform. The analytics dashboard provides visibility into adoption and usage trends across departments.
+After configuring department prompts and Ask LEON behavior, administrators can evaluate how users are engaging with the platform through analytics. The analytics dashboard provides visibility into adoption and usage trends across departments.
 
 ### 4.8 Reviewing Department Analytics
 
-The analytics dashboard provides a high-level view of platform adoption and AI usage trends. The following steps explain where to access these metrics and what each measure represents.
+Analytics provides insight into platform adoption, writing activity, and AI usage across departments. Administrators can use these metrics to understand how WREN is being used, identify trends, and determine whether configuration changes may be needed.
 
-1. Go to **System Admin Dashboard → Departments → [Department Name] → View Analytics** (or a platform-wide analytics view, if available).
+To access analytics:
+1. Go to **System Admin Dashboard → Departments → [Department Name] → View Analytics**.
 2. Review key metrics, including:
-   - **Active Users** — number of users who logged in or used the platform within a selected time range. Active User metrics help administrators understand adoption and engagement levels within a department.
-   - **Total documents** — total document creation volume over time. Document generation totals help identify which departments or document types are receiving the most use.
-   - **Total drafts** — reflects how many times AI Debrief is being used for revision. Debrief activity provides insight into how frequently users are engaging with AI-assisted feedback during the writing process.
-   - **Breakdown by document type** - provides a bar graph to illustrate which document type is being used the most.
-   - **Platform total usage over time** - demonstrates how many users are engaging with the platform over time.
+   - **Active Users** — Shows how many users have logged in or used the platform during a selected time period. This metric helps assess user adoption and engagement.
+   - **Total documents** — Shows the number of documents that have been created. High document counts generally indicate frequent platform use within a department.
+   - **Total drafts** — Shows how many draft iterations users have created. A higher number of drafts may indicate that writers are actively revising their work and engaging with AI-generated feedback.
+   - **Breakdown by document type** - Displays which document types are being used most frequently. This can help identify high-demand document types and areas where additional support or rubric refinement may be beneficial. 
+   - **Platform total usage over time** -Displays changes in platform activity over time. Growth trends may indicate successful adoption, while declining activity may suggest the need for additional configuration changes.
 
 <img width="911" height="302" alt="Department analytics totals" src="https://github.com/user-attachments/assets/539979ef-8a54-41a8-bfc3-764fc87d4b43" />
 <img width="725" height="296" alt="Usage over time" src="https://github.com/user-attachments/assets/3b319c83-71de-4e06-8862-42ef7101baa6" />
+
+Analytics can help answer questions such as:
+- Are users actively using WREN?
+- Which document types are most popular?
+- Are writers engaging in multiple revision cycles?
+- Is platform usage increasing or decreasing over time?
+- Do certain departments require additional support or training?
 
 Together, model configuration, usage management, department administration, prompt configuration, and analytics provide System Admins with the tools needed to govern and support the WREN platform. The quick reference below summarizes the most common administrative tasks and where to find them.
 
