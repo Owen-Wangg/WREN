@@ -11,7 +11,7 @@ _Why do some screenshots say LEON?_
 
 **WREN** is the name used throughout this guide to refer to the prototype solution. During development, the design was centered around the legal context and named in tribute to Leon Getz (https://www.lawsociety.bc.ca/news-and-engagement/news/in-memoriam-leon-getz,-kc) who was considered by many to be one of the best legal writers in BC. As a result, some screenshots and interface elements may still display the name LEON (Legal Expression Organization & Navigation). Throughout the guide, WREN refers to the current platform and LEON refers to naming conventions used during system development within the same solution. Both names refer to the same platform functionality. Given that LEON was originally developed within a legal education context, many of the screenshots in the User Guide use legal document types such as legal memoranda or case briefs as examples.
 
-_Are there other instances of interchangable naming?_
+_Are there other instances of interchangeable naming?_
 
 Yes. The term **'System Admin'** is used throughout the user guide to describe a role, but this role is referred to as the 'Technical Admin' role in the API and database.
 
