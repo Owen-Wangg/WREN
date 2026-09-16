@@ -10,6 +10,5 @@ export function redactText(value: string, secrets: readonly (string | undefined)
 export function withoutSecretEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const clean = { ...env };
   delete clean.WREN_GITHUB_TOKEN;
-  delete clean.WREN_SMOKE_ACCESS_TOKEN;
   return clean;
 }

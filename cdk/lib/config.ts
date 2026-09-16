@@ -401,6 +401,13 @@ export const ssmParameterNames = {
   userPoolId: (config: AppConfig): string => `/${config.stackPrefix}/auth/user-pool-id`,
   /** Cognito User Pool Client ID published by the `Cognito` stack. */
   userPoolClientId: (config: AppConfig): string => `/${config.stackPrefix}/auth/client-id`,
+  /**
+   * Exact Cognito `sub` armed for first-admin TechnicalAdmin elevation.
+   * Written by the deploy workflow (not CloudFormation) so pipeline synths
+   * can re-pass it after the operator-guided setup.
+   */
+  technicalAdminBootstrapSubject: (config: { readonly stackPrefix: string }): string =>
+    `/${config.stackPrefix}/auth/technical-admin-bootstrap-subject`,
 } as const;
 
 /**

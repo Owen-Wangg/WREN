@@ -827,7 +827,11 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
                 ":$IMAGE_TAG\\" > image-uri.txt",
-        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
+        "BOOTSTRAP_SUBJECT=$(aws ssm get-parameter --name /wren-test/auth/technical-admin-bootstrap-subject --query Parameter.Value --output text 2>/dev/null || true)",
+        "if [ \\"$BOOTSTRAP_SUBJECT\\" = \\"None\\" ] || [ \\"$BOOTSTRAP_SUBJECT\\" = \\"none\\" ]; then BOOTSTRAP_SUBJECT=\\"\\"; fi",
+        "SUBJECT_CONTEXT=\\"\\"",
+        "if [ -n \\"$BOOTSTRAP_SUBJECT\\" ]; then SUBJECT_CONTEXT=\\"-c technicalAdminBootstrapSubject=$BOOTSTRAP_SUBJECT\\"; fi",
+        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main $SUBJECT_CONTEXT && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
       ]
     }
   },
@@ -983,6 +987,11 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
               "Action": "sts:AssumeRole",
               "Effect": "Allow",
               "Resource": "arn:aws:iam::123456789012:role/cdk-*-file-publishing-role-123456789012-ca-central-1",
+            },
+            {
+              "Action": "ssm:GetParameter",
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:ca-central-1:123456789012:parameter/wren-test/auth/technical-admin-bootstrap-subject",
             },
             {
               "Action": [

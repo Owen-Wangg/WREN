@@ -108,7 +108,7 @@ The trust boundary worth remembering: **network reachability and CloudFront/WAF 
 
 ### 3.1 Authentication
 
-All users authenticate with Amazon Cognito (email alias, SRP and password flows). All application REST requests require authentication. CORS `OPTIONS` preflight requests are unauthenticated because they are handled as browser preflight requests, not application calls.
+All users authenticate with Amazon Cognito (email alias, SRP). All application REST requests require authentication. CORS `OPTIONS` preflight requests are unauthenticated because they are handled as browser preflight requests, not application calls.
 
 Self-signup is enabled; email verification uses a one-time code. Account recovery is email only. MFA is optional. New sign-ups may optionally be limited to exact email hostnames configured at deploy time (`WREN_ALLOWED_EMAIL_DOMAINS`); the default is unrestricted. The Cognito PreSignUp trigger is the authoritative gate. Existing accounts can still sign in regardless of domain.
 

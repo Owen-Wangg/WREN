@@ -14,13 +14,13 @@
  *
  * The only escalation exception is a default-off first-admin bootstrap gated on
  * an exact configured Cognito subject (`TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT`),
- * armed only by the guided deploy and stripped immediately after. For a
- * genuinely new user it runs inside first-login provisioning (and additionally
- * requires the SystemAdmin group claim). Because the app auto-loads the
- * dashboard on signup — so the intended admin usually already has a Student row
- * before the subject is armed — the same armed-subject gate is also
- * re-evaluated for an already-provisioned user below, elevating in place. No
- * user whose exact subject is not armed can ever escalate.
+ * armed by the guided deploy. For a genuinely new user it runs inside
+ * first-login provisioning (and additionally requires the SystemAdmin group
+ * claim). Because the app auto-loads the dashboard on signup — so the intended
+ * admin usually already has a Student row before the subject is armed — the
+ * same armed-subject gate is also re-evaluated after provisioning, elevating in
+ * place on that user's first authenticated application request. No user whose
+ * exact subject is not armed can ever escalate.
  *
  * The authorizer produces a COARSE stage-wide allow; REST authorizer caching is
  * disabled in `cdk/lib/openapi.yaml`, so roles/grants are loaded from the DB on
@@ -192,18 +192,13 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
             policyDocument: policy('Deny', resource),
           };
         }
-      } else if (armedSubject === subject && !context.roles.includes('TechnicalAdmin')) {
-        // First-admin bootstrap for an ALREADY-PROVISIONED candidate. The app
-        // auto-loads the dashboard right after signup, so the intended admin
-        // almost always has an app_user (Student) row before the deploy arms
-        // their subject — which makes the ensureAppUser first-login elevation
-        // above unreachable for them. Re-evaluate the elevation here, gated
-        // SOLELY on the operator-armed exact-subject match (set only by the
-        // guided deploy and stripped immediately after verification). This does
-        // not trust `cognito:groups`: the access tokens the REST authorizer
-        // verifies do not reliably carry that claim, and the armed subject is
-        // itself the operator-controlled signal. Re-read the context so this
-        // same request is authorized with the freshly granted role.
+      }
+      if (armedSubject === subject && !context.roles.includes('TechnicalAdmin')) {
+        // First-admin bootstrap on the candidate's authenticated application
+        // request. Access tokens do not reliably carry `cognito:groups`, so
+        // ensureAppUser's group check may not elevate; this path is gated
+        // solely on the operator-armed exact-subject match. Re-read context
+        // so this same request is authorized with the freshly granted role.
         await ensureTechnicalAdminForArmedSubject(db, context.userId);
         context = (await mapSubjectToAuthContext(subject, db)) ?? context;
       }

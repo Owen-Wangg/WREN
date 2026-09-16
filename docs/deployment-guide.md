@@ -16,8 +16,7 @@ This guide deploys the WREN writing coach into an AWS account.
     - [Step 1 — Prerequisites (one-time setup)](#step-1--prerequisites-one-time-setup)
     - [Step 2 — Start the deploy (run #1)](#step-2--start-the-deploy-run-1)
     - [Step 3 — Create the admin account, then rerun (run #2)](#step-3--create-the-admin-account-then-rerun-run-2)
-    - [Step 4 — Prove the admin identity with a token, then rerun (run #3)](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3)
-    - [Step 5 — Confirm it's up](#step-5--confirm-its-up)
+    - [Step 4 — Sign in to become Technical Admin](#step-4--sign-in-to-become-technical-admin)
   - [Deployment](#deployment)
     - [Deployment workflow implementation](#deployment-workflow-implementation)
     - [Variables for the standard deployment](#variables-for-the-standard-deployment)
@@ -88,7 +87,7 @@ Before you deploy, you must have the following installed on your device:
 
 ### Access Tokens
 
-You also need a GitHub repository this account can read (a fork of WREN) and a GitHub personal access token (PAT). The exact scopes and where to create it are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup). A separate, short-lived token (`WREN_SMOKE_ACCESS_TOKEN`) is used once during first-admin setup — see [Step 4](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3).
+You also need a GitHub repository this account can read (a fork of WREN) and a GitHub personal access token (PAT). The exact scopes and where to create it are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup).
 
 ### Enable and Verify Bedrock Model Access
 
@@ -123,11 +122,11 @@ This is the recommended path for a first-time deployment. Follow the steps in or
 
 > **Read this first — the deploy runs more than once, on purpose.**
 >
-> `npm run deploy` is safe to run repeatedly. It will **pause and exit with code `3`** whenever it needs you to do something (sign up, confirm an email, provide a token). **Exit code 3 is not an error and not a rollback** — it is a checkpoint. You read the printed instruction, do the one thing it asks, and run the same command again. Setting up the first administrator takes **three** runs in total, because the system refuses to grant admin rights from a config value alone: the intended admin must sign in and prove their identity. That is deliberate and cannot be skipped.
+> `npm run deploy` is safe to run repeatedly. It will **pause and exit with code `3`** whenever it needs you to do something (sign up, confirm an email). **Exit code 3 is not an error and not a rollback** — it is a checkpoint. You read the printed instruction, do the one thing it asks, and run the same command again. Setting up the first administrator takes **two** runs in total. That is deliberate and cannot be skipped.
 >
-> You will handle **two different tokens**. Don't mix them up:
-> - **GitHub personal access token (PAT)** — set once (`WREN_GITHUB_TOKEN`). Lets AWS read your repo for the frontend/pipeline. Long-lived.
-> - **Smoke access token** (`WREN_SMOKE_ACCESS_TOKEN`) — a temporary Cognito login token for the first admin, used once near the end to prove they can sign in. **Expires in about an hour**, so you fetch it right before the final run.
+> **Deploy still succeeds, and the first admin is still promoted.** Run #2 completes the deployment: it adds the confirmed user to `SystemAdmin` and arms the bootstrap. It does **not** grant `TechnicalAdmin` itself. After that run finishes, sign in to the application as `WREN_ADMIN_EMAIL` — that login is what promotes the account to `TechnicalAdmin`. There is no third deploy run and no access token to copy or paste.
+>
+> You will handle **one GitHub personal access token (PAT)** — set once (`WREN_GITHUB_TOKEN`). Lets AWS read your repo for the frontend/pipeline. Long-lived.
 
 ### Step 1 — Prerequisites (one-time setup)
 
@@ -196,13 +195,13 @@ npm run deploy
 
 **What you should see:** the workflow verifies AWS/Bedrock, bootstraps, builds the image in CodeBuild, deploys the stacks, and then **pauses with exit code 3**, printing an Amplify sign-up URL and asking you to create the first-admin account. That pause is expected — go to Step 3.
 
-> Keep the same variables set for every rerun in Steps 3–4 (in the same terminal session, or re-export them). Rerunning is how you advance; live AWS state is rediscovered each time.
+> Keep the same variables set for every rerun in Step 3 (in the same terminal session, or re-export them). Rerunning is how you advance; live AWS state is rediscovered each time.
 
 ### Step 3 — Create the admin account, then rerun (run #2)
 
 1. Open the **Amplify sign-up URL** the deploy printed.
 2. Sign up using the exact address in `WREN_ADMIN_EMAIL`, and confirm the email.
-3. You can stop after confirming the email; you don't need to do anything else in the app. (Signing in early is fine — the guided flow still elevates you to admin in place on the final run. It's simplest to just sign up, confirm, and continue.)
+3. You can stop after confirming the email; you don't need to do anything else in the app yet. Signing in before this rerun is fine, but promotion happens only **after** run #2 has armed the bootstrap. It's simplest to sign up, confirm, rerun, then sign in.
 4. Run `npm run deploy` again. This is your first rerun, so you can skip the dependency reinstall to save time — Step 2 already ran `npm ci` for the root and `cdk/` directories:
 
    ```bash
@@ -210,93 +209,29 @@ npm run deploy
    npm run deploy
    ```
 
-   Keep it set for the Step 4 rerun too. Only leave it out (or set `false`) if you deleted `node_modules` or changed dependencies since Step 2; the workflow errors clearly if either `node_modules` directory is missing.
+   Keep it set if you rerun again. Only leave it out (or set `false`) if you deleted `node_modules` or changed dependencies since Step 2; the workflow errors clearly if either `node_modules` directory is missing.
 
-**What you should see:** the workflow finds your confirmed user, adds them to the Cognito `SystemAdmin` group, flags the account for one-time admin verification, then **pauses again (exit code 3)** asking for `WREN_SMOKE_ACCESS_TOKEN`. Go to Step 4.
+**What you should see:** the workflow finds your confirmed user, adds them to the Cognito `SystemAdmin` group, arms the TechnicalAdmin bootstrap for that user's Cognito subject, runs remaining infrastructure checks, and **completes successfully**. No further `npm run deploy` is required. The account is not `TechnicalAdmin` yet — go to Step 4 and sign in.
 
-> Run #2 may briefly redeploy the Compute stack to arm the one-time admin-verification gate, so it can take a little longer than a pure no-op rerun even with the reinstall skipped.
+> Run #2 may briefly redeploy the Compute stack to arm the first-admin bootstrap gate, so it can take a little longer than a pure no-op rerun even with the reinstall skipped.
 
-### Step 4 — Prove the admin identity with a token, then rerun (run #3)
+### Step 4 — Sign in to become Technical Admin
 
-You now fetch the **smoke access token** — a temporary login token for the admin user — and give it to the final run. It expires in ~1 hour, so do this right before rerunning.
+Deploy already finished in Step 3. Promotion is the first real sign-in, not another deploy.
 
-**Recommended: fetch it from the command line (no browser needed).** Run the block for your shell; it looks up your deployment's Cognito client for you. Set `prefix` to your stack prefix (`wren-dev` unless you changed project/environment).
+1. Open the hosted application URL the deploy printed (Amplify default, or your custom domain if it is already live).
+2. Sign in as `WREN_ADMIN_EMAIL` with the password you set at sign-up.
+3. That authenticated request grants `TechnicalAdmin`. You can then assign roles to other users from within the app.
 
-> The blocks below keep `WREN_SKIP_INSTALL=true` (introduced in Step 3) so this rerun skips the dependency reinstall and goes straight to synthesis and the admin-verification checks. This run is typically the fastest, since the smoke token is verified against the API without redeploying stacks.
+If you signed in once before run #2 (and so already have a `Student` row), signing in now still elevates you in place: you keep `Student` and also gain `TechnicalAdmin`.
 
-<details open>
-<summary>macOS/Linux (bash) — fetch the token and rerun</summary>
-
-```bash
-PREFIX="wren-dev"                 # change if your prefix differs
-EMAIL="admin@example.com"         # the first admin's email
-read -rsp "Admin password: " PASSWORD; echo   # prompted; nothing is saved
-
-CLIENT_ID=$(aws ssm get-parameter --name "/$PREFIX/auth/client-id" --query Parameter.Value --output text)
-POOL_ID=$(aws ssm get-parameter --name "/$PREFIX/auth/user-pool-id" --query Parameter.Value --output text)
-
-export WREN_SMOKE_ACCESS_TOKEN=$(aws cognito-idp admin-initiate-auth \
-  --user-pool-id "$POOL_ID" \
-  --client-id "$CLIENT_ID" \
-  --auth-flow ADMIN_USER_PASSWORD_AUTH \
-  --auth-parameters "USERNAME=$EMAIL,PASSWORD=$PASSWORD" \
-  --query "AuthenticationResult.AccessToken" --output text)
-
-export WREN_REQUIRE_APPROVAL=never   # keep set from Step 2; re-export here if you opened a new shell
-export WREN_SKIP_INSTALL=true        # Step 2 already ran npm ci; skip the reinstall to speed up this rerun
-npm run deploy
-```
-
-</details>
-
-<details>
-
-<summary>PowerShell — fetch the token and rerun</summary>
-
-```powershell
-$prefix = "wren-dev"                 # change if your prefix differs
-$email  = "admin@example.com"        # the first admin's email
-$password = Read-Host "Admin password"   # prompted; nothing is saved
-
-$clientId = aws ssm get-parameter --name "/$prefix/auth/client-id" --query Parameter.Value --output text
-$poolId = aws ssm get-parameter --name "/$prefix/auth/user-pool-id" --query Parameter.Value --output text
-
-$env:WREN_SMOKE_ACCESS_TOKEN = aws cognito-idp admin-initiate-auth `
-  --user-pool-id $poolId `
-  --client-id $clientId `
-  --auth-flow ADMIN_USER_PASSWORD_AUTH `
-  --auth-parameters "USERNAME=$email,PASSWORD=$password" `
-  --query "AuthenticationResult.AccessToken" --output text
-
-$env:WREN_REQUIRE_APPROVAL = "never"   # keep set from Step 2; re-set here if you opened a new shell
-npm run deploy
-```
-
-</details>
-
-> **If the token comes back empty** (instead of a long string), the account needs a first interactive sign-in — sign in once in the browser to set a permanent password or complete MFA, then run the block again.
-
-<details>
-<summary>Alternative: copy the token from the browser</summary>
-
-Sign in to the app, open developer tools (F12), go to **Application → Local Storage**, and copy the value whose key ends in **`.accessToken`**. Set it as `WREN_SMOKE_ACCESS_TOKEN` and run `npm run deploy`.
-
-</details>
-
-**What you should see:** the workflow confirms the signed-in user really is the admin, removes the temporary verification flag, runs its final smoke checks, and completes. **You're done.** Don't save or commit the token — it expires on its own and was only needed for this run.
-
-### Step 5 — Confirm it's up
-
-- If Amplify is enabled, the deploy prints the hosted application URL. Open it and sign in as the admin.
-- The first admin can now assign roles to other users from within the app.
-
-If any step stops with exit code 3 or an error, read the printed instruction, complete that one action, and rerun `npm run deploy`. See [Troubleshooting](#troubleshooting) for specific messages.
+If a deploy run stops with exit code 3 or an error, read the printed instruction, complete that one action, and rerun `npm run deploy`. See [Troubleshooting](#troubleshooting) for specific messages.
 
 ---
 
 ## Deployment
 
-**New here? Follow [First Deployment — Step by Step](#first-deployment--step-by-step) instead** — it walks the same workflow linearly, including the three-run first-admin setup and the smoke-token step. This section is a condensed reference for the same command.
+**New here? Follow [First Deployment — Step by Step](#first-deployment--step-by-step) instead** — it walks the same workflow linearly, including the two-run first-admin setup. This section is a condensed reference for the same command.
 
 The default hosted deployment sets the target account, GitHub source + PAT, and the intended first administrator, then runs `npm run deploy` from the repository root:
 
@@ -315,7 +250,7 @@ For production or non-interactive/CI runs, also set `export WREN_EXPECTED_ACCOUN
 
 (PowerShell/CMD equivalents are shown in the [step-by-step walkthrough](#step-2--start-the-deploy-run-1).)
 
-The command is **idempotent and rerun-driven**: it pauses with exit code **3** whenever human action is required, and you rerun the same command after doing it. First-admin setup takes three runs — create/confirm the account, claim the `SystemAdmin` role, then prove identity with a temporary `WREN_SMOKE_ACCESS_TOKEN`. The workflow never grants admin from a config value alone; the intended user must sign in and prove their identity. See [Step 3](#step-3--create-the-admin-account-then-rerun-run-2) and [Step 4](#step-4--prove-the-admin-identity-with-a-token-then-rerun-run-3) for the exact actions and the token-fetch commands.
+The command is **idempotent and rerun-driven**: it pauses with exit code **3** whenever human action is required, and you rerun the same command after doing it. First-admin setup takes two runs — create/confirm the account, then claim the `SystemAdmin` role and arm the bootstrap subject. Run #2 **completes the deployment**. The workflow never grants admin from a config value alone; after it finishes, the intended user must sign in to the application to receive `TechnicalAdmin`. See [Step 3](#step-3--create-the-admin-account-then-rerun-run-2) and [Step 4](#step-4--sign-in-to-become-technical-admin) for the exact actions.
 
 Preview without changing AWS resources:
 
@@ -342,7 +277,7 @@ Use this guide for operator inputs, safety gates, and recovery behavior. Consult
 
 ### Variables for the standard deployment
 
-For the default hosted deployment, set only the following variables before the first `npm run deploy`. The first-admin token is a follow-up input, not a first-run requirement.
+For the default hosted deployment, set only the following variables before the first `npm run deploy`.
 
 | Variable | Default | Standard deployment use |
 | --- | --- | --- |
@@ -353,8 +288,7 @@ For the default hosted deployment, set only the following variables before the f
 | `WREN_GITHUB_TOKEN` | unset | GitHub personal access token used to create the Amplify and CI/CD secrets. **Required on first setup** because CI/CD is built by default; it can be omitted on later runs once both secrets already exist. |
 | `WREN_ENABLE_CICD` | `true` | Builds the CodePipeline CI/CD pipeline by default. Leave it at `true` for the standard path; set `false` only to skip the pipeline. |
 | `WREN_REQUIRE_APPROVAL` | `broadening` interactively; otherwise `never` | Set to `never` for the standard `npm run deploy`. The deploy runs CDK without an attached terminal, so the default `broadening` prompt for IAM changes cannot be answered and aborts with `terminal (TTY) is not attached`. `never` applies those changes without prompting; for production, review the change first with `WREN_DRY_RUN=true`. |
-| `WREN_ADMIN_EMAIL` | unset | Email address for the intended first administrator. The guided first-admin flow uses this value to pick who becomes admin. |
-| `WREN_SMOKE_ACCESS_TOKEN` | unset | The first administrator's fresh Cognito **access token**, set only for the final first-admin run (step 3 above). It proves that user authenticates as an admin so the temporary elevation can be removed, and completes the authenticated smoke checks. Copy it from the signed-in session; never commit or persist it. |
+| `WREN_ADMIN_EMAIL` | unset | Email address for the intended first administrator. The guided first-admin flow uses this value to pick who becomes admin. After run #2 completes, that user signs in to the application to receive `TechnicalAdmin`. |
 
 All target customization, API-only hosting, CI/CD, ECR ownership, image, recovery, automation, preview, and teardown variables are in [Advanced deployment configuration](#advanced-deployment-configuration). Leave them unset for the standard path.
 
@@ -364,7 +298,7 @@ Secrets are redacted from command errors/output. GitHub secret values are passed
 
 This section documents environment variables for non-default deployment, recovery, automation, and teardown scenarios. For the normal hosted deployment, use only the short list in [Variables for the standard deployment](#variables-for-the-standard-deployment) and leave the variables below unset unless a scenario explicitly requires them.
 
-Do not commit access tokens or GitHub personal access tokens to source control. The deployment workflow redacts secrets from its output and removes its temporary secret files after use.
+Do not commit GitHub personal access tokens to source control. The deployment workflow redacts secrets from its output and removes its temporary secret files after use.
 
 #### AWS target and application identity
 
@@ -527,7 +461,7 @@ For a failed standard deployment, first complete the action printed by `npm run 
 
 **Issue: `npm run deploy` exits with code 3**
 
-- Solution: this is an intentional action-required pause, not a rollback. Complete the exact printed Bedrock, Cognito sign-up/confirmation, access-token, ownership, or CloudFormation recovery action and rerun the same command. Live AWS state is rediscovered.
+- Solution: this is an intentional action-required pause, not a rollback. Complete the exact printed Bedrock, Cognito sign-up/confirmation, ownership, or CloudFormation recovery action and rerun the same command. Live AWS state is rediscovered.
 
 **Issue: checkpoint configuration does not match**
 
@@ -587,7 +521,7 @@ For a failed standard deployment, first complete the action printed by `npm run 
 
 **Issue: User is not Technical Admin**
 
-- Solution: Two operator-controlled gates must both hold when the candidate signs in: the exact armed `technicalAdminBootstrapSubject` and `SystemAdmin` group membership. The candidate does **not** need to be a brand-new account — if they signed in once before the gate was armed (and so already have a `Student` row), completing the guided flow now elevates them in place, and they keep `Student` while also gaining `TechnicalAdmin`. If setup still fails, confirm the signed-in user's Cognito `sub` matches the armed subject and that they are in the `SystemAdmin` group, then rerun. Assign the role through the application once a Technical Admin exists, or follow your controlled database recovery procedure.
+- Solution: Deploy completing is expected — `TechnicalAdmin` is granted on the first application sign-in **after** run #2, not by `npm run deploy` itself. Sign in as `WREN_ADMIN_EMAIL`. Two operator-controlled gates must both hold on that login: the exact armed `technicalAdminBootstrapSubject` and (for a brand-new `app_user` row) `SystemAdmin` group membership. The candidate does **not** need to be a brand-new account — if they signed in once before the gate was armed (and so already have a `Student` row), signing in after deploy completes elevates them in place, and they keep `Student` while also gaining `TechnicalAdmin`. If setup still fails, confirm the signed-in user's Cognito `sub` matches the armed subject and that they are in the `SystemAdmin` group, then sign in again. Assign the role through the application once a Technical Admin exists, or follow your controlled database recovery procedure.
 
 **Issue: `cdk deploy` puts resources in the wrong region**
 

@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AwsCli } from "./awsCli.js";
-import { assertAdminProbeSafe } from "./adminState.js";
 import {
   assertCheckpointMatches,
   CheckpointStore,
@@ -14,6 +13,7 @@ import {
   type DeploymentCheckpoint,
 } from "./checkpoint.js";
 import { CicdStack } from "../../lib/stacks/CicdStack.js";
+import { ssmParameterNames } from "../../lib/config.js";
 import type { DeploymentConfig } from "./config.js";
 import { DeploymentDiscovery } from "./discovery.js";
 import { ActionRequiredError } from "./errors.js";
@@ -63,11 +63,6 @@ interface CognitoGroupsResponse {
 interface LambdaConfiguration {
   readonly State?: string;
   readonly Environment?: { readonly Variables?: Readonly<Record<string, string>> };
-}
-
-interface AuthMeResponse {
-  readonly roles?: readonly string[];
-  readonly email?: string;
 }
 
 interface PipelineStateResponse {
@@ -129,36 +124,6 @@ export function hasLambdaPullPolicy(policyText: string | undefined): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-export async function runWithRequiredCleanup<T>(
-  action: () => Promise<T>,
-  cleanup: () => Promise<void>,
-): Promise<T> {
-  let actionSucceeded = false;
-  let result: T | undefined;
-  let actionError: unknown;
-  try {
-    result = await action();
-    actionSucceeded = true;
-  } catch (error) {
-    actionError = error;
-  }
-
-  try {
-    await cleanup();
-  } catch (cleanupError) {
-    const original = actionSucceeded
-      ? ""
-      : ` Original administrator failure: ${errorMessage(actionError)}.`;
-    throw new ActionRequiredError(
-      "SECURITY ACTION REQUIRED: the TechnicalAdmin bootstrap may still be armed. " +
-      `Cleanup verification failed: ${errorMessage(cleanupError)}.${original}`,
-    );
-  }
-
-  if (!actionSucceeded) throw actionError;
-  return result as T;
 }
 
 interface HeaderReader {
@@ -684,7 +649,6 @@ export class DeployWorkflow {
   private checkpoint!: DeploymentCheckpoint;
   private store!: CheckpointStore;
   private accountId = "";
-  private verifiedTechnicalAdmin = false;
   private auditPseudonymSaltOwnership: "managed" | "external" = "managed";
 
   public constructor(
@@ -1103,142 +1067,94 @@ export class DeployWorkflow {
     const authorizerName = `${this.config.stackPrefix}-authorizer`;
     const tag = imageDeployRef(this.checkpoint, this.config.engineImageTag);
 
-    const configureAndProbe = async (): Promise<void> => {
-      if (this.config.adminAlreadyConfigured && !this.config.adminEmail) {
-        console.warn("[wren] WREN_ADMIN_ALREADY_CONFIGURED=true: application-role discovery is being bypassed for a legacy environment.");
-        return;
-      }
-      if (!this.config.adminEmail) {
-        throw new ActionRequiredError("Set WREN_ADMIN_EMAIL to guide and verify the first TechnicalAdmin, then rerun npm run deploy.");
-      }
+    if (this.config.adminAlreadyConfigured && !this.config.adminEmail) {
+      console.warn("[wren] WREN_ADMIN_ALREADY_CONFIGURED=true: application-role discovery is being bypassed for a legacy environment.");
+      return;
+    }
+    if (!this.config.adminEmail) {
+      throw new ActionRequiredError("Set WREN_ADMIN_EMAIL to guide and verify the first TechnicalAdmin, then rerun npm run deploy.");
+    }
 
-      const pool = await this.aws.json<ParameterResponse>([
-        "ssm", "get-parameter", "--name", `/${this.config.stackPrefix}/auth/user-pool-id`,
-      ]);
-      const poolId = pool.Parameter?.Value;
-      if (!poolId) throw new Error("Cognito user-pool ID was not found in SSM.");
-      const users = await this.aws.json<CognitoUsersResponse>([
-        "cognito-idp", "list-users", "--user-pool-id", poolId,
-        "--filter", `email = \"${this.config.adminEmail}\"`, "--limit", "1",
-      ]);
-      const user = users.Users?.[0];
-      const amplify = await this.discovery.stack(`${this.config.stackPrefix}-Amplify`);
-      // Prefer the Amplify default domain for the hand-followed signup URL: a
-      // custom domain's certificate/DNS may not be live yet during this admin
-      // setup step, whereas the Amplify default is available immediately. The
-      // custom domain (if configured) is only surfaced as informational context.
-      const signupDomain = amplify.outputs.AmplifyDefaultDomain ?? this.config.customDomain;
-      const customDomainNote =
-        this.config.customDomain && this.config.customDomain !== signupDomain
-          ? ` (the app will also be reachable at https://${this.config.customDomain} once its certificate is live)`
-          : "";
-      if (!user?.Username) {
-        throw new ActionRequiredError(
-          `No Cognito user exists for ${this.config.adminEmail}. Sign up${signupDomain ? ` at https://${signupDomain}/signup${customDomainNote}` : " in the application"}, confirm the email, do not make an application request yet, and rerun.`,
-        );
-      }
-      if (user.UserStatus !== "CONFIRMED") {
-        throw new ActionRequiredError(`Cognito user ${this.config.adminEmail} is ${user.UserStatus ?? "unconfirmed"}. Confirm the email and rerun.`);
-      }
-      const subject = user.Attributes?.find((attribute) => attribute.Name === "sub")?.Value;
-      if (!subject) throw new Error(`Confirmed Cognito user ${this.config.adminEmail} has no sub attribute.`);
+    const pool = await this.aws.json<ParameterResponse>([
+      "ssm", "get-parameter", "--name", `/${this.config.stackPrefix}/auth/user-pool-id`,
+    ]);
+    const poolId = pool.Parameter?.Value;
+    if (!poolId) throw new Error("Cognito user-pool ID was not found in SSM.");
+    const users = await this.aws.json<CognitoUsersResponse>([
+      "cognito-idp", "list-users", "--user-pool-id", poolId,
+      "--filter", `email = \"${this.config.adminEmail}\"`, "--limit", "1",
+    ]);
+    const user = users.Users?.[0];
+    const amplify = await this.discovery.stack(`${this.config.stackPrefix}-Amplify`);
+    // Prefer the Amplify default domain for the hand-followed signup URL: a
+    // custom domain's certificate/DNS may not be live yet during this admin
+    // setup step, whereas the Amplify default is available immediately. The
+    // custom domain (if configured) is only surfaced as informational context.
+    const signupDomain = amplify.outputs.AmplifyDefaultDomain ?? this.config.customDomain;
+    const customDomainNote =
+      this.config.customDomain && this.config.customDomain !== signupDomain
+        ? ` (the app will also be reachable at https://${this.config.customDomain} once its certificate is live)`
+        : "";
+    if (!user?.Username) {
+      throw new ActionRequiredError(
+        `No Cognito user exists for ${this.config.adminEmail}. Sign up${signupDomain ? ` at https://${signupDomain}/signup${customDomainNote}` : " in the application"}, confirm the email, and rerun.`,
+      );
+    }
+    if (user.UserStatus !== "CONFIRMED") {
+      throw new ActionRequiredError(`Cognito user ${this.config.adminEmail} is ${user.UserStatus ?? "unconfirmed"}. Confirm the email and rerun.`);
+    }
+    const subject = user.Attributes?.find((attribute) => attribute.Name === "sub")?.Value;
+    if (!subject) throw new Error(`Confirmed Cognito user ${this.config.adminEmail} has no sub attribute.`);
 
-      const groups = await this.aws.json<CognitoGroupsResponse>([
-        "cognito-idp", "admin-list-groups-for-user", "--user-pool-id", poolId, "--username", user.Username,
+    const groups = await this.aws.json<CognitoGroupsResponse>([
+      "cognito-idp", "admin-list-groups-for-user", "--user-pool-id", poolId, "--username", user.Username,
+    ]);
+    if (!groups.Groups?.some((group) => group.GroupName === "SystemAdmin")) {
+      await this.aws.command([
+        "cognito-idp", "admin-add-user-to-group", "--user-pool-id", poolId,
+        "--username", user.Username, "--group-name", "SystemAdmin",
       ]);
-      if (!groups.Groups?.some((group) => group.GroupName === "SystemAdmin")) {
-        await this.aws.command([
-          "cognito-idp", "admin-add-user-to-group", "--user-pool-id", poolId,
-          "--username", user.Username, "--group-name", "SystemAdmin",
-        ]);
-      }
+    }
 
-      let authorizer = await this.aws.json<LambdaConfiguration>([
+    let authorizer = await this.aws.json<LambdaConfiguration>([
+      "lambda", "get-function-configuration", "--function-name", authorizerName,
+    ]);
+    if (authorizer.Environment?.Variables?.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT !== subject) {
+      await this.deployStacks([`${this.config.stackPrefix}-Compute`], tag, false, subject);
+      authorizer = await this.aws.json<LambdaConfiguration>([
         "lambda", "get-function-configuration", "--function-name", authorizerName,
       ]);
       if (authorizer.Environment?.Variables?.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT !== subject) {
-        await this.deployStacks([`${this.config.stackPrefix}-Compute`], tag, false, subject);
-        authorizer = await this.aws.json<LambdaConfiguration>([
-          "lambda", "get-function-configuration", "--function-name", authorizerName,
-        ]);
-        if (authorizer.Environment?.Variables?.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT !== subject) {
-          throw new Error("Compute deployed but the exact TechnicalAdmin bootstrap subject is not armed.");
-        }
+        throw new Error("Compute deployed but the exact TechnicalAdmin bootstrap subject is not armed.");
       }
-
-      const accessToken = this.config.smokeAccessToken;
-      if (!accessToken) {
-        throw new ActionRequiredError(
-          "TechnicalAdmin gates are armed. Sign in as the confirmed candidate, set WREN_SMOKE_ACCESS_TOKEN to a fresh Cognito access token, and rerun npm run deploy.",
-        );
-      }
-
-      assertAdminProbeSafe({
-        exists: true,
-        confirmed: true,
-        inSystemAdmin: true,
-        exactSubjectArmed: true,
-        hasAccessToken: true,
-      });
-      const api = await this.apiEndpoint();
-      const me = await this.apiJson<AuthMeResponse>(api, "/v1/auth/me", accessToken);
-      if (!me.roles?.includes("TechnicalAdmin")) {
-        throw new ActionRequiredError(
-          `The authenticated application user has roles [${(me.roles ?? []).join(", ")}], not TechnicalAdmin. ` +
-          "The temporary bootstrap will be removed; use a controlled role-recovery procedure.",
-        );
-      }
-      this.verifiedTechnicalAdmin = true;
-    };
-
-    if (!this.config.smokeAccessToken) {
-      await configureAndProbe();
-      return;
     }
 
-    // A supplied token means a previous or current run may have armed the gate.
-    // Establish the cleanup obligation before any AWS lookup or early return.
-    await runWithRequiredCleanup(
-      configureAndProbe,
-      () => this.disarmTechnicalAdminBootstrap(authorizerName, tag),
+    // Persist the armed subject outside the Compute template so a later
+    // pipeline synth can re-pass it. Without this, CodePipeline's Compute
+    // update would omit technicalAdminBootstrapSubject and strip the gate
+    // before the candidate's first application login can elevate them.
+    const bootstrapParameter = ssmParameterNames.technicalAdminBootstrapSubject(this.config);
+    await this.aws.command([
+      "ssm", "put-parameter",
+      "--name", bootstrapParameter,
+      "--type", "String",
+      "--value", subject,
+      "--overwrite",
+    ]);
+
+    const signInHint = signupDomain ? ` at https://${signupDomain}` : "";
+    console.log(
+      `[wren] First-admin bootstrap is armed for ${this.config.adminEmail}. ` +
+      `Sign in to the application${signInHint} as that user to receive TechnicalAdmin.`,
     );
   }
 
-  private async disarmTechnicalAdminBootstrap(authorizerName: string, tag: string): Promise<void> {
-    let deploymentError: unknown;
-    try {
-      await this.deployStacks([`${this.config.stackPrefix}-Compute`], tag, false);
-    } catch (error) {
-      deploymentError = error;
-    }
-
-    let safeAuthorizer: LambdaConfiguration;
-    try {
-      safeAuthorizer = await this.aws.json<LambdaConfiguration>([
-        "lambda", "get-function-configuration", "--function-name", authorizerName,
-      ]);
-    } catch (verificationError) {
-      throw new Error(
-        `Could not verify the subject-free authorizer configuration: ${errorMessage(verificationError)}` +
-        (deploymentError ? `; Compute cleanup deploy also failed: ${errorMessage(deploymentError)}` : ""),
-      );
-    }
-
-    if (safeAuthorizer.Environment?.Variables?.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT) {
-      throw new Error(
-        "The temporary bootstrap subject remains enabled" +
-        (deploymentError ? ` after the Compute cleanup deploy failed: ${errorMessage(deploymentError)}` : "."),
-      );
-    }
-    if (deploymentError) {
-      console.warn("[wren] Compute cleanup deploy reported an error, but Lambda readback proves the bootstrap subject is absent.");
-    }
-  }
-
   private async runSmokeTests(): Promise<void> {
-    if (!this.config.smokeAccessToken) {
-      throw new ActionRequiredError("Set WREN_SMOKE_ACCESS_TOKEN to a fresh Cognito access token to complete application smoke tests.");
-    }
+    // Authenticated post-deploy verification was removed: the workflow no
+    // longer mints a Cognito access token or calls /v1/auth/me, admin config,
+    // or /v1/departments. TechnicalAdmin is granted on the candidate's real
+    // application login (ensureAppUser / ensureTechnicalAdminForArmedSubject).
+    // Re-add a scoped-down unauthenticated health check here if needed.
     const amplify = await this.discovery.stack(`${this.config.stackPrefix}-Amplify`);
     let smokeOrigin = "http://localhost:5173";
     if (this.config.enableAmplify) {
@@ -1292,21 +1208,6 @@ export class DeployWorkflow {
       ["authorization", "content-type"],
     );
 
-    const me = await this.apiJson<AuthMeResponse>(api, "/v1/auth/me", this.config.smokeAccessToken);
-    const isAdmin = me.roles?.includes("TechnicalAdmin") === true;
-    if (this.config.adminEmail && !this.config.adminAlreadyConfigured && !isAdmin) {
-      throw new Error("Authenticated smoke user is not TechnicalAdmin after administrator setup.");
-    }
-    if (isAdmin || this.verifiedTechnicalAdmin) {
-      for (const route of [
-        "/v1/admin/config/model",
-        "/v1/admin/config/usage-limits",
-        "/v1/departments",
-      ]) {
-        await this.apiJson<unknown>(api, route, this.config.smokeAccessToken);
-      }
-    }
-
     for (const functionName of [
       `${this.config.stackPrefix}-authorizer`,
       `${this.config.stackPrefix}-document`,
@@ -1350,15 +1251,6 @@ export class DeployWorkflow {
     const endpoint = apiStack.outputs.ApiEndpoint;
     if (!endpoint) throw new Error("Api stack did not publish ApiEndpoint.");
     return endpoint.endsWith("/") ? endpoint : `${endpoint}/`;
-  }
-
-  private async apiJson<T>(baseUrl: string, route: string, token: string): Promise<T> {
-    const response = await fetch(new URL(route.replace(/^\//, ""), baseUrl), {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) throw new Error(`Authenticated API check ${route} returned HTTP ${response.status}.`);
-    return await response.json() as T;
   }
 
   private async ensureGithubSecret(secretName: string): Promise<void> {
