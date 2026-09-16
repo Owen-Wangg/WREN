@@ -9,7 +9,7 @@ This guide covers how to get started with **WREN** — from creating your accoun
 ## Before you Begin
 _Why do some screenshots say LEON?_
 
-**WREN** was derived from the LEON platform. As a result, some screenshots and interface elements may still display the name LEON. Throughout the guide, WREN refers to the current platform and LEON refers to earlier naming conventions within the same solution. Both names refer to the same platform functionality. Given that LEON was originally developed within a legal education context, many of the screenshots in the User Guide use legal document types such as legal memoranda or case briefs as examples.
+**WREN** is the name used throughout this guide to refer to the prototype solution. During development, the design was centered around the legal context and named in tribute to Leon Getz (https://www.lawsociety.bc.ca/news-and-engagement/news/in-memoriam-leon-getz,-kc) who was considered by many to be one of the best legal writers in BC. As a result, some screenshots and interface elements may still display the name LEON (Legal Expression Organization & Navigation). Throughout the guide, WREN refers to the current platform and LEON refers to naming conventions used during system development within the same solution. Both names refer to the same platform functionality. Given that LEON was originally developed within a legal education context, many of the screenshots in the User Guide use legal document types such as legal memoranda or case briefs as examples.
 
 _Are there other instances of interchangable naming?_
 
@@ -112,7 +112,7 @@ After logging in, writers will be taken to the **Writer Dashboard,** where they 
 
 ### 2.1 Creating a New Draft
 
-When a writer wants to receive AI-assisted feedback on a new document, they must first create a draft within WREN. Draft creation uploads the document, associates it with a department and document type, and prepares it for AI Debrief analysis.
+When a writer wants to receive AI-assisted feedback on a new document, they must first create a draft within WREN. By creating a draft, the document gets associated with a department and document type, preparing it for AI Debrief analysis. 
 
 1. From the dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
 <img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
@@ -144,7 +144,7 @@ If you would like to edit the document, you can do so directly on the right pane
 
 <img width="960" height="412" alt="image" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
 
-The left panel hosts the various tools you may use to revise your draft. In the image below, AI Debrief is selected and opened. However, the sidebar also provides options to view the table of contents under the 'contents' icon, and Ask LEON using the 'LEON' icon. 
+The left panel displays the various tools you may use to revise your draft. In the image below, AI Debrief is selected and opened. However, the sidebar also provides options to view the table of contents under the 'contents' icon, and Ask LEON using the 'LEON' icon. 
 
 <img width="1912" height="829" alt="Editor with Ask LEON and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
 
@@ -176,10 +176,11 @@ If you wish to see what's done well and what could be improved in your writing, 
 <img width="1915" height="824" alt="Screenshot 2026-09-14 133713" src="https://github.com/user-attachments/assets/be0f7dc7-5aae-44a2-b6b2-5223e175b692" />
 
 ### 2.4 Using Ask LEON
+Ask LEON is meant to help navigate the AI Debrief and provide further assistance in improving writing. Clicking on the 'LEON' icon opens the Ask LEON screen, opening up a chat screen. The user can ask questions about the feedback the AI Debrief generated, or questions about specific aspects of their draft, such as clarity, organization, tone, etc. 
 
-You might have questions about the feedback the AI Debrief generated, or want some assistance in improving your writing. This is where Ask LEON comes in. Clicking on the 'LEON' icon brings you to the Ask LEON screen, where you can ask questions about the debrief, your draft, or aspects of writing such as clarity, organization, tone, etc. 
+When Ask LEON is asked a question, it responds by guiding the user through a series of reflective questions rather than providing direct answers. This approach is based on the Socratic method, which encourages writers to think critically about their work and identify areas for improvement.
 
-Think of AI Debrief as the assessment tool and Ask LEON as the conversational coaching tool. Writers typically review their AI Debrief first, then use Ask LEON to better understand and act on that feedback. Ask LEON addresses questions directed towards specific aspects of writing, such as clarity, organization, persuasiveness, tone, coherence, spelling, grammar, and consistency related to the uploaded draft.
+Think of AI Debrief as the assessment tool and Ask LEON as the conversational coaching tool. Writers typically review their AI Debrief first, then use Ask LEON to better understand and act on that feedback. 
 
 **Ask LEON will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.**
 
@@ -280,9 +281,9 @@ There are three parts to the analytics:
 
 In this section, you will learn how to manage platform-wide settings, configure AI models, create and manage departments, control access, and monitor usage analytics. 
 
-The **System Admin** is the primary administrator for the platform who is responsible for setup, configuration, user management, and ensuring the system operates according to organizational requirements. 
+The **System Admin** has the ability to setup and configure the system, manage users, and ensure the system operates according to organizational requirements. 
 
-The System Admin chooses the Bedrock model, sets platform usage limits, creates departments, manages users and access, edits department-level prompts, and reviews department analytics.
+The System Admin can choose the Bedrock model, set platform usage limits, create departments, manage users and access, edit department-level prompts, and review department analytics.
 
 ### 4.1 System Admin Dashboard
 The System Admin Dashboard serves as the central management area for the WREN platform. From this dashboard, administrators configure AI behavior, manage departments, control user access, establish usage limits, and review platform-wide analytics.
