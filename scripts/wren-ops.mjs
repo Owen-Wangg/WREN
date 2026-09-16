@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const SECRET_ENV = new Set(["WREN_GITHUB_TOKEN", "WREN_SMOKE_ACCESS_TOKEN"]);
+const SECRET_ENV = new Set(["WREN_GITHUB_TOKEN"]);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const operation = process.argv[2];
 

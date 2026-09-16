@@ -20,8 +20,7 @@ export interface CognitoStackProps extends StackProps {
  * and a User Pool Client (public client for SPA, no secret, OAuth hosted-UI
  * disabled). A PreSignUp Lambda enforces an optional exact email-domain
  * allowlist for new accounts only; an empty list is unrestricted. Admin
- * USER_PASSWORD_AUTH is available only via IAM `AdminInitiateAuth` for
- * operator smoke tokens — not the public app client.
+ * USER_PASSWORD_AUTH / `AdminInitiateAuth` is not enabled on this client.
  * Pool and client IDs are published to SSM for Lambdas and the frontend.
  */
 export class CognitoStack extends Stack {
@@ -92,7 +91,7 @@ export class CognitoStack extends Stack {
       authFlows: {
         userSrp: true,
         userPassword: false,
-        adminUserPassword: true,
+        adminUserPassword: false,
       },
       disableOAuth: true,
       accessTokenValidity: Duration.hours(1),

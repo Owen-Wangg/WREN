@@ -219,7 +219,6 @@ if (github.owner && github.repo) {
     repositoryOwner: github.owner,
     repositoryName: github.repo,
     branch: github.branch,
-    githubTokenSecretName: `${config.stackPrefix}/github/token`,
     apiEndpoint: amplifyApiEndpoint,
     cognitoUserPoolId: cognitoStack.userPoolId,
     cognitoClientId: cognitoStack.userPoolClientId,

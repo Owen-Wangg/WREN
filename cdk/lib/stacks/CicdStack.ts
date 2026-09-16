@@ -7,7 +7,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import type { Construct } from "constructs";
 
-import type { AppConfig } from "../config";
+import { ssmParameterNames, type AppConfig } from "../config";
 
 /**
  * Props for the CICD stack.
@@ -309,7 +309,14 @@ export class CicdStack extends Stack {
               // Synth with the same stackPrefix/environment as this pipeline so
               // cdk.out/${stackPrefix}-Compute.assets.json actually exists
               // (cdk.json defaults to environmentName=dev otherwise).
-              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=${config.auditPseudonymSaltOwnership} -c enableCicd=true -c ecrOwnership=${props.ecrOwnership ?? "managed"} -c githubOwner=${repositoryOwner} -c githubRepo=${repositoryNameFromSource} -c githubBranch=${branch} && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
+              // Re-pass the armed first-admin subject when present so a
+              // pipeline Compute update cannot strip TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT
+              // before the candidate's first application login elevates them.
+              `BOOTSTRAP_SUBJECT=$(aws ssm get-parameter --name ${ssmParameterNames.technicalAdminBootstrapSubject(config)} --query Parameter.Value --output text 2>/dev/null || true)`,
+              `if [ "$BOOTSTRAP_SUBJECT" = "None" ] || [ "$BOOTSTRAP_SUBJECT" = "none" ]; then BOOTSTRAP_SUBJECT=""; fi`,
+              `SUBJECT_CONTEXT=""`,
+              `if [ -n "$BOOTSTRAP_SUBJECT" ]; then SUBJECT_CONTEXT="-c technicalAdminBootstrapSubject=$BOOTSTRAP_SUBJECT"; fi`,
+              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=${config.auditPseudonymSaltOwnership} -c enableCicd=true -c ecrOwnership=${props.ecrOwnership ?? "managed"} -c githubOwner=${repositoryOwner} -c githubRepo=${repositoryNameFromSource} -c githubBranch=${branch} $SUBJECT_CONTEXT && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
             ],
           },
         },
@@ -341,6 +348,13 @@ export class CicdStack extends Stack {
     buildProject.addToRolePolicy(new iam.PolicyStatement({
       actions: ['sts:AssumeRole'],
       resources: [`arn:aws:iam::${this.account}:role/cdk-*-file-publishing-role-${this.account}-${config.env.region}`],
+    }));
+
+    buildProject.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ssm:GetParameter"],
+      resources: [
+        `arn:aws:ssm:${config.env.region}:${this.account}:parameter/${config.stackPrefix}/auth/technical-admin-bootstrap-subject`,
+      ],
     }));
 
     // -------------------------------------------------------------------

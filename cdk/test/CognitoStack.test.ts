@@ -14,18 +14,18 @@ describe("CognitoStack app client", () => {
     return Template.fromStack(stack);
   }
 
-  it("allows SRP and admin password auth, not public USER_PASSWORD_AUTH", () => {
+  it("allows SRP auth, not public USER_PASSWORD_AUTH or AdminInitiateAuth", () => {
     const template = synth();
     const clients = Object.values(template.findResources("AWS::Cognito::UserPoolClient"));
     const flows = clients[0]?.Properties?.ExplicitAuthFlows as string[];
     expect(flows).toEqual(
       expect.arrayContaining([
         "ALLOW_USER_SRP_AUTH",
-        "ALLOW_ADMIN_USER_PASSWORD_AUTH",
         "ALLOW_REFRESH_TOKEN_AUTH",
       ]),
     );
     expect(flows).not.toContain("ALLOW_USER_PASSWORD_AUTH");
+    expect(flows).not.toContain("ALLOW_ADMIN_USER_PASSWORD_AUTH");
   });
 
   it("disables the hosted-UI OAuth client (no example.com callback / implicit grant)", () => {

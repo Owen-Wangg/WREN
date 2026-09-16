@@ -85,13 +85,13 @@ WHERE NOT EXISTS (
  *
  * Safety: the SOLE gate is the operator-armed exact-subject match, which the
  * caller MUST verify before calling (`armedSubject === idpSubject`). That is an
- * operator-controlled signal set only by the guided deploy and stripped again
- * immediately after verification. Unlike {@link ensureAppUser}, this path does
- * NOT consult `cognito:groups`: the REST authorizer verifies access tokens,
- * which do not reliably carry `cognito:groups`, so a group claim cannot be
- * relied on here. The armed subject is sufficient and is never derived from the
- * token. Idempotent: the insert is a no-op if the role already exists, and this
- * is only invoked when the caller has confirmed the role is absent.
+ * operator-controlled signal set by the guided deploy; elevation happens on
+ * the candidate's authenticated application request. Unlike {@link ensureAppUser},
+ * this path does NOT consult `cognito:groups`: the REST authorizer verifies
+ * access tokens, which do not reliably carry `cognito:groups`, so a group claim
+ * cannot be relied on here. The armed subject is sufficient and is never derived
+ * from the token. Idempotent: the insert is a no-op if the role already exists,
+ * and this is only invoked when the caller has confirmed the role is absent.
  */
 export async function ensureTechnicalAdminForArmedSubject(
   db: QueryExecutor,
@@ -165,9 +165,9 @@ export async function ensureAppUser(
   // carry cognito:groups). So an armed subject that fails this group check on
   // first login is elevated on their very next request regardless. The real
   // security boundary for both paths is the operator-armed
-  // TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT, set only by the guided deploy and
-  // stripped immediately after verification. Do not treat this group check as
-  // an independent constraint.
+  // TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT, set by the guided deploy. Elevation
+  // happens on the candidate's authenticated application request. Do not treat
+  // this group check as an independent constraint.
   const bootstrapAdmin =
     input.technicalAdminBootstrapSubject === input.idpSubject &&
     input.groups?.includes('SystemAdmin') === true;

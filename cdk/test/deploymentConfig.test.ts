@@ -186,11 +186,9 @@ describe("deployment configuration", () => {
     const config = parseDeploymentConfig({
       ...github,
       WREN_GITHUB_TOKEN: "github-secret",
-      WREN_SMOKE_ACCESS_TOKEN: "access-secret",
     });
     const serialized = JSON.stringify(publicDeploymentConfig(config));
     expect(serialized).not.toContain("github-secret");
-    expect(serialized).not.toContain("access-secret");
   });
 });
 
@@ -203,7 +201,6 @@ describe("deployment command safety", () => {
     const env = withoutSecretEnvironment({
       SAFE: "value",
       WREN_GITHUB_TOKEN: "github-secret",
-      WREN_SMOKE_ACCESS_TOKEN: "access-secret",
     });
     expect(env).toEqual({ SAFE: "value" });
   });

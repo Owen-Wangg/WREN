@@ -54,7 +54,6 @@ export interface DeploymentConfig {
    */
   readonly allowedEmailDomains: readonly string[];
   readonly adminEmail?: string;
-  readonly smokeAccessToken?: string;
   readonly adminAlreadyConfigured: boolean;
   readonly dryRun: boolean;
   readonly nonInteractive: boolean;
@@ -229,7 +228,6 @@ export function parseDeploymentConfig(
     !nonInteractive,
   );
   const adminEmail = value(env, "WREN_ADMIN_EMAIL");
-  const smokeAccessToken = value(env, "WREN_SMOKE_ACCESS_TOKEN");
   const engineImageTag = value(env, "WREN_ENGINE_IMAGE_TAG");
   const customDomain = value(env, "WREN_CUSTOM_DOMAIN");
   const allowedEmailDomains = parseAllowedEmailDomains(
@@ -300,7 +298,6 @@ export function parseDeploymentConfig(
     ...(customDomain ? { customDomain } : {}),
     allowedEmailDomains,
     ...(adminEmail ? { adminEmail } : {}),
-    ...(smokeAccessToken ? { smokeAccessToken } : {}),
     adminAlreadyConfigured: parseBoolean(
       env,
       "WREN_ADMIN_ALREADY_CONFIGURED",

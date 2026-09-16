@@ -248,11 +248,10 @@ describe('Lambda authorizer', () => {
  * First-admin bootstrap for an ALREADY-PROVISIONED candidate (option 2a).
  *
  * These exercise the authorizer end-to-end for a user who already has a Student
- * row — the case the app forces by auto-loading the dashboard on signup, and
- * the one the `if (!context)` first-login path can never reach. The verifier
- * returns `groups: []` (as a real Cognito ACCESS token does), so these also
- * prove the elevation does NOT depend on the `cognito:groups` claim: the sole
- * gate is the operator-armed exact subject.
+ * row — the case the app forces by auto-loading the dashboard on signup.
+ * The verifier returns `groups: []` (as a real Cognito ACCESS token does), so
+ * these also prove the elevation does NOT depend on the `cognito:groups` claim:
+ * the sole gate is the operator-armed exact subject.
  */
 describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
   const SUBJECT = USER.idp_subject;

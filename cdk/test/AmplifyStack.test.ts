@@ -12,7 +12,6 @@ describe("AmplifyStack configured branch", () => {
       repositoryOwner: "owner",
       repositoryName: "repo",
       branch: "release",
-      githubTokenSecretName: `${config.stackPrefix}/github/token`,
       apiEndpoint: "https://api.example.test/",
       cognitoUserPoolId: "ca-central-1_pool",
       cognitoClientId: "client",
@@ -38,7 +37,6 @@ describe("AmplifyStack configured branch", () => {
       repositoryOwner: "owner",
       repositoryName: "repo",
       branch: "main",
-      githubTokenSecretName: `${config.stackPrefix}/github/token`,
       apiEndpoint: "https://api.example.test/",
       cognitoUserPoolId: "ca-central-1_pool",
       cognitoClientId: "client",
@@ -58,6 +56,31 @@ describe("AmplifyStack configured branch", () => {
       EnableAutoBuild: true,
     });
   });
+
+  it("sets the repository URL on the app without an access token", () => {
+    const config = testConfig();
+    const stack = new AmplifyStack(new App(), "Amplify", {
+      env: config.env,
+      config,
+      repositoryOwner: "owner",
+      repositoryName: "repo",
+      branch: "main",
+      apiEndpoint: "https://api.example.test/",
+      cognitoUserPoolId: "ca-central-1_pool",
+      cognitoClientId: "client",
+      appSyncGraphqlUrl: "https://example.appsync-api.ca-central-1.amazonaws.com/graphql",
+    });
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties("AWS::Amplify::App", {
+      Repository: "https://github.com/owner/repo",
+    });
+    // AccessToken must be absent — GitHub App connection handles auth.
+    const apps = template.findResources("AWS::Amplify::App");
+    const appProps = (Object.values(apps)[0] as { Properties: Record<string, unknown> }).Properties;
+    expect(appProps).not.toHaveProperty("AccessToken");
+    expect(appProps).not.toHaveProperty("OauthToken");
+  });
 });
 
 describe("AmplifyStack custom domain", () => {
@@ -67,7 +90,6 @@ describe("AmplifyStack custom domain", () => {
     repositoryOwner: "owner",
     repositoryName: "repo",
     branch: "main",
-    githubTokenSecretName: `${config.stackPrefix}/github/token`,
     apiEndpoint: "https://api.example.test/",
     cognitoUserPoolId: "ca-central-1_pool",
     cognitoClientId: "client",

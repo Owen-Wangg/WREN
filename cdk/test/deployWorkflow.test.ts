@@ -19,7 +19,6 @@ import {
   resolveCleanCommit,
   resolveImageTagForCommit,
   runBootstrapImageBuild,
-  runWithRequiredCleanup,
   shouldRunCacheSmoke,
   sourceTag,
   uploadCommitSnapshot,
@@ -143,37 +142,6 @@ describe("deployment workflow command construction", () => {
     expect(() => assertPipelineStages({
       stageStates: ["Source", "Build", "UpdateLambda", "Deploy"].map((stageName) => ({ stageName })),
     })).toThrow("Pipeline stage verification failed");
-  });
-});
-
-describe("required administrator cleanup", () => {
-  it("runs cleanup and preserves the original failure when safety is proven", async () => {
-    const cleanup = jest.fn(async () => undefined);
-
-    await expect(runWithRequiredCleanup(
-      async () => { throw new Error("initial administrator lookup failed"); },
-      cleanup,
-    )).rejects.toThrow("initial administrator lookup failed");
-    expect(cleanup).toHaveBeenCalledTimes(1);
-  });
-
-  it("runs cleanup after a successful administrator probe", async () => {
-    const cleanup = jest.fn(async () => undefined);
-
-    await expect(runWithRequiredCleanup(async () => "verified", cleanup)).resolves.toBe("verified");
-    expect(cleanup).toHaveBeenCalledTimes(1);
-  });
-
-  it("escalates cleanup failure as an explicit security action", async () => {
-    const operation = runWithRequiredCleanup(
-      async () => { throw new Error("expired access token"); },
-      async () => { throw new Error("authorizer readback failed"); },
-    );
-
-    await expect(operation).rejects.toBeInstanceOf(ActionRequiredError);
-    await expect(operation).rejects.toThrow("TechnicalAdmin bootstrap may still be armed");
-    await expect(operation).rejects.toThrow("expired access token");
-    await expect(operation).rejects.toThrow("authorizer readback failed");
   });
 });
 
