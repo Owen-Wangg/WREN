@@ -390,7 +390,7 @@ Let's begin with managing roles:
 2. Under **Manage Users**, you can search participants and assign or revoke roles.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/65b17290-e7e3-4d23-bd7d-d68bcf904d39" />
 
-3. Access to documents is also controlled by the System Admin. A document type can be configured in one of two access states:
+3. Access to a department's document types is controlled by the **Student Access** setting. A document type can be configured in one of two access states:
 - **Open access**: Any user with access to WREN can submit documents for this document type. No additional approval is required. 
 - **Locked Access**: Only users who have been explicitly granted access can submit documents for this document type. Users must have an approved Access Grant before they can upload or submit documents for evaluation.
 Administrators can switch between these states using the **Student Access** control:
