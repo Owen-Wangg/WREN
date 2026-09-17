@@ -437,7 +437,8 @@ To access the Department Prompt:
 - Department Context
 - Writing Standards
 - Restricted Topics
-3.. Click Save Prompt.
+
+3. Click Save Prompt.
 Optionally, test the configuration by generating a sample document or AI Debrief before rolling it out.
 <img width="710" height="412" alt="image" src="https://github.com/user-attachments/assets/d5dbb115-2f24-4ee2-94ea-86d64940729d" />
 
