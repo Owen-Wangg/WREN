@@ -279,19 +279,17 @@ There are three parts to the analytics:
 
 ## Part 4: System Admin Guide
 
-In this section, you will learn how to manage platform-wide settings, configure AI models, create and manage departments, control access, and monitor usage analytics. 
+This section describes how to manage platform-wide settings, configure AI models, create and manage departments, control access, and monitor usage analytics. 
 
 The **System Admin** has the ability to setup and configure the system, manage users, and ensure the system operates according to organizational requirements. 
 
 The System Admin can choose the Bedrock model, set platform usage limits, create departments, manage users and access, edit department-level prompts, and review department analytics.
 
 ### 4.1 System Admin Dashboard
-The System Admin Dashboard serves as the central management area for the WREN platform. From this dashboard, administrators configure AI behavior, manage departments, control user access, establish usage limits, and review platform-wide analytics.
+The System Admin Dashboard is the central management area for the WREN platform. From this dashboard, administrators configure AI behavior, manage departments, control user access, establish usage limits, and review platform-wide analytics.
 
 <img width="944" height="297" alt="image" src="https://github.com/user-attachments/assets/04c3dd29-6923-433b-9e4d-211c27c67975" />
 <img width="917" height="310" alt="image" src="https://github.com/user-attachments/assets/fa25a40d-91a0-4b9f-a1b6-16faaab5cf35" />
-
-Let's begin with model configuration. 
 
 ### 4.2 Model Configuration
 In WREN, the model used to generate AI Debriefs can be configured. Changing the model has an impact on the response quality, performance, and cost requirements. Therefore, it should be selected with careful review and consideration.
@@ -392,7 +390,7 @@ Let's begin with managing roles:
 2. Under **Manage Users**, you can search participants and assign or revoke roles.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/65b17290-e7e3-4d23-bd7d-d68bcf904d39" />
 
-3. Submission access controls who can submit documents for a document type. A document type can be configured in one of two access states:
+3. Access to documents is also controlled by the System Admin. A document type can be configured in one of two access states:
 - **Open access**: Any user with access to WREN can submit documents for this document type. No additional approval is required. 
 - **Locked Access**: Only users who have been explicitly granted access can submit documents for this document type. Users must have an approved Access Grant before they can upload or submit documents for evaluation.
 Administrators can switch between these states using the **Student Access** control:
