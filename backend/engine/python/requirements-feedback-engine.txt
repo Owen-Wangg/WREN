@@ -2,12 +2,11 @@
 #    uv pip compile requirements-feedback-engine.in -o requirements-feedback-engine.txt --python 3.12
 annotated-types==0.7.0
     # via pydantic
-anyio==4.14.1
+anyio==4.14.2
     # via
     #   httpx
     #   langsmith
 boto3==1.40.63
-psycopg[binary]==3.3.4
     # via
     #   -r requirements-feedback-engine.in
     #   langchain-aws
@@ -61,6 +60,10 @@ packaging==26.2
     # via
     #   langchain-core
     #   langsmith
+psycopg[binary]==3.3.4
+    # via -r requirements-feedback-engine.in
+psycopg-binary==3.3.4
+    # via psycopg
 pydantic==2.13.4
     # via
     #   langchain-aws
@@ -88,7 +91,6 @@ tenacity==9.1.4
     # via langchain-core
 typing-extensions==4.16.0
     # via
-    #   anyio
     #   langchain-core
     #   langchain-protocol
     #   langsmith
