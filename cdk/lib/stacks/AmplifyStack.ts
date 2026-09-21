@@ -1,4 +1,4 @@
-import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, SecretValue } from "aws-cdk-lib";
 import * as amplify_cfn from "aws-cdk-lib/aws-amplify";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import type { Construct } from "constructs";
@@ -8,10 +8,12 @@ import type { AppConfig } from "../config";
 /**
  * Props for the Amplify stack.
  *
- * NOTE: `githubTokenSecretName` has been removed. Repository access is now
- * handled by the Amplify GitHub App connection, which is established once
- * through the Amplify console (see README / deployment guide). No OAuth token
- * or Secrets Manager secret is needed.
+ * NOTE: this app's GitHub connection was originally established with a
+ * classic access token (`repositoryCloneMethod: TOKEN`), not the Amplify
+ * GitHub App connector. AWS Amplify requires a token be resupplied on every
+ * CloudFormation create/update for a token-connected app — omitting it fails
+ * with "You should at least provide one valid token" even on unrelated
+ * changes. `githubTokenSecretName` is required for that reason.
  */
 export interface AmplifyStackProps extends StackProps {
   readonly config: AppConfig;
@@ -21,6 +23,8 @@ export interface AmplifyStackProps extends StackProps {
   readonly repositoryName: string;
   /** Source branch hosted as the production branch. */
   readonly branch: string;
+  /** Secrets Manager secret name holding the GitHub PAT (`WREN_GITHUB_TOKEN`). */
+  readonly githubTokenSecretName: string;
   /** The API endpoint URL for the frontend to connect to. */
   readonly apiEndpoint: string;
   /** Cognito User Pool ID. */
@@ -38,7 +42,8 @@ export interface AmplifyStackProps extends StackProps {
  * - Auto-build on push to main and feature branches.
  * - Environment variables injected for API endpoint and app name.
  * - Node 22 build image for Vite compatibility.
- * - Repository access via the Amplify GitHub App (no OAuth token required).
+ * - Repository access via a GitHub PAT stored in Secrets Manager (required
+ *   because this app's connection predates the Amplify GitHub App connector).
  *
  * The frontend is a React 19 / Vite / Tailwind / shadcn/ui SPA per the
  * frontend.md steering. Amplify serves the built static assets and handles
@@ -54,15 +59,12 @@ export class AmplifyStack extends Stack {
     const { config } = props;
 
     // -------------------------------------------------------------------
-    // Amplify App — L1 construct so we can omit accessToken entirely.
-    // Authentication is delegated to the GitHub App connection established
-    // once through the Amplify console; CloudFormation needs only the
-    // repository URL.
+    // Amplify App — L1 construct.
     // -------------------------------------------------------------------
     this.amplifyApp = new amplify_cfn.CfnApp(this, "AmplifyApp", {
       name: `${config.stackPrefix}-frontend`,
       repository: `https://github.com/${props.repositoryOwner}/${props.repositoryName}`,
-      // No accessToken / oauthToken — GitHub App handles auth.
+      accessToken: SecretValue.secretsManager(props.githubTokenSecretName).unsafeUnwrap(),
       // No iamServiceRole — only needed when builds access AWS secrets/params;
       // all env vars are passed directly below.
       buildSpec: codebuild.BuildSpec.fromObjectToYaml({
