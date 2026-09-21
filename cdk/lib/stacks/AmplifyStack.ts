@@ -66,7 +66,7 @@ export class AmplifyStack extends Stack {
       // No iamServiceRole — only needed when builds access AWS secrets/params;
       // all env vars are passed directly below.
       buildSpec: codebuild.BuildSpec.fromObjectToYaml({
-        version: "1.0",
+        version: 1,
         applications: [
           {
             appRoot: "frontend",

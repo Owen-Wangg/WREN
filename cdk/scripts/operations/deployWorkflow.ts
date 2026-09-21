@@ -1020,7 +1020,6 @@ export class DeployWorkflow {
     if (!this.config.githubOwner || !this.config.githubRepo) {
       throw new ActionRequiredError("Amplify requires WREN_GITHUB_OWNER and WREN_GITHUB_REPO.");
     }
-    await this.ensureGithubSecret(`${this.config.stackPrefix}/github/token`);
     const tag = imageDeployRef(this.checkpoint, this.config.engineImageTag);
     const stackName = `${this.config.stackPrefix}-Amplify`;
     await this.deployStacks([stackName], tag, false);
