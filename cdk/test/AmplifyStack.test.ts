@@ -12,6 +12,7 @@ describe("AmplifyStack configured branch", () => {
       repositoryOwner: "owner",
       repositoryName: "repo",
       branch: "release",
+      githubTokenSecretName: "wren-test/github/token",
       apiEndpoint: "https://api.example.test/",
       cognitoUserPoolId: "ca-central-1_pool",
       cognitoClientId: "client",
@@ -37,6 +38,7 @@ describe("AmplifyStack configured branch", () => {
       repositoryOwner: "owner",
       repositoryName: "repo",
       branch: "main",
+      githubTokenSecretName: "wren-test/github/token",
       apiEndpoint: "https://api.example.test/",
       cognitoUserPoolId: "ca-central-1_pool",
       cognitoClientId: "client",
@@ -57,7 +59,7 @@ describe("AmplifyStack configured branch", () => {
     });
   });
 
-  it("sets the repository URL on the app without an access token", () => {
+  it("sets the repository URL and resolves the access token from Secrets Manager", () => {
     const config = testConfig();
     const stack = new AmplifyStack(new App(), "Amplify", {
       env: config.env,
@@ -65,6 +67,7 @@ describe("AmplifyStack configured branch", () => {
       repositoryOwner: "owner",
       repositoryName: "repo",
       branch: "main",
+      githubTokenSecretName: "wren-test/github/token",
       apiEndpoint: "https://api.example.test/",
       cognitoUserPoolId: "ca-central-1_pool",
       cognitoClientId: "client",
@@ -75,11 +78,12 @@ describe("AmplifyStack configured branch", () => {
     template.hasResourceProperties("AWS::Amplify::App", {
       Repository: "https://github.com/owner/repo",
     });
-    // AccessToken must be absent — GitHub App connection handles auth.
+    // AccessToken must resolve the secret dynamically — this app's GitHub
+    // connection predates the Amplify GitHub App connector and requires a
+    // token on every create/update.
     const apps = template.findResources("AWS::Amplify::App");
     const appProps = (Object.values(apps)[0] as { Properties: Record<string, unknown> }).Properties;
-    expect(appProps).not.toHaveProperty("AccessToken");
-    expect(appProps).not.toHaveProperty("OauthToken");
+    expect(appProps.AccessToken).toEqual(expect.stringContaining("wren-test/github/token"));
   });
 });
 
@@ -90,6 +94,7 @@ describe("AmplifyStack custom domain", () => {
     repositoryOwner: "owner",
     repositoryName: "repo",
     branch: "main",
+    githubTokenSecretName: "wren-test/github/token",
     apiEndpoint: "https://api.example.test/",
     cognitoUserPoolId: "ca-central-1_pool",
     cognitoClientId: "client",
