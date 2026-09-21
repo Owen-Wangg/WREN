@@ -113,6 +113,16 @@ export class AmplifyStack extends Stack {
       ],
     });
 
+    // Pin the logical IDs to what CloudFormation already has deployed (from
+    // the original @aws-cdk/aws-amplify-alpha L2 construct, before the
+    // switch to a direct CfnApp/CfnBranch). Without this, CDK's default
+    // logical-ID hashing for the new L1 constructs differs from the old L2's
+    // nested-child hashing, so CloudFormation sees a *different* resource and
+    // tries to delete the live, working app/branches and create new ones from
+    // scratch — which fails immediately since a brand-new CreateApp call has
+    // no token to authenticate with.
+    this.amplifyApp.overrideLogicalId("AmplifyApp6046A70F");
+
     // -------------------------------------------------------------------
     // Production branch follows the configured GitHub source branch.
     // -------------------------------------------------------------------
@@ -122,16 +132,18 @@ export class AmplifyStack extends Stack {
       enableAutoBuild: true,
       stage: "PRODUCTION",
     });
+    this.productionBranch.overrideLogicalId("AmplifyAppmainB68AA376");
 
     // Keep the `development` branch as a DEVELOPMENT stage preview, unless it
     // is already the configured production branch.
     if (props.branch !== "development") {
-      new amplify_cfn.CfnBranch(this, "DevelopmentBranch", {
+      const developmentBranch = new amplify_cfn.CfnBranch(this, "DevelopmentBranch", {
         appId: this.amplifyApp.attrAppId,
         branchName: "development",
         enableAutoBuild: true,
         stage: "DEVELOPMENT",
       });
+      developmentBranch.overrideLogicalId("AmplifyAppdevelopmentDBFFEBF1");
     }
 
     // -------------------------------------------------------------------
