@@ -2,16 +2,16 @@
 
 **Welcome to the WREN User Guide!**
 
-**WREN** (Write, Revise, Edit Notes) is an AI-assisted writing and feedback platform that helps users improve their writing through structured AI-generated feedback, guided revision, and conversational support. Writers can upload drafts, receive document-specific feedback through AI Debrief, and use Ask LEON to better understand feedback and identify opportunities for improvement.
+**WREN** (Write, Revise, Edit Notes) is an AI-assisted writing and feedback platform that helps users improve their writing through structured AI-generated feedback, guided revision, and conversational support. Writers can upload drafts, receive document-specific feedback through AI Debrief, and use Ask WREN to better understand feedback and identify opportunities for improvement.
 
 This guide covers how to get started with **WREN** — from creating your account to using its features as a **Writer**, **Department Admin**, or **System Admin**. Start with [Part 1: Getting Started](#part-1-getting-started-all-users), then jump to the part that matches your role.
 
 ## Before you Begin
 _Why do some screenshots say LEON?_
 
-**WREN** was derived from the LEON platform. As a result, some screenshots and interface elements may still display the name LEON. Throughout the guide, WREN refers to the current platform and LEON refers to earlier naming conventions within the same solution. Both names refer to the same platform functionality. Given that LEON was originally developed within a legal education context, many of the screenshots in the User Guide use legal document types such as legal memoranda or case briefs as examples.
+**WREN** is the name used throughout this guide to refer to the prototype solution. During development, the design was centered around the legal context and named in tribute to Leon Getz (https://www.lawsociety.bc.ca/news-and-engagement/news/in-memoriam-leon-getz,-kc) who was considered by many to be one of the best legal writers in BC. As a result, some screenshots and interface elements may still display the name LEON (Legal Expression Organization & Navigation). Throughout the guide, WREN refers to the current platform and LEON refers to naming conventions used during system development within the same solution. Both names refer to the same platform functionality. Given that LEON was originally developed within a legal education context, many of the screenshots in the User Guide use legal document types such as legal memoranda or case briefs as examples.
 
-_Are there other instances of interchangable naming?_
+_Are there other instances of interchangeable naming?_
 
 Yes. The term **'System Admin'** is used throughout the user guide to describe a role, but this role is referred to as the 'Technical Admin' role in the API and database.
 
@@ -28,7 +28,7 @@ The guide is organized into four parts.
 - **Part 1: Getting Started (All Users)**
 Learn how to create an account and log in.
 - **Part 2: Writer Guide**
-Learn how to create a document, navigate the editor, generate AI Debriefs, use Ask LEON, and manage document revisions. 
+Learn how to create a document, navigate the editor, generate AI Debriefs, use Ask WREN, and manage document revisions. 
 - **Part 3: Department Admin Guide**
 Learn how to create and manage document types, configure evaluation rubrics, customize AI-generated feedback, and review document analytics. 
 - **Part 4: System Admin Guide**
@@ -46,7 +46,7 @@ Learn how to configure AI models, manage departments and user access, set usage 
     - [2.1 Creating a New Document Draft](#21-creating-a-new-document-draft)
     - [2.2 Understanding the Document Workspace](#22-opening-and-reviewing-your-document)
     - [2.3 Using AI Debrief](#23-using-ai-debrief)
-    - [2.4 Using Ask LEON](#24-using-ask-leon)
+    - [2.4 Using Ask WREN](#24-using-ask-leon)
     - [Quick Recap — User](#quick-recap--user)
   - [Part 3: Department Admin Guide](#part-3-department-admin-guide)
     - [3.1 How the Department Admin Screens Are Organized](#31-how-the-department-admin-screens-are-organized)
@@ -60,7 +60,7 @@ Learn how to configure AI models, manage departments and user access, set usage 
     - [4.4 Creating New Departments](#44-creating-new-departments)
     - [4.5 Managing Departments](#45-managing-departments)
     - [4.6 Department-Level Prompt Management](#46-department-level-prompt-management)
-    - [4.7 Ask LEON Prompt](#47-manage-ask-wren-prompt)
+    - [4.7 Ask WREN Prompt](#47-manage-ask-wren-prompt)
     - [4.8 Reviewing Department Analytics](#48-reviewing-department-analytics)
     - [Quick Reference — System Admin](#quick-reference--system-admin)
 
@@ -104,7 +104,7 @@ Some deployments only accept email addresses from a list of domains (for example
 
 ## Part 2: Writer Guide
 
-This section explains how writers use WREN throughout the document development process. A typical workflow involves uploading a document, generating an AI Debrief, reviewing feedback, revising the document, and using Ask LEON to clarify or explore feedback in greater detail.
+This section explains how writers use WREN throughout the document development process. A typical workflow involves uploading a document, generating an AI Debrief, reviewing feedback, revising the document, and using Ask WREN to clarify or explore feedback in greater detail.
 
 After logging in, writers will be taken to the **Writer Dashboard,** where they will see any existing drafts. Each draft shows its title, document type, and current status. Draft statuses indicate where a document is within the writing process. For example, "still drafting" indicates a work in progress, while "polishing" generally indicates the document is being refined before completion.
 
@@ -112,7 +112,7 @@ After logging in, writers will be taken to the **Writer Dashboard,** where they 
 
 ### 2.1 Creating a New Draft
 
-When a writer wants to receive AI-assisted feedback on a new document, they must first create a draft within WREN. Draft creation uploads the document, associates it with a department and document type, and prepares it for AI Debrief analysis.
+When a writer wants to receive AI-assisted feedback on a new document, they must first create a draft within WREN. By creating a draft, the document gets associated with a department and document type, preparing it for AI Debrief analysis. 
 
 1. From the dashboard, find **New Document** in the top-right corner of the screen (next to **All Documents**, which is the page you are currently on).
 <img width="1914" height="790" alt="Screenshot 2026-08-24 164814" src="https://github.com/user-attachments/assets/2ad36a0a-4d9b-4baf-83a6-f7772f10c440" />
@@ -136,7 +136,7 @@ Once your document has been uploaded and the editor is activated, you can begin 
 
 ### 2.2 Understanding the Document Workspace 
 
-After creating a draft, you will enter the document workspace. This is where writers review feedback, revise documents, generate new AI Debriefs, and interact with Ask LEON throughout the drafting process. 
+After creating a draft, you will enter the document workspace. This is where writers review feedback, revise documents, generate new AI Debriefs, and interact with Ask WREN throughout the drafting process. 
 
 The document workspace contains two primary areas. The editor occupies the right side of the screen, while feedback and navigation tools are located in the left sidebar.
 
@@ -144,9 +144,9 @@ If you would like to edit the document, you can do so directly on the right pane
 
 <img width="960" height="412" alt="image" src="https://github.com/user-attachments/assets/484861de-deb2-4fcf-b58e-216dee59eb97" />
 
-The left panel hosts the various tools you may use to revise your draft. In the image below, AI Debrief is selected and opened. However, the sidebar also provides options to view the table of contents under the 'contents' icon, and Ask LEON using the 'LEON' icon. 
+The left panel displays the various tools you may use to revise your draft. In the image below, AI Debrief is selected and opened. However, the sidebar also provides options to view the table of contents under the 'contents' icon, and Ask WREN using the 'LEON' icon. 
 
-<img width="1912" height="829" alt="Editor with Ask LEON and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
+<img width="1912" height="829" alt="Editor with Ask WREN and AI Debrief" src="https://github.com/user-attachments/assets/2bc18352-af6a-48dd-a61a-5db705046320" />
 
 When you are ready to continue working on your document outside of WREN, you can export the current draft. Exporting allows you to save either the document alone or the document together with AI Debrief feedback for offline review and editing. Select **export** and choose whether to download the file as a PDF or DOCX.
 
@@ -166,7 +166,7 @@ If you would like to view categorized feedback for your draft, click the 'regene
 
 <img width="956" height="413" alt="image" src="https://github.com/user-attachments/assets/3f598ac5-b9fc-4077-b0b8-a6b41b98f6a8" />
 
-Once the button has been clicked, wait for the feedback to be generated. As you go through various iterations of your work, you may click the regenerate button to see if you have made any improvements in your writing. When the new AI Debrief appears, click the **drop-down arrow** to view earlier drafts. 
+Once the button has been clicked, wait for the feedback to be generated. As you go through various iterations of your work, you can click the regenerate button to see if you have made any improvements in your writing. When the new AI Debrief appears, click the **drop-down arrow** to view earlier drafts. 
 
 <img width="959" height="416" alt="image" src="https://github.com/user-attachments/assets/3ce5e503-c9b9-498c-bbae-457a354d57d9" />
 
@@ -175,17 +175,18 @@ If you wish to see what's done well and what could be improved in your writing, 
 <img width="1913" height="820" alt="Screenshot 2026-09-14 133522" src="https://github.com/user-attachments/assets/35bc0ac1-9583-4d73-8d3b-0e44fe0e3457" />
 <img width="1915" height="824" alt="Screenshot 2026-09-14 133713" src="https://github.com/user-attachments/assets/be0f7dc7-5aae-44a2-b6b2-5223e175b692" />
 
-### 2.4 Using Ask LEON
+### 2.4 Using Ask WREN
+Ask WREN is meant to help navigate the AI Debrief and provide further assistance in improving writing. Clicking on the 'LEON' icon opens the Ask WREN screen, opening up a chat screen. The user can ask questions about the feedback the AI Debrief generated, or questions about specific aspects of their draft, such as clarity, organization, tone, etc. 
 
-You might have questions about the feedback the AI Debrief generated, or want some assistance in improving your writing. This is where Ask LEON comes in. Clicking on the 'LEON' icon brings you to the Ask LEON screen, where you can ask questions about the debrief, your draft, or aspects of writing such as clarity, organization, tone, etc. 
+When Ask WREN is asked a question, it responds by guiding the user through a series of reflective questions rather than providing direct answers. This approach is based on the Socratic method, which encourages writers to think critically about their work and identify areas for improvement.
 
-Think of AI Debrief as the assessment tool and Ask LEON as the conversational coaching tool. Writers typically review their AI Debrief first, then use Ask LEON to better understand and act on that feedback. Ask LEON addresses questions directed towards specific aspects of writing, such as clarity, organization, persuasiveness, tone, coherence, spelling, grammar, and consistency related to the uploaded draft.
+Think of AI Debrief as the assessment tool and Ask WREN as the conversational coaching tool. Writers typically review their AI Debrief first, then use Ask WREN to better understand and act on that feedback. 
 
-**Ask LEON will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.**
+**Ask WREN will not write or rewrite your sentences, fact-check legal or technical claims, or answer questions unrelated to this draft.**
 
 <img width="957" height="412" alt="image" src="https://github.com/user-attachments/assets/7b929713-8f6f-40e1-94cc-baad77dc8f09" />
 
-After using Ask LEON to better understand your feedback, you can revise your document and generate a new AI Debrief to evaluate your progress.
+After using Ask WREN to better understand your feedback, you can revise your document and generate a new AI Debrief to evaluate your progress.
 
 ### Quick Recap — User
 
@@ -195,7 +196,7 @@ After using Ask LEON to better understand your feedback, you can revise your doc
 | Log in | Login → email/password |
 | Start a new draft | All documents → new document → department → document type → upload .docx or .pdf → regenerate |
 | Review AI feedback | Open document → AI Debrief |
-| Ask questions about your draft | Open document → Ask LEON |
+| Ask questions about your draft | Open document → Ask WREN |
 | Update a draft | Left sidebar → Upload New Draft |
 | Save a copy | Left sidebar → Export (DOCX or PDF) |
 
@@ -219,7 +220,7 @@ When you open the Department Admin experience, you will interact with two areas:
 1. The dashboard
 2. The document type page, which has tabs for the Evaluation Rubric and viewing Analytics.
 
-**Dashboard** — The dashboard contains the document types for the department(s) you are managing. **Create new Document Type** allows you to create a new evaluation criteria and Ask LEON prompts, so you can tailor document assessments to your specific requirements. 
+**Dashboard** — The dashboard contains the document types for the department(s) you are managing. **Create new Document Type** allows you to create a new evaluation criteria and Ask WREN prompts, so you can tailor document assessments to your specific requirements. 
 <img width="943" height="412" alt="Department Admin dashboard" src="https://github.com/user-attachments/assets/4beb78da-7c6a-462c-ba6f-94749121db63" />
 
 **Document type** — The document type dashboard appears when you create a new document type or open an existing document type using the **manage document type** button. On the left sidebar, there are two pages the department admin can access:
@@ -278,22 +279,22 @@ There are three parts to the analytics:
 
 ## Part 4: System Admin Guide
 
-In this section, you will learn how to manage platform-wide settings, configure AI models, create and manage departments, control access, and monitor usage analytics. 
+This section describes how to manage platform-wide settings, configure AI models, create and manage departments, control access, and monitor usage analytics. 
 
-The **System Admin** is the primary administrator for the platform who is responsible for setup, configuration, user management, and ensuring the system operates according to organizational requirements. 
+The **System Admin** has the ability to setup and configure the system, manage users, and ensure the system operates according to organizational requirements. 
 
-The System Admin chooses the Bedrock model, sets platform usage limits, creates departments, manages users and access, edits department-level prompts, and reviews department analytics.
+The System Admin can choose the Bedrock model, set platform usage limits, create departments, manage users and access, edit department-level prompts, and review department analytics.
 
 ### 4.1 System Admin Dashboard
-The System Admin Dashboard serves as the central management area for the WREN platform. From this dashboard, administrators configure AI behavior, manage departments, control user access, establish usage limits, and review platform-wide analytics.
+The System Admin Dashboard is the central management area for the WREN platform. From this dashboard, administrators configure AI behavior, manage departments, control user access, establish usage limits, and review platform-wide analytics.
 
 <img width="944" height="297" alt="image" src="https://github.com/user-attachments/assets/04c3dd29-6923-433b-9e4d-211c27c67975" />
 <img width="917" height="310" alt="image" src="https://github.com/user-attachments/assets/fa25a40d-91a0-4b9f-a1b6-16faaab5cf35" />
 
-Let's begin with model configuration. 
-
 ### 4.2 Model Configuration
-The model configuration settings determine which AI model WREN uses to generate AI Debriefs and respond to Ask LEON prompts. As a System Admin, you can change the active model to balance response quality, performance, and cost requirements.
+In WREN, the model used to generate AI Debriefs can be configured. Changing the model has an impact on the response quality, performance, and cost requirements. Therefore, it should be selected with careful review and consideration.
+
+To change the AI model used, follow the instructions below:
 
 1. From the System Admin dashboard, click the drop-down arrow next to Model Configuration.
 <img width="910" height="385" alt="image" src="https://github.com/user-attachments/assets/b9ec4bef-0b50-4b22-9c22-aaab06e8ee62" />
@@ -308,7 +309,7 @@ The model configuration settings determine which AI model WREN uses to generate 
 
 **Note:**
 
-Model changes apply immediately to new AI Debrief and Ask LEON calls. Existing debriefs are unchanged. Different models can differ in quality, cost, and latency.
+Model changes apply immediately to new AI Debrief and Ask WREN calls. Existing debriefs are unchanged. Different models can differ in quality, cost, and latency.
 
 Most organizations will rarely need to change the selected AI model. However, a model change may be appropriate when:
 - Testing a newly available model
@@ -316,21 +317,21 @@ Most organizations will rarely need to change the selected AI model. However, a 
 - Reducing response latency
 - Evaluating model performance for a specific writing context
 
-After saving a model configuration, future AI Debrief and Ask LEON requests will use the newly selected model. The next administrative task is often configuring usage limits to ensure AI resources are managed appropriately. 
+After saving a model configuration, future AI Debrief and Ask WREN requests will use the newly selected model. The next administrative task is often configuring usage limits to ensure AI resources are managed appropriately. 
 
 ### 4.3 Setting Usage Limits
 Usage limits help administrators balance platform availability with AI operating costs. They are particularly useful during pilot projects, classroom deployments, or situations where AI usage budgets must be monitored carefully.
 
-For example, a department may choose to allow numerous document uploads while restricting the number of AI Debrief regenerations to encourage thoughtful revision rather than excessive regeneration.
+Usage limits may be especially helpful when encouraging thoughtful revision rather than excessive regeneration.
 
-Usage Limits restrict how many AI Debriefs and Ask LEON messages can be generated per document. Each debrief and Ask LEON interaction sends a request to a paid AI model and therefore **incurs usage costs.**
+Usage Limits restrict how many AI Debriefs and Ask WREN messages can be generated per document. Each debrief and Ask WREN interaction sends a request to a paid AI model and therefore **incurs usage costs.**
 
 You can apply limits platform-wide or per department. **We recommend a prudent estimate of monthly AI costs; you can always raise a limit if users legitimately hit it.**
 
 To set usuage limits:
 1. Go to **System Admin Dashboard → System Configuration → Usage Limits**.
 2. You can set limits for:
-   - Ask LEON messages (LEON message limit in the image below)
+   - Ask WREN messages (LEON message limit in the image below)
    - How many times the AI Debrief can be regenerated (Max AI Debrief)
    - The maximum number of document uploads
    - The maximum number of drafts
@@ -345,7 +346,9 @@ These limits apply to all users in all departments. They are not per-calendar-pe
 Once usage limits have been configured, the next step is typically to organize the platform into departments. Departments allow you to separate users, document types, prompts, and analytics into distinct administrative areas.
 
 ### 4.4 Creating New Departments
-Departments provide organizational boundaries within WREN. Each department can maintain its own document types, evaluation rubrics, prompts, analytics, and administrative staff.
+Departments provide separate areas of management within WREN. Each department can maintain its own document types, evaluation rubrics, prompts, analytics, and administrative staff. Consequently, departments can tailor the writing experience, feedback criteria, and administrative controls to meet their specific organizational needs.
+
+A department typically represents a distinct academic unit, program, faculty, or organization that has its own writing standards and evaluation requirements. For example, the Law Department shown throughout this guide uses legal document types and specialized evaluation criteria designed to assess legal writing. Other departments might configure WREN for disciplines such as business, engineering, healthcare, or communications, each with their own document types, rubrics, and AI guidance. By organizing content into departments, WREN can provide feedback that is more relevant to the expectations and standards of a particular field.
 
 To create new departments as a System Admin:
 
@@ -387,17 +390,25 @@ Let's begin with managing roles:
 2. Under **Manage Users**, you can search participants and assign or revoke roles.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/65b17290-e7e3-4d23-bd7d-d68bcf904d39" />
 
-3. Use **Student access → Open / Lock** to control who can submit documents for this document type:
-   - **When the button says lock, it means the access is open** — any user with access to the platform can submit documents for this document type. No document-type-specific Access Grant is required.
-   - **When the button says open, it means the access is locked** — only users who have been explicitly granted access to this document type can submit documents. Users must have an approved document-type Access Grant before they can upload or submit documents for evaluation.
-   - When a document type is locked, administrators can manage access by reviewing and approving Access Grant requests from users.
+3. Access to a department's document types is controlled by the **Student Access** setting. A document type can be configured in one of two access states:
+- **Open access**: Any user with access to WREN can submit documents for this document type. No additional approval is required. 
+- **Locked Access**: Only users who have been explicitly granted access can submit documents for this document type. Users must have an approved Access Grant before they can upload or submit documents for evaluation.
+Administrators can switch between these states using the **Student Access** control:
+   - If the document type is currently Open, the button displays Lock. Selecting it changes the document type to Locked Access.
+   - If the document type is currently Locked, the button displays Open. Selecting it changes the document type to Open Access.
+  
+When a document type is locked, administrators can manage access by reviewing and approving Access Grant requests from users.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/3aa639f4-909c-434f-9a2f-f47195cf074e" />
 
-After assigning user roles and configuring submission access, you may also want to control who can discover a department in the platform's catalog. This is managed through department visibility settings.
+After configuring roles and submission access, configure **Department Visibility** to determine who can discover the department in the WREN application.
 
-**Department visibility** controls whether a department appears in the catalog for all users or only for users who have been explicitly granted access. It can be configured by using the button on the right side to control visibility:
-   - **If you see the 'limit visibility' button** — the department is visible to all users.
-   - **If you see the 'make visible' button** — the department is shown only to explicitly permitted users, all Technical Admins, and Department Admins appointed to this department.
+**Department Visibility** can be configured in one of two states:
+- **Visible to All Users:** The department appears in the catalog for all users who have access to WREN.
+- **Restricted Visibility:** The department appears only to users who have been explicitly granted access, as well as System Admins and Department Admins assigned to the department.
+
+Administrators can switch between these states using the visibility control:
+- If the department is currently **Visible to All Users**, the button displays **Limit Visibility**. Selecting it changes the department to Restricted Visibility.
+- If the department currently has **Restricted Visibility**, the button displays **Make Visible**. Selecting it makes the department visible to all users.
 <img width="1765" height="820" alt="image" src="https://github.com/user-attachments/assets/59cf4cd2-59df-41a4-b946-28a7648fa2ce" />
 <img width="122" height="176" alt="image" src="https://github.com/user-attachments/assets/89c31f2b-d4f6-4d58-a2bc-9252cbc57af1" />
 
@@ -408,45 +419,71 @@ After assigning user roles and configuring submission access, you may also want 
 Once department membership and access controls have been configured, the next step is often to customize how the AI behaves for that department. This is accomplished through department-level prompts.
 
 ### 4.6 Department-Level Prompt Management
+Department-level prompts define guidance that applies across all document types within a department. These prompts provide context that the AI uses whenever it generates an AI Debrief or responds through Ask WREN. As a result, the information configured here influences how feedback is framed, what standards are emphasized, and what topics or considerations the AI should account for when interacting with users.
 
-The department prompt sets instructions the AI applies across every document type in the department. Use it for guidance that should hold department-wide — who the writers are, the standards they follow, and topics the AI should avoid — rather than criteria specific to one document type (those live in the Department Admin Evaluation Rubric, see [3.2](#32-configuring-the-evaluation-rubric)). 
+Department prompts should be used for guidance that applies broadly across a department, such as the background of the writers, departmental writing expectations, or topics that should be avoided. More specific evaluation requirements can be configured within a document type's Evaluation Rubric (see [3.2](#32-configuring-the-evaluation-rubric)). 
 
 On the screen, you will see configurable fields for Department Context, Writing Standards, and Restricted Topics that together influence AI behavior across the department. 
 
-To accesss the department prompts:
-1. Go to **System Admin Dashboard → Departments → [Department Name] → Manage Department Prompt**.
+The Department Prompt contains three configurable settings:
+1. Department Context: Provides background information about the department, its users, and the types of documents being reviewed. This helps the AI better understand the environment in which the writing is being produced.
+2. Writing Standards: Defines department-wide expectations for style, tone, structure, formatting, citations, or other writing conventions that should be reflected in AI-generated feedback.
+3. Restricted Topics: Identifies topics, concepts, or content areas that the AI should avoid discussing or should handle with additional caution.
+Together, these settings help ensure that AI-generated feedback aligns with the standards and expectations of the department.
+
+To access the Department Prompt:
+1. Go to System Admin Dashboard → Departments → [Department Name] → Manage Department Prompt.
 2. Configure the following:
-   - **Department Context** — background the AI should always consider for this department (e.g., subject area, program level, institutional norms).
-   - **Writing Standards** — style, tone, formatting, and citation requirements the AI should follow when generating documents or debriefs for this department.
-   - **Restricted Topics** — topics, terms, or content areas the AI should avoid or flag when interacting with this department's users.
-3. Click **Save Prompt**.
-4. Optionally, test the configuration by generating a sample document or debrief before rolling it out.
+- Department Context
+- Writing Standards
+- Restricted Topics
+
+3. Click Save Prompt.
+Optionally, test the configuration by generating a sample document or AI Debrief before rolling it out.
 <img width="710" height="412" alt="image" src="https://github.com/user-attachments/assets/d5dbb115-2f24-4ee2-94ea-86d64940729d" />
 
-Department-level prompts define guidance that applies across all document types within a department. In addition to these broad instructions, System Admins can also configure the behavior of the Ask LEON assistant itself.
+After configuring department-wide AI guidance, the next step is configuring the behavior of the Ask WREN assistant itself.
 
-## 4.7 Manage Ask LEON Prompt
-The Ask LEON prompt controls how the conversational assistant interacts with writers. Unlike AI Debrief prompts, which determine evaluation feedback, Ask LEON prompts shape the guidance style, questioning approach, and overall tone of interactions with users.
+## 4.7 Manage Ask WREN Prompt
+The Ask WREN prompt controls how the conversational assistant interacts with writers. Unlike AI Debrief prompts, which determine evaluation feedback, Ask WREN prompt influences how the assistant communicates with users.
 
-Once you fill in the blank field, **hit 'Save Ask LEON Prompt.'**
+For example, the Ask WREN Prompt can be used to:
+- Encourage a Socratic coaching style
+- Reinforce departmental writing expectations
+- Promote reflection and critical thinking
+
+When Ask WREN is asked a question, it responds by guiding the user through reflective questioning rather than simply providing answers. This approach is based on the Socratic method, which encourages writers to think more critically about their work, evaluate their reasoning, and identify improvements independently. 
+
+To update the Ask WREN prompt:
+1. Navigate to the **Manage Ask WREN Prompt** page
+2. Enter or modify the prompt text
+3. Click **Save ASK WREN Prompt**
 <img width="776" height="404" alt="image" src="https://github.com/user-attachments/assets/4aa0efb9-d517-4765-9d1f-af9cf9f3bee4" />
 
-After configuring department prompts and Ask LEON behavior, administrators may want to evaluate how users are engaging with the platform. The analytics dashboard provides visibility into adoption and usage trends across departments.
+After configuring department prompts and Ask WREN behavior, administrators can evaluate how users are engaging with the platform through analytics. The analytics dashboard provides visibility into adoption and usage trends across departments.
 
 ### 4.8 Reviewing Department Analytics
 
-The analytics dashboard provides a high-level view of platform adoption and AI usage trends. The following steps explain where to access these metrics and what each measure represents.
+Analytics provides insight into platform adoption, writing activity, and AI usage across departments. Administrators can use these metrics to understand how WREN is being used, identify trends, and determine whether configuration changes may be needed.
 
-1. Go to **System Admin Dashboard → Departments → [Department Name] → View Analytics** (or a platform-wide analytics view, if available).
+To access analytics:
+1. Go to **System Admin Dashboard → Departments → [Department Name] → View Analytics**.
 2. Review key metrics, including:
-   - **Active Users** — number of users who logged in or used the platform within a selected time range. Active User metrics help administrators understand adoption and engagement levels within a department.
-   - **Total documents** — total document creation volume over time. Document generation totals help identify which departments or document types are receiving the most use.
-   - **Total drafts** — reflects how many times AI Debrief is being used for revision. Debrief activity provides insight into how frequently users are engaging with AI-assisted feedback during the writing process.
-   - **Breakdown by document type** - provides a bar graph to illustrate which document type is being used the most.
-   - **Platform total usage over time** - demonstrates how many users are engaging with the platform over time.
+   - **Active Users** — Shows how many users have logged in or used the platform during a selected time period. This metric helps assess user adoption and engagement.
+   - **Total documents** — Shows the number of documents that have been created. High document counts generally indicate frequent platform use within a department.
+   - **Total drafts** — Shows how many draft iterations users have created. A higher number of drafts may indicate that writers are actively revising their work and engaging with AI-generated feedback.
+   - **Breakdown by document type** - Displays which document types are being used most frequently. This can help identify high-demand document types and areas where additional support or rubric refinement may be beneficial. 
+   - **Platform total usage over time** -Displays changes in platform activity over time. Growth trends may indicate successful adoption, while declining activity may suggest the need for additional configuration changes.
 
 <img width="911" height="302" alt="Department analytics totals" src="https://github.com/user-attachments/assets/539979ef-8a54-41a8-bfc3-764fc87d4b43" />
 <img width="725" height="296" alt="Usage over time" src="https://github.com/user-attachments/assets/3b319c83-71de-4e06-8862-42ef7101baa6" />
+
+Analytics can help answer questions such as:
+- Are users actively using WREN?
+- Which document types are most popular?
+- Are writers engaging in multiple revision cycles?
+- Is platform usage increasing or decreasing over time?
+- Do certain departments require additional support or training?
 
 Together, model configuration, usage management, department administration, prompt configuration, and analytics provide System Admins with the tools needed to govern and support the WREN platform. The quick reference below summarizes the most common administrative tasks and where to find them.
 

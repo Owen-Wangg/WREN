@@ -87,7 +87,7 @@ Before you deploy, you must have the following installed on your device:
 
 ### Access Tokens
 
-You also need a GitHub repository this account can read (a fork of WREN) and a GitHub personal access token (PAT). The exact scopes and where to create it are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup).
+You also need a GitHub repository this account can read (a fork of WREN), a one-time authorization of the **AWS Amplify GitHub App** on that repo (this is how Amplify accesses your code), and a GitHub personal access token (PAT). The GitHub App authorization, exact PAT scopes, and where to create them are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup).
 
 ### Enable and Verify Bedrock Model Access
 
@@ -133,11 +133,19 @@ This is the recommended path for a first-time deployment. Follow the steps in or
 1. Install the tools in [Requirements](#requirements) (git, AWS CLI v2, Node.js 22+).
 2. Sign in to AWS and select your profile: `aws sso login --profile <your-profile>`, then `export AWS_PROFILE=<your-profile>` (PowerShell: `$env:AWS_PROFILE = "<your-profile>"`). Confirm the target account with `aws sts get-caller-identity` — it shows the account you intend to deploy into.
 3. **Enable the Bedrock model.** In the AWS Console, open **Amazon Bedrock → Model access** in your target Region and enable the default model (`us.anthropic.claude-sonnet-4-6`) or the one you set in `WREN_BEDROCK_MODEL_ID`. Without this, the app deploys but feedback generation fails at runtime. The deploy verifies model access early and pauses with an actionable message if it's missing.
-4. **Create a GitHub personal access token (PAT).** You need a GitHub repo this account can read (a fork of WREN or the original). Create a token at **GitHub → Settings → Developer settings → Personal access tokens**:
-   - Classic token: enable the **`repo`** scope (and **`admin:repo_hook`** so the CI/CD pipeline can register its webhook).
-   - Fine-grained token: grant the target repository **Contents: read** and **Webhooks: read and write**.
+4. **Authorize the AWS Amplify GitHub App on your repository (required).** Amplify connects to GitHub through its GitHub App, so the app must be installed and authorized on the GitHub account/org that owns your repo **before** you deploy. If you skip this, the Amplify build fails at provisioning with the misleading error `!!! Unable to assume specified IAM Role` — Amplify can't reach the repo, so the build never even clones it.
+   - In a browser, open the Region-specific installation URL, replacing `<region>` with your deploy Region (for example `ca-central-1`):
 
-5. Ensure a **clean git working tree** at the commit you want to deploy (`git status` shows nothing to commit). The image is built from a snapshot of the committed revision, so uncommitted changes are not included.
+     `https://github.com/apps/aws-amplify-<region>/installations/new`
+   - Choose the GitHub account or organization that owns your WREN repo.
+   - Select **Only select repositories** and pick your WREN repo (or **All repositories**), then choose **Install & Authorize**.
+   - Confirm it worked under **GitHub → Settings → Applications → Installed GitHub Apps** (for an organization: **Organization → Settings → GitHub Apps**) — you should see **AWS Amplify (`<region>`)** listed with access to the repo.
+
+5. **Create a GitHub personal access token (PAT).** The deploy stores this token in Secrets Manager; Amplify uses it to authorize the connection **through the GitHub App you installed above** (Amplify does not store the token itself), and — when CI/CD is enabled — the CodePipeline pipeline uses it to register its webhook. Create the token at **GitHub → Settings → Developer settings → Personal access tokens**:
+   - Classic token (simplest, and required when CI/CD is enabled): enable **`repo`** and **`admin:repo_hook`**.
+   - Fine-grained token: grant the target repository **Metadata: read-only** (mandatory) and **Webhooks: read and write**. Because the Amplify GitHub App provides repository access, **no `Administration` (deploy-key) permission is needed** — a token limited to webhooks is sufficient for the Amplify connection.
+
+6. Ensure a **clean git working tree** at the commit you want to deploy (`git status` shows nothing to commit). The image is built from a snapshot of the committed revision, so uncommitted changes are not included.
 
 ### Step 2 — Start the deploy (run #1)
 
@@ -502,6 +510,11 @@ For a failed standard deployment, first complete the action printed by `npm run 
 **Issue: Amplify stack fails on the GitHub token**
 
 - Solution: for the standard workflow, re-export `WREN_GITHUB_TOKEN` and rerun `npm run deploy`; it creates or updates the required secret. Creating `wren-dev/github/token` directly is a direct-CDK recovery operation.
+
+**Issue: Amplify build fails immediately with `!!! Unable to assume specified IAM Role`**
+
+- Cause: the AWS Amplify GitHub App is not authorized on the repository, so Amplify cannot access the code and the build dies at provisioning before cloning. This is not actually an IAM role problem.
+- Solution: install and authorize the Amplify GitHub App on the repo's GitHub account/org (see [Step 1](#step-1--prerequisites-one-time-setup), "Authorize the AWS Amplify GitHub App"), at `https://github.com/apps/aws-amplify-<region>/installations/new`. Then rerun `npm run deploy` (or trigger a new Amplify build). Note the PAT does **not** need the `Administration`/deploy-key permission — the GitHub App provides repository access.
 
 **Issue: Pipeline error `[GitHub] No Branch [main]`**
 
