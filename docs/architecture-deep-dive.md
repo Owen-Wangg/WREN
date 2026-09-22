@@ -66,13 +66,13 @@ Realtime debrief-ready and notification events use **AWS AppSync** (GraphQL subs
 
 ### Data Persistence
 
-Application Lambdas run in **private VPC subnets** and reach PostgreSQL through **RDS Proxy** (`requireTLS`) with TLS enforced on the instance (`rds.force_ssl = 1`). Each Lambda uses a dedicated Postgres role and Secrets Manager secret (`wren_document`, `wren_admin`, `wren_feedback_engine`, `wren_feedback_orch`, `wren_appsync_auth`, and so on), and is granted read access to only its own secret. **Amazon RDS PostgreSQL 16** (engine 16.13, isolated subnets, storage encrypted) is the system of record for users, departments, documents, immutable drafts, Socratic feedback, analytics aggregates, and in-app notifications. **pgvector** is enabled via SQL migration so embeddings can be stored later. Coaching is generated from the student's submitted draft plus department/type prompts.
+Application Lambdas run in **private VPC subnets** and reach PostgreSQL through **RDS Proxy**. Each Lambda uses a dedicated Postgres role and Secrets Manager secret. **Amazon RDS PostgreSQL 16** is the system of record for users, departments, documents, immutable drafts, Socratic feedback, analytics aggregates, and in-app notifications. Coaching is generated from the student's submitted draft plus department/type prompts.
 
-**Amazon DynamoDB** stores **Ask WREN** conversation history in `{prefix}-ConversationHistory`. The partition key is `sessionId`, which is the composite `{userId}#{documentId}`, so a conversation is scoped to a user + document and survives draft regenerations and resubmits. Items carry a `ttl`.
+**Amazon DynamoDB** stores **Ask WREN** conversation history in `{prefix}-ConversationHistory`. The partition key is `sessionId`, which is the composite `{userId}#{documentId}`, so a conversation is scoped to a user + document and survives draft regenerations and resubmits.
 
 ### Object Storage
 
-Writers upload `.docx`/`.pdf` via a **presigned S3 POST** (KMS, 15-minute expiry) or paste into the TipTap editor. Document bytes live in the documents bucket; reference material uses a second bucket.
+Writers upload `.docx`/`.pdf` via a **presigned S3 POST** or paste into the TipTap editor. Document bytes live in the documents bucket.
 
 ### AI Services
 
@@ -80,7 +80,7 @@ Writers upload `.docx`/`.pdf` via a **presigned S3 POST** (KMS, 15-minute expiry
 
 ### Feedback Engine
 
-Requesting an AI Debrief hits the **Feedback Orchestrator**, which returns **202** with a `jobId` and enqueues **Amazon SQS**. The **Feedback Engine** (Python 3.12 container Lambda from ECR, up to 15 minutes) loads type/department prompts, wraps student text in an untrusted-data block, invokes **Amazon Bedrock** (Claude), applies the no-ghostwriting output guardrail, writes `feedback_item` / `anchor` rows, and runs a **resolution judge** (`judge_resolutions_with_llm`) against prior items. When the job commits, the engine publishes a `publishDebriefReady` mutation to AppSync via SigV4/IAM; that publish is non-fatal, so the UI's REST polling fallback still completes the job if it fails. A **DLQ** (`maxReceiveCount` 3) catches poison messages.
+Requesting an AI Debrief hits the **Feedback Orchestrator**, which returns **202** with a `jobId` and enqueues **Amazon SQS**. The **Feedback Engine** (Python 3.12 container Lambda from ECR) loads type/department prompts, wraps student text in an untrusted-data block, invokes **Amazon Bedrock** (Claude), applies the no-ghostwriting output guardrail, writes `feedback_item` / `anchor` rows, and runs a **resolution judge** against prior items. When the job commits, the engine publishes a `publishDebriefReady` mutation to AppSync via SigV4/IAM; that publish is non-fatal, so the UI's REST polling fallback still completes the job if it fails.
 
 ### Notifications
 
@@ -90,11 +90,11 @@ A finished debrief triggers two separate mechanisms. The [Feedback Engine](#feed
 
 Request capacity and product quotas are separate from login sessions:
 
-- **AWS WAF** on CloudFront can rate-limit by IP (edge protection).
-- **API Gateway stage throttling** (rate 100, burst 200) limits request rate to protect backends.
-- **Application usage caps** (`platform_usage_policy`, `usage_limit`, `usage_counter`) enforce product limits such as debrief generations or uploads; the client sees `429 USAGE_LIMIT_REACHED`.
+- **AWS WAF** on CloudFront can rate-limit by IP.
+- **API Gateway stage throttling** limits request rate to protect backends.
+- **Application usage caps** enforce product limits such as debrief generations or uploads; the client sees `429 USAGE_LIMIT_REACHED`.
 
-Helpfulness ratings and section applicability votes are stored **without `user_id`** for aggregate analytics. **Activity events** are append-only and have **no FK** to documents, so they survive document deletion (pseudonymous actor ids).
+Helpfulness ratings and section applicability votes are stored **without `user_id`** for aggregate analytics. **Activity events** are append-only and have **no FK** to documents, so they survive document deletion.
 
 ## Service Lambdas
 
@@ -464,7 +464,7 @@ Versioned snapshot. Identity, `s3_key`, and `segments` are immutable; autosave m
 
 #### `document_ingest_job` table
 
-Async PDF ingest (API Gateway vs OCR timeout).
+Async PDF ingest.
 
 | Column | Type | Description |
 | --- | --- | --- |
@@ -485,8 +485,6 @@ Async PDF ingest (API Gateway vs OCR timeout).
 ### Feedback and Resolution Tables
 
 #### `feedback_item` table
-
-Socratic item.
 
 | Column | Type | Description |
 | --- | --- | --- |
@@ -520,7 +518,7 @@ Ties an item to a span on a draft; remapped via diff.
 
 #### `resolution_status_history` table
 
-Append-only. One status per (item, draft). `UPDATE` is rejected.
+Append-only. One status per (item, draft).
 
 | Column | Type | Description |
 | --- | --- | --- |
@@ -564,7 +562,7 @@ Anonymous per-section votes. Unique `(document_id, draft_id, error_category_id)`
 
 #### `platform_usage_policy` table
 
-Single row (`id = 1`). Technical Admin configurable.
+Technical Admin configurable.
 
 | Column | Type | Description |
 | --- | --- | --- |
@@ -577,8 +575,6 @@ Single row (`id = 1`). Technical Admin configurable.
 | `updated_at` | timestamptz | Last update |
 
 #### `user_lifetime_usage` table
-
-Monotonic upload count; survives document delete.
 
 | Column | Type | Description |
 | --- | --- | --- |
@@ -609,8 +605,6 @@ Temporary extra actions for a user + document type.
 ### Audit and Analytics Tables
 
 #### `activity_event` table
-
-Actor–verb–object log. **No FK to document/draft/feedback_item.**
 
 | Column | Type | Description |
 | --- | --- | --- |
@@ -747,65 +741,6 @@ Applied by the Database stack migration runner. Do not edit applied files; add a
 - `Polishing`
 
 ---
-
-### Invariants (Schema-Enforced)
-
-1. **Draft identity is immutable** except autosave of editor content/word count.
-2. **Resolution history is append-only.**
-3. **No replacement-prose column** on any table.
-4. **Activity events survive document delete.**
-5. **Users are global**; departments group types and admins, not user records.
-6. **Deleting a document** cascades drafts, anchors, feedback, ingest jobs, and anonymous ratings — not activity aggregates.
-
----
-
-## Entity Relationships
-
-Users are global (not owned by a department). Departments group document types and admins; document types own their configuration, taxonomy, and reference material. Documents belong to a student and a document type; drafts, feedback, anchors, ingest jobs, and anonymous ratings hang off a document and cascade on delete. Activity events and aggregate counters are intentionally FK-free so they survive document deletion.
-
-```text
-app_user (1) ──── (N) role_assignment
-app_user (1) ──── (N) access_grant
-app_user (1) ──── (N) document            (owner_user_id)
-app_user (1) ──── (1) user_lifetime_usage
-app_user (1) ──── (N) notification         (recipient_user_id)
-
-department (1) ──── (N) document_type
-department (1) ──── (N) topic
-department (1) ──── (N) reference_material (department tier)
-department (1) ──── (N) department_visibility_grant
-app_user   (1) ──── (N) department_visibility_grant
-
-document_type (1) ──── (1) document_type_config
-document_type (1) ──── (N) error_category
-document_type (1) ──── (N) content_type
-document_type (1) ──── (N) custom_metadata_field
-document_type (1) ──── (N) reference_material (type tier)
-document_type (1) ──── (N) access_grant
-document_type (1) ──── (N) document
-document_type (1) ──── (N) override
-
-document (1) ──── (N) draft
-document (1) ──── (N) feedback_item
-document (1) ──── (N) document_ingest_job
-document (1) ──── (N) feedback_helpfulness_rating   (anonymous)
-document (1) ──── (N) debrief_section_applicability (anonymous)
-
-draft (1) ──── (N) anchor
-draft (1) ──── (N) resolution_status_history
-
-feedback_item (1) ──── (N) anchor
-feedback_item (1) ──── (N) resolution_status_history
-feedback_item (N) ──── (1) error_category
-feedback_item (N) ──── (1) reference_material        (citation)
-
-notification_type (1) ──── (N) notification
-
-platform_usage_policy (single row, id = 1)
-activity_event / aggregate_counter (no FK to document/draft/feedback_item)
-```
-
-The [ER diagram](#database-schema) at the top of the Database Schema section renders these relationships visually.
 
 ## Cross-References
 
