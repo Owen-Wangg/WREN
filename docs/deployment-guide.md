@@ -17,7 +17,6 @@ This guide deploys the WREN writing coach into an AWS account.
     - [Step 2 — Start the deploy (run #1)](#step-2--start-the-deploy-run-1)
     - [Step 3 — Create the admin account, then rerun (run #2)](#step-3--create-the-admin-account-then-rerun-run-2)
     - [Step 4 — Sign in to become Technical Admin](#step-4--sign-in-to-become-technical-admin)
-  - [Deployment](#deployment)
     - [Deployment workflow implementation](#deployment-workflow-implementation)
     - [Variables for the standard deployment](#variables-for-the-standard-deployment)
     - [Advanced deployment configuration](#advanced-deployment-configuration)
@@ -48,7 +47,7 @@ This guide deploys the WREN writing coach into an AWS account.
 - **Amazon Bedrock** for writing feedback
 - Database schema applied automatically via a migration Lambda
 
-Default naming uses project `wren` and environment `dev`, so stacks are named `wren-dev-<Concern>` (e.g. `wren-dev-Vpc`). The **data-plane Region** is CDK context `region` (examples in this guide use `ca-central-1`; override with `-c region=...`). **Amazon CloudFront is a global CDN** — it is not “the API in us-east-1.” The `CloudFrontWaf` *CloudFormation stack* is created in `us-east-1` because AWS manages CloudFront-scoped WAF web ACLs there. That stack does not store student drafts or chat history.
+Default naming uses project `wren` and environment `dev`, so stacks are named `wren-dev-<Concern>` (e.g. `wren-dev-Vpc`). The **data-plane Region** is CDK context `region` (examples in this guide use `ca-central-1`; override with `-c region=...`). 
 
 ## Architecture at a Glance
 
@@ -66,9 +65,6 @@ Default naming uses project `wren` and environment `dev`, so stacks are named `w
 | `CloudFrontWaf` | `us-east-1` (WAF control plane for CloudFront scope) | CloudFront distribution + CloudFront-scoped WAF |
 | `Amplify` | Data-plane Region | Frontend hosting (only if GitHub owner/repo are set) |
 
-
-> `Amplify` and the CI/CD pipeline are both enabled by default, so the standard path builds them and requires GitHub owner/repo variables plus a `WREN_GITHUB_TOKEN` on first setup. 
-
 ---
 
 ## Requirements
@@ -82,22 +78,19 @@ Before you deploy, you must have the following installed on your device:
 - [Node.js](https://nodejs.org/en/learn/getting-started/how-to-install-nodejs) _(v22.x+ required)_
 - [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) _(comes with Node)_
 
-
-> The AWS CDK CLI (`aws-cdk`) is a **dev dependency** of `cdk/` — you do not need a global `cdk` install. All commands below use `npx cdk`. The pinned version is **`2.1138.0`** (see `cdk/package.json`); Node.js v22+ is required by the project's `engines` field and by Amplify's build environment.
-
 ### Access Tokens
 
-You also need a GitHub repository this account can read (a fork of WREN), a one-time authorization of the **AWS Amplify GitHub App** on that repo (this is how Amplify accesses your code), and a GitHub personal access token (PAT). The GitHub App authorization, exact PAT scopes, and where to create them are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup).
+You also need a GitHub repository this account can read (a fork of WREN), a one-time authorization of the **AWS Amplify GitHub App** on that repo, and a GitHub personal access token (PAT). The GitHub App authorization, exact PAT scopes, and where to create them are covered in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup).
 
 ### Enable and Verify Bedrock Model Access
 
-Enable the target Bedrock model in your Region **before** deploying — without model access the app deploys but **feedback generation fails at runtime**. The concrete console steps are in [First Deployment → Step 1](#step-1--prerequisites-one-time-setup); the deploy also verifies access early and pauses with an actionable message if it's missing.
+Enable the target Bedrock model in your Region **before** deploying.
 
 ---
 
 ## AWS credentials
 
-Authenticate with an AWS identity that has broad first-rollout deployment rights (`AdministratorAccess`, or a dedicated CDK deploy role). For the standard workflow, prefer AWS IAM Identity Center/SSO or another standard AWS credential-chain method; the workflow uses those credentials and never asks for long-lived access keys.
+For the workflow, prefer AWS IAM Identity Center/SSO or another standard AWS credential-chain method; the workflow uses those credentials.
 
 Configure and sign in with SSO, then point the deploy at that profile:
 
@@ -113,7 +106,6 @@ Confirm the account before any deployment:
 aws sts get-caller-identity                # honors AWS_PROFILE
 ```
 
-> Setting `WREN_EXPECTED_ACCOUNT_ID` is optional for interactive deploys and acts only as a safety guard: if set, the workflow refuses to proceed when the profile resolves to a different account. It becomes **required** only for production (`WREN_ENVIRONMENT=prod`) or non-interactive/CI runs. For a normal interactive deploy, selecting the right profile is enough.
 ---
 
 ## First Deployment — Step by Step
@@ -122,7 +114,7 @@ This is the recommended path for a first-time deployment. Follow the steps in or
 
 > **Read this first — the deploy runs more than once, on purpose.**
 >
-> `npm run deploy` is safe to run repeatedly. It will **pause and exit with code `3`** whenever it needs you to do something (sign up, confirm an email). **Exit code 3 is not an error and not a rollback** — it is a checkpoint. You read the printed instruction, do the one thing it asks, and run the same command again. Setting up the first administrator takes **two** runs in total. That is deliberate and cannot be skipped.
+> `npm run deploy` is safe to run repeatedly. It will **pause and exit with code `3`** whenever it needs you to do something (sign up, confirm an email). **Exit code 3 is not an error and not a rollback** — it is a checkpoint. You read the printed instruction, do the one thing it asks, and run the same command again. Setting up the first administrator takes **two** runs in total.
 >
 > **Deploy still succeeds, and the first admin is still promoted.** Run #2 completes the deployment: it adds the confirmed user to `SystemAdmin` and arms the bootstrap. It does **not** grant `TechnicalAdmin` itself. After that run finishes, sign in to the application as `WREN_ADMIN_EMAIL` — that login is what promotes the account to `TechnicalAdmin`. There is no third deploy run and no access token to copy or paste.
 >
@@ -141,9 +133,8 @@ This is the recommended path for a first-time deployment. Follow the steps in or
    - Select **Only select repositories** and pick your WREN repo (or **All repositories**), then choose **Install & Authorize**.
    - Confirm it worked under **GitHub → Settings → Applications → Installed GitHub Apps** (for an organization: **Organization → Settings → GitHub Apps**) — you should see **AWS Amplify (`<region>`)** listed with access to the repo.
 
-5. **Create a GitHub personal access token (PAT).** The deploy stores this token in Secrets Manager; Amplify uses it to authorize the connection **through the GitHub App you installed above** (Amplify does not store the token itself), and — when CI/CD is enabled — the CodePipeline pipeline uses it to register its webhook. Create the token at **GitHub → Settings → Developer settings → Personal access tokens**:
-   - Classic token (simplest, and required when CI/CD is enabled): enable **`repo`** and **`admin:repo_hook`**.
-   - Fine-grained token: grant the target repository **Metadata: read-only** (mandatory) and **Webhooks: read and write**. Because the Amplify GitHub App provides repository access, **no `Administration` (deploy-key) permission is needed** — a token limited to webhooks is sufficient for the Amplify connection.
+5. **Create a GitHub personal access token (PAT).** Amplify uses it to authorize the connection **through the GitHub App you installed above**. Create the token at **GitHub → Settings → Developer settings → Personal access tokens**:
+   - Fine-grained token: grant the target repository **Metadata: read-only** (mandatory) and **Webhooks: read and write**.
 
 6. Ensure a **clean git working tree** at the commit you want to deploy (`git status` shows nothing to commit). The image is built from a snapshot of the committed revision, so uncommitted changes are not included.
 
@@ -201,15 +192,13 @@ npm run deploy
 
 > 
 
-**What you should see:** the workflow verifies AWS/Bedrock, bootstraps, builds the image in CodeBuild, deploys the stacks, and then **pauses with exit code 3**, printing an Amplify sign-up URL and asking you to create the first-admin account. That pause is expected — go to Step 3.
-
-> Keep the same variables set for every rerun in Step 3 (in the same terminal session, or re-export them). Rerunning is how you advance; live AWS state is rediscovered each time.
+**What you should see:** the workflow verifies AWS/Bedrock, bootstraps, builds the image in CodeBuild, deploys the stacks, and then **pauses with exit code 3**, printing an Amplify sign-up URL and asking you to create the first-admin account. Do not close the terminal Keep the same terminal open.
 
 ### Step 3 — Create the admin account, then rerun (run #2)
 
 1. Open the **Amplify sign-up URL** the deploy printed.
 2. Sign up using the exact address in `WREN_ADMIN_EMAIL`, and confirm the email.
-3. You can stop after confirming the email; you don't need to do anything else in the app yet. Signing in before this rerun is fine, but promotion happens only **after** run #2 has armed the bootstrap. It's simplest to sign up, confirm, rerun, then sign in.
+3. You can stop after confirming the email. Signing in before this rerun is fine, but promotion happens only **after** run #2 has armed the bootstrap.
 4. Run `npm run deploy` again. This is your first rerun, so you can skip the dependency reinstall to save time — Step 2 already ran `npm ci` for the root and `cdk/` directories:
 
    ```bash
@@ -217,48 +206,20 @@ npm run deploy
    npm run deploy
    ```
 
-   Keep it set if you rerun again. Only leave it out (or set `false`) if you deleted `node_modules` or changed dependencies since Step 2; the workflow errors clearly if either `node_modules` directory is missing.
 
-**What you should see:** the workflow finds your confirmed user, adds them to the Cognito `SystemAdmin` group, arms the TechnicalAdmin bootstrap for that user's Cognito subject, runs remaining infrastructure checks, and **completes successfully**. No further `npm run deploy` is required. The account is not `TechnicalAdmin` yet — go to Step 4 and sign in.
-
-> Run #2 may briefly redeploy the Compute stack to arm the first-admin bootstrap gate, so it can take a little longer than a pure no-op rerun even with the reinstall skipped.
+No further `npm run deploy` is required. The account is not `TechnicalAdmin` yet — go to Step 4 and sign in.
 
 ### Step 4 — Sign in to become Technical Admin
-
-Deploy already finished in Step 3. Promotion is the first real sign-in, not another deploy.
 
 1. Open the hosted application URL the deploy printed (Amplify default, or your custom domain if it is already live).
 2. Sign in as `WREN_ADMIN_EMAIL` with the password you set at sign-up.
 3. That authenticated request grants `TechnicalAdmin`. You can then assign roles to other users from within the app.
 
-If you signed in once before run #2 (and so already have a `Student` row), signing in now still elevates you in place: you keep `Student` and also gain `TechnicalAdmin`.
-
 If a deploy run stops with exit code 3 or an error, read the printed instruction, complete that one action, and rerun `npm run deploy`. See [Troubleshooting](#troubleshooting) for specific messages.
 
 ---
 
-## Deployment
-
-**New here? Follow [First Deployment — Step by Step](#first-deployment--step-by-step) instead** — it walks the same workflow linearly, including the two-run first-admin setup. This section is a condensed reference for the same command.
-
-The default hosted deployment sets the target account, GitHub source + PAT, and the intended first administrator, then runs `npm run deploy` from the repository root:
-
-```bash
-export AWS_PROFILE=your-profile                  # selects the account (like `--profile`)
-export WREN_GITHUB_OWNER=YourOrgOrUser
-export WREN_GITHUB_REPO=WREN
-export WREN_GITHUB_BRANCH=main
-export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'
-export WREN_ADMIN_EMAIL=admin@example.com
-export WREN_REQUIRE_APPROVAL=never               # deploy runs CDK without a TTY; skips the interactive IAM prompt
-npm run deploy
-```
-
-For production or non-interactive/CI runs, also set `export WREN_EXPECTED_ACCOUNT_ID=YourAccountId` as a guard; it is optional for interactive deploys where the profile already selects the account.
-
-(PowerShell/CMD equivalents are shown in the [step-by-step walkthrough](#step-2--start-the-deploy-run-1).)
-
-The command is **idempotent and rerun-driven**: it pauses with exit code **3** whenever human action is required, and you rerun the same command after doing it. First-admin setup takes two runs — create/confirm the account, then claim the `SystemAdmin` role and arm the bootstrap subject. Run #2 **completes the deployment**. The workflow never grants admin from a config value alone; after it finishes, the intended user must sign in to the application to receive `TechnicalAdmin`. See [Step 3](#step-3--create-the-admin-account-then-rerun-run-2) and [Step 4](#step-4--sign-in-to-become-technical-admin) for the exact actions.
+First-admin setup takes two runs — create/confirm the account, then claim the `SystemAdmin` role
 
 Preview without changing AWS resources:
 
@@ -320,7 +281,7 @@ Do not commit GitHub personal access tokens to source control. The deployment wo
 | `WREN_ENVIRONMENT` | `dev` | Deploying a distinct environment, such as `staging` or `prod`. Production deployments require `WREN_EXPECTED_ACCOUNT_ID`. |
 | `WREN_STACK_PREFIX` | `{project}-{environment}` | Supplying the derived stack prefix explicitly. Its value must exactly equal `WREN_PROJECT_NAME-WREN_ENVIRONMENT`. |
 
-**Changing the stack prefix.** The stack prefix (default `wren-dev`, producing stacks like `wren-dev-Vpc`) is always derived as `{WREN_PROJECT_NAME}-{WREN_ENVIRONMENT}`. To change it, set those two variables — for example `WREN_PROJECT_NAME=myproject` and `WREN_ENVIRONMENT=staging` yields the prefix `myproject-staging`. Both must start with a lowercase letter and contain only lowercase letters, digits, or hyphens. `WREN_STACK_PREFIX` does **not** override the prefix freely; if set, it must exactly equal the derived value, so it only serves to assert the prefix you expect (the deploy fails otherwise). A prefix change names an entirely separate deployment (distinct stacks, resource names, and `/{prefix}/…` SSM paths) rather than renaming an existing one, and it starts a fresh deployment operation.
+**Changing the stack prefix.** The stack prefix (default `wren-dev`, producing stacks like `wren-dev-Vpc`) is always derived as `{WREN_PROJECT_NAME}-{WREN_ENVIRONMENT}`. To change it, set those two variables — for example `WREN_PROJECT_NAME=myproject` and `WREN_ENVIRONMENT=staging` yields the prefix `myproject-staging`. Both must start with a lowercase letter and contain only lowercase letters, digits, or hyphens. `WREN_STACK_PREFIX` does **not** override the prefix freely; if set, it must exactly equal the derived value, so it only serves to assert the prefix you expect (the deploy fails otherwise).
 
 #### Hosting, CI/CD, images, and ECR ownership
 
@@ -477,7 +438,7 @@ For a failed standard deployment, first complete the action printed by `npm run 
 
 **Issue: ECR exists outside the Cicd stack**
 
-- Solution: verify that `{prefix}-feedback-engine` is the intended legacy/manual repository, then set `WREN_ECR_OWNERSHIP=external`. Do not delete or import it merely to bypass the ownership gate.
+- Solution: verify that `{prefix}-feedback-engine` is the intended repository, then set `WREN_ECR_OWNERSHIP=external`. Do not delete or import it merely to bypass the ownership gate.
 
 **Issue: an existing pipeline is detected while CI/CD is disabled**
 

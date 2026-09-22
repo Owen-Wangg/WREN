@@ -147,7 +147,7 @@ This application was architected and developed by the UBC Cloud Innovation Centr
 
 ## License
 
-This project is distributed under the **MIT License** (see `license` in the root [`package.json`](package.json)).
+This project is distributed under the **[MIT License](LICENSE)**.
 
 Licenses and terms of third-party libraries and services used by this system:
 
