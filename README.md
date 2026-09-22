@@ -2,7 +2,7 @@
 
 An AI writing coach that gives **Socratic feedback** (questions, never rewrites) on student drafts. Writers upload or compose documents, request a debrief, and revise across drafts. Department admins configure document types, evaluation criteria, and prompts.
 
-The product display name is **LEON** (UI and email). AWS resources and this repository use the project prefix **WREN**. 
+The product display name is **LEON** (UI). AWS resources and this repository use the project prefix **WREN**. 
 
 | Index | Description |
 | :---------------------------------------------------- | :------------------------------------------------------ |
