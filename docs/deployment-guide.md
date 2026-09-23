@@ -112,19 +112,11 @@ aws sts get-caller-identity                # honors AWS_PROFILE
 
 This is the recommended path for a first-time deployment. Follow the steps in order. Each step says what to do and what you should see before moving on. The [Deployment](#deployment) and [Advanced deployment configuration](#advanced-deployment-configuration) sections below are reference material for the same workflow.
 
-> **Read this first — the deploy runs more than once, on purpose.**
->
-> `npm run deploy` is safe to run repeatedly. It will **pause and exit with code `3`** whenever it needs you to do something (sign up, confirm an email). **Exit code 3 is not an error and not a rollback** — it is a checkpoint. You read the printed instruction, do the one thing it asks, and run the same command again. Setting up the first administrator takes **two** runs in total.
->
-> **Deploy still succeeds, and the first admin is still promoted.** Run #2 completes the deployment: it adds the confirmed user to `SystemAdmin` and arms the bootstrap. It does **not** grant `TechnicalAdmin` itself. After that run finishes, sign in to the application as `WREN_ADMIN_EMAIL` — that login is what promotes the account to `TechnicalAdmin`. There is no third deploy run and no access token to copy or paste.
->
-> You will handle **one GitHub personal access token (PAT)** — set once (`WREN_GITHUB_TOKEN`). Lets AWS read your repo for the frontend/pipeline. Long-lived.
-
 ### Step 1 — Prerequisites (one-time setup)
 
 1. Install the tools in [Requirements](#requirements) (git, AWS CLI v2, Node.js 22+).
-2. Sign in to AWS and select your profile: `aws sso login --profile <your-profile>`, then `export AWS_PROFILE=<your-profile>` (PowerShell: `$env:AWS_PROFILE = "<your-profile>"`). Confirm the target account with `aws sts get-caller-identity` — it shows the account you intend to deploy into.
-3. **Enable the Bedrock model.** In the AWS Console, open **Amazon Bedrock → Model access** in your target Region and enable the default model (`us.anthropic.claude-sonnet-4-6`) or the one you set in `WREN_BEDROCK_MODEL_ID`. Without this, the app deploys but feedback generation fails at runtime. The deploy verifies model access early and pauses with an actionable message if it's missing.
+2. Sign in to AWS and select your profile: `aws sso login --profile <your-profile>`, then `export AWS_PROFILE=<your-profile>` (PowerShell: `$env:AWS_PROFILE = "<your-profile>"`). 
+3. **Enable the Bedrock model.** In the AWS Console, open **Amazon Bedrock → Model access** in your target Region and enable the default model (`us.anthropic.claude-sonnet-4-6`) or the one you set in `WREN_BEDROCK_MODEL_ID`. Without this, the app deploys but feedback generation fails.
 4. **Authorize the AWS Amplify GitHub App on your repository (required).** Amplify connects to GitHub through its GitHub App, so the app must be installed and authorized on the GitHub account/org that owns your repo **before** you deploy. If you skip this, the Amplify build fails at provisioning with the misleading error `!!! Unable to assume specified IAM Role` — Amplify can't reach the repo, so the build never even clones it.
    - In a browser, open the Region-specific installation URL, replacing `<region>` with your deploy Region (for example `ca-central-1`):
 
@@ -242,8 +234,6 @@ The runnable workflow is intentionally kept in source alongside the infrastructu
 - Protected teardown: [`cdk/scripts/undeploy.ts`](../cdk/scripts/undeploy.ts) and [`cdk/scripts/operations/undeployWorkflow.ts`](../cdk/scripts/operations/undeployWorkflow.ts)
 - Configuration, checkpointing, AWS discovery, redaction, and shell-free execution: [`cdk/scripts/operations/`](../cdk/scripts/operations/)
 
-Use this guide for operator inputs, safety gates, and recovery behavior. Consult the linked workflow modules when extending the deployment sequence or diagnosing an implementation-specific failure; changes should preserve the documented ordering, secret-handling, and retention guarantees.
-
 ### Variables for the standard deployment
 
 For the default hosted deployment, set only the following variables before the first `npm run deploy`.
@@ -313,7 +303,7 @@ There are two DNS paths, and WREN supports both because it only creates the Ampl
 - **Hosted zone in the same AWS account (automatic).** If the domain's Route 53 hosted zone lives in the account you deploy into, Amplify provisions the certificate and creates the required DNS records automatically. No manual steps.
 - **DNS elsewhere (manual verification).** If the zone is in a different AWS account or with an external provider (Cloudflare, GoDaddy, etc.), Amplify surfaces certificate-validation and CNAME records that you add by hand in that provider. Open **AWS Console → Amplify → your app → Domain management** to copy the exact records.
 
-In both cases the certificate and domain association can take several minutes (occasionally longer) to become live. Until then the Amplify default domain keeps working, and the deploy workflow automatically falls back to it for its post-deploy smoke test if the custom domain is not yet reachable.
+In both cases the certificate and domain association can take several minutes (occasionally longer) to become live. Until then the Amplify default domain keeps working, and the deploy workflow automatically falls back to it if the custom domain is not yet reachable.
 
 #### Restricting signup to email domains
 
@@ -515,7 +505,7 @@ _The issues listed above represent the most common historical deploy bugs encoun
 
 ## Custom Domain Support
 
-WREN can serve the frontend on your own domain instead of only the default Amplify URL (`https://<branch>.<app-id>.amplifyapp.com`). The feature is entirely optional — no domain is baked into the project, and omitting it leaves deployment behavior unchanged.
+WREN can serve the frontend on your own domain instead of only the default Amplify URL (`https://<branch>.<app-id>.amplifyapp.com`). The feature is entirely optional.
 
 To enable it, set a bare hostname before deploying:
 
@@ -524,14 +514,14 @@ export WREN_CUSTOM_DOMAIN=example.com     # PowerShell: $env:WREN_CUSTOM_DOMAIN 
 npm run deploy
 ```
 
-When set, WREN maps the Amplify production branch to both the domain root (`https://example.com`) and its `www` subdomain (`https://www.example.com`), and prints a `CustomDomainUrl` stack output. WREN only creates the Amplify domain association — it does not create or modify any Route 53 or ACM resources, so the feature works regardless of where your DNS is hosted; Amplify manages the TLS certificate.
+When set, WREN maps the Amplify production branch to both the domain root (`https://example.com`) and its `www` subdomain (`https://www.example.com`), and prints a `CustomDomainUrl` stack output. WREN only creates the Amplify domain association — Amplify manages the TLS certificate.
 
 There are two DNS paths:
 
 - **Hosted zone in the same AWS account (automatic).** If the domain's Route 53 hosted zone is in the account you deploy into, Amplify provisions the certificate and creates the DNS records automatically. No manual steps.
 - **DNS elsewhere (manual verification).** If the zone is in a different AWS account or with an external provider (Cloudflare, GoDaddy, etc.), open **AWS Console → Amplify → your app → Domain management** and add the certificate-validation and CNAME records it surfaces to your provider by hand.
 
-In both cases the certificate and domain association can take several minutes to become live. Until then the Amplify default domain keeps working, and the deploy workflow falls back to it for the post-deploy smoke test if the custom domain is not yet reachable.
+In both cases the certificate and domain association can take several minutes to become live. Until then the Amplify default domain keeps working, and the deploy workflow falls back to it for the post-deploy if the custom domain is not yet reachable.
 
 For the full reference, see [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain) and the `WREN_CUSTOM_DOMAIN` row in [Hosting, CI/CD, images, and ECR ownership](#hosting-cicd-images-and-ecr-ownership).
 
@@ -541,49 +531,13 @@ For the full reference, see [Serving the frontend on a custom domain](#serving-t
 
 ### Protected application teardown (recommended)
 
-`npm run undeploy` is intentionally conservative. It validates the current AWS account, inventories both Regions, and quiesces an existing WREN CodePipeline before removing it: inbound transitions to `Build`, `Deploy`, and `UpdateLambda` are disabled, active executions are stopped without abandoning in-flight actions, and the workflow waits for executions plus the Compute stack to settle. Only then does it update `Cicd` to remove pipeline resources and destroy:
+`npm run undeploy` validates the current AWS account, inventories both Regions, and pauses an existing WREN CodePipeline before removing it.
 
 ```text
 Amplify → CloudFrontWaf → Observability → Api → Compute
 ```
 
-It does **not** destroy `Cicd` prerequisites, `Database`, `Cognito`, `Storage`, `Vpc`, `Config`, or either `CDKToolkit` stack. It never disables RDS deletion protection and never explicitly deletes retained RDS, S3, DynamoDB, KMS, ECR, Secrets Manager, CloudWatch Logs, or bootstrap resources. At completion it prints a retained manifest. The Compute audit pseudonym salt is one of those retained secrets; a later `npm run deploy` detects and imports the orphaned fixed-name salt instead of recreating it, preserving stable pseudonyms across protected teardown and redeploy.
-
-Inventory the target first; dry run requires no confirmation and performs no mutating command:
-
-<details>
-<summary>macOS/Linux</summary>
-
-```bash
-WREN_DRY_RUN=true npm run undeploy
-```
-
-</details>
-
-<details>
-<summary>PowerShell</summary>
-
-```powershell
-$env:WREN_DRY_RUN = "true"
-npm run undeploy
-Remove-Item Env:WREN_DRY_RUN
-```
-
-</details>
-
-<details>
-<summary>Windows CMD</summary>
-
-```cmd
-set WREN_DRY_RUN=true
-npm run undeploy
-set WREN_DRY_RUN=
-```
-
-</details>
-
-For the real protected teardown, set the exact confirmation string printed by the dry run: `{account}/{region}/{stackPrefix}`. If Amplify exists, also provide its GitHub owner/repository so CDK can synthesize that stack for deletion.
-
+It does **not** destroy `Cicd` prerequisites, `Database`, `Cognito`, `Storage`, `Vpc`, `Config`, or either `CDKToolkit` stack. It never disables RDS deletion protection and never explicitly deletes retained RDS, S3, DynamoDB, KMS, ECR, Secrets Manager, CloudWatch Logs, or bootstrap resources.
 <details>
 <summary>macOS/Linux</summary>
 
