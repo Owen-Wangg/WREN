@@ -82,6 +82,10 @@ export class AppSyncRealtimeConstruct extends Construct {
       },
     });
 
+    // WAF protection layer for the AppSync GraphQL and real-time API.
+    // AWSManagedRulesCommonRuleSet filters requests before they reach AppSync
+    // authorization, providing an additional protection layer for the Lambda
+    // authorizer and its per-request DB ownership checks.
     const webAcl = new wafv2.CfnWebACL(this, "AppSyncWebAcl", {
       name: `${props.stackPrefix}-appsync-webacl`,
       scope: "REGIONAL",
