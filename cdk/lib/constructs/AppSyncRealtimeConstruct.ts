@@ -3,6 +3,7 @@ import { Duration } from "aws-cdk-lib";
 import * as appsync from "aws-cdk-lib/aws-appsync";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as wafv2 from "aws-cdk-lib/aws-wafv2";
 import { Construct } from "constructs";
 
 export interface AppSyncRealtimeProps {
@@ -79,6 +80,44 @@ export class AppSyncRealtimeConstruct extends Construct {
         fieldLogLevel: appsync.FieldLogLevel.ERROR,
         excludeVerboseContent: true,
       },
+    });
+
+    const webAcl = new wafv2.CfnWebACL(this, "AppSyncWebAcl", {
+      name: `${props.stackPrefix}-appsync-webacl`,
+      scope: "REGIONAL",
+      defaultAction: {
+        allow: {},
+      },
+      visibilityConfig: {
+        cloudWatchMetricsEnabled: true,
+        metricName: `${props.stackPrefix}-appsync-webacl`,
+        sampledRequestsEnabled: true,
+      },
+      rules: [
+        {
+          name: "AWSManagedRulesCommonRuleSet",
+          priority: 1,
+          overrideAction: {
+            none: {},
+          },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: "AWS",
+              name: "AWSManagedRulesCommonRuleSet",
+            },
+          },
+          visibilityConfig: {
+            cloudWatchMetricsEnabled: true,
+            metricName: "AWSManagedRulesCommonRuleSet",
+            sampledRequestsEnabled: true,
+          },
+        },
+      ],
+    });
+
+    new wafv2.CfnWebACLAssociation(this, "AppSyncWebAclAssociation", {
+      resourceArn: api.arn,
+      webAclArn: webAcl.attrArn,
     });
 
     // None data source: AppSync fans the mutation payload directly to
