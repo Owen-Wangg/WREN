@@ -104,9 +104,11 @@ export class ApiStack extends Stack {
     const resolvedSpec = resolveSpec(specObject);
 
     // -----------------------------------------------------------------------
-    // Always overwrite CORS OPTIONS on every path (do not skip when OpenAPI
-    // already defines options — handwritten MOCK blocks often omit
-    // requestTemplates and cause API Gateway 500 on preflight).
+    // This is the single source of truth for CORS preflight. openapi.yaml
+    // deliberately declares no `options` methods; one is generated here for
+    // every path. Assign unconditionally — never skip a path that happens to
+    // define `options`, because handwritten MOCK blocks tend to omit
+    // requestTemplates and cause an API Gateway 500 on preflight.
     // security: [] bypasses the Lambda authorizer for OPTIONS.
     // -----------------------------------------------------------------------
     // Reflect Origin when it is localhost, customDomain, corsAllowedOrigins, or
@@ -163,9 +165,9 @@ export class ApiStack extends Stack {
       }
     }
 
-    // Handwritten OpenAPI method responses still map ACAO to '*'. Lambda proxy
-    // ignores those mappings, but strip them so the deployed spec never
-    // publishes a wildcard origin.
+    // Defence in depth: the spec no longer contains wildcard ACAO mappings, so
+    // this should find nothing. It stays as a backstop in case one is
+    // reintroduced by hand, so the deployed spec can never publish `*`.
     function stripWildcardCorsOrigin(obj: unknown): void {
       if (typeof obj !== "object" || obj === null) return;
       if (Array.isArray(obj)) {

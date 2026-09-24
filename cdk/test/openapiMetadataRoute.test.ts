@@ -21,6 +21,8 @@ describe("OpenAPI metadata field route", () => {
       "${AdminFunctionArn}",
     );
     expect(route?.get?.security).toBeUndefined();
-    expect(route?.options?.security).toEqual([]);
+    // CORS preflight is generated in ApiStack.ts, not declared here. The
+    // `security: []` authorizer bypass is asserted in ApiStack.cors.test.ts.
+    expect(route?.options).toBeUndefined();
   });
 });
