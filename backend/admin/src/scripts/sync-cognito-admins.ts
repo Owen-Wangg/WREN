@@ -60,8 +60,8 @@ export async function syncCognitoAdmins(): Promise<{
 
   for (const sub of subs) {
     // 2. Find the app_user row by idp_subject
-    const userRows = await db.query<{ id: string; email: string }>(
-      'SELECT id, email FROM app_user WHERE idp_subject = $1',
+    const userRows = await db.query<{ id: string }>(
+      'SELECT id FROM app_user WHERE idp_subject = $1',
       [sub],
     );
     if (userRows.length === 0) {
@@ -69,7 +69,7 @@ export async function syncCognitoAdmins(): Promise<{
       notFound.push(sub);
       continue;
     }
-    const { id: userId, email } = userRows[0]!;
+    const { id: userId } = userRows[0]!;
 
     // 3. Check existing role
     const existing = await db.query<{ role: string }>(
@@ -77,8 +77,8 @@ export async function syncCognitoAdmins(): Promise<{
       [userId],
     );
     if (existing.length > 0) {
-      console.log(`  ${email} — already TechnicalAdmin, skipping`);
-      alreadyAdmin.push(email);
+      console.log(`  userId=${userId} — already TechnicalAdmin, skipping`);
+      alreadyAdmin.push(userId);
       continue;
     }
 
@@ -91,8 +91,8 @@ export async function syncCognitoAdmins(): Promise<{
        )`,
       [userId],
     );
-    console.log(`  ${email} — granted TechnicalAdmin`);
-    upserted.push(email);
+    console.log(`  userId=${userId} — granted TechnicalAdmin`);
+    upserted.push(userId);
   }
 
   return { checked: subs.length, upserted, alreadyAdmin, notFound };
