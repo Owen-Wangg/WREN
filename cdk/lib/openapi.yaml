@@ -29,7 +29,7 @@ x-amazon-apigateway-request-validators:
     validateRequestBody: true
     validateRequestParameters: true
 
-x-amazon-apigateway-request-validator: params-only
+x-amazon-apigateway-request-validator: full
 
 # --------------------------------------------------------------------------
 # CORS is NOT declared in this file. ApiStack.ts generates the OPTIONS method
@@ -752,6 +752,8 @@ paths:
               properties:
                 name:
                   type: string
+                  minLength: 1
+              additionalProperties: false
       responses:
         "201":
           description: Created department
@@ -810,8 +812,15 @@ paths:
               properties:
                 departmentId:
                   type: string
+                  minLength: 1
                 name:
                   type: string
+                  minLength: 1
+                sizeLimitWords:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+              additionalProperties: false
       responses:
         "201":
           description: Created document type
@@ -892,6 +901,7 @@ paths:
                 accessState:
                   type: string
                   enum: [OPEN, LOCKED]
+              additionalProperties: false
       responses:
         "200":
           description: Updated access state
@@ -997,10 +1007,13 @@ paths:
               properties:
                 documentTypeId:
                   type: string
+                  minLength: 1
                 contentTypeId:
                   type: string
+                  minLength: 1
                 name:
                   type: string
+                  minLength: 1
                 metadata:
                   type: object
                   description: Values keyed by CustomMetadataField id; unknown ids are rejected.
@@ -1017,6 +1030,27 @@ paths:
                       type: string
                     key:
                       type: string
+                  oneOf:
+                    - type: object
+                      required: [kind, key]
+                      properties:
+                        kind:
+                          type: string
+                          enum: [file]
+                        key:
+                          type: string
+                          minLength: 1
+                      additionalProperties: false
+                    - type: object
+                      required: [kind, text]
+                      properties:
+                        kind:
+                          type: string
+                          enum: [paste]
+                        text:
+                          type: string
+                          minLength: 1
+                      additionalProperties: false
                 content:
                   type: object
                   description: Optional TipTap JSONContent so rich formatting is persisted on the initial draft
@@ -1028,6 +1062,7 @@ paths:
                 ocrEngine:
                   type: string
                   enum: [textract]
+              additionalProperties: false
       responses:
         "201":
           description: Document created, or PDF ingestion queued
@@ -1218,6 +1253,7 @@ paths:
                     properties:
                       index:
                         type: integer
+                        minimum: 0
                       text:
                         type: string
                 source:
@@ -1735,6 +1771,61 @@ paths:
           application/json:
             schema:
               type: object
+              properties:
+                tone:
+                  type: string
+                  minLength: 1
+                  nullable: true
+                density:
+                  type: string
+                  minLength: 1
+                  nullable: true
+                categoryPriority:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                typePromptText:
+                  type: string
+                  nullable: true
+                toneDescription:
+                  type: string
+                  nullable: true
+                densityDescription:
+                  type: string
+                  nullable: true
+                structureDescription:
+                  type: string
+                  nullable: true
+                restrictionsDescription:
+                  type: string
+                  nullable: true
+                notesDescription:
+                  type: string
+                  nullable: true
+                citationConfig:
+                  type: object
+                  nullable: true
+                  properties:
+                    citationStyle:
+                      type: string
+                      minLength: 1
+                      maxLength: 50
+                    requiredFields:
+                      type: array
+                      maxItems: 20
+                      items:
+                        type: string
+                        minLength: 1
+                        maxLength: 50
+                    formattingTemplate:
+                      type: string
+                      maxLength: 1000
+                      nullable: true
+                  required: [citationStyle, requiredFields]
+                  additionalProperties: false
+              additionalProperties: false
+
       responses:
         "200":
           description: Updated configuration
@@ -1801,8 +1892,11 @@ paths:
               properties:
                 name:
                   type: string
+                  minLength: 1
                 internalGuidance:
                   type: string
+                  nullable: true
+              additionalProperties: false
       responses:
         "201":
           description: Created error category
@@ -1845,8 +1939,11 @@ paths:
               properties:
                 name:
                   type: string
+                  minLength: 1
                 internalGuidance:
                   type: string
+                  nullable: true
+              additionalProperties: false
       responses:
         "200":
           description: Updated error category
@@ -1934,13 +2031,42 @@ paths:
               properties:
                 userId:
                   type: string
+                  minLength: 1
                 role:
                   type: string
                   enum: [Student, DepartmentAdmin, TechnicalAdmin]
                 scope:
                   type: object
+                  oneOf:
+                    - type: object
+                      required: [kind]
+                      properties:
+                        kind:
+                          type: string
+                          enum: [platform]
+                      additionalProperties: false
+                    - type: object
+                      required: [kind, departmentId]
+                      properties:
+                        kind:
+                          type: string
+                          enum: [department]
+                        departmentId:
+                          type: string
+                          minLength: 1
+                      additionalProperties: false
                 departmentId:
                   type: string
+                  minLength: 1
+              oneOf:
+                - properties:
+                    role:
+                      enum: [DepartmentAdmin]
+                  required: [role, departmentId]
+                - properties:
+                    role:
+                      enum: [Student, TechnicalAdmin]
+              additionalProperties: false
       responses:
         "200":
           description: Role assigned
@@ -2022,9 +2148,11 @@ paths:
               properties:
                 userId:
                   type: string
+                  minLength: 1
                   description: Global user ID
                 documentTypeId:
                   type: string
+                  minLength: 1
                   description: Document type to grant override for
                 bounds:
                   type: object
@@ -2032,14 +2160,19 @@ paths:
                   properties:
                     additionalActions:
                       type: integer
+                      minimum: 1
                       description: Number of additional feedback requests allowed
+                  additionalProperties: false
                 reason:
                   type: string
+                  minLength: 1
                   description: Reason for granting the override
                 expiresAt:
                   type: string
                   format: date-time
                   description: Timestamp when the override expires
+              additionalProperties: false
+
       responses:
         "200":
           description: Override created
@@ -2126,14 +2259,18 @@ paths:
             schema:
               type: object
               required: [environmentId, helpful]
+              allOf:
+                - required: [draftId]
               properties:
                 environmentId:
                   type: string
                   format: uuid
+                  minLength: 1
                   description: Document ID (writing environment) the debrief belongs to
                 draftId:
                   type: string
                   format: uuid
+                  minLength: 1
                   description: Draft version the debrief was generated against
                 helpful:
                   type: boolean
@@ -2142,6 +2279,8 @@ paths:
                   type: string
                   description: Optional anonymous free-text comment
                   maxLength: 1000
+                  minLength: 1
+              additionalProperties: false
       responses:
         "200":
           description: Rating recorded
@@ -2241,18 +2380,22 @@ paths:
                 environmentId:
                   type: string
                   format: uuid
+                  minLength: 1
                   description: Document ID (writing environment)
                 draftId:
                   type: string
                   format: uuid
+                  minLength: 1
                   description: Draft version the debrief was generated against
                 errorCategoryId:
                   type: string
                   format: uuid
+                  minLength: 1
                   description: The error category (debrief section) being rated
                 applicable:
                   type: boolean
                   description: Whether the student considers this section applicable to their writing
+              additionalProperties: false
       responses:
         "200":
           description: Vote recorded
@@ -2598,6 +2741,7 @@ paths:
                   type: integer
                   minimum: 100
                   maximum: 100000
+              additionalProperties: false
       responses:
         "200":
           description: Updated lifetime usage policy
@@ -2678,6 +2822,7 @@ paths:
               properties:
                 modelId:
                   type: string
+                  minLength: 1
       responses:
         "501":
           description: Runtime model updates are not supported
@@ -2899,6 +3044,11 @@ paths:
               required: [userId]
               properties:
                 userId: { type: string }
+                # minLength is applied through the additive allOf constraint below.
+              allOf:
+                - properties:
+                    userId:
+                      minLength: 1
       responses:
         "200":
           description: Existing active permission (idempotent request)
@@ -3010,6 +3160,7 @@ paths:
             schema:
               type: object
               required: [prompt]
+              additionalProperties: false
               properties:
                 prompt:
                   type: string
@@ -3052,6 +3203,7 @@ paths:
             schema:
               type: object
               required: [askWrenPrompt]
+              additionalProperties: false
               properties:
                 askWrenPrompt:
                   type: string
