@@ -30,9 +30,8 @@ export interface DatabaseResourcesProps {
 }
 
 /**
- * Relational persistence layer: RDS PostgreSQL 16 (the substrate for
- * `pgvector` embeddings, created at migration time) fronted by an RDS Proxy
- * with TLS required.
+ * Relational persistence layer: RDS PostgreSQL 16 (reference
+ * grounding is full-text) fronted by an RDS Proxy with TLS required.
  *
  * Security / residency posture (REQ-SEC-PII-01, REQ-NFR-RESIDENCY-01, steering):
  *   - Instance + proxy live in the VPC's isolated subnets (no public access).

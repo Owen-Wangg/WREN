@@ -1,16 +1,22 @@
 /**
  * Debounced content-only draft autosave with unload flush and retry.
+ *
+ * Transient failures (network, 5xx) are retried with backoff. A server
+ * `OVER_SIZE_LIMIT` rejection is not retried — resending the same content
+ * cannot succeed — and surfaces as the `'over-limit'` status instead. The next
+ * edit schedules a normal save attempt.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { patchCurrentDraft } from '@/features/dashboard/dashboardApi';
+import { parseOverSizeLimitError, type OverSizeLimitDetails } from '@/features/editor/wordLimit';
 import { apiClient } from '@/services';
 import { asTipTapDoc, stripAiMarksFromTipTapContent } from '@wren/types';
 
 import type { JSONContent } from '@tiptap/react';
 import type { Draft, TipTapDoc } from '@wren/types';
 
-export type AutosaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+export type AutosaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error' | 'over-limit';
 
 const AUTOSAVE_DEBOUNCE_MS = 2500;
 const RETRY_DELAYS_MS = [1000, 3000, 8000] as const;
@@ -32,6 +38,12 @@ export interface UseDraftAutosaveOptions {
 
 export interface UseDraftAutosaveResult {
   readonly status: AutosaveStatus;
+  /**
+   * Details of the most recent `OVER_SIZE_LIMIT` rejection. Kept while the
+   * user edits (so the server's limit stays known) and cleared by the next
+   * successful save or a baseline reset.
+   */
+  readonly overLimit: OverSizeLimitDetails | null;
   readonly retry: () => void;
   /** Flush immediately (e.g. before milestone createDraft). */
   readonly flush: () => Promise<void>;
@@ -47,6 +59,7 @@ export function useDraftAutosave({
   onSaved,
 }: UseDraftAutosaveOptions): UseDraftAutosaveResult {
   const [status, setStatus] = useState<AutosaveStatus>('idle');
+  const [overLimit, setOverLimit] = useState<OverSizeLimitDetails | null>(null);
   const contentRef = useRef(content);
   const headerRef = useRef(header);
   const footerRef = useRef(footer);
@@ -80,6 +93,7 @@ export function useDraftAutosave({
       retryAttemptRef.current = 0;
       clearTimer();
       setStatus('idle');
+      setOverLimit(null);
     }
   }, [baselineKey, clearTimer]);
 
@@ -92,7 +106,8 @@ export function useDraftAutosave({
       const serialized = JSON.stringify(cleaned);
       if (serialized === lastSavedJsonRef.current) {
         dirtyRef.current = false;
-        setStatus((s) => (s === 'dirty' || s === 'error' ? 'saved' : s));
+        setOverLimit(null);
+        setStatus((s) => (s === 'dirty' || s === 'error' || s === 'over-limit' ? 'saved' : s));
         return true;
       }
 
@@ -107,12 +122,23 @@ export function useDraftAutosave({
         lastSavedJsonRef.current = serialized;
         dirtyRef.current = false;
         retryAttemptRef.current = 0;
+        setOverLimit(null);
         setStatus('saved');
         if (draft) {
           onSavedRef.current?.(draft);
         }
         return true;
-      } catch {
+      } catch (error) {
+        const sizeRejection = parseOverSizeLimitError(error);
+        if (sizeRejection) {
+          // Retrying identical content cannot succeed. Leave dirtyRef set so the
+          // next edit (or flush/Retry) attempts a normal save.
+          retryAttemptRef.current = 0;
+          clearTimer();
+          setOverLimit(sizeRejection);
+          setStatus('over-limit');
+          return false;
+        }
         setStatus('error');
         const attempt = retryAttemptRef.current;
         if (attempt < RETRY_DELAYS_MS.length && !opts?.keepalive) {
@@ -189,10 +215,10 @@ export function useDraftAutosave({
 
   const flush = useCallback(async () => {
     clearTimer();
-    if (dirtyRef.current || status === 'error') {
+    if (dirtyRef.current || status === 'error' || status === 'over-limit') {
       await persist();
     }
   }, [clearTimer, persist, status]);
 
-  return { status, retry, flush };
+  return { status, overLimit, retry, flush };
 }

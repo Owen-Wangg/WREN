@@ -482,9 +482,9 @@ To support another file type, extend the content-type allow-lists in the Documen
 
 ## 7. Modifying the Feedback Engine
 
-The Feedback Engine is **not a RAG system**. It compares drafts and generates **Socratic** questions. Do not add retrieval or a re-ranker against `document_vectors` unless the feature explicitly requires it.
+The Feedback Engine is **not a RAG system**, by decision. It compares drafts and generates **Socratic** questions. 
 
-`document_vectors` is **not** part of the current Feedback Engine request path. Its presence in the database does not mean the engine should retrieve from it.
+Reference grounding is full-text. `handler.load_reference_material` reads every UTF-8 file under `document-types/{documentTypeId}/` in the reference bucket, and the prompt assembler takes them in S3 key order up to 4,000 characters per file and 12,000 in total (`wren_engine/debrief_budget.py`). To control which files survive the cap, prefix file names (`01_`, `02_`, …). When the cap cuts anything the engine logs a warning and emits `WREN/FeedbackEngine` EMF metrics (`ReferenceCapApplied`, `ReferenceFilesTruncated`, `ReferenceFilesDropped`, `ReferenceCharsOmitted`). If those fire regularly for a Document Type, revisit the decision (see design.md "Reference grounding (full-text)").
 
 To change coaching behavior:
 
@@ -509,7 +509,7 @@ Realtime completion uses AppSync `onDebriefReady`. The UI falls back to `GET ...
 
 - Do not generate replacement prose.
 - Do not treat student-authored content as trusted instructions.
-- Do not add retrieval merely because embeddings exist.
+- Do not add retrieval unless the reference-cap metrics show corpora have outgrown the prompt budget.
 
 ---
 

@@ -11,7 +11,7 @@
 
 Project wren_writing_coach {
   database_type: 'PostgreSQL'
-  Note: 'WREN Writing Coach relational schema (RDS PostgreSQL 16 + pgvector). V4 terminology (department, document_type).'
+  Note: 'WREN Writing Coach relational schema (RDS PostgreSQL 16). V4 terminology (department, document_type).'
 }
 
 //
@@ -143,7 +143,7 @@ Table topic {
 
 Table reference_material {
   id uuid [pk]
-  tier text [not null, note: 'department | type (see doc note on legacy org/domain constraint)']
+  tier text [not null, note: 'department | type (legacy org/domain CHECK fixed in migration 0004)']
   department_id uuid [note: 'Set for department-tier rows']
   document_type_id uuid [note: 'Set for type-tier rows']
   title text [not null]
@@ -151,7 +151,6 @@ Table reference_material {
   content_kind text [not null, note: 'file | text | html']
   s3_key text
   inline_content text
-  embedding_id uuid
   created_at timestamptz [not null]
 }
 

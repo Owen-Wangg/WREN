@@ -1,7 +1,7 @@
 # Database Migrations
 
 Ordered, forward-only SQL migrations for the WREN Writing Coach relational store
-(RDS PostgreSQL 16 + `pgvector`, reached through RDS Proxy with TLS enforced).
+(RDS PostgreSQL 16, reached through RDS Proxy with TLS enforced).
 
 Migrations are plain `.sql` files so they are runtime-agnostic — the Node
 (`postgres`) and Python (`psycopg`) data-access layers (task 2.4) execute the same
@@ -9,8 +9,10 @@ DDL. They are applied in lexical filename order. Summary:
 
 | File | Purpose |
 |------|---------|
-| `0001_baseline.sql` | Squashed baseline: extensions (`vector`, `pgcrypto`), the full core relational schema in V4 terminology (`department`, `document_type`, `document_type_config`, …), Department catalog visibility (`department.visibility_state` + `department_visibility_grant`), the nullable `department.ask_wren_prompt` column, the Draft-immutability trigger, the least-privilege app LOGIN roles + grants, and seed data (platform policy, notification-type catalog, the Law example department). |
+| `0001_baseline.sql` | The full core relational schema in V4 terminology (`department`, `document_type`, `document_type_config`, …), Department catalog visibility (`department.visibility_state` + `department_visibility_grant`), the nullable `department.ask_wren_prompt` column, the Draft-immutability trigger, the least-privilege app LOGIN roles + grants, and seed data (platform policy, notification-type catalog, the Law example department). |
 | `0002_authorizer_grants_repair.sql` | Authorizer throttling remediation (Task 5): idempotently re-applies the `wren_authorizer` table privileges (`app_user` SELECT/INSERT/UPDATE, `role_assignment` SELECT/INSERT, `access_grant` SELECT) plus CONNECT/USAGE. Forward-only fix for the Sep 3 Postgres 42501 (permission denied for `app_user`) on environments created before those grants were folded into the squashed baseline — such databases already recorded `0001` and never re-ran the rewritten file. |
+| `0003_document_usage_grants_repair.sql` | Document upload remediation: grants `wren_document` SELECT/INSERT/UPDATE on `user_lifetime_usage` (fixes Postgres 42501 on upload), plus CONNECT/USAGE. |
+| `0004_reference_material_full_text_grounding.sql` | Records that reference grounding is full-text, not RAG. Repairs the contradictory `reference_material` tier CHECKs to the canonical `('department','type')` vocabulary (mapping any pre-V4 `org`/`domain` rows forward), drops the never-written `reference_material.embedding_id` column, and drops the unused `vector` extension (skipped with a NOTICE if anything still depends on it). |
 
 Filenames are applied in **lexical order**. Do not edit an already-applied file — add a new numbered migration instead.
 

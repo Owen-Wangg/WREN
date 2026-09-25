@@ -3,11 +3,11 @@
 ## Overview
 
 This plan converts the WREN design (V4) into incremental, code-focused implementation steps on the
-UBC CIC baseline stack (AWS CDK v2 TypeScript; Node 22 + Python 3.12 Lambdas; RDS PostgreSQL 16 +
-`pgvector`; DynamoDB; S3; Cognito; Amazon Bedrock via `langchain-aws`; `mammoth` (BSD-2-Clause) for
-`.docx` extraction; LiteParse (Apache-2.0, local/in-Lambda) for PDF extraction; LlamaIndex for
-embedding + retrieval over a single `pgvector` table; React 19 / Vite / Tailwind /
-shadcn/ui). Each task builds on prior tasks and ends by wiring new code into the running system, so
+UBC CIC baseline stack (AWS CDK v2 TypeScript; Node 22 + Python 3.12 Lambdas; RDS PostgreSQL 16;
+DynamoDB; S3; Cognito; Amazon Bedrock via `langchain-aws`; `mammoth` (BSD-2-Clause) for
+`.docx` extraction; LiteParse (Apache-2.0, local/in-Lambda) for PDF extraction; React 19 / Vite /
+Tailwind / shadcn/ui). Reference grounding is full-text, not RAG: there is no embedding or
+retrieval layer (see design.md "Reference grounding (full-text, not RAG)"). Each task builds on prior tasks and ends by wiring new code into the running system, so
 there is no orphaned code.
 
 > **V4 terminology.** The platform has three roles — **Student**, **Department Admin** (educational
@@ -61,7 +61,7 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
 - [x] 2. Persistence and infrastructure base  〔Track A〕
   - [x] 2.1 Implement foundational CDK stacks  〔Track A · A0〕
     - `Vpc` (public / private-with-egress / isolated subnets; interface + gateway endpoints; flow logs)
-    - `Database` (RDS PostgreSQL 16 + `pgvector`, RDS Proxy, `rds.force_ssl`, `storageEncrypted`, `deletionProtection`, `RETAIN`)
+    - `Database` (RDS PostgreSQL 16, RDS Proxy, `rds.force_ssl`, `storageEncrypted`, `deletionProtection`, `RETAIN`)
     - `Storage` (S3 documents + reference buckets with block-public-access, `enforceSSL`, KMS, lifecycle; DynamoDB table `${StackPrefix}-ConversationHistory` for conversation/session state — name scoped to `StackPrefix`, no brand name) — all in `ca-central-1`
     - _Requirements: 39.2, 46.1, 46.3_
   - [x]* 2.2 Snapshot/assertion tests for foundational stacks  〔Track A · A1〕
@@ -231,15 +231,18 @@ Each is tagged `Feature: wren-writing-coach, Property N` and runs ≥100 iterati
     - _Requirements: 47.3, 48.1, 48.2, 48.3_
 
 - [x] 10. Reference materials and citations  〔Track A〕
-  - [x] 10.1 Implement the two-tier reference store and grounding  〔Track A · A11〕
-    - Department-wide (tier 1) and Document-Type-scoped (tier 2) Reference Material; parse/chunk/index content with **LlamaIndex** into the **single** `pgvector`-backed `embedding` table via a LlamaIndex `PGVectorStore`; bundle = department-wide ∪ that Document Type's type-scoped material (scoped by a `WHERE` filter on `tier`/`department_id`/`document_type_id` over that one table), never another type's
-    - Add a forward-only migration creating the single `embedding` table (vector column + `reference_material_id`, `tier`, `department_id`, `document_type_id`, `chunk_index`, `content`, `metadata`) if it does not already exist; resolve `reference_material.embedding_id` against it
+  - [x] 10.1 Implement reference grounding (full-text, not RAG)  〔Track A · A11〕
+    - **Re-scoped.** The original plan (LlamaIndex chunk/index into a single `pgvector` `embedding` table via `PGVectorStore`) was scaffolded but never wired: the `embedding` table was never migrated, no embedding model was called, and `reference_material.embedding_id` was never written. That scaffolding has been removed in favour of full-text grounding, recorded in design.md "Reference grounding (full-text, not RAG)".
+    - As built: `handler.load_reference_material` reads every UTF-8 file under `document-types/{documentTypeId}/` in the reference bucket; `build_structured_prompt` sorts by S3 key and applies `cap_reference_materials_with_report` (4,000 chars per file, 12,000 total). A cut logs a warning and emits `WREN/FeedbackEngine` EMF metrics (`ReferenceCapApplied`, `ReferenceFilesTruncated`, `ReferenceFilesDropped`, `ReferenceCharsOmitted`).
+    - Migration `0004_reference_material_full_text_grounding.sql` fixes the contradictory `reference_material` tier CHECKs to `('department','type')`, drops `embedding_id`, and drops the unused `vector` extension.
+    - `wren_engine.reference_store` keeps only the pure two-tier scoping models (`ReferenceBundleBuilder`, used by 10.2). Not wired: department-wide (tier 1) material is not loaded, and the `reference_material` catalog is not read by the engine.
     - _Requirements: 20.1, 20.2, 20.3, 20.4, 22.1, 22.2, 22.3, 22.4, 26.1, 26.3_
   - [x]* 10.2 Write property test for reference bundle scoping  〔Track A · A12〕
     - **Property 21: Reference bundle scoping**
     - **Validates: Requirements 22.2, 22.3, 20.4, 26.3**
   - [x] 10.3 Implement citation attachment  〔Track A · A11〕
     - Attach a source-identity citation (title/section) when specific material informed an item; never reproduce replacement prose; no citation when none informed it
+    - Note: `CitationAttacher` exists as pure logic but is not wired into the request path (there is no retrieval layer to feed it); feedback items are persisted with `citation = null`.
     - _Requirements: 21.1, 21.2, 21.3, 21.4_
   - [x]* 10.4 Write property test for citation presence and content  〔Track A · A12〕
     - **Property 20: Feedback citation presence and content**

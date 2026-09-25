@@ -95,8 +95,14 @@ function tableBody(sql: string, table: string): string {
 }
 
 describe('baseline — extensions', () => {
-  it('enables pgvector for reference-embedding similarity search', () => {
-    expect(schemaSql).toMatch(/CREATE EXTENSION IF NOT EXISTS vector/i);
+  it('drops the unused pgvector extension (grounding is full-text, not RAG)', () => {
+    // The baseline still installs `vector` (applied files are never edited);
+    // 0004 removes it with RESTRICT semantics so nothing cascades away.
+    const fullTextGroundingSql = stripComments(
+      readFileSync(join(MIGRATIONS_DIR, '0004_reference_material_full_text_grounding.sql'), 'utf8'),
+    );
+    expect(fullTextGroundingSql).toMatch(/DROP EXTENSION IF EXISTS vector\s*;/i);
+    expect(fullTextGroundingSql).not.toMatch(/CASCADE/i);
   });
 
   it('enables pgcrypto for gen_random_uuid()', () => {
