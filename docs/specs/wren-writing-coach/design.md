@@ -2,7 +2,7 @@
 
 ## Overview
 
-WREN (Writing Refinement, Expression & Navigation) is an MIT-licensed, AWS-hosted, AI-powered writing coach whose central rule is **no ghostwriting**: WREN surfaces Socratic questions and error-type flags anchored to a writer's own text, tracks recurring patterns across drafts, and never produces replacement prose. This document translates the approved requirements (`requirements.md`, V4) into an implementable architecture on the UBC CIC baseline stack (AWS CDK v2 TypeScript, Lambda + Fargate, RDS PostgreSQL 16 + `pgvector`, DynamoDB, S3, Cognito, Amazon Bedrock via `langchain-aws`, React 19 / Vite / Tailwind / shadcn/ui), with all persistent personal data resident in `ca-central-1`.
+WREN (Writing Refinement, Expression & Navigation) is an MIT-licensed, AWS-hosted, AI-powered writing coach whose central rule is **no ghostwriting**: WREN surfaces Socratic questions and error-type flags anchored to a writer's own text, tracks recurring patterns across drafts, and never produces replacement prose. This document translates the approved requirements (`requirements.md`, V4) into an implementable architecture on the UBC CIC baseline stack (AWS CDK v2 TypeScript, Lambda + Fargate, RDS PostgreSQL 16, DynamoDB, S3, Cognito, Amazon Bedrock via `langchain-aws`, React 19 / Vite / Tailwind / shadcn/ui), with all persistent personal data resident in `ca-central-1`.
 
 > **V4 terminology note.** This design supersedes all prior (V1–V3) terminology. The platform is organized around **Document Types** (not Writing Domains), grouped administratively by **Departments** (not Organizations, which are removed entirely — no tenant isolation, no Org Owner role). There are three roles: **Student**, **Department Admin** (educational configuration owner, scoped to the Department(s) they administer; absorbs all former Document Expert / Field Expert duties as of V4), and **Technical Admin** (platform/infrastructure only). Where the existing V1-shaped codebase (see `requirements.md` → Implementation Status) uses `Organization`, `WritingType`/`WritingDomain`, or `FieldExpert`/`DocumentExpert`/`OrgOwner`, this design specifies the target migration mapping rather than a rebuild.
 
@@ -64,7 +64,7 @@ graph TB
     end
 
     subgraph Data["Persistence (ca-central-1)"]
-        RDS[(RDS PostgreSQL 16<br/>+ pgvector, via RDS Proxy)]
+        RDS[(RDS PostgreSQL 16<br/>via RDS Proxy)]
         DDB[(DynamoDB<br/>ConversationHistory table)]
         S3[(S3<br/>documents + reference files)]
         SM[Secrets Manager / SSM]
@@ -95,7 +95,7 @@ The requirements name eleven logical subsystems. They map onto compute as follow
 | Feedback_Engine, Feedback_Presenter (data) | Feedback Engine container Lambda | Python 3.12 | Heavy AI workload; `langchain-aws`, larger deps → container image |
 | Config_Service, Admin_Service, Auth_Service, Usage_Service | Admin/Config Lambda | Node 22 | Transactional Postgres writes; authorization resolution |
 | Audit_Service | Audit Lambda | Node 22 | Append-only activity log + aggregate read models |
-| Reference_Service | Split: upload path in Document Lambda, retrieval/grounding in Feedback Engine | — | Files in S3; embeddings in a single `pgvector`-backed `embedding` table managed via LlamaIndex's `PGVectorStore` (embeddings/retrieval only — LiteParse/`mammoth` handle document parsing) |
+| Reference_Service | Grounding in Feedback Engine; no upload path in code today (files are placed in S3 out of band) | — | UTF-8 text files in the reference bucket under `document-types/{documentTypeId}/`, read in full at generation time. No embeddings or vector store — see [Reference grounding (full-text)](#reference-grounding-full-text) |
 
 > Feedback generation latency target is 10s for ~500 words (REQ-NFR-LATENCY-01). Feedback runs as an asynchronous job: the API enqueues generation and the client receives streamed/poll-based status, displaying a loading state (REQ-FB-VIEW-01, REQ-NFR-LATENCY-01). For 100–500 concurrent users (REQ-NFR-SCALE-01), Lambda concurrency scales automatically; a queue (SQS) in front of the Feedback Engine provides graceful degradation (queue/throttle rather than hard-fail) when load exceeds range.
 
@@ -146,7 +146,7 @@ The guardrail at step H is the architectural embodiment of REQ-CORE-NOGHOST-01: 
 Following the CDK steering (one stack per concern, `${StackPrefix}-<Concern>`, SSM for cross-stack values, `RETAIN` + `deletionProtection` + `storageEncrypted` on stateful resources):
 
 - **`Vpc`** — public / private-with-egress / isolated subnets; interface endpoints (Secrets Manager, SSM, RDS, API Gateway, Bedrock), gateway endpoint (DynamoDB, S3); VPC flow logs.
-- **`Database`** — RDS PostgreSQL 16 with RDS Proxy (TLS enforced, `rds.force_ssl`), `pgvector`; credentials in Secrets Manager.
+- **`Database`** — RDS PostgreSQL 16 with RDS Proxy (TLS enforced, `rds.force_ssl`); credentials in Secrets Manager.
 - **`Storage`** — S3 buckets (documents, reference materials) with block-public-access, `enforceSSL`, KMS, lifecycle rules; a DynamoDB table named `${StackPrefix}-ConversationHistory` for conversation/session state. The table name is scoped to `StackPrefix` only and carries no display/brand literal — it derives from the project name (e.g. `wren-...`).
 - **`Api`** — `SpecRestApi` from an OpenAPI spec, regional endpoint, Lambda authorizer, throttling, ERROR-level logging; AppSync/WebSocket for feedback streaming.
 - **`Compute`** — the Lambda functions / container Lambda above, each with a scoped IAM role; SQS queue + DLQ for async feedback jobs.
@@ -165,7 +165,7 @@ The application name (REQ-NFR-APPNAME-01) and model identifier (REQ-NFR-MODEL-01
 
 Responsible for ingestion, format handling, size limits, and draft versioning (REQ-DOC-SUBMIT-01, REQ-DOC-SIZE-01, REQ-DOC-DRAFT-01).
 
-- **Ingestion & extraction**: `.docx` and `.pdf` accepted; all other extensions rejected with an accepted-formats message. `.docx` text extraction uses **`mammoth`** (BSD-2-Clause, MIT-compatible), preserving paragraph boundaries via its semantic HTML/paragraph output. PDF text extraction is best-effort via **LiteParse** (`run-llama/liteparse`, Apache-2.0) — a local, in-Lambda, layout-aware parser (Rust core with native Python bindings; no cloud calls, no API keys) that preserves paragraph boundaries via its spatial/bounding-box output; on no-recoverable-text it returns a fallback prompt (upload `.docx` / paste text). Pasted text treats paragraph breaks as boundaries. LiteParse and `mammoth` both run entirely inside the Document/Draft Lambda (no external service, no per-page cost, no data leaving `ca-central-1`). LlamaIndex is scoped solely to the embeddings/retrieval layer (a `PGVectorStore` over the single `embedding` table — see Reference Materials); it plays no role in document ingestion. Generation remains on Bedrock via `langchain-aws`.
+- **Ingestion & extraction**: `.docx` and `.pdf` accepted; all other extensions rejected with an accepted-formats message. `.docx` text extraction uses **`mammoth`** (BSD-2-Clause, MIT-compatible), preserving paragraph boundaries via its semantic HTML/paragraph output. PDF text extraction is best-effort via **LiteParse** (`run-llama/liteparse`, Apache-2.0) — a local, in-Lambda, layout-aware parser (Rust core with native Python bindings; no cloud calls, no API keys) that preserves paragraph boundaries via its spatial/bounding-box output; on no-recoverable-text it returns a fallback prompt (upload `.docx` / paste text). Pasted text treats paragraph breaks as boundaries. LiteParse and `mammoth` both run entirely inside the Document/Draft Lambda (no external service, no per-page cost, no data leaving `ca-central-1`). No embedding or retrieval library is used anywhere (reference grounding is full-text — see [Reference grounding](#reference-grounding-full-text)). Generation remains on Bedrock via `langchain-aws`.
 - **Segmentation**: produces an ordered list of paragraph segments with stable indices; this segmentation is the substrate for anchoring and diffing.
 - **Size enforcement**: rejects documents over the configured max word count (default 10,000 words) *before* creating a Draft or invoking the Feedback Engine; Document-Type overrides win over the default.
 - **Metadata**: stores Department-Admin-defined custom metadata fields (e.g., "Writing Topic") against the Document; required fields are enforced at submission (create/activate disabled while empty).
@@ -222,7 +222,8 @@ Generates Socratic feedback through Bedrock and enforces no-ghostwriting (REQ-CO
 - **No-ghostwriting guardrail (output)**: validates each generated item, strips any internal "correct version"/rewrite, and rejects/transforms output that contains replacement prose or "suggest a revision / explain the improvement" content before persistence. Produces only `{category, question, anchor?, citation?}`.
 - **Density**: number of inline items scales with document length, bounded by the Document-Type density setting; recurring patterns are prioritized when the density cap binds.
 - **Structural feedback**: produces document-wide, non-anchored Socratic/structural items, presented distinctly from inline items, subject to the same guardrail.
-- **Citations**: when an item is grounded in specific Reference Material, attaches a source-identity citation (title/section); never reproduces replacement prose. Grounding uses **LlamaIndex** retrieval (a `PGVectorStore` over the single `embedding` table) for similarity over indexed reference content (both tiers).
+- **Citations**: when an item is grounded in specific Reference Material, attaches a source-identity citation (title/section); never reproduces replacement prose. **Not implemented in the request path today**: items are persisted with `citation = null`. `wren_engine.citation_attachment.CitationAttacher` exists as pure logic but nothing calls it.
+- **Reference grounding**: full-text, not retrieval. See [Reference grounding (full-text)](#reference-grounding-full-text).
 - **Carry-forward & caching**: reuses prior Feedback Items for spans unchanged in text *and* governing config; invalidates on text change or config change (REQ-NFR-COST-01, REQ-CONFIG-CONV-01 criterion 3).
 
 ```python
@@ -232,6 +233,26 @@ class FeedbackEngine:
                  references: ReferenceBundle) -> FeedbackResult: ...
     # Internal-only: detection context (correct_version) discarded before FeedbackResult
 ```
+
+### Reference grounding (full-text)
+
+**Decision.** Reference Material is placed in the prompt in full. There are no embeddings, no vector store, and no similarity search. This supersedes the earlier plan for LlamaIndex + a `pgvector` `embedding` table (task 10.1), which was scaffolded but never wired and has been removed (migration `0004_reference_material_full_text_grounding.sql`).
+
+**Why.** Reference Material is admin-curated guidance per Document Type, and the whole corpus for one type fits in the prompt budget. In that case full-text grounding:
+- gives full recall, because no similarity search can miss the one relevant passage;
+- needs no second (embedding) model, so there is no extra Bedrock call, latency, or data-residency surface;
+- keeps the reference block byte-stable across jobs, which the `feedback_primary` prompt cache relies on.
+
+**How it works** (`backend/engine/python/handler.py`, `wren_engine/debrief_budget.py`):
+1. `load_reference_material` lists every object under `s3://<reference bucket>/document-types/{documentTypeId}/` and decodes it as UTF-8. Objects that are not UTF-8 text are skipped with a warning.
+2. `build_structured_prompt` sorts the files by S3 key, then `cap_reference_materials_with_report` trims each file to 4,000 characters and stops at 12,000 characters in total. Files past the total are dropped.
+3. Each kept file becomes an untrusted `REFERENCE MATERIAL: <title>` block.
+
+**Priority and observability.** Selection is deterministic: files are taken in S3 key order, so admins control priority by file name (for example `01_style.txt`, `02_citations.txt`). When the caps cut anything, the engine logs a warning that lists the truncated and dropped keys, and emits an EMF event in namespace `WREN/FeedbackEngine` (dimension `workload` only) with `ReferenceCapApplied`, `ReferenceFilesTruncated`, `ReferenceFilesDropped`, and `ReferenceCharsOmitted`.
+
+**Current gaps.** Department-wide (tier 1) material is not loaded; only the Document Type's own prefix is read. The `reference_material` catalog table and its admin service are not read by the engine and have no API route. Citations are not attached (see Citations above).
+
+**When to revisit.** If `ReferenceCapApplied` fires regularly for a Document Type, its corpus has outgrown the prompt budget. That is the point where retrieval would earn its keep. Building it would need an embedding table, a Bedrock embedding model with the vector dimension set to that model's output size (Titan Text Embeddings V2 defaults to 1024, not the 1536 the removed scaffold assumed), indexing on upload, query embedding at generation time, and a region check for the embedding model.
 
 ### Config Service & Prompt Editor (Node 22)
 
@@ -290,7 +311,7 @@ Compliance-shaping components:
 
 ## Data Models
 
-All relational data is in RDS PostgreSQL 16 (via RDS Proxy, TLS enforced); document/reference bytes in S3; all reference embeddings live in a **single** `pgvector`-backed `embedding` table (managed through a LlamaIndex `PGVectorStore`); Ask WREN session/conversation state in DynamoDB.
+All relational data is in RDS PostgreSQL 16 (via RDS Proxy, TLS enforced); document/reference bytes in S3; no embeddings are stored (reference grounding is full-text); Ask WREN session/conversation state in DynamoDB.
 
 ```mermaid
 erDiagram
@@ -313,7 +334,6 @@ erDiagram
     FEEDBACK_ITEM ||--o{ RESOLUTION_STATUS_HISTORY : tracks
     ERROR_CATEGORY ||--o{ FEEDBACK_ITEM : classifies
     REFERENCE_MATERIAL ||--o{ FEEDBACK_ITEM : "cited by"
-    REFERENCE_MATERIAL ||--o{ EMBEDDING : "indexed as"
 ```
 
 ### Core Entities
@@ -360,11 +380,7 @@ erDiagram
 - `id`, `feedbackItemId`, `draftId`, `status` (`resolved` | `partially_resolved` | `still_unresolved` | `removed` | `unchanged`), `evaluatedAt`. Append-only per (item, draft). `removed` is never assigned to `structural` items (REQ-RESOLUTION-01 criterion 7).
 
 **ReferenceMaterial**
-- `id`, `tier` (`department` | `type`), `departmentId?`, `documentTypeId?`, `title`, `section?`, `contentKind` (`file` | `text` | `html`), `s3Key?`, `inlineContent?`. Its chunk embeddings live in the shared `Embedding` table (linked by `referenceMaterialId`), not inline on this row.
-
-**Embedding** (the single vector table; managed via a LlamaIndex `PGVectorStore`)
-- One table holds **all** embeddings for the platform. Row: `id`, `referenceMaterialId` (nullable FK — the source Reference Material), `tier` (`department` | `type`), `departmentId?`, `documentTypeId?`, `chunkIndex`, `content` (the chunked text LlamaIndex indexed), `embedding` (`vector`, `pgvector`), `metadata` (JSONB — LlamaIndex node metadata), `createdAt`.
-- Scope filtering (department-wide ∪ the active Document Type's type-scoped material) is done with a `WHERE` filter on `tier` / `departmentId` / `documentTypeId` against this one table — no per-tier or per-type tables.
+- `id`, `tier` (`department` | `type`), `departmentId?`, `documentTypeId?`, `title`, `section?`, `contentKind` (`file` | `text` | `html`), `s3Key?`, `inlineContent?`. There is no embedding linkage: grounding reads reference files from S3 in full (see [Reference grounding](#reference-grounding-full-text)). The Feedback Engine does not currently read this catalog table.
 
 **UsageLimit** / **UsageCounter** / **Override**
 - `UsageLimit`: `scopeKind` (`platform` | `documentType`), `scopeId?`, `limit`, `period`.
@@ -404,7 +420,7 @@ The existing V1-shaped database schema (see `requirements.md` → Implementation
 | `RoleAssignment.scope` `{organizationId}` (Org Owner) | Change to `{departmentIds[]}` | Map each Organization → the Department it becomes |
 | `AccessGrant.scope` `{organizationId}` variant | **Remove** | Only `{documentTypeId}` remains (no org-level grants) |
 | `UsageLimit` / `UsageCounter` `scopeKind: 'organization'` | **Remove** | Only `platform` and `documentType` scopes remain |
-| `Embedding` / `ReferenceMaterial` `organizationId` | Rename to `departmentId`; `tier: 'org'` → `'department'` | |
+| `ReferenceMaterial` `organizationId` | Rename to `departmentId`; `tier: 'org'` → `'department'`, `'domain'` → `'type'` | The tier CHECK kept the old vocabulary until migration `0004` (there is no `Embedding` entity) |
 | `ActivityEvent.organizationId` | Rename to `departmentId` | |
 
 ---

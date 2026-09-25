@@ -419,8 +419,9 @@ Two-tier sources the engine may cite.
 | `content_kind` | text | `file`, `text`, or `html` |
 | `s3_key` | text | Object key when `file` |
 | `inline_content` | text | Inline text/html |
-| `embedding_id` | uuid | Optional pointer toward a vector row |
 | `created_at` | timestamptz | Creation time |
+
+The `tier` CHECK accepts only `department` / `type` (migration `0004`). There is no embedding column or vector table: the Feedback Engine grounds on reference files read in full from S3 (`document-types/{documentTypeId}/`), not on these catalog rows.
 
 ---
 

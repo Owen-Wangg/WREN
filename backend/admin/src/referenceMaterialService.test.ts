@@ -17,7 +17,6 @@ import {
   getReferenceMaterial,
   listDepartmentReferenceMaterial,
   listDocumentTypeReferenceMaterial,
-  setReferenceMaterialEmbeddingId,
 } from './referenceMaterialService';
 
 const DEPT = 'dept-1';
@@ -62,7 +61,6 @@ describe('createReferenceMaterial â€” tier 1 (department-wide)', () => {
       title: 'Citation Style Guide',
       contentKind: 'text',
       inlineContent: 'Use Bluebook citation format throughout.',
-      embeddingId: null,
     });
   });
 
@@ -338,27 +336,6 @@ describe('listDepartmentReferenceMaterial / listDocumentTypeReferenceMaterial â€
 
     expect(materials).toHaveLength(1);
     expect(materials[0]?.title).toBe('Memo Guide');
-  });
-});
-
-describe('setReferenceMaterialEmbeddingId', () => {
-  it('records the embedding linkage once indexing completes', async () => {
-    const db = new FakeDb();
-    seed(db);
-    db.seedReferenceMaterial({ id: 'r1', department_id: DEPT, tier: 'department', title: 'Guide' });
-
-    const updated = await setReferenceMaterialEmbeddingId('r1', 'emb-123', db);
-
-    expect(updated.embeddingId).toBe('emb-123');
-  });
-
-  it('throws NotFoundError for an unknown material', async () => {
-    const db = new FakeDb();
-    seed(db);
-
-    await expect(setReferenceMaterialEmbeddingId('missing', 'emb-1', db)).rejects.toBeInstanceOf(
-      NotFoundError,
-    );
   });
 });
 

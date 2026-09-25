@@ -1024,9 +1024,8 @@ export type ReferenceMaterialContentKind = z.infer<
 /**
  * A Reference Material entry: Department-wide (tier 1) or Document-Type-scoped
  * (tier 2), managed by a DepartmentAdmin who administers the owning
- * Department (REQ-REFMAT-MGMT-01 / Requirement 26). `embeddingId` links to the
- * `wren_engine.reference_store` `embedding` table row(s) once indexed; it is
- * `null` until indexing completes.
+ * Department (REQ-REFMAT-MGMT-01 / Requirement 26). Reference grounding is
+ * full-text, not RAG, so there is no embedding linkage.
  */
 export const referenceMaterialSchema = z
   .object({
@@ -1042,7 +1041,6 @@ export const referenceMaterialSchema = z
     s3Key: z.string().nullable(),
     /** Present when `contentKind` is `'text'` or `'html'`. */
     inlineContent: z.string().nullable(),
-    embeddingId: idSchema.nullable(),
   })
   .strict()
   .refine(

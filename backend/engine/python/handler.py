@@ -71,8 +71,9 @@ from wren_engine.feedback_classifier import (
 )
 from wren_engine.debrief_budget import (
     MAX_DEBRIEF_MAX_TOKENS,
-    cap_reference_materials,
+    cap_reference_materials_with_report,
     debrief_max_tokens,
+    emit_reference_cap_telemetry,
 )
 from wren_engine.models import Segment, Span
 from wren_engine.model_invocation import (
@@ -433,7 +434,14 @@ def load_department_prompt(document_type_id: str, conn: psycopg.Connection) -> s
 
 
 def load_reference_material(writing_type_id: str) -> list[dict[str, Any]]:
-    """Load reference material from S3."""
+    """Load every reference file for a Document Type from S3.
+
+    Reference grounding is deliberately full-text, not RAG: there are no
+    embeddings or similarity search. Every UTF-8 object under
+    ``document-types/{writing_type_id}/`` is returned; the prompt assembler
+    sorts them by key and applies the character caps in
+    ``wren_engine.debrief_budget``.
+    """
     try:
         s3_client = boto3.client('s3', region_name=os.getenv('AWS_REGION', 'ca-central-1'))
         bucket = os.getenv('REFERENCE_BUCKET_NAME')
@@ -516,8 +524,9 @@ def build_structured_prompt(
     Deterministic references (plan §7/§10/§12.2): approved reference materials
     are sorted by their canonical S3 object key BEFORE truncation/capping so the
     cached trusted prefix is stable across jobs regardless of S3 listing order.
-    Per-file and total caps (``cap_reference_materials``) are applied AFTER
-    sorting.
+    Per-file and total caps (``cap_reference_materials_with_report``) are
+    applied AFTER sorting; when they cut anything a warning is logged and a
+    ``WREN/FeedbackEngine`` EMF metric is emitted.
     """
     if focus_paragraph_indices is not None:
         para_lines = []
@@ -717,8 +726,13 @@ def build_structured_prompt(
         reference_materials,
         key=lambda m: str(m.get('key') or m.get('title') or ''),
     )
+    # Grounding is full-text, not RAG: every file goes in, in key order, until
+    # the per-file / total caps bind. A cut is logged and emitted as an EMF
+    # metric rather than happening silently.
+    reference_cap = cap_reference_materials_with_report(sorted_reference_materials)
+    emit_reference_cap_telemetry(reference_cap)
     reference_content: list[UntrustedContent] = []
-    for material in cap_reference_materials(sorted_reference_materials):
+    for material in reference_cap.materials:
         reference_content.append(UntrustedContent(
             label=f"REFERENCE MATERIAL: {material['title']}",
             text=material['content'],
