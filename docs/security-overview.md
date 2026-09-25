@@ -284,7 +284,9 @@ The endpoints listed in [5.2](#52-security-groups-and-subnet-isolation) keep ser
 
 ### 6.2 Data Storage and Residency
 
-Persistent stores are provisioned in the data-plane Region chosen at deploy time. CloudFront is a global CDN and the CloudFront-scoped WAF is managed in `us-east-1`; neither is a replica of student content. Stack tests forbid S3 cross-region replication, DynamoDB global tables, and RDS cross-region replicas. Stateful RDS, S3, and DynamoDB resources use `RemovalPolicy.RETAIN`, and RDS has `deletionProtection` enabled.
+In this document, **residency** describes the location of WREN-managed persistent application data at rest; it does not mean that all processing or physical network transit remains in that Region. Persistent stores are provisioned in the data-plane Region chosen at deploy time, which defaults to `ca-central-1` and can be explicitly overridden. Stack tests forbid S3 cross-region replication, DynamoDB global tables, and RDS cross-region replicas. Stateful RDS, S3, and DynamoDB resources use `RemovalPolicy.RETAIN`, and RDS has `deletionProtection` enabled.
+
+A `ca-central-1` deployment therefore provides a default Canadian location for WREN-managed persistent application stores, **not** a guarantee of Canadian-only processing or network transit. AWS documents that [geographic cross-Region inference](https://docs.aws.amazon.com/bedrock/latest/userguide/geographic-cross-region-inference.html) may move prompts and results outside the source Region. Confirm the deployed Region, selected model or inference profile, account-level logging, and applicable AWS contractual terms before making a sponsor or compliance claim.
 
 ### 6.3 Encryption at Rest
 
@@ -447,7 +449,7 @@ These controls are implemented for development and should be hardened before pro
 | Input validation | Implemented | OpenAPI + Zod + upload constraints |
 | GenAI ghostwriting prevention | Implemented | Delimited untrusted input, save-time and output guardrails, DTO contract |
 | Prompt injection (admin) | Implemented | Bedrock `PROMPT_ATTACK` on admin prompt fields |
-| Data residency | Implemented | Persistent data in the deployed Region; no cross-region replicas |
+| Application-managed persistent data residency | Implemented | RDS, S3, and DynamoDB data remains in the deploy-selected Region, this does not cover Bedrock/Textract processing, edge transit, or service-managed retention |
 | Rate limiting | Partial | API Gateway throttling on both paths; WAF per-IP limit only on the CloudFront path |
 | API edge protection | Partial | WAF protects CloudFront, not the `execute-api` hostname |
 | CORS restriction | Development configuration | Currently `*`; restrict to the application origin before production |

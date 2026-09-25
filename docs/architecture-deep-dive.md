@@ -36,9 +36,9 @@
 
 ## Overview
 
-WREN is a Socratic writing coach for higher education. Students draft or upload documents, request an **AI Debrief** that returns probing questions (never rewrites or corrections), and track whether they address that feedback across draft revisions. The platform is built on AWS with CDK for infrastructure-as-code: a React web app on AWS Amplify, REST APIs on API Gateway backed by per-service Node.js 22 Lambdas, two Python 3.12 Lambdas (the Feedback Engine container for Bedrock inference and a Diff/Anchor/Progress function for pure-logic diff and resolution), and real-time events over AWS AppSync. **Amazon RDS PostgreSQL 16** is the system of record for users, departments, documents, immutable drafts, Socratic feedback, analytics, and in-app notifications, while **Amazon DynamoDB** holds Ask WREN conversation history.
+WREN is a Socratic writing coach for higher education. Students draft or upload documents, request an **AI Debrief** that returns probing questions (never rewrites or corrections), and track whether they address that feedback across draft revisions. The platform is built on AWS: a React web app on AWS Amplify, REST APIs on API Gateway backed by per-service Node.js 22 Lambdas, two Python 3.12 Lambdas (the Feedback Engine container for Bedrock inference and a Diff/Anchor/Progress function for pure-logic diff and resolution), and real-time events over AWS AppSync. **Amazon RDS PostgreSQL 16** is the system of record for users, departments, documents, immutable drafts, Socratic feedback, analytics, and in-app notifications, while **Amazon DynamoDB** holds Ask WREN conversation history.
 
-The architecture is **region-portable**: persistent data (RDS, S3, DynamoDB) stays in whichever Region you deploy, with no cross-region replication by default (CloudFront is a global CDN). Region-specific deploy steps belong in the [deployment guide](./deployment-guide.md). For the debrief / diff / anchor pipeline in depth, see [DEBRIEF_ARCHITECTURE_DEEP_DIVE.md](./DEBRIEF_ARCHITECTURE_DEEP_DIVE.md).
+The architecture is **region-portable**: persistent data (RDS, S3, DynamoDB) stays in whichever Region you deploy, with no cross-region replication by default (CloudFront is a global CDN).
 
 ![WREN Architecture](./WREN_ARCHITECTURE_DIAGRAM_NUMBERED.png)
 
@@ -46,7 +46,7 @@ The architecture is **region-portable**: persistent data (RDS, S3, DynamoDB) sta
 
 ### Edge and Security
 
-Optional API traffic passes through **Amazon CloudFront** (global CDN), where a **CloudFront-scoped AWS WAF** WebACL (AWS managed rule groups — Common, Known Bad Inputs, IP Reputation — plus a rate-based rule of 2000 requests per 5-minute window per IP) applies, and **AWS Shield Standard** is automatically in effect. CloudFront redirects HTTP to HTTPS and attaches security headers (CSP, HSTS, X-Frame-Options DENY, and others). Callers may also use the regional API Gateway stage URL directly; that path is authenticated but is **not** behind this WAF (the WebACL is CloudFront-scoped only). There is no Lambda@Edge and no CloudFront Functions in this stack.
+Optional API traffic passes through **Amazon CloudFront** (global CDN), where a **CloudFront-scoped AWS WAF** WebACL (AWS managed rule groups — Common, Known Bad Inputs, IP Reputation — plus a rate-based rule of 2000 requests per 5-minute window per IP) applies, and **AWS Shield Standard** is automatically in effect. CloudFront redirects HTTP to HTTPS and attaches security headers (CSP, HSTS, X-Frame-Options DENY, and others). Callers may also use the regional API Gateway stage URL directly; that path is authenticated but is **not** behind this WAF (the WebACL is CloudFront-scoped only).
 
 ### Frontend Hosting
 
@@ -54,7 +54,7 @@ The **React web app** is hosted on **AWS Amplify**, which auto-builds on push. T
 
 ### Authentication
 
-Users sign in with **Amazon Cognito** (email and password; optional MFA). Access and ID tokens expire after a configured lifetime (refresh tokens last longer); that is session duration, not request throttling. First login provisions an `app_user` (default **Student**). The Cognito **`SystemAdmin`** group seeds **TechnicalAdmin** on first login only; afterward **PostgreSQL** (`role_assignment`) is the authorization source of truth. A **Lambda authorizer** verifies the JWT and attaches roles, department scopes, and access grants; each service Lambda **re-checks** capabilities and document ownership.
+Users sign in with **Amazon Cognito** (email and password; optional MFA). Access and ID tokens expire after a configured lifetime. First login provisions an `app_user` (default **Student**). The Cognito **`SystemAdmin`** group seeds **TechnicalAdmin** on first login only; afterward **PostgreSQL** (`role_assignment`) is the authorization. A **Lambda authorizer** verifies the JWT and attaches roles, department scopes, and access grants; each service Lambda **re-checks** capabilities and document ownership.
 
 ### API Layer
 

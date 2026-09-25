@@ -80,6 +80,7 @@ Not every change needs a deploy. Use this to avoid rebuilding the whole app for 
     - [1.1 Colors and styles](#11-colors-and-styles)
     - [1.2 Display name and branding](#12-display-name-and-branding)
   - [2. Authentication and Authorization](#2-authentication-and-authorization)
+    - [Signup email-domain allowlist](#signup-email-domain-allowlist)
     - [Bootstrap admin](#bootstrap-admin)
     - [Enterprise SSO](#enterprise-sso)
   - [3. Extending the API](#3-extending-the-api)
@@ -389,7 +390,8 @@ aws ssm put-parameter \
 When changing the model:
 
 - Prefer cross-region inference profile ids when your account uses them. Enable the model in the **data-plane Region**, and in any other Regions the profile requires.
-- Compute IAM already allows `bedrock:InvokeModel` on `inference-profile/us.anthropic.*`, `us.meta.*`, and the corresponding foundation-model ARNs (`crisBedrockInvokeResources` in `ComputeStack.ts`). A new model **family** such as Amazon Titan needs an IAM update there.
+- Treat the profile geography as a residency decision, not only an availability setting. A `us.*` profile may route AI Debrief and Ask WREN prompts, draft content or excerpts, conversation context, and responses to US AWS Regions even when the caller and persistent stores are in `ca-central-1`.
+- Compute IAM already allows `bedrock:InvokeModel` on `inference-profile/us.anthropic.*`, `us.meta.*`, and the corresponding foundation-model ARNs (`crisBedrockInvokeResources` in `ComputeStack.ts`). 
 
 The Feedback Engine also receives `BEDROCK_MODEL_ID` at deploy time, but runtime code resolves the model in this precedence order:
 
