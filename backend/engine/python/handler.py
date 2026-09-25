@@ -26,6 +26,7 @@ from wren_engine.prompt_assembly import (
     SystemScaffolding,
     DocumentTypePromptConfig,
     UntrustedContent,
+    render_untrusted_data_block,
 )
 from wren_engine.footnote_metadata import (
     FootnoteMetadata,
@@ -1433,7 +1434,8 @@ def _build_quote_fallback_prompt(
         f"positive_note, anchor ({{paragraphIndex: int, quotedText: string}} — REQUIRED, "
         f"copy text verbatim from the paragraph).\n\n"
         f"Categories:\n{cat_lines}\n\n"
-        f"Document:\n{document_text}\n\n"
+        + render_untrusted_data_block(document_text, label="SUBMITTED DOCUMENT")
+        + "\n\n"
         f"Output only a valid JSON array. No markdown fences."
     )
 
@@ -1498,6 +1500,16 @@ def _run_quote_safety_net(
         fill_items = [i for i in fill_items if i.get('kind') in needed_kinds]
         if not fill_items:
             logger.warning("Quote safety net: no fill-in items matched needed sections")
+            return 0
+
+        # No-ghostwriting output guardrail: this fill-in output is fresh model
+        # output that never passed through the primary Step 8 guardrail, so
+        # guard it here before it is persisted.
+        fill_items = apply_output_guardrail(
+            fill_items, document_id=document_id, draft_id=draft_id,
+        )
+        if not fill_items:
+            logger.warning("Quote safety net: all fill-in items dropped by output guardrail")
             return 0
 
         inserted = insert_feedback_items(
@@ -2607,6 +2619,12 @@ def process_feedback_request(
                             config=config,
                         )
                         new_strengths = cf_as_items[before_fill:]
+                        # No-ghostwriting output guardrail: the strength fill-in
+                        # is fresh model output that bypasses the primary Step 8
+                        # guardrail, so guard it before persisting.
+                        new_strengths = apply_output_guardrail(
+                            new_strengths, document_id=document_id, draft_id=draft_id,
+                        )
                         filled = 0
                         if new_strengths:
                             filled = insert_feedback_items(
