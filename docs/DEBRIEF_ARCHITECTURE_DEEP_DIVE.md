@@ -235,7 +235,7 @@ The debrief panel renders a progress summary (improving / persistent / emerging)
 
 ### 7.1 Improvement trends
 
-Department admins see how resolution outcomes trend over time, per error category, for a document type. Access is gated by the `analytics.view` capability, scoped to the document type's department. All students in the department are aggregated together — no per-student rows are exposed.
+Department admins see how resolution outcomes trend over time, per error category, for a document type. Access is gated by the `analytics.view` capability, scoped to the document type's department. All students in the department are aggregated together.
 
 ### 7.2 How the score is computed
 
@@ -252,7 +252,7 @@ AVG(
 ```
 
 - The average runs over **all** rows in the week/category group. `still_unresolved`, `removed`, and `unchanged` all score `0.0`, so they pull the average down rather than being excluded from it.
-- A separate sample-size count includes only `resolved`, `partially_resolved`, and `still_unresolved`. A `HAVING` clause drops week/category groups where that count is zero, so a group made up entirely of `removed`/`unchanged` rows never appears — but such rows that share a group with judged rows still count as `0.0`.
+- A separate sample-size count includes only `resolved`, `partially_resolved`, and `still_unresolved`. A `HAVING` clause drops week/category groups where that count is zero, so a group made up entirely of `removed`/`unchanged` rows never appears.
 
 ### 7.3 Reading a score
 
@@ -268,13 +268,13 @@ Scores are illustrative averages, not exact category breakdowns.
 
 ### 7.4 Chart
 
-The frontend renders one line per category (Y-axis 0–100) with date-range presets (last 4 weeks, last 12 weeks, all time, custom). All data is returned from the backend and filtered in the browser, and only weeks that actually have data appear — there are no zero-filled gaps for weeks without submissions.
+The frontend renders one line per category (Y-axis 0–100) with date-range presets (last 4 weeks, last 12 weeks, all time, custom). All data is returned from the backend and filtered in the browser, and only weeks that actually have data appear.
 
 ---
 
 ## 8. Writer Progress
 
-The writer progress bar is a composite score (0–100) that reflects engagement with the whole coaching loop, not just how much the student has written. The guiding principle: *a long first upload alone must not read as a strong draft.*
+The writer progress bar is a composite score (0–100) that reflects engagement with the whole coaching loop, not just how much the student has written. 
 
 | Component | Weight | Condition |
 |-----------|--------|-----------|
@@ -307,17 +307,17 @@ The score maps to a label ("Just getting started" → "Draft taking shape" → "
 | Dead-letter max receive count | 3 | Retry before dead-lettering |
 | Dead-letter retention | 14 days | Time to investigate failures |
 
-### 9.3 Model configuration
+### 9.3 Model configuration and processing region
 
-- **Default deployment model:** `us.anthropic.claude-sonnet-4-6`, configured in the CDK config and injected into SSM/environment at deploy. The engine itself does not hardcode a fallback model — it resolves the model from SSM first and the environment variable second, and errors if neither is set.
-- **Per-job override:** a `bedrock_model_id` in the platform usage policy (a Technical Admin runtime control) takes precedence over the deployed default.
+- **Default deployment model:** `us.anthropic.claude-sonnet-4-6`, configured in the CDK config and injected into SSM/environment at deploy. 
+- **Per-job override:** a `bedrock_model_id` in the platform usage policy (a Technical Admin runtime control) takes precedence over the deployed default. 
 - The resolution judge uses the resolved model at `temperature 0`, intended to reduce sampling variability.
+
+See AWS's [geographic cross-Region inference documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/geographic-cross-region-inference.html) and [Data Storage and Residency](./security-overview.md#62-data-storage-and-residency) for the distinction between persistent storage and processing geography.
 
 ---
 
 ## 10. Architectural Guarantees
-
-These are decisions specific to WREN that the next developer should understand before changing this area.
 
 ### 10.1 Pure logic behind an injected model boundary
 

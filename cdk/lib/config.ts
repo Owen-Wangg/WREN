@@ -43,18 +43,20 @@ export const DEFAULT_ENVIRONMENT_NAME = "dev";
 /**
  * Single-source default for the Bedrock model identifier (REQ-NFR-MODEL-01).
  *
- * Model invocation is model-agnostic (via `langchain-aws`); this is only a
- * *default* and is overridden at synth time with `-c bedrockModelId=...` or at
- * runtime via the SSM parameter published by the `Config` stack. No backend
- * code hardcodes a model id - it is resolved from configuration. Changing the
- * model is therefore a configuration edit, not a code change.
+ * This is only a *default* and is overridden at synth time with
+ * `-c bedrockModelId=...` or at runtime via the SSM parameter published by the
+ * `Config` stack. No backend orchestration code hardcodes a model id; it is
+ * resolved from configuration. The `us.` prefix identifies a US geographic
+ * cross-Region inference profile: prompts and responses may be processed in
+ * US AWS Regions even when the Bedrock endpoint is in `ca-central-1`.
  */
 export const DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-6";
 
 /**
- * Data residency: all persistent stores live in ca-central-1 (design:
- * "all in `ca-central-1`", REQ 46.x). Used as the region fallback when
- * CDK_DEFAULT_REGION is not supplied by the environment.
+ * Default Region for the application data plane and WREN-managed persistent
+ * stores. This is an at-rest storage default, not a guarantee that all request
+ * processing or network transit remains in Canada. Deployers can override it
+ * explicitly with CDK context (`-c region=...`).
  */
 export const DEFAULT_REGION = "ca-central-1";
 
@@ -228,7 +230,9 @@ function resolveCacheTtl(raw: string | undefined): CacheTtl {
  * by ignoring them), infrastructure config fails LOUD so a mistyped workload is
  * caught before deploy.
  */
-function resolveCacheEnabledWorkloads(raw: string | undefined): CacheWorkload[] {
+function resolveCacheEnabledWorkloads(
+  raw: string | undefined,
+): CacheWorkload[] {
   if (raw === undefined) return [];
   const result: CacheWorkload[] = [];
   const known = new Set<string>(CACHE_WORKLOADS);
@@ -275,34 +279,52 @@ function resolveCacheEnabledWorkloads(raw: string | undefined): CacheWorkload[] 
 export function resolveAppConfig(app: App): AppConfig {
   const appName = readContext(app, "appName") ?? DEFAULT_APP_NAME;
   const projectName = readContext(app, "projectName") ?? DEFAULT_PROJECT_NAME;
-  const environmentName = readContext(app, "environmentName") ?? DEFAULT_ENVIRONMENT_NAME;
-  const bedrockModelId = readContext(app, "bedrockModelId") ?? DEFAULT_BEDROCK_MODEL_ID;
-  const feedbackEngineImageTag = readContext(app, "feedbackEngineImageTag") ?? "bootstrap";
-  const auditPseudonymSaltOwnership = readContext(app, "auditPseudonymSaltOwnership") ?? "managed";
-  if (auditPseudonymSaltOwnership !== "managed" && auditPseudonymSaltOwnership !== "external") {
-    throw new Error("auditPseudonymSaltOwnership must be 'managed' or 'external'");
+  const environmentName =
+    readContext(app, "environmentName") ?? DEFAULT_ENVIRONMENT_NAME;
+  const bedrockModelId =
+    readContext(app, "bedrockModelId") ?? DEFAULT_BEDROCK_MODEL_ID;
+  const feedbackEngineImageTag =
+    readContext(app, "feedbackEngineImageTag") ?? "bootstrap";
+  const auditPseudonymSaltOwnership =
+    readContext(app, "auditPseudonymSaltOwnership") ?? "managed";
+  if (
+    auditPseudonymSaltOwnership !== "managed" &&
+    auditPseudonymSaltOwnership !== "external"
+  ) {
+    throw new Error(
+      "auditPseudonymSaltOwnership must be 'managed' or 'external'",
+    );
   }
-  const technicalAdminBootstrapSubject = readContext(app, "technicalAdminBootstrapSubject");
+  const technicalAdminBootstrapSubject = readContext(
+    app,
+    "technicalAdminBootstrapSubject",
+  );
   const alarmEmail = readContext(app, "alarmEmail");
   const cacheMode = resolveCacheMode(readContext(app, "cacheMode"));
   const cacheTtl = resolveCacheTtl(readContext(app, "cacheTtl"));
   const cacheEnabledWorkloads = resolveCacheEnabledWorkloads(
     readContext(app, "cacheEnabledWorkloads"),
   );
-  const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
-  const lambdaConcurrency = resolveLambdaConcurrency((key) => readContext(app, key));
+  const stackPrefix =
+    readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
+  const lambdaConcurrency = resolveLambdaConcurrency((key) =>
+    readContext(app, key),
+  );
   const customDomain = readContext(app, "customDomain");
   const allowedEmailDomains = parseAllowedEmailDomains(
     readContext(app, "allowedEmailDomains"),
     "allowedEmailDomains",
   );
-  const corsAllowedOrigins = parseCorsAllowedOrigins(readContext(app, "corsAllowedOrigins"));
+  const corsAllowedOrigins = parseCorsAllowedOrigins(
+    readContext(app, "corsAllowedOrigins"),
+  );
 
-  // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
-  // The region is resolved from the `region` context key and otherwise pinned
-  // to ca-central-1 — deliberately NOT read from CDK_DEFAULT_REGION, so a
-  // deployer's ambient AWS profile region can never silently place resources
-  // outside the residency boundary. Override explicitly with `-c region=...`.
+  // Default at-rest location for the application data plane (REQ 46.x).
+  // Resolve only from explicit `region` context and otherwise use
+  // `ca-central-1`; deliberately do NOT read CDK_DEFAULT_REGION, so an ambient
+  // AWS profile cannot silently relocate resources. This setting does not
+  // constrain Bedrock cross-Region inference, global edge traffic, or physical
+  // network transit. Override the data-plane Region with `-c region=...`.
   const region = readContext(app, "region") ?? DEFAULT_REGION;
 
   return {
@@ -312,7 +334,9 @@ export function resolveAppConfig(app: App): AppConfig {
     bedrockModelId,
     feedbackEngineImageTag,
     auditPseudonymSaltOwnership,
-    ...(technicalAdminBootstrapSubject ? { technicalAdminBootstrapSubject } : {}),
+    ...(technicalAdminBootstrapSubject
+      ? { technicalAdminBootstrapSubject }
+      : {}),
     ...(alarmEmail ? { alarmEmail } : {}),
     cacheMode,
     cacheTtl,
@@ -398,16 +422,19 @@ export const ssmParameterNames = {
   conversationTableName: (config: AppConfig): string =>
     `/${config.stackPrefix}/storage/conversation-table-name`,
   /** Cognito User Pool ID published by the `Cognito` stack. */
-  userPoolId: (config: AppConfig): string => `/${config.stackPrefix}/auth/user-pool-id`,
+  userPoolId: (config: AppConfig): string =>
+    `/${config.stackPrefix}/auth/user-pool-id`,
   /** Cognito User Pool Client ID published by the `Cognito` stack. */
-  userPoolClientId: (config: AppConfig): string => `/${config.stackPrefix}/auth/client-id`,
+  userPoolClientId: (config: AppConfig): string =>
+    `/${config.stackPrefix}/auth/client-id`,
   /**
    * Exact Cognito `sub` armed for first-admin TechnicalAdmin elevation.
    * Written by the deploy workflow (not CloudFormation) so pipeline synths
    * can re-pass it after the operator-guided setup.
    */
-  technicalAdminBootstrapSubject: (config: { readonly stackPrefix: string }): string =>
-    `/${config.stackPrefix}/auth/technical-admin-bootstrap-subject`,
+  technicalAdminBootstrapSubject: (config: {
+    readonly stackPrefix: string;
+  }): string => `/${config.stackPrefix}/auth/technical-admin-bootstrap-subject`,
 } as const;
 
 /**

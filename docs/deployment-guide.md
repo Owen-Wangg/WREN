@@ -47,7 +47,7 @@ This guide deploys the WREN writing coach into an AWS account.
 - **Amazon Bedrock** for writing feedback
 - Database schema applied automatically via a migration Lambda
 
-Default naming uses project `wren` and environment `dev`, so stacks are named `wren-dev-<Concern>` (e.g. `wren-dev-Vpc`). The **data-plane Region** is CDK context `region` (examples in this guide use `ca-central-1`; override with `-c region=...`). 
+Default naming uses project `wren` and environment `dev`, so stacks are named `wren-dev-<Concern>` (e.g. `wren-dev-Vpc`). The **data-plane Region** is CDK context `region` (examples in this guide use `ca-central-1`; override with `-c region=...`).
 
 ## Architecture at a Glance
 
@@ -276,7 +276,7 @@ Do not commit GitHub personal access tokens to source control. The deployment wo
 | `AWS_PROFILE` | AWS CLI default credential chain | Selecting a named AWS CLI profile or SSO session. This is the standard, recommended way to pick the target account (see [Variables for the standard deployment](#variables-for-the-standard-deployment)); it is listed here only for completeness. Standard AWS credential environment variables also work. |
 | `WREN_REGION` | `ca-central-1` | Deploying the data plane outside the default Region. The CloudFront WAF stack and its second CDK bootstrap remain in `us-east-1`. |
 | `WREN_APP_NAME` | `LEON` | Changing the user-facing display name in the UI and email. The default is `LEON` for backward compatibility with existing deployments; new deployments should set this to the intended display name (for example `WREN`). Should be done at the start of the deployment only |
-| `WREN_BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-6` | You only need this if your account/Region cannot access the default or you want to start on another model. A Technical Admin can change the model in-app afterward, and that choice overrides this deploy-time value. |
+| `WREN_BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-6` | You only need this if your account/Region cannot access the default or you want to start on another model. A Technical Admin can change the model in-app afterward, and that choice overrides this deploy-time value.
 | `WREN_PROJECT_NAME` | `wren` | Changing the lowercase resource-name prefix component. |
 | `WREN_ENVIRONMENT` | `dev` | Deploying a distinct environment, such as `staging` or `prod`. Production deployments require `WREN_EXPECTED_ACCOUNT_ID`. |
 | `WREN_STACK_PREFIX` | `{project}-{environment}` | Supplying the derived stack prefix explicitly. Its value must exactly equal `WREN_PROJECT_NAME-WREN_ENVIRONMENT`. |
