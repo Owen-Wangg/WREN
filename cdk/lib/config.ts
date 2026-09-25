@@ -1,5 +1,6 @@
 import type { App } from "aws-cdk-lib";
 import type { Environment } from "aws-cdk-lib";
+import { RetentionDays } from "aws-cdk-lib/aws-logs";
 import { parseAllowedEmailDomains } from "./signupEmailDomains.js";
 
 import {
@@ -335,6 +336,22 @@ export function resolveAppConfig(app: App): AppConfig {
  */
 export function stackName(config: AppConfig, concern: string): string {
   return `${config.stackPrefix}-${concern}`;
+}
+
+/**
+ * Resolve the CloudWatch Logs retention/expiry for stack-managed log groups.
+ *
+ * Single source of truth for the project's retention convention: 90 days in
+ * production, 30 days otherwise. Mirrors the policy already applied to Lambda
+ * function logs (ObservabilityStack) and VPC flow logs (NetworkResources) so
+ * every newly-bounded log group (AppSync API logs, API Gateway execution +
+ * access logs, WAF request logs, RDS engine logs) expires on the same schedule
+ * rather than accumulating (and billing) forever.
+ */
+export function resolveLogRetention(config: AppConfig): RetentionDays {
+  return config.environmentName === "prod"
+    ? RetentionDays.THREE_MONTHS
+    : RetentionDays.ONE_MONTH;
 }
 
 /**

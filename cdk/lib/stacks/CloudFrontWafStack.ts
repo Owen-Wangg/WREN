@@ -1,15 +1,16 @@
-import { Stack, type StackProps, CfnOutput, Duration, RemovalPolicy } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, Duration, RemovalPolicy, ArnFormat } from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as wafv2 from "aws-cdk-lib/aws-wafv2";
 import type { Construct } from "constructs";
 
-import type { AppConfig } from "../config";
+import { resolveLogRetention, type AppConfig } from "../config";
 
 /**
  * Props for the CloudFrontWaf stack. Receives the API Gateway endpoint and
@@ -130,6 +131,43 @@ export class CloudFrontWafStack extends Stack {
         },
       ],
     });
+
+    // -------------------------------------------------------------------
+    // WAF request logging. visibilityConfig above only emits
+    // aggregate CloudWatch metrics + a small rolling sample — insufficient to
+    // investigate which specific request was blocked/allowed by which rule.
+    // Deliver full per-request WAF logs to a dedicated CloudWatch Logs group.
+    //
+    // Constraints for a CLOUDFRONT-scoped WebACL logging to CloudWatch:
+    //   - The log group MUST live in the WebACL's region (us-east-1 — this
+    //     stack is pinned there) and its name MUST start with `aws-waf-logs-`.
+    //     AWS grants WAF delivery permissions automatically for that prefix, so
+    //     no explicit resource policy is required here.
+    //   - `logDestinationConfigs` takes the log-group ARN WITHOUT the trailing
+    //     `:*` that `logGroup.logGroupArn` appends — build it via `formatArn`.
+    // -------------------------------------------------------------------
+    const wafLogGroup = new logs.LogGroup(this, "WafLogs", {
+      logGroupName: `aws-waf-logs-${config.stackPrefix}-cloudfront`,
+      retention: resolveLogRetention(config),
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    // ARN without the `:*` suffix that logGroup.logGroupArn produces — WAF
+    // rejects the wildcard form in logDestinationConfigs.
+    const wafLogGroupArn = Stack.of(this).formatArn({
+      service: "logs",
+      resource: "log-group",
+      resourceName: wafLogGroup.logGroupName,
+      // Log-group ARNs use a colon between the resource type and name
+      // (arn:aws:logs:<region>:<acct>:log-group:<name>), not a slash.
+      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+    });
+
+    const wafLogging = new wafv2.CfnLoggingConfiguration(this, "WafLogging", {
+      resourceArn: this.webAcl.attrArn,
+      logDestinationConfigs: [wafLogGroupArn],
+    });
+    wafLogging.node.addDependency(wafLogGroup);
 
     // -------------------------------------------------------------------
     // CloudFront Distribution

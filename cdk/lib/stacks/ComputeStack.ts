@@ -17,7 +17,7 @@ import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct
 import { NotificationInfraConstruct } from "../constructs/NotificationInfraConstruct";
 
 import type { AppDbRole } from "../appDbRoles.js";
-import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, type AppConfig } from "../config";
+import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, resolveLogRetention, type AppConfig } from "../config";
 import { corsLambdaEnvironment } from "../corsOrigins";
 
 /** IAM resources for us.anthropic.* / us.meta.* cross-region inference profiles. */
@@ -534,6 +534,7 @@ export class ComputeStack extends Stack {
       feedbackEngineRole: this.feedbackEngineFunction.role!,
       notificationLambdaRole: this.notificationFunction.role!,
       stackPrefix: config.stackPrefix,
+      logRetention: resolveLogRetention(config),
     });
     this.appSyncGraphqlUrl = appSyncRealtime.graphqlUrl;
 

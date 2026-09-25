@@ -155,6 +155,10 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "Ref": "DatabaseInstanceSubnetGroupDE121BB6",
         },
         "DeletionProtection": true,
+        "EnableCloudwatchLogsExports": [
+          "postgresql",
+          "upgrade",
+        ],
         "Engine": "postgres",
         "EngineVersion": "16.13",
         "MasterUserPassword": {
@@ -192,6 +196,54 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       },
       "Type": "AWS::RDS::DBInstance",
       "UpdateReplacePolicy": "Retain",
+    },
+    "DatabaseInstanceLogRetentionpostgresql29317FEA": {
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/rds/instance/",
+              {
+                "Ref": "DatabaseInstanceAA8A5FDE",
+              },
+              "/postgresql",
+            ],
+          ],
+        },
+        "RetentionInDays": 30,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "Custom::LogRetention",
+    },
+    "DatabaseInstanceLogRetentionupgradeA7F7F13E": {
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/rds/instance/",
+              {
+                "Ref": "DatabaseInstanceAA8A5FDE",
+              },
+              "/upgrade",
+            ],
+          ],
+        },
+        "RetentionInDays": 30,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "Custom::LogRetention",
     },
     "DatabaseInstanceProxyA71C974C": {
       "Properties": {
@@ -652,7 +704,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "e1ca2195edd0c493c9692401e9221a0cdcdbe9b5b63a6f3bbd80c3e3c9d5258b.zip",
+          "S3Key": "5316e08d00c1fbeb595795102316a32ec7a2d3194fa90b38c23aedf0ebd70f0b.zip",
         },
         "Environment": {
           "Variables": {
@@ -959,6 +1011,83 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       },
       "Type": "AWS::IAM::Policy",
     },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A": {
+      "DependsOn": [
+        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
+        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
+          "S3Key": "2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d.zip",
+        },
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs24.x",
+        "Timeout": 900,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:PutRetentionPolicy",
+                "logs:DeleteRetentionPolicy",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
+        "Roles": [
+          {
+            "Ref": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
     "Migrations": {
       "DeletionPolicy": "Delete",
       "DependsOn": [
@@ -980,7 +1109,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "databaseSecretArn": {
           "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
         },
-        "migrationsFingerprint": "91da9ae59aafa6d8",
+        "migrationsFingerprint": "f380e56c0ddce181",
       },
       "Type": "AWS::CloudFormation::CustomResource",
       "UpdateReplacePolicy": "Delete",
@@ -993,7 +1122,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "e6c98ebd0f1bdbd6123a4f36b7ab22b7bc9da4b96c32d2eb5ca51995ba1d9090.zip",
+          "S3Key": "627382ce9f39ac45f73b54b962bce484b66aff3b0e40567a44e2f3e6c87e533c.zip",
         },
         "Environment": {
           "Variables": {

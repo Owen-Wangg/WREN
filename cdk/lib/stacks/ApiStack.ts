@@ -1,13 +1,14 @@
 import * as fs from "fs";
 import * as path from "path";
 import YAML from "js-yaml";
-import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, RemovalPolicy } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
 
-import type { AppConfig } from "../config";
+import { resolveLogRetention, type AppConfig } from "../config";
 import {
   CORS_ALLOW_HEADERS,
   CORS_ALLOW_METHODS,
@@ -208,6 +209,17 @@ export class ApiStack extends Stack {
       }
     }
 
+    // Structured, per-request access log. A CDK-managed, retention-
+    // bound log group receives one JSON record per request — caller identity,
+    // source IP, method, resource path, status, latency, and request id — so
+    // there is an auditable request trail at the edge. RETAIN keeps the audit
+    // trail if the stack is torn down, matching the Lambda-log convention.
+    const accessLogGroup = new logs.LogGroup(this, "ApiAccessLogs", {
+      logGroupName: `/aws/apigateway/${config.stackPrefix}-api/access`,
+      retention: resolveLogRetention(config),
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
       apiDefinition: apigateway.ApiDefinition.fromInline(resolvedSpec),
       restApiName: `${config.stackPrefix}-api`,
@@ -219,6 +231,23 @@ export class ApiStack extends Stack {
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.ERROR,
         tracingEnabled: true, // X-Ray tracing
+        // Per-request structured access logging (gap 3.1). JSON fields chosen
+        // for a security/audit trail: request id, source IP, caller identity,
+        // HTTP method, resource path, status, latency, and response length.
+        accessLogDestination: new apigateway.LogGroupLogDestination(accessLogGroup),
+        accessLogFormat: apigateway.AccessLogFormat.custom(
+          JSON.stringify({
+            requestId: apigateway.AccessLogField.contextRequestId(),
+            sourceIp: apigateway.AccessLogField.contextIdentitySourceIp(),
+            caller: apigateway.AccessLogField.contextIdentityCaller(),
+            user: apigateway.AccessLogField.contextIdentityUser(),
+            httpMethod: apigateway.AccessLogField.contextHttpMethod(),
+            resourcePath: apigateway.AccessLogField.contextResourcePath(),
+            status: apigateway.AccessLogField.contextStatus(),
+            responseLatency: apigateway.AccessLogField.contextResponseLatency(),
+            responseLength: apigateway.AccessLogField.contextResponseLength(),
+          }),
+        ),
         // Cache cluster stays enabled so Control Tower CT.APIGATEWAY.PR.3 can
         // require encryption on the catch-all method setting. Per-method
         // caching is off: GET /v1/documents/{documentId}/feedback must not be
@@ -238,6 +267,17 @@ export class ApiStack extends Stack {
         },
       },
       cloudWatchRole: true,
+    });
+
+    // Bound the API-Gateway-managed *execution* log group (gap 2.2). API Gateway
+    // creates `API-Gateway-Execution-Logs_{apiId}/{stage}` itself with no expiry
+    // when loggingLevel is set. A LogRetention custom resource upserts a
+    // retention on that service-created group (same pattern as the Lambda log
+    // groups in ObservabilityStack); RETAIN leaves the group in place on teardown.
+    new logs.LogRetention(this, "ExecutionLogRetention", {
+      logGroupName: `API-Gateway-Execution-Logs_${this.api.restApiId}/${config.environmentName}`,
+      retention: resolveLogRetention(config),
+      removalPolicy: RemovalPolicy.RETAIN,
     });
 
     // CORS on Gateway-generated errors. DEFAULT_4XX / DEFAULT_5XX do NOT cover

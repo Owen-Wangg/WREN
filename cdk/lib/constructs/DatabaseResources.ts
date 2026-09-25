@@ -21,7 +21,7 @@ import {
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import { APP_DB_ROLES, appDbRolePascal, type AppDbRole } from "../appDbRoles.js";
-import type { AppConfig } from "../config.js";
+import { resolveLogRetention, type AppConfig } from "../config.js";
 
 export interface DatabaseResourcesProps {
   readonly config: AppConfig;
@@ -166,6 +166,14 @@ export class DatabaseResources extends Construct {
       removalPolicy: RemovalPolicy.RETAIN,
       monitoringInterval: Duration.seconds(60),
       monitoringRole,
+      // Engine log export. Enhanced Monitoring above only covers
+      // OS-level metrics; export the PostgreSQL engine logs (error / slow-query
+      // / connection) and major-version `upgrade` logs to CloudWatch Logs for
+      // troubleshooting and audit. `cloudwatchLogsRetention` bounds the
+      // auto-created `/aws/rds/instance/{id}/postgresql` group on the project's
+      // 90-day-prod / 30-day-else schedule instead of letting it accrue forever.
+      cloudwatchLogsExports: ["postgresql", "upgrade"],
+      cloudwatchLogsRetention: resolveLogRetention(this.props.config),
     });
   }
 
