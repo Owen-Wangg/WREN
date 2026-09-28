@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from .enabled_categories import resolve_enabled_categories
+
 __all__ = [
     "STRENGTH_KIND",
     "normalize_feedback_kinds",
@@ -21,6 +23,7 @@ __all__ = [
     "required_strength_categories",
     "missing_strength_categories",
     "categories_with_strengths",
+    "categories_without_improvements",
     "accept_filled_strengths",
     "build_strength_fill_prompt",
     "document_text_from_segments",
@@ -74,6 +77,57 @@ def normalize_feedback_kinds(items: list[dict[str, Any]]) -> list[dict[str, Any]
     return items
 
 
+_IMPROVEMENT_KINDS = frozenset({"inline", "structural"})
+
+
+def _effective_kind(item: dict[str, Any]) -> str:
+    """Kind the item would have after :func:`normalize_feedback_kinds`.
+
+    Read-only mirror of the normalization rules: known aliases map to their
+    canonical kind; otherwise a positive_note makes it a strength, a missing
+    kind defaults to inline, and an unrecognized kind is left as-is.
+    """
+    raw_kind = item.get("kind")
+    kind_key = raw_kind.strip().lower() if isinstance(raw_kind, str) else ""
+    mapped = _KIND_ALIASES.get(kind_key)
+    if mapped:
+        return mapped
+    if _positive_note(item):
+        return STRENGTH_KIND
+    if not kind_key:
+        return "inline"
+    return kind_key
+
+
+def categories_without_improvements(
+    items: Iterable[dict[str, Any]],
+    enabled_ids: Iterable[str],
+) -> list[str]:
+    """Enabled category IDs that have no inline or structural item.
+
+    Pure: items are not mutated. Results follow ``enabled_ids`` order (blank
+    and duplicate IDs are skipped). Used only for logging improvement gaps —
+    callers must never invent items from this.
+    """
+    covered = {
+        _category_id(item)
+        for item in items
+        if _effective_kind(item) in _IMPROVEMENT_KINDS and _category_id(item)
+    }
+    gaps: list[str] = []
+    seen: set[str] = set()
+    for raw in enabled_ids or []:
+        if raw is None:
+            continue
+        cid = str(raw).strip()
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        if cid not in covered:
+            gaps.append(cid)
+    return gaps
+
+
 def categories_with_strengths(items: Iterable[dict[str, Any]]) -> set[str]:
     return {
         _category_id(item)
@@ -88,20 +142,27 @@ def required_strength_categories(
     valid_category_ids: Iterable[str] | None = None,
     category_priority: Iterable[str] | None = None,
 ) -> set[str]:
-    """Categories that must have a strength item.
+    """Categories that must have a strength item: the enabled set ``E``.
 
-    Uses the department-admin priority set when present (those are the
-    sections the debrief is supposed to cover). Always includes categories
-    that already have any item, so every displayed section is covered.
+    ``E`` comes from :func:`resolve_enabled_categories` — the saved selection
+    intersected with the taxonomy, or the whole taxonomy when the selection is
+    empty or fully stale. It does not depend on which categories the model
+    happened to emit, and present categories outside ``E`` are not added.
+
+    Only when ``E`` is empty (no taxonomy and no selection) does this fall
+    back to the categories present in ``items`` (intersected with
+    ``valid_category_ids`` when given).
     """
+    enabled = resolve_enabled_categories(category_priority, valid_category_ids)
+    required = set(enabled.ids)
+    if required:
+        return required
+
     present = {_category_id(item) for item in items if _category_id(item)}
-    priority = {str(cid).strip() for cid in (category_priority or []) if str(cid).strip()}
-    required = priority | present
     valid = {str(cid).strip() for cid in (valid_category_ids or []) if str(cid).strip()}
     if valid:
-        required &= valid
-        required |= present & valid
-    return {cid for cid in required if cid}
+        present &= valid
+    return present
 
 
 def missing_strength_categories(
