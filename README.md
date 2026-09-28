@@ -15,7 +15,7 @@ WREN is the name used throughout the Github to refer to the prototype solution. 
 
 ## High-Level Architecture
 
-The following architecture diagram illustrates the AWS components used to deliver the solution.
+The following architecture diagram illustrates the various AWS components utilized to deliver the solution. For an in-depth explanation of the frontend and backend stacks, please look at the [Architecture Deep Dive](docs/architecture-deep-dive.md).
 
 ![Architecture Diagram](docs/WREN_ARCHITECTURE_DIAGRAM.png)
 
