@@ -223,6 +223,10 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_document),
         ...corsEnv,
+        // Document deletion records an activity_event (Issue #187); the shared
+        // writer needs the same pseudonym salt as Admin/Audit so an actor's
+        // pseudonym is correlatable across services.
+        ...activitySaltEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
         DOCUMENTS_KMS_KEY_ARN: props.storageEncryptionKey.keyArn,
         PDF_OCR_ENABLED: "true",

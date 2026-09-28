@@ -3,7 +3,7 @@
  * Adapter: API Gateway proxy events → backend/document service handlers.
  */
 import type { APIGatewayProxyResult, Context } from 'aws-lambda';
-import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
+import { freezeEventLoopOnReturn, getDataAccess, recordActivityEventRow } from '@wren/db-node';
 import { S3Client, GetObjectCommand, DeleteObjectsCommand, DeleteObjectTaggingCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
@@ -1030,6 +1030,41 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
         Key: { sessionId: `${actor.userId}#${canonicalId}` },
       }));
     }
+  }
+
+  // Audit the destructive deletion (Issue #187 / Requirement 44). The
+  // activity_event table holds NO foreign key to document/draft/feedback_item,
+  // so this record survives the deletion it describes. Best-effort and
+  // non-fatal: an audit-write failure must never turn a successful deletion
+  // into a user-visible error (the data is already gone). The actor is
+  // pseudonymized by the shared writer — the raw userId is never stored.
+  try {
+    await recordActivityEventRow(
+      {
+        actorUserId: actor.userId,
+        verb: 'document.deleted',
+        objectType: 'Document',
+        objectRef: documentId,
+        documentTypeId,
+        context: {
+          deletedDrafts: draftResult.length,
+          deletedFeedbackItems: feedbackResult.length,
+          deletedS3Objects: s3Keys.length,
+        },
+      },
+      db,
+    );
+  } catch (err) {
+    // Structured, non-content log line so the gap is observable even when the
+    // audit row could not be written (e.g. a missing GRANT on activity_event).
+    console.error(
+      JSON.stringify({
+        event: 'audit_write_failed',
+        action: 'document.deleted',
+        documentId,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }
 
   return {
