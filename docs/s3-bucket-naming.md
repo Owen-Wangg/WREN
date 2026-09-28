@@ -145,7 +145,7 @@ Examples:
 
 ### 4.2 Reference material (Reference bucket)
 
-No code writes this bucket. The Admin Lambda has `PutObject` permission, but `referenceMaterialService.ts` manages only the catalog row, so an operator uploads files by hand. The engine (`load_reference_material` in `backend/engine/python/handler.py`) expects:
+The Feedback Engine reads this bucket for every feedback run (`load_reference_material` in `backend/engine/python/handler.py`). The Admin Lambda has `PutObject` permission, but `referenceMaterialService.ts` manages only the catalog row.
 
 ```
 document-types/<documentTypeId>/<NN>_<title>.txt
@@ -153,7 +153,7 @@ document-types/<documentTypeId>/<NN>_<title>.txt
 
 - Objects are sorted by key before the character caps in `wren_engine/debrief_budget.py` are applied, so a numeric prefix (`01_`, `02_`, …) controls which files survive the cap.
 - The file's title in the prompt is the last key segment with `.txt` removed.
-- Every object is decoded as UTF-8. Binary files such as `.pdf` or `.docx` fail to decode, and the engine logs a warning and skips them.
+- Every object is decoded as UTF-8.
 
 Examples:
 
