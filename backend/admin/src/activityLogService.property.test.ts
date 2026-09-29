@@ -14,21 +14,21 @@ import fc from 'fast-check';
 
 import { FakeDb } from './fakeDb';
 import {
+  derivePseudonym,
   deidentifyEvents,
-  pseudonymForActor,
   recordActivityEvent,
+  setPseudonymSaltLoader,
   type RecordActivityEventInput,
 } from './activityLogService';
 import { wrenProperty } from '../../../testing/typescript/property';
 
-const ORIGINAL_SALT = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
+const TEST_SALT = 'test-salt-property-28';
 
+// No afterAll reset: Jest gives each test file its own module registry, and
+// `wrenProperty` does not await async properties, so their runs can outlive
+// this file's afterAll hook.
 beforeAll(() => {
-  process.env.WREN_ACTIVITY_PSEUDONYM_SALT = 'test-salt-property-28';
-});
-
-afterAll(() => {
-  process.env.WREN_ACTIVITY_PSEUDONYM_SALT = ORIGINAL_SALT;
+  setPseudonymSaltLoader(async () => TEST_SALT);
 });
 
 /** Arbitrary user id (the raw actor identity that must not appear in output). */
@@ -154,8 +154,8 @@ describe('Property 28: De-identification preserves aggregate value', () => {
     wrenProperty(
       { number: 28, text: 'De-identification preserves aggregate value' },
       fc.property(userIdArb, (userId) => {
-        const p1 = pseudonymForActor(userId);
-        const p2 = pseudonymForActor(userId);
+        const p1 = derivePseudonym(TEST_SALT, userId);
+        const p2 = derivePseudonym(TEST_SALT, userId);
         return p1 === p2;
       }),
     );
@@ -167,7 +167,7 @@ describe('Property 28: De-identification preserves aggregate value', () => {
       fc.property(userIdArb, userIdArb, (userId1, userId2) => {
         // Skip when the two generated ids happen to be the same.
         if (userId1 === userId2) return true;
-        return pseudonymForActor(userId1) !== pseudonymForActor(userId2);
+        return derivePseudonym(TEST_SALT, userId1) !== derivePseudonym(TEST_SALT, userId2);
       }),
     );
   });

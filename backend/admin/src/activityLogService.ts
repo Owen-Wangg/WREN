@@ -37,6 +37,10 @@
  */
 import { createHash } from 'crypto';
 
+import {
+  GetSecretValueCommand,
+  SecretsManagerClient,
+} from '@aws-sdk/client-secrets-manager';
 import { activityEventSchema, type ActivityEvent } from '@wren/types';
 
 import type { QueryExecutor } from './db';
@@ -84,18 +88,66 @@ function toActivityEvent(row: ActivityEventRow): ActivityEvent {
  * leaking `userId` structure (which is a bare UUID and would otherwise be
  * trivially distinguishable/guessable across a small user base).
  *
- * Deliberately read lazily (not at module load) so tests never need the
- * environment variable set, and production always fails closed if it is
- * missing rather than silently using a constant, guessable salt.
+ * The value lives only in Secrets Manager. The Lambda environment carries the
+ * secret's NAME (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`), never the value,
+ * so reading it requires `secretsmanager:GetSecretValue` rather than the
+ * much more widely held `lambda:GetFunctionConfiguration`.
+ *
+ * Fetched lazily (not at module load) and cached once per Lambda container.
+ * Production always fails closed if the secret id is missing or the fetch
+ * fails, rather than silently using a constant, guessable salt. The value is
+ * never logged or included in an error message.
  */
-function pseudonymSalt(): string {
-  const salt = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-  if (!salt) {
+export type PseudonymSaltLoader = () => Promise<string>;
+
+let secretsClient: SecretsManagerClient | undefined;
+
+/**
+ * Default loader: fetch the salt from Secrets Manager using the secret id in
+ * `WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`. The secret is a plain string
+ * (generated without a JSON template), so `SecretString` is the salt itself.
+ */
+export async function loadPseudonymSaltFromSecretsManager(
+  client?: Pick<SecretsManagerClient, 'send'>,
+): Promise<string> {
+  const secretId = process.env.WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID;
+  if (!secretId) {
     throw new Error(
-      'WREN_ACTIVITY_PSEUDONYM_SALT is not configured — cannot derive a stable actor pseudonym',
+      'WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID is not configured — cannot derive a stable actor pseudonym',
     );
   }
-  return salt;
+  const sm = client ?? (secretsClient ??= new SecretsManagerClient({}));
+  const response = await sm.send(new GetSecretValueCommand({ SecretId: secretId }));
+  if (!response.SecretString) {
+    throw new Error('Activity pseudonym salt secret is empty or binary; expected SecretString');
+  }
+  return response.SecretString;
+}
+
+let saltLoader: PseudonymSaltLoader = loadPseudonymSaltFromSecretsManager;
+// One shared promise per container: concurrent first callers trigger a single
+// fetch. No TTL — the salt must never change for the lifetime of the data
+// (rotating it breaks historical pseudonym grouping).
+let saltPromise: Promise<string> | undefined;
+
+/**
+ * Test seam: replace the salt source (or restore the Secrets Manager default
+ * by passing `undefined`) and clear the cached value. Not exported from the
+ * package index.
+ */
+export function setPseudonymSaltLoader(loader: PseudonymSaltLoader | undefined): void {
+  saltLoader = loader ?? loadPseudonymSaltFromSecretsManager;
+  saltPromise = undefined;
+}
+
+function pseudonymSalt(): Promise<string> {
+  // On failure, drop the cached rejection so a transient Secrets Manager error
+  // does not break this container for the rest of its lifetime.
+  saltPromise ??= saltLoader().catch((err: unknown) => {
+    saltPromise = undefined;
+    throw err;
+  });
+  return saltPromise;
 }
 
 /**
@@ -105,8 +157,18 @@ function pseudonymSalt(): string {
  * One-way: a salted SHA-256 digest, so the raw `userId` cannot be recovered
  * from the pseudonym without the salt.
  */
-export function pseudonymForActor(userId: string): string {
-  return createHash('sha256').update(`${pseudonymSalt()}:${userId}`).digest('hex');
+export async function pseudonymForActor(userId: string): Promise<string> {
+  return derivePseudonym(await pseudonymSalt(), userId);
+}
+
+/**
+ * Pure derivation behind {@link pseudonymForActor}: salted SHA-256 of
+ * `${salt}:${userId}`. Exposed so the derivation's properties (stability,
+ * distinctness) can be tested synchronously without a salt source. The input
+ * format must never change — doing so orphans every stored pseudonym.
+ */
+export function derivePseudonym(salt: string, userId: string): string {
+  return createHash('sha256').update(`${salt}:${userId}`).digest('hex');
 }
 
 /** One Actor–Verb–Object activity to record. */
@@ -143,7 +205,7 @@ export async function recordActivityEvent(
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING ${RETURNING}`,
     [
-      pseudonymForActor(input.actorUserId),
+      await pseudonymForActor(input.actorUserId),
       input.verb,
       input.objectType,
       input.objectRef,

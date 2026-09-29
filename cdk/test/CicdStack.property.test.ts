@@ -71,6 +71,10 @@ function representativeResource(action: string, resource: unknown): string {
   const byService: Record<string, string> = {
     appsync: `arn:aws:appsync:${region}:${account}:apis/test/types/Mutation/fields/test`,
     logs: `arn:aws:logs:${region}:${account}:log-group:/aws/lambda/${prefix}-test:*`,
+    // The only intrinsic Secrets Manager resource in Compute is the activity
+    // pseudonym salt (`Ref` when managed, a partial-ARN `-??????` join when
+    // external); the per-role DB secret ARNs arrive as literals.
+    secretsmanager: `arn:aws:secretsmanager:${region}:${account}:secret:${prefix}/audit/pseudonym-salt-AbCdEf`,
     sns: `arn:aws:sns:${region}:${account}:${prefix}-notification-events`,
     sqs: `arn:aws:sqs:${region}:${account}:${prefix}-feedback-queue`,
   };

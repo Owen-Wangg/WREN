@@ -47,6 +47,14 @@ export interface ComputeDeployScopes {
   readonly auditSecretArn: string;
   /** `parameter/${prefix}/notifications/*` — the only parameters Compute writes. */
   readonly notificationParameterArn: string;
+  /**
+   * `arn:aws:kms:${region}:${account}:key/*` — account+region-wide by necessity,
+   * not by choice. The storage CMK is created in the Storage stack and consumed
+   * cross-stack, so its key id is not a synth-time literal here. The two KMS
+   * statements this scopes are bounded by their `kms:ViaService` /
+   * `kms:GrantIsForAWSResource` conditions rather than by this ARN.
+   */
+  readonly storageKeyArnPattern: string;
 }
 
 /**
@@ -164,6 +172,12 @@ export class CicdStack extends Stack {
           "ecr:BatchGetImage",
           "ecr:BatchCheckLayerAvailability",
         ],
+        conditions: {
+          StringEquals: { "aws:SourceAccount": this.account },
+          ArnLike: {
+            "aws:SourceArn": `arn:aws:lambda:${config.env.region}:${this.account}:function:${config.stackPrefix}-feedback-engine`,
+          },
+        },
       }));
       this.ecrRepository = repository;
     } else {
@@ -501,6 +515,9 @@ export class CicdStack extends Stack {
       // Trailing `*` covers the six-character suffix Secrets Manager appends.
       auditSecretArn: `arn:aws:secretsmanager:${region}:${account}:secret:${prefix}/audit/*`,
       notificationParameterArn: `arn:aws:ssm:${region}:${account}:parameter/${prefix}/notifications/*`,
+      // Shared by the deploy policy's two KMS statements and the boundary's
+      // `Kms` statement, so all three are scoped by one literal.
+      storageKeyArnPattern: `arn:aws:kms:${region}:${account}:key/*`,
     };
   }
 
@@ -678,6 +695,13 @@ export class CicdStack extends Stack {
             // The storage CMK is consumed cross-stack, so its key id is not a
             // synth-time literal here; account+region scoping is the tightest
             // available. `grantEncryptDecrypt` produces the first four.
+            //
+            // Same literal as the deploy policy's two KMS statements, taken from
+            // `computeDeployScopes` so the boundary cannot drift narrower than
+            // the policy it bounds. Unlike those statements this one carries no
+            // `kms:ViaService` condition: a boundary is an upper bound, and
+            // gating it would make the intersection depend on a key that is
+            // absent for any future direct KMS call a runtime function makes.
             sid: "Kms",
             actions: [
               "kms:Decrypt",
@@ -686,7 +710,7 @@ export class CicdStack extends Stack {
               "kms:GenerateDataKey*",
               "kms:DescribeKey",
             ],
-            resources: [`arn:aws:kms:${region}:${account}:key/*`],
+            resources: [this.computeDeployScopes.storageKeyArnPattern],
           }),
           new iam.PolicyStatement({
             // `${prefix}-ConversationHistory` (Storage stack).
@@ -814,6 +838,7 @@ export class CicdStack extends Stack {
       invokableFunctionArn,
       auditSecretArn,
       notificationParameterArn,
+      storageKeyArnPattern,
     } = this.computeDeployScopes;
 
     return new iam.Role(this, "ComputeDeployRole", {
@@ -1133,16 +1158,82 @@ export class CicdStack extends Stack {
               ],
             }),
             new iam.PolicyStatement({
-              sid: "KmsUseExistingStorageKey",
+              // Finding F-4. The former `KmsUseExistingStorageKey` statement
+              // carried these five actions plus `kms:CreateGrant` on
+              // `Resource: "*"` — use of, and decryption with, every CMK in the
+              // account whose key policy delegates to IAM (which is every CMK
+              // CDK creates, including the ones this repo does not own), in
+              // every region, plus cross-account keys whose policy trusts this
+              // account.
+              //
+              // The resource scope alone does not close that: `key/*` is the
+              // tightest ARN available here, because the storage CMK is created
+              // in the Storage stack and its key id is not a synth-time literal
+              // in this stack. `kms:ViaService` is what actually bounds the
+              // statement — the role can reach a key only when S3 or DynamoDB
+              // calls KMS on its behalf, never as a direct `Decrypt` of
+              // arbitrary ciphertext it has obtained some other way.
+              //
+              // Only those two services appear because they are the only ones
+              // that take a CMK anywhere in this repo (`StorageResources.ts`:
+              // both buckets and `ConversationHistory`). No Compute-stack
+              // resource takes a CMK property today — no `environmentEncryption`
+              // on any function, no CMK on any queue — so this statement is
+              // headroom for a future CMK-bearing resource rather than a
+              // present-day dependency. If one is added in another service, the
+              // CFN events name the key and the missing action; add that
+              // service's `kms:ViaService` value here and nothing wider.
+              sid: "KmsUseStorageKeyViaService",
               actions: [
-                "kms:CreateGrant",
                 "kms:Decrypt",
                 "kms:DescribeKey",
                 "kms:Encrypt",
                 "kms:GenerateDataKey",
                 "kms:GenerateDataKeyWithoutPlaintext",
               ],
-              resources: ["*"],
+              resources: [storageKeyArnPattern],
+              conditions: {
+                StringEquals: {
+                  "kms:ViaService": [
+                    `s3.${this.region}.amazonaws.com`,
+                    `dynamodb.${this.region}.amazonaws.com`,
+                  ],
+                },
+              },
+            }),
+            new iam.PolicyStatement({
+              // `kms:CreateGrant` stands alone, for the same reason
+              // `iam:PassRole` does above: `kms:GrantIsForAWSResource` is
+              // populated only for grant operations and `kms:ViaService` is not
+              // populated for a direct `CreateGrant`, so folding the two
+              // condition sets into one statement would leave one set of
+              // actions permanently unsatisfiable.
+              //
+              // `CreateGrant` is the reason F-4 is not merely an over-broad read
+              // grant. It is a delegation primitive: on an unconditioned
+              // statement the role can mint a grant naming any principal as
+              // grantee on any reachable key, and grants outlive the policy that
+              // created them — revoking the statement later does not revoke
+              // grants already issued under it.
+              //
+              // `GrantIsForAWSResource` admits the only legitimate `CreateGrant`
+              // a CloudFormation execution role ever makes: an AWS service
+              // creating a grant on the caller's behalf while provisioning a
+              // CMK-encrypted resource. Naming an arbitrary grantee is denied.
+              //
+              // `Bool` is outside the operator subset modelled by
+              // `test/support/policyEval.ts`, which throws rather than guessing.
+              // The existing property tests never reach it — `statementMatches`
+              // short-circuits on action and resource before evaluating
+              // conditions, and they generate only `iam:` actions — but any new
+              // assertion that evaluates a `kms:` action through `evaluate()`
+              // must add `Bool` to `SUPPORTED_CONDITION_OPERATORS` first.
+              sid: "KmsCreateGrantForAwsResourcesOnly",
+              actions: ["kms:CreateGrant"],
+              resources: [storageKeyArnPattern],
+              conditions: {
+                Bool: { "kms:GrantIsForAWSResource": "true" },
+              },
             }),
             new iam.PolicyStatement({
               // NotResource denies role mutations outside Owned_Role_Prefix.

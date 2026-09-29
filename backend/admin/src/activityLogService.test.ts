@@ -3,44 +3,115 @@
  * {@link pseudonymForActor} / {@link deidentifyEvents} (REQ-ACTIVITY-LOG-01 /
  * Requirement 44; Task 14.1).
  */
+import { GetSecretValueCommand, type SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+
 import { FakeDb } from './fakeDb';
 import {
+  derivePseudonym,
   deidentifyEvents,
   listActivityEvents,
+  loadPseudonymSaltFromSecretsManager,
   pseudonymForActor,
   recordActivityEvent,
+  setPseudonymSaltLoader,
 } from './activityLogService';
 
-const ORIGINAL_SALT = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
+const TEST_SALT = 'test-salt-do-not-use-in-prod';
+const SALT_SECRET_ENV = 'WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID';
+const ORIGINAL_SECRET_ID = process.env[SALT_SECRET_ENV];
 
-beforeAll(() => {
-  process.env.WREN_ACTIVITY_PSEUDONYM_SALT = 'test-salt-do-not-use-in-prod';
+beforeEach(() => {
+  setPseudonymSaltLoader(async () => TEST_SALT);
 });
 
 afterAll(() => {
-  process.env.WREN_ACTIVITY_PSEUDONYM_SALT = ORIGINAL_SALT;
+  setPseudonymSaltLoader(undefined);
+  if (ORIGINAL_SECRET_ID === undefined) delete process.env[SALT_SECRET_ENV];
+  else process.env[SALT_SECRET_ENV] = ORIGINAL_SECRET_ID;
 });
 
+/** Minimal Secrets Manager client double: records the command, returns `reply`. */
+function fakeSecretsClient(reply: () => Promise<{ SecretString?: string }>) {
+  const send = jest.fn((_command: GetSecretValueCommand) => reply());
+  return { client: { send } as unknown as Pick<SecretsManagerClient, 'send'>, send };
+}
+
 describe('pseudonymForActor', () => {
-  it('is stable: the same userId always yields the same pseudonym', () => {
-    expect(pseudonymForActor('user-1')).toBe(pseudonymForActor('user-1'));
+  it('is stable: the same userId always yields the same pseudonym', async () => {
+    expect(await pseudonymForActor('user-1')).toBe(await pseudonymForActor('user-1'));
   });
 
-  it('differs across distinct userIds', () => {
-    expect(pseudonymForActor('user-1')).not.toBe(pseudonymForActor('user-2'));
+  it('differs across distinct userIds', async () => {
+    expect(await pseudonymForActor('user-1')).not.toBe(await pseudonymForActor('user-2'));
   });
 
-  it('never returns the raw userId (one-way)', () => {
-    const pseudonym = pseudonymForActor('user-1');
+  it('never returns the raw userId (one-way)', async () => {
+    const pseudonym = await pseudonymForActor('user-1');
     expect(pseudonym).not.toBe('user-1');
     expect(pseudonym).not.toContain('user-1');
   });
 
-  it('throws when the pseudonym salt is not configured (fails closed)', () => {
-    const saved = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-    delete process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-    expect(() => pseudonymForActor('user-1')).toThrow(/WREN_ACTIVITY_PSEUDONYM_SALT/);
-    process.env.WREN_ACTIVITY_PSEUDONYM_SALT = saved;
+  it('matches the pure derivation for the loaded salt', async () => {
+    expect(await pseudonymForActor('user-1')).toBe(derivePseudonym(TEST_SALT, 'user-1'));
+  });
+
+  it('loads the salt once and shares it across concurrent callers', async () => {
+    const loader = jest.fn(async () => TEST_SALT);
+    setPseudonymSaltLoader(loader);
+
+    await Promise.all([pseudonymForActor('a'), pseudonymForActor('b'), pseudonymForActor('c')]);
+    await pseudonymForActor('d');
+
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache a failed load: the next call retries (transient errors)', async () => {
+    const loader = jest
+      .fn<Promise<string>, []>()
+      .mockRejectedValueOnce(new Error('ThrottlingException'))
+      .mockResolvedValueOnce(TEST_SALT);
+    setPseudonymSaltLoader(loader);
+
+    await expect(pseudonymForActor('user-1')).rejects.toThrow('ThrottlingException');
+    await expect(pseudonymForActor('user-1')).resolves.toBe(derivePseudonym(TEST_SALT, 'user-1'));
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed when the salt secret id is not configured', async () => {
+    setPseudonymSaltLoader(undefined);
+    delete process.env[SALT_SECRET_ENV];
+
+    await expect(pseudonymForActor('user-1')).rejects.toThrow(/WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID/);
+  });
+});
+
+describe('loadPseudonymSaltFromSecretsManager', () => {
+  beforeEach(() => {
+    process.env[SALT_SECRET_ENV] = 'wren-test/audit/pseudonym-salt';
+  });
+
+  it('fetches the salt by the configured secret id', async () => {
+    const { client, send } = fakeSecretsClient(async () => ({ SecretString: 'from-secrets-manager' }));
+
+    await expect(loadPseudonymSaltFromSecretsManager(client)).resolves.toBe('from-secrets-manager');
+    expect(send).toHaveBeenCalledTimes(1);
+    const command = send.mock.calls[0]![0];
+    expect(command).toBeInstanceOf(GetSecretValueCommand);
+    expect(command.input).toEqual({ SecretId: 'wren-test/audit/pseudonym-salt' });
+  });
+
+  it('fails closed on an empty secret without echoing any value', async () => {
+    const { client } = fakeSecretsClient(async () => ({ SecretString: '' }));
+
+    await expect(loadPseudonymSaltFromSecretsManager(client)).rejects.toThrow(/empty or binary/);
+  });
+
+  it('propagates Secrets Manager errors (e.g. AccessDenied) instead of using a fallback salt', async () => {
+    const { client } = fakeSecretsClient(async () => {
+      throw new Error('AccessDeniedException');
+    });
+
+    await expect(loadPseudonymSaltFromSecretsManager(client)).rejects.toThrow('AccessDeniedException');
   });
 });
 
@@ -81,7 +152,7 @@ describe('recordActivityEvent', () => {
       db,
     );
 
-    expect(event.actorPseudonym).toBe(pseudonymForActor('user-42'));
+    expect(event.actorPseudonym).toBe(await pseudonymForActor('user-42'));
     expect(event.actorPseudonym).not.toBe('user-42');
     expect(JSON.stringify(db.activityEvents)).not.toContain('user-42');
   });
