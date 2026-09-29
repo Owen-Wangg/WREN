@@ -38,9 +38,13 @@
 import { activityEventSchema, type ActivityEvent } from '@wren/types';
 import {
   ACTIVITY_EVENT_COLUMNS,
+  derivePseudonym,
+  loadPseudonymSaltFromSecretsManager,
   pseudonymForActor,
   recordActivityEventRow,
+  setPseudonymSaltLoader,
   type ActivityEventRow,
+  type PseudonymSaltLoader,
   type RecordActivityEventInput,
 } from '@wren/db-node';
 
@@ -48,10 +52,17 @@ import type { QueryExecutor } from './db';
 
 // The pseudonymization and the append-only writer now live in the shared
 // `@wren/db-node` layer (Issue #187) so Admin and Document record events
-// through ONE algorithm/salt and produce correlatable pseudonyms. Re-export
-// them here so existing importers of this module keep working unchanged.
-export { pseudonymForActor };
-export type { RecordActivityEventInput };
+// through ONE algorithm/salt and produce correlatable pseudonyms. The salt is
+// fetched from Secrets Manager at runtime by that layer (never injected into
+// the Lambda environment). Re-export them here so existing importers of this
+// module keep working unchanged.
+export {
+  derivePseudonym,
+  loadPseudonymSaltFromSecretsManager,
+  pseudonymForActor,
+  setPseudonymSaltLoader,
+};
+export type { PseudonymSaltLoader, RecordActivityEventInput };
 
 const RETURNING = ACTIVITY_EVENT_COLUMNS;
 

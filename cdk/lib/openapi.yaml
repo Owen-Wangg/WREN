@@ -1414,18 +1414,16 @@ paths:
       summary: Enqueue feedback generation for the current draft
       tags: [Feedback]
       operationId: requestFeedback
+      # No requestBody: the handler ignores the body and the client sends none.
+      # Declaring an application/json model here makes the global `full`
+      # validator reject the empty POST with 400 "Invalid request body" before
+      # the Lambda runs (API Gateway does not honor `required: false`).
       parameters:
         - name: documentId
           in: path
           required: true
           schema:
             type: string
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
       responses:
         "202":
           description: Feedback job queued

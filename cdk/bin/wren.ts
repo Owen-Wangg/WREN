@@ -182,6 +182,10 @@ const observabilityStack = new ObservabilityStack(app, stackName(config, "Observ
     computeStack.auditFunction.functionName,
     computeStack.diffAnchorProgressFunction.functionName,
     computeStack.notificationFunction.functionName,
+    // Keep at index 8: the deployed Observability stack already imports this
+    // name (LogRetention8 / ErrorAlarm8 / ThrottleAlarm8). Removing or
+    // reordering it would make Compute try to drop an export still in use.
+    computeStack.syncCognitoAdminsFunction.functionName,
   ],
   feedbackQueueName: computeStack.feedbackQueue.queueName,
   feedbackDlqName: computeStack.feedbackDlq.queueName,
@@ -190,6 +194,9 @@ const observabilityStack = new ObservabilityStack(app, stackName(config, "Observ
   authorizerFunctionName: computeStack.authorizerFunction.functionName,
   // API Gateway access-log group for the security metric filters (Issue #187).
   apiAccessLogGroupName: apiStack.accessLogGroupName,
+  // CloudTrail caller attribution for the operator-only TechnicalAdmin sync.
+  // Reuses the existing Compute export for this name (no new cross-stack ref).
+  privilegedInvokeFunctionNames: [computeStack.syncCognitoAdminsFunction.functionName],
 });
 // The access-log metric filters reference the ApiStack's log group by name, so
 // that group must exist before Observability deploys. Make the ordering explicit

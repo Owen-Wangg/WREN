@@ -239,11 +239,11 @@ Current behaviour
 
 CDK: `NodejsFunction` / `DockerImageFunction` omit `environmentEncryption`.
 
-AWS: Lambda therefore encrypts environment variables with an AWS-managed KMS key by default. The activity-log salt is injected from Secrets Manager into `WREN_ACTIVITY_PSEUDONYM_SALT` at deploy time.
+AWS: Lambda therefore encrypts environment variables with an AWS-managed KMS key by default. No secret values are stored in Lambda environment variables. For the activity-log pseudonym salt, the Admin, Audit, Document and sync-cognito-admins functions receive only the secret's name (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`) and the shared `@wren/db-node` activity-log writer reads the value with `GetSecretValue` at runtime, the same pattern as `DB_SECRET_ARN`.
 
 To use a CMK
 
-Set `environmentEncryption` on each function to a `kms.IKey` and grant the function role `kms:Decrypt`. When tightening env-var encryption, prefer reading the salt via `GetSecretValue` at runtime instead of `secretValue.unsafeUnwrap()` in the template.
+Set `environmentEncryption` on each function to a `kms.IKey` and grant the function role `kms:Decrypt`. Do not put secret values in Lambda environment variables (e.g. `secretValue.unsafeUnwrap()`): Lambda returns them in plaintext to any caller with `lambda:GetFunctionConfiguration`. `cdk/test/ComputeStack.activitySalt.test.ts` fails the build if any function environment contains a `{{resolve:secretsmanager:…}}` reference.
 
 ---
 

@@ -65,7 +65,6 @@ import {
   filterDocumentTypesForActor,
   mustScopeDepartmentCatalog,
 } from './departmentScope';
-import { handler as syncCognitoAdminsHandler } from './scripts/sync-cognito-admins';
 import type { AuthContext } from '@wren/types';
 import { getBedrockModelIdFromSsm, putBedrockModelIdToSsm } from './bedrockModelParameter';
 
@@ -131,11 +130,9 @@ async function assertErrorCategoryParent(
 
 export const handler: APIGatewayProxyHandler = async (event: any, context): Promise<APIGatewayProxyResult> => {
   freezeEventLoopOnReturn(context);
-  // One-shot admin scripts invoked directly via `aws lambda invoke --payload '{"_script":"..."}'`
-  if (event['_script'] === 'sync-cognito-admins') {
-    return syncCognitoAdminsHandler(event);
-  }
-
+  // This function serves API Gateway requests only. Privileged operator scripts
+  // (e.g. sync-cognito-admins) run in their own Lambda
+  // (`lambda-sync-cognito-admins.ts`) so no unauthenticated branch exists here.
   bindCorsOrigin(event);
   try {
     const { httpMethod, resource } = event;
