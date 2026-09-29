@@ -1703,6 +1703,23 @@ def _normalize_whitespace(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 
+# Typographic quote fold for anchor matching. Word uploads keep curly quotes
+# and apostrophes, while the model usually writes straight ones.
+# Every key and value is a single code point, so translate() preserves string
+# length and character offsets: a match found in folded text sits at the same
+# offsets in the original text. Keep in sync with foldTypographicQuotes in
+# backend/feedback/src/quoteResolution.ts.
+_TYPOGRAPHIC_QUOTE_FOLD = str.maketrans({
+    '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201B': "'", '\u2032': "'",
+    '\u201C': '"', '\u201D': '"', '\u201E': '"', '\u201F': '"', '\u2033': '"',
+})
+
+
+def _fold_typographic_quotes(text: str) -> str:
+    """Map typographic single/double quotes to their straight forms (1:1, length-preserving)."""
+    return text.translate(_TYPOGRAPHIC_QUOTE_FOLD)
+
+
 def _fuzzy_find(para_text: str, model_quote: str) -> int:
     """Find model_quote in para_text using whitespace-normalized comparison.
 
@@ -1741,6 +1758,106 @@ def _fuzzy_find(para_text: str, model_quote: str) -> int:
     if pos_in_norm < len(norm_to_orig):
         return norm_to_orig[pos_in_norm]
     return -1
+
+
+def _fuzzy_end_offset(para_text: str, start_offset: int, norm_len: int) -> int:
+    """Walk forward from start_offset until norm_len normalized characters are covered.
+
+    Whitespace runs count as one character, matching _normalize_whitespace.
+    Returns the exclusive end offset in the ORIGINAL para_text.
+    """
+    count = 0
+    end_pos = start_offset
+    in_space = False
+    for j in range(start_offset, len(para_text)):
+        ch = para_text[j]
+        if ch in (' ', '\t', '\n', '\r', '\xa0'):
+            if not in_space:
+                count += 1
+                in_space = True
+        else:
+            count += 1
+            in_space = False
+        if count >= norm_len:
+            end_pos = j + 1
+            break
+    else:
+        end_pos = len(para_text)
+    return end_pos
+
+
+def _locate_quote_in_paragraph(para_text: str, model_quote: str) -> tuple[int, int, str] | None:
+    """Locate model_quote in para_text and return (start, end, match_method), or None.
+
+    Offsets refer to the ORIGINAL para_text, so para_text[start:end] is the
+    text to persist. The caller's model_quote is never mutated.
+    """
+    # 1. Exact match
+    start_offset = para_text.find(model_quote)
+    match_method = 'exact' if start_offset != -1 else None
+    if start_offset == -1:
+        # 2. Case-insensitive exact match
+        start_offset = para_text.lower().find(model_quote.lower())
+        if start_offset != -1:
+            match_method = 'case-insensitive'
+            model_quote = para_text[start_offset:start_offset + len(model_quote)]
+    if start_offset == -1:
+        # 3. Whitespace-normalized fuzzy match (handles OCR artifacts)
+        start_offset = _fuzzy_find(para_text, model_quote)
+        if start_offset != -1:
+            match_method = 'fuzzy-whitespace'
+            norm_len = len(_normalize_whitespace(model_quote))
+            end_pos = _fuzzy_end_offset(para_text, start_offset, norm_len)
+            model_quote = para_text[start_offset:end_pos]
+    if start_offset != -1:
+        return start_offset, start_offset + len(model_quote), match_method
+    # 4. Typographic quote fold (curly vs straight quotes/apostrophes).
+    # Runs only when steps 1-3 fail, so inputs matched today are unaffected.
+    return _locate_quote_typographic(para_text, model_quote)
+
+
+def _locate_quote_typographic(para_text: str, model_quote: str) -> tuple[int, int, str] | None:
+    """Step 4 of anchor matching: repeat exact / case-insensitive / fuzzy on folded text.
+
+    The fold is 1:1 and length-preserving, so offsets found in the folded
+    paragraph are valid in the original para_text. Every candidate span is
+    verified before acceptance, which guards against _fuzzy_find's leading-
+    whitespace and Unicode-space mapping quirks and length-changing lower().
+    """
+    fp = _fold_typographic_quotes(para_text)
+    fq = _fold_typographic_quotes(model_quote)
+    if fp == para_text and fq == model_quote:
+        # Fold changed nothing: steps 1-3 already covered this input.
+        return None
+
+    def _verified(start: int, end: int, method: str) -> tuple[int, int, str] | None:
+        if not (0 <= start < end <= len(para_text)):
+            return None
+        if _normalize_whitespace(fp[start:end]).lower() != _normalize_whitespace(fq).lower():
+            return None
+        return start, end, method
+
+    # 4a. Exact match on folded text
+    start = fp.find(fq)
+    if start != -1:
+        result = _verified(start, start + len(fq), 'typographic')
+        if result is not None:
+            return result
+    # 4b. Case-insensitive match on folded text
+    start = fp.lower().find(fq.lower())
+    if start != -1:
+        result = _verified(start, start + len(fq), 'typographic-case-insensitive')
+        if result is not None:
+            return result
+    # 4c. Whitespace-normalized match on folded text. The fold never touches
+    # whitespace, so the end-offset walk lands on the same original index.
+    start = _fuzzy_find(fp, fq)
+    if start != -1:
+        end = _fuzzy_end_offset(fp, start, len(_normalize_whitespace(fq)))
+        result = _verified(start, end, 'typographic-fuzzy-whitespace')
+        if result is not None:
+            return result
+    return None
 
 
 def expand_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]:
@@ -1801,41 +1918,9 @@ def insert_feedback_items(
                         model_quote = anchor_data.get('quotedText', '')
                         if para_index < len(segments) and model_quote:
                             para_text = segments[para_index].get('text', '')
-                            # 1. Exact match
-                            start_offset = para_text.find(model_quote)
-                            match_method = 'exact' if start_offset != -1 else None
-                            if start_offset == -1:
-                                # 2. Case-insensitive exact match
-                                start_offset = para_text.lower().find(model_quote.lower())
-                                if start_offset != -1:
-                                    match_method = 'case-insensitive'
-                                    model_quote = para_text[start_offset:start_offset + len(model_quote)]
-                            if start_offset == -1:
-                                # 3. Whitespace-normalized fuzzy match (handles OCR artifacts)
-                                start_offset = _fuzzy_find(para_text, model_quote)
-                                if start_offset != -1:
-                                    match_method = 'fuzzy-whitespace'
-                                    norm_len = len(_normalize_whitespace(model_quote))
-                                    count = 0
-                                    end_pos = start_offset
-                                    in_space = False
-                                    for j in range(start_offset, len(para_text)):
-                                        ch = para_text[j]
-                                        if ch in (' ', '\t', '\n', '\r', '\xa0'):
-                                            if not in_space:
-                                                count += 1
-                                                in_space = True
-                                        else:
-                                            count += 1
-                                            in_space = False
-                                        if count >= norm_len:
-                                            end_pos = j + 1
-                                            break
-                                    else:
-                                        end_pos = len(para_text)
-                                    model_quote = para_text[start_offset:end_pos]
-                            if start_offset != -1:
-                                end_offset = start_offset + len(model_quote)
+                            located = _locate_quote_in_paragraph(para_text, model_quote)
+                            if located is not None:
+                                start_offset, end_offset, match_method = located
                                 quoted_text = para_text[start_offset:end_offset]
                                 anchor_data['startOffset'] = start_offset
                                 anchor_data['endOffset'] = end_offset
