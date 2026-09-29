@@ -670,10 +670,10 @@ export class CicdStack extends Stack {
             resources: [`arn:aws:ssm:${region}:${account}:parameter/${prefix}/*`],
           }),
           new iam.PolicyStatement({
-            // Documents + reference buckets (Storage stack). `s3:DeleteObjects`
-            // mirrors the document function's grant; the batch delete API
-            // authorizes as `s3:DeleteObject`, so it is inert but kept so the
-            // boundary is a superset of every synthesized runtime statement.
+            // Documents + reference buckets (Storage stack). The batch
+            // DeleteObjects API authorizes per key as `s3:DeleteObject`; there
+            // is no `s3:DeleteObjects` IAM action, so none is listed here or in
+            // the document function's grant.
             sid: "Objects",
             actions: [
               "s3:GetObject",
@@ -682,7 +682,6 @@ export class CicdStack extends Stack {
               "s3:PutObject",
               "s3:PutObjectTagging",
               "s3:DeleteObject",
-              "s3:DeleteObjects",
               "s3:DeleteObjectTagging",
               "s3:ListBucket",
             ],
