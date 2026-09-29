@@ -27,6 +27,7 @@ import {
   resolveCacheDecision,
   resolveCachePolicyConfig,
 } from './cachePolicy.js';
+import { resolveExactQuoteInParagraph } from './quoteResolution.js';
 import { UsageLimitReachedError } from '@wren/admin/lifetimeUsagePolicy';
 
 export type ChatRole = 'user' | 'wren';
@@ -230,67 +231,6 @@ function locationHint(index: number, total: number): string {
   return 'near the end';
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function expandToWordBoundaries(
-  text: string,
-  startOffset: number,
-  endOffset: number,
-): { start: number; end: number } {
-  let start = Math.max(0, Math.min(startOffset, text.length));
-  let end = Math.max(start, Math.min(endOffset, text.length));
-  while (start > 0 && /\w/.test(text[start - 1] ?? '')) start -= 1;
-  while (end < text.length && /\w/.test(text[end] ?? '')) end += 1;
-  return { start, end };
-}
-
-/**
- * Locate a (possibly truncated) model quote in a paragraph and expand to whole
- * words — same approach as AI Debrief quote rebuild.
- */
-function resolveExactQuoteInParagraph(
-  paragraphText: string,
-  quotedText: string,
-): string | null {
-  const fullNormalized = quotedText.trim().replace(/\s+/g, ' ');
-  if (!fullNormalized || !paragraphText) return null;
-
-  const candidates = [fullNormalized];
-  const words = fullNormalized.split(' ');
-  if (words.length > 2) {
-    const last = words[words.length - 1] ?? '';
-    const looksTruncated =
-      last.length > 0 && last.length < 6 && !/[.!?,"')\]]$/.test(last);
-    if (looksTruncated) {
-      candidates.push(words.slice(0, -1).join(' '));
-    }
-  }
-
-  for (const candidate of candidates) {
-    let idx = paragraphText.indexOf(candidate);
-    if (idx < 0) {
-      idx = paragraphText.toLowerCase().indexOf(candidate.toLowerCase());
-    }
-    if (idx < 0) continue;
-
-    let end = idx + candidate.length;
-    if (candidate !== fullNormalized) {
-      const stem = fullNormalized.split(' ').pop() ?? '';
-      if (stem) {
-        const rest = paragraphText.slice(end);
-        const expansion = rest.match(new RegExp(`^${escapeRegExp(stem)}\\w*`, 'i'));
-        if (expansion) end += expansion[0].length;
-      }
-    }
-
-    const expanded = expandToWordBoundaries(paragraphText, idx, end);
-    return paragraphText.slice(expanded.start, expanded.end);
-  }
-  return null;
-}
-
 function paragraphBandForLocationHint(
   hint: string,
   paragraphCount: number,
@@ -338,13 +278,20 @@ export function expandQuotesAgainstDraft(
       if (!order.includes(i)) order.push(i);
     }
 
-    for (const idx of order) {
-      const resolved = resolveExactQuoteInParagraph(paragraphs[idx] ?? '', String(quote));
-      if (resolved && resolved !== quote) {
-        return `${open}${resolved}${close} (${location})`;
-      }
-      if (resolved) {
-        return full;
+    // Two passes: every paragraph gets the unchanged literal matcher first;
+    // only if none resolves do we retry with curly/straight quotes folded
+    // (’ ≡ ', “ ” ≡ "). Resolved text is always the draft's original characters.
+    for (const typographic of [false, true]) {
+      for (const idx of order) {
+        const resolved = resolveExactQuoteInParagraph(paragraphs[idx] ?? '', String(quote), {
+          typographic,
+        });
+        if (resolved && resolved !== quote) {
+          return `${open}${resolved}${close} (${location})`;
+        }
+        if (resolved) {
+          return full;
+        }
       }
     }
     return full;

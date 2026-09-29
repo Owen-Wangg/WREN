@@ -52,9 +52,11 @@ import { AuthorizationError, NotFoundError, PromptInjectionError } from './error
 import { PromptGuardrailError } from './promptGuardrail';
 import { assertCanListDepartmentUsers, requireCapability } from './capabilityGuard';
 import {
+  auditAccessStateChange,
   auditConfigEdit,
   auditDepartmentVisibilityChange,
   auditOverrideGrant,
+  auditPlatformPolicyChange,
   auditPromptEdit,
   auditRoleOrGrantChange,
 } from './auditRecordingService';
@@ -398,8 +400,33 @@ async function handleUpdateDocumentTypeConfig(event: any): Promise<APIGatewayPro
   const db = await getDataAccess();
   const { documentTypeId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
-  const config = await upsertDocumentTypeConfig(actor, documentTypeId, body, db);
+  // Resolve the owning department up front so the rejection audit (below) can
+  // record scope even when the guardrail throws before any DB write.
   const departmentId = await lookupDepartmentId(documentTypeId, db);
+
+  let config;
+  try {
+    config = await upsertDocumentTypeConfig(actor, documentTypeId, body, db);
+  } catch (err) {
+    // Requirement 32.6 (Issue #187): record the prompt-edit attempt with its
+    // ACTUAL guardrail outcome even when the content is rejected — previously
+    // this path recorded nothing. The error is rethrown so wrapHandler maps it
+    // to the appropriate 400 (GHOSTWRITING_DETECTED / prompt-injection).
+    if (
+      body.typePromptText !== undefined &&
+      (err instanceof PromptGuardrailError || err instanceof PromptInjectionError)
+    ) {
+      await auditPromptEdit(actor, {
+        documentTypeId,
+        ...(departmentId ? { departmentId } : {}),
+        scope: 'documentType',
+        guardrailOutcome: 'rejected',
+        rejectionReason: err.message,
+      }, db);
+    }
+    throw err;
+  }
+
   for (const field of Object.keys(body)) {
     if (body[field] === undefined) continue;
     await auditConfigEdit(actor, {
@@ -410,6 +437,8 @@ async function handleUpdateDocumentTypeConfig(event: any): Promise<APIGatewayPro
     }, db);
   }
   if (body.typePromptText !== undefined) {
+    // Reached only when upsertDocumentTypeConfig succeeded — i.e. the save-time
+    // guardrail passed, so 'passed' is now recorded conditionally on success.
     await auditPromptEdit(actor, {
       documentTypeId,
       ...(departmentId ? { departmentId } : {}),
@@ -439,6 +468,18 @@ async function handleSetDocumentTypeAccessState(event: any): Promise<APIGatewayP
     };
   }
   const updated = await setDocumentTypeAccessState(actor, documentTypeId, accessState, db);
+  // Audit the access-state flip (Issue #187): gating whether Students may
+  // submit work is a security-relevant configuration change.
+  await auditAccessStateChange(
+    actor,
+    {
+      scope: 'documentType',
+      documentTypeId,
+      departmentId: updated.departmentId,
+      accessState,
+    },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify({ accessState: updated.accessState }),
@@ -461,6 +502,13 @@ async function handleSetDepartmentAccessState(event: any): Promise<APIGatewayPro
     };
   }
   const updated = await setDepartmentAccessState(actor, departmentId, accessState, db);
+  // Audit the access-state flip (Issue #187): gating whether Students may
+  // submit work is a security-relevant configuration change.
+  await auditAccessStateChange(
+    actor,
+    { scope: 'department', departmentId, accessState },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify(updated),
@@ -898,16 +946,32 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
-  const department = await updateDepartmentPrompt(actor, departmentId, body, db);
-  await auditPromptEdit(actor, {
-    departmentId,
-    scope: 'system',
-    guardrailOutcome: 'passed',
-  }, db);
-  return {
-    statusCode: 200,
-    body: JSON.stringify(department),
-  };
+  try {
+    const department = await updateDepartmentPrompt(actor, departmentId, body, db);
+    await auditPromptEdit(actor, {
+      departmentId,
+      scope: 'system',
+      guardrailOutcome: 'passed',
+    }, db);
+    return {
+      statusCode: 200,
+      body: JSON.stringify(department),
+    };
+  } catch (err) {
+    // Requirement 32.6 (Issue #187): record the rejected prompt edit with its
+    // guardrail outcome even when the content is rejected (previously this path
+    // recorded nothing and only ever reported 'passed'). Rethrow so wrapHandler
+    // maps it to the appropriate 400.
+    if (err instanceof PromptGuardrailError || err instanceof PromptInjectionError) {
+      await auditPromptEdit(actor, {
+        departmentId,
+        scope: 'system',
+        guardrailOutcome: 'rejected',
+        rejectionReason: err.message,
+      }, db);
+    }
+    throw err;
+  }
 }
 
 async function handleUpdateDepartmentAskWrenPrompt(
@@ -1157,10 +1221,27 @@ async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResul
   }
 
   const db = await getDataAccess();
+  // Capture the previous model id so the audit trail records the transition.
+  const prevRows = await db.query<{ bedrock_model_id: string | null }>(
+    'SELECT bedrock_model_id FROM platform_usage_policy WHERE id = 1',
+  );
+  const previousModelId = prevRows[0]?.bedrock_model_id ?? undefined;
   await putBedrockModelIdToSsm(modelId);
   await db.query(
     'UPDATE platform_usage_policy SET bedrock_model_id = $1 WHERE id = 1',
     [modelId],
+  );
+
+  // Audit the model change (Issue #187): a TechnicalAdmin swapping the active
+  // Bedrock model is a privileged platform mutation.
+  await auditPlatformPolicyChange(
+    actor,
+    {
+      change: 'model',
+      newValue: { modelId },
+      ...(previousModelId ? { previousValue: { modelId: previousModelId } } : {}),
+    },
+    db,
   );
 
   return {
@@ -1188,6 +1269,13 @@ async function handleUpdateUsageLimits(event: any): Promise<APIGatewayProxyResul
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const policy = await updatePlatformUsagePolicy(actor, body, db);
+  // Audit the usage-cap change (Issue #187): a TechnicalAdmin altering the
+  // platform lifetime/usage limits is a privileged platform mutation.
+  await auditPlatformPolicyChange(
+    actor,
+    { change: 'usageLimits', newValue: policy as unknown as Record<string, unknown> },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify(policy),

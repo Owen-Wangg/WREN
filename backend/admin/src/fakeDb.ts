@@ -86,7 +86,6 @@ interface ReferenceMaterialRow {
   content_kind: 'file' | 'text' | 'html';
   s3_key: string | null;
   inline_content: string | null;
-  embedding_id: string | null;
 }
 
 interface UsageLimitRow {
@@ -548,7 +547,6 @@ export class FakeDb implements QueryExecutor {
       content_kind: row.content_kind ?? 'text',
       s3_key: row.s3_key ?? null,
       inline_content: row.inline_content ?? 'Seed content',
-      embedding_id: row.embedding_id ?? null,
     };
     this.referenceMaterials.set(full.id, full);
     return full;
@@ -1535,7 +1533,6 @@ export class FakeDb implements QueryExecutor {
         content_kind: params[5] as 'file' | 'text' | 'html',
         s3_key: (params[6] as string | null) ?? null,
         inline_content: (params[7] as string | null) ?? null,
-        embedding_id: null,
       };
       this.referenceMaterials.set(row.id, row);
       return [row] as unknown as Row[];
@@ -1543,7 +1540,7 @@ export class FakeDb implements QueryExecutor {
 
     if (
       sql.startsWith(
-        'SELECT id, tier, department_id, document_type_id, title, section, content_kind, s3_key, inline_content, embedding_id FROM reference_material WHERE id = $1',
+        'SELECT id, tier, department_id, document_type_id, title, section, content_kind, s3_key, inline_content FROM reference_material WHERE id = $1',
       )
     ) {
       const row = this.referenceMaterials.get(params[0] as string);
@@ -1570,14 +1567,6 @@ export class FakeDb implements QueryExecutor {
         .map((r) => ({ ...r }))
         .sort((a, b) => a.title.localeCompare(b.title));
       return rows as unknown as Row[];
-    }
-
-    if (sql.startsWith('UPDATE reference_material SET embedding_id = $2')) {
-      const row = this.referenceMaterials.get(params[0] as string);
-      if (!row) return [] as unknown as Row[];
-      this.mutationCount += 1;
-      row.embedding_id = params[1] as string;
-      return [{ ...row }] as unknown as Row[];
     }
 
     if (sql.startsWith('DELETE FROM reference_material WHERE id = $1')) {

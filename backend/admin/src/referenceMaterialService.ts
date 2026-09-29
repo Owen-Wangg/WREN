@@ -2,18 +2,14 @@
  * Document-Type-scoped Reference Material management (REQ-REFMAT-MGMT-01 /
  * Requirement 26; Task 12.5).
  *
- * Manages the two-tier Reference Material catalog rows consumed by the
- * Feedback Engine's retrieval layer (`wren_engine.reference_store`):
- * Department-wide (tier 1) and Document-Type-scoped (tier 2) entries, each
- * supplied as a file, pasted text, or rich HTML (Requirement 26.1).
+ * Manages the two-tier Reference Material catalog rows: Department-wide
+ * (tier 1) and Document-Type-scoped (tier 2) entries, each supplied as a
+ * file, pasted text, or rich HTML (Requirement 26.1).
  *
- * This service manages the CATALOG row only — the S3 object (for `file`) or
- * inline content (for `text`/`html`) plus indexing into the single
- * `pgvector`-backed `embedding` table is the two-tier reference store's job
- * (Task 10.1, `wren_engine.reference_store`); this service's
- * {@link ReferenceMaterial.embeddingId} stays `null` until that indexing
- * step completes and a caller (the async ingestion pipeline) records it via
- * {@link setReferenceMaterialEmbeddingId}.
+ * This service manages the CATALOG row only.The
+ * Feedback Engine reads the UTF-8 text objects under the reference bucket's
+ * `document-types/{documentTypeId}/` prefix and places them in the prompt,
+ * capped by `wren_engine.debrief_budget`.
  *
  * **No partial persistence** (Requirement 26.4, 26.5): the content-kind /
  * content-source pairing (`file` -> `s3Key`, `text`|`html` -> `inlineContent`)
@@ -78,11 +74,10 @@ interface ReferenceMaterialRow {
   readonly content_kind: 'file' | 'text' | 'html';
   readonly s3_key: string | null;
   readonly inline_content: string | null;
-  readonly embedding_id: string | null;
 }
 
 const RETURNING =
-  'id, tier, department_id, document_type_id, title, section, content_kind, s3_key, inline_content, embedding_id';
+  'id, tier, department_id, document_type_id, title, section, content_kind, s3_key, inline_content';
 
 /** Map a raw row to the validated shared {@link ReferenceMaterial} DTO. */
 function toReferenceMaterial(row: ReferenceMaterialRow): ReferenceMaterial {
@@ -96,7 +91,6 @@ function toReferenceMaterial(row: ReferenceMaterialRow): ReferenceMaterial {
     contentKind: row.content_kind,
     s3Key: row.s3_key,
     inlineContent: row.inline_content,
-    embeddingId: row.embedding_id,
   });
 }
 
@@ -237,34 +231,10 @@ export async function listDocumentTypeReferenceMaterial(
 }
 
 /**
- * Record the `embedding` table linkage once the two-tier reference store
- * (Task 10.1) finishes indexing this material's chunks. Not itself gated by
- * a Department-Admin capability check: it is invoked by the ingestion
- * pipeline (a trusted internal caller), not directly by a client request.
- */
-export async function setReferenceMaterialEmbeddingId(
-  id: string,
-  embeddingId: string,
-  db: QueryExecutor,
-): Promise<ReferenceMaterial> {
-  const rows = await db.query<ReferenceMaterialRow>(
-    `UPDATE reference_material SET embedding_id = $2 WHERE id = $1 RETURNING ${RETURNING}`,
-    [id, embeddingId],
-  );
-  const row = rows[0];
-  if (!row) {
-    throw new NotFoundError(`Reference Material '${id}' not found`);
-  }
-  return toReferenceMaterial(row);
-}
-
-/**
  * Delete a Reference Material entry (`DepartmentAdmin` for the owning
  * Department, scoped per tier as in {@link createReferenceMaterial}).
  * Returns `true` when a row was removed, `false` when no entry had that id.
- * Removing the catalog row does not itself delete the underlying S3 object
- * or `embedding` rows — that cleanup belongs to the ingestion/reference-store
- * layer, which is expected to react to this deletion asynchronously.
+ * Removing the catalog row does not delete any underlying S3 object.
  */
 export async function deleteReferenceMaterial(
   actor: AuthContext,

@@ -35,27 +35,25 @@
  * choose what to log), but no field name here suggests raw document content
  * and none is ever populated by this module itself.
  */
-import { createHash } from 'crypto';
-
 import { activityEventSchema, type ActivityEvent } from '@wren/types';
+import {
+  ACTIVITY_EVENT_COLUMNS,
+  pseudonymForActor,
+  recordActivityEventRow,
+  type ActivityEventRow,
+  type RecordActivityEventInput,
+} from '@wren/db-node';
 
 import type { QueryExecutor } from './db';
 
-/** Raw `activity_event` row (snake_case columns from PostgreSQL, post-V4 rename). */
-interface ActivityEventRow {
-  readonly id: string;
-  readonly actor_pseudonym: string;
-  readonly verb: string;
-  readonly object_type: string;
-  readonly object_ref: string;
-  readonly document_type_id: string | null;
-  readonly department_id: string | null;
-  readonly timestamp: string | Date;
-  readonly context: Record<string, unknown>;
-}
+// The pseudonymization and the append-only writer now live in the shared
+// `@wren/db-node` layer (Issue #187) so Admin and Document record events
+// through ONE algorithm/salt and produce correlatable pseudonyms. Re-export
+// them here so existing importers of this module keep working unchanged.
+export { pseudonymForActor };
+export type { RecordActivityEventInput };
 
-const RETURNING =
-  'id, actor_pseudonym, verb, object_type, object_ref, document_type_id, department_id, "timestamp", context';
+const RETURNING = ACTIVITY_EVENT_COLUMNS;
 
 function toIsoString(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
@@ -77,83 +75,23 @@ function toActivityEvent(row: ActivityEventRow): ActivityEvent {
 }
 
 /**
- * A server-side secret that salts every pseudonym so it cannot be reversed to
- * a `userId` by an observer who only sees {@link pseudonymForActor}'s output
- * (e.g. from an activity-log export). It is NOT a substitute for access
- * control on the activity log itself — only a defense against the pseudonym
- * leaking `userId` structure (which is a bare UUID and would otherwise be
- * trivially distinguishable/guessable across a small user base).
+ * Append one Actor–Verb–Object event to the activity log (Requirement 44.1)
+ * and return the validated {@link ActivityEvent} DTO. No capability check:
+ * called by other services as a side effect of their own (already-authorized)
+ * operations, not exposed as a standalone privileged endpoint. Always resolves
+ * to a persisted event with a pseudonymous actor — the raw `actorUserId` is
+ * never written to storage.
  *
- * Deliberately read lazily (not at module load) so tests never need the
- * environment variable set, and production always fails closed if it is
- * missing rather than silently using a constant, guessable salt.
- */
-function pseudonymSalt(): string {
-  const salt = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-  if (!salt) {
-    throw new Error(
-      'WREN_ACTIVITY_PSEUDONYM_SALT is not configured — cannot derive a stable actor pseudonym',
-    );
-  }
-  return salt;
-}
-
-/**
- * Derive a STABLE pseudonym for `userId` (Requirement 44.4 — "a stable
- * pseudonymous identifier"). Stable: the same `userId` always yields the same
- * pseudonym, so per-actor aggregation still works on the pseudonym alone.
- * One-way: a salted SHA-256 digest, so the raw `userId` cannot be recovered
- * from the pseudonym without the salt.
- */
-export function pseudonymForActor(userId: string): string {
-  return createHash('sha256').update(`${pseudonymSalt()}:${userId}`).digest('hex');
-}
-
-/** One Actor–Verb–Object activity to record. */
-export interface RecordActivityEventInput {
-  /** The acting User's app-database id; converted to a pseudonym, never stored raw. */
-  readonly actorUserId: string;
-  readonly verb: string;
-  readonly objectType: string;
-  readonly objectRef: string;
-  /** Document Type scope, when the activity is Document-Type-scoped. */
-  readonly documentTypeId?: string;
-  /** Department scope, when the activity is Department-scoped. */
-  readonly departmentId?: string;
-  /** Structured context only — never raw document content (Requirement 44.1). */
-  readonly context?: Record<string, unknown>;
-  /** Defaults to `now()`; overridable so callers/tests can pin the timestamp. */
-  readonly timestamp?: Date;
-}
-
-/**
- * Append one Actor–Verb–Object event to the activity log (Requirement 44.1).
- * No capability check: called by other services as a side effect of their
- * own (already-authorized) operations, not exposed as a standalone
- * privileged endpoint. Always resolves to a persisted event with a
- * pseudonymous actor — the raw `actorUserId` is never written to storage.
+ * The append itself (pseudonymization + INSERT) is delegated to the shared
+ * `@wren/db-node` writer so Admin and Document produce correlatable pseudonyms;
+ * this wrapper adds the Admin_Service's `@wren/types` DTO validation on top.
  */
 export async function recordActivityEvent(
   input: RecordActivityEventInput,
   db: QueryExecutor,
 ): Promise<ActivityEvent> {
-  const rows = await db.query<ActivityEventRow>(
-    `INSERT INTO activity_event
-       (actor_pseudonym, verb, object_type, object_ref, document_type_id, department_id, "timestamp", context)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING ${RETURNING}`,
-    [
-      pseudonymForActor(input.actorUserId),
-      input.verb,
-      input.objectType,
-      input.objectRef,
-      input.documentTypeId ?? null,
-      input.departmentId ?? null,
-      input.timestamp ?? new Date(),
-      input.context ?? {},
-    ],
-  );
-  return toActivityEvent(rows[0]!);
+  const row = await recordActivityEventRow(input, db);
+  return toActivityEvent(row);
 }
 
 /**

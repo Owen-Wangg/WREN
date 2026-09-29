@@ -113,6 +113,76 @@ export async function auditPromptEdit(
 }
 
 /**
+ * Record an audit event for a platform-policy change made by a TechnicalAdmin
+ * (Issue #187): the active Bedrock model id (`handleUpdateModelConfig`) or the
+ * platform usage caps (`handleUpdateUsageLimits`). These are platform-scoped
+ * privileged mutations with no Department/Document-Type scope, so they carry
+ * neither. `newValue`/`previousValue` hold only structured policy fields —
+ * never secrets.
+ */
+export async function auditPlatformPolicyChange(
+  actor: AuthContext,
+  detail: {
+    change: 'model' | 'usageLimits';
+    newValue: Record<string, unknown>;
+    previousValue?: Record<string, unknown>;
+  },
+  db: QueryExecutor,
+): Promise<void> {
+  await recordActivityEvent(
+    {
+      actorUserId: actor.userId,
+      verb: 'platform_policy.updated',
+      objectType: 'PlatformUsagePolicy',
+      objectRef: `platform:${detail.change}`,
+      context: {
+        role: actor.roles[0],
+        change: detail.change,
+        newValue: detail.newValue,
+        ...(detail.previousValue ? { previousValue: detail.previousValue } : {}),
+      },
+    },
+    db,
+  );
+}
+
+/**
+ * Record an audit event for an OPEN/LOCKED access-state change on a Document
+ * Type (`handleSetDocumentTypeAccessState`) or a Department
+ * (`handleSetDepartmentAccessState`) (Issue #187). Access state gates whether
+ * Students may submit work, so a flip is a security-relevant configuration
+ * change that must be attributable to the acting TechnicalAdmin.
+ */
+export async function auditAccessStateChange(
+  actor: AuthContext,
+  detail: {
+    scope: 'documentType' | 'department';
+    documentTypeId?: string;
+    departmentId: string;
+    accessState: 'OPEN' | 'LOCKED';
+  },
+  db: QueryExecutor,
+): Promise<void> {
+  await recordActivityEvent(
+    {
+      actorUserId: actor.userId,
+      verb: 'access_state.updated',
+      objectType: detail.scope === 'documentType' ? 'DocumentType' : 'Department',
+      objectRef:
+        detail.scope === 'documentType' ? detail.documentTypeId! : detail.departmentId,
+      documentTypeId: detail.documentTypeId,
+      departmentId: detail.departmentId,
+      context: {
+        role: actor.roles[0],
+        scope: detail.scope,
+        accessState: detail.accessState,
+      },
+    },
+    db,
+  );
+}
+
+/**
  * Record an audit event for a role or access-grant change. Requirement 45.2:
  * "retain audit records of administrative and security events (e.g. role
  * changes, override grants)."

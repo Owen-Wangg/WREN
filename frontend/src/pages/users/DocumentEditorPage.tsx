@@ -56,6 +56,8 @@ import {
 } from '@/features/editor/docxContentMapper';
 import { tiptapContentToPdfBlob } from '@/features/editor/pdfExport';
 import { useDraftAutosave } from '@/features/editor/useDraftAutosave';
+import { resolveEffectiveWordLimit, totalDraftWordCount } from '@/features/editor/wordLimit';
+import { useWritingTypes } from '@/features/dashboard/useDashboard';
 import {
   sanitizeTipTapContent,
   tipTapContentNeedsSanitization,
@@ -469,6 +471,7 @@ export function DocumentEditorPage() {
 
   const {
     status: autosaveStatus,
+    overLimit: autosaveOverLimit,
     retry: retryAutosave,
     flush: flushAutosave,
   } = useDraftAutosave({
@@ -486,6 +489,14 @@ export function DocumentEditorPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [fileSizeError, setFileSizeError] = useState<string | undefined>(undefined);
   const { data: uploadConfig } = useUploadConfig();
+  // Document Type catalog (usually already cached from the dashboard) — source
+  // of the per-type `sizeLimitWords` override the server applies on save.
+  const { data: writingTypes } = useWritingTypes();
+  const documentTypeSizeLimitWords = useMemo(() => {
+    const typeId = documentData?.documentTypeId;
+    if (!typeId) return null;
+    return writingTypes?.find((t) => t.id === typeId)?.sizeLimitWords ?? null;
+  }, [documentData?.documentTypeId, writingTypes]);
 
   const saveDraftFromEditor = useCallback(async () => {
     // Snapshot paragraph segments the feedback engine actually reads.
@@ -845,8 +856,15 @@ export function DocumentEditorPage() {
   };
 
   const wordCount = wordCountFromEditorContent(currentContent);
-  const maxWordCount = uploadConfig?.maxWordCount ?? 10_000;
-  const isOverWordLimit = wordCount > maxWordCount;
+  // Match the server's autosave gate: body + header + footer against the
+  // Document Type override (if any), else the platform limit. Once the server
+  // has rejected a save, its reported limit wins over the client's resolution.
+  const limitWordCount = totalDraftWordCount(currentContent, currentHeader, currentFooter);
+  const headerFooterWordCount = limitWordCount - wordCount;
+  const maxWordCount =
+    autosaveOverLimit?.effectiveLimitWords ??
+    resolveEffectiveWordLimit(documentTypeSizeLimitWords, uploadConfig?.maxWordCount);
+  const isOverWordLimit = limitWordCount > maxWordCount;
   const estimatedPageCount = usePrintedPageEstimate(
     currentContent,
     currentHeader,
@@ -856,7 +874,7 @@ export function DocumentEditorPage() {
     breadcrumb !== 'Document' ? breadcrumb : null,
     `Draft v${draftVersion}`,
     isOverWordLimit
-      ? `${wordCount.toLocaleString()} / ${maxWordCount.toLocaleString()} words`
+      ? `${limitWordCount.toLocaleString()} / ${maxWordCount.toLocaleString()} words`
       : `${wordCount.toLocaleString()} words`,
     estimatedPageCount === 1 ? '~1 page' : `~${estimatedPageCount.toLocaleString()} pages`,
   ]
@@ -1132,6 +1150,18 @@ export function DocumentEditorPage() {
                   </button>
                 </p>
               )}
+              {autosaveStatus === 'over-limit' && (
+                <p className="text-caption font-sans text-signal-critical">
+                  Not saved — over the word limit.{' '}
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 hover:text-text-primary"
+                    onClick={retryAutosave}
+                  >
+                    Retry
+                  </button>
+                </p>
+              )}
             </div>
           )}
           {isOverWordLimit && (
@@ -1140,7 +1170,8 @@ export function DocumentEditorPage() {
               className="flex items-center gap-sm border-b border-border-subtle bg-signal-critical/5 px-lg py-sm"
             >
               <p className="text-bodySmall text-signal-critical">
-                This document exceeds the maximum word count of {maxWordCount.toLocaleString()} words. Current count: {wordCount.toLocaleString()}. Shorten the document to save.
+                This document exceeds the maximum word count of {maxWordCount.toLocaleString()} words. Current count: {limitWordCount.toLocaleString()}
+                {headerFooterWordCount > 0 ? ' (including header and footer)' : ''}. Shorten the document to save.
               </p>
             </div>
           )}

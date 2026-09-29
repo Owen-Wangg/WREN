@@ -30,6 +30,13 @@ export interface ObservabilityStackProps extends StackProps {
    */
   readonly authorizerFunctionName?: string;
   /**
+   * Name of the API Gateway access-log group (Issue #187). When provided, the
+   * security observability adds metric filters/alarms over the structured
+   * access log (unauthorized responses, privileged deletes). Omitted in unit
+   * tests that synth the stack in isolation.
+   */
+  readonly apiAccessLogGroupName?: string;
+  /**
    * Optional, configurable thresholds for the prompt-cache alarms (plan
    * §16/§17). All have SAFE defaults chosen so that, under the default
    * `observe` posture (no cache activity => cache metrics stay at zero /
@@ -142,6 +149,10 @@ export class ObservabilityStack extends Stack {
     // otherwise, on a first deploy where the authorizer has never run, the
     // group may not exist yet when the filters are created.
     let authorizerLogRetention: logs.LogRetention | undefined;
+    // Captured so security metric filters (below) can depend on the
+    // LogRetention custom resource that upserts each Lambda's log group on a
+    // first deploy where the function has never run.
+    const logRetentions = new Map<string, logs.LogRetention>();
     for (let i = 0; i < functionNames.length; i++) {
       const functionName = functionNames[i]!;
       const logRetention = new logs.LogRetention(this, `LogRetention${i}`, {
@@ -149,6 +160,7 @@ export class ObservabilityStack extends Stack {
         retention: retentionDays,
         removalPolicy: RemovalPolicy.RETAIN,
       });
+      logRetentions.set(functionName, logRetention);
       if (functionName === authorizerName) {
         authorizerLogRetention = logRetention;
       }
@@ -225,6 +237,14 @@ export class ObservabilityStack extends Stack {
       props.authorizerFunctionName,
       authorizerLogRetention,
     );
+
+    // -------------------------------------------------------------------
+    // Security observability (Issue #187): surface authentication failures,
+    // authorization denials, privileged mutations, and audit-write failures as
+    // CloudWatch metrics + alarms so security-critical events are no longer
+    // invisible at the request/auth layer.
+    // -------------------------------------------------------------------
+    this.addSecurityObservability(config, logRetentions, props.apiAccessLogGroupName);
 
     // -------------------------------------------------------------------
     // Feedback Queue Depth Alarm (degradation signal)
@@ -443,6 +463,166 @@ export class ObservabilityStack extends Stack {
         alarmDescription: signal.description,
       });
       alarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
+    }
+  }
+
+  /**
+   * Security metric filters + alarms (Issue #187). Turns the structured log
+   * lines the application now emits into countable metrics and alarms:
+   *
+   *   - Authentication failures  — authorizer `event: "auth_failure"`.
+   *   - Authorization denials    — admin `event: "authz_denial"`.
+   *   - Unauthorized API responses (401/403) — API Gateway access log.
+   *   - Privileged document deletions — DELETE on the access log.
+   *   - Audit-write failures     — admin/document `event: "audit_write_failed"`
+   *     (a privileged action that could NOT be recorded — a security gap).
+   *
+   * Volume-based signals (auth failures, denials, 401/403, privileged deletes)
+   * use non-zero thresholds so routine activity (an expired token, a single
+   * legitimate delete) stays quiet and only anomalous bursts page. Audit-write
+   * failures should never happen, so any occurrence alarms. All wire to
+   * {@link alarmTopic} and use NOT_BREACHING so absent data reads healthy.
+   */
+  private addSecurityObservability(
+    config: AppConfig,
+    logRetentions: Map<string, logs.LogRetention>,
+    apiAccessLogGroupName: string | undefined,
+  ): void {
+    const securityNamespace = `${config.stackPrefix}/Security`;
+    const authorizerName = `${config.stackPrefix}-authorizer`;
+    const adminName = `${config.stackPrefix}-admin`;
+    const documentName = `${config.stackPrefix}-document`;
+
+    // Create one metric filter (log pattern -> metric) plus an alarm on it.
+    const addLogSignal = (opts: {
+      id: string;
+      logGroupName: string;
+      dependency?: logs.LogRetention;
+      metricName: string;
+      pattern: logs.IFilterPattern;
+      alarmSuffix: string;
+      threshold: number;
+      description: string;
+    }): void => {
+      const logGroup = logs.LogGroup.fromLogGroupName(
+        this,
+        `SecLogGroupRef-${opts.id}`,
+        opts.logGroupName,
+      );
+      const metricFilter = new logs.MetricFilter(this, `SecMetricFilter-${opts.id}`, {
+        logGroup,
+        metricNamespace: securityNamespace,
+        metricName: opts.metricName,
+        filterPattern: opts.pattern,
+        metricValue: "1",
+        defaultValue: 0,
+      });
+      if (opts.dependency) {
+        metricFilter.node.addDependency(opts.dependency);
+      }
+      const alarm = new cloudwatch.Alarm(this, `SecAlarm-${opts.id}`, {
+        alarmName: `${config.stackPrefix}-${opts.alarmSuffix}`,
+        metric: metricFilter.metric({
+          statistic: "Sum",
+          period: Duration.minutes(5),
+        }),
+        threshold: opts.threshold,
+        evaluationPeriods: 1,
+        datapointsToAlarm: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        alarmDescription: opts.description,
+      });
+      alarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
+    };
+
+    // ---- Authentication failures (authorizer log) --------------------------
+    // Routine at low volume (expired tokens); a burst suggests credential
+    // stuffing / a broken client. Alarm above 25 failures in a 5-min window.
+    addLogSignal({
+      id: "AuthFailures",
+      logGroupName: `/aws/lambda/${authorizerName}`,
+      dependency: logRetentions.get(authorizerName),
+      metricName: "AuthenticationFailures",
+      pattern: logs.FilterPattern.literal('{ $.event = "auth_failure" }'),
+      alarmSuffix: "auth-failures",
+      threshold: 25,
+      description:
+        "Elevated authentication failures at the authorizer (>25 / 5 min). " +
+        "Possible credential stuffing or a misconfigured client.",
+    });
+
+    // ---- Authorization denials (admin log) ---------------------------------
+    // A denied capability for a legitimate user is rare; a spike suggests
+    // privilege probing. Alarm above 10 denials in a 5-min window.
+    addLogSignal({
+      id: "AuthzDenials",
+      logGroupName: `/aws/lambda/${adminName}`,
+      dependency: logRetentions.get(adminName),
+      metricName: "AuthorizationDenials",
+      pattern: logs.FilterPattern.literal('{ $.event = "authz_denial" }'),
+      alarmSuffix: "authz-denials",
+      threshold: 10,
+      description:
+        "Elevated authorization denials in the Admin service (>10 / 5 min). " +
+        "Possible privilege probing — review the denied actors and capabilities.",
+    });
+
+    // ---- Audit-write failures (admin + document logs) ----------------------
+    // A privileged action succeeded but its audit record could NOT be written
+    // (e.g. a missing GRANT). This must never happen, so ANY occurrence alarms.
+    for (const [svc, fnName] of [
+      ["Admin", adminName],
+      ["Document", documentName],
+    ] as const) {
+      addLogSignal({
+        id: `AuditWriteFailures-${svc}`,
+        logGroupName: `/aws/lambda/${fnName}`,
+        dependency: logRetentions.get(fnName),
+        metricName: "AuditWriteFailures",
+        pattern: logs.FilterPattern.literal('{ $.event = "audit_write_failed" }'),
+        alarmSuffix: `audit-write-failures-${svc.toLowerCase()}`,
+        threshold: 0,
+        description:
+          `A privileged action in the ${svc} service could not be audited ` +
+          "(audit_write_failed). The retention/audit contract is at risk — " +
+          "check the wren_document/wren_admin GRANT on activity_event.",
+      });
+    }
+
+    // ---- API Gateway access-log signals ------------------------------------
+    // Only when the access log group name is wired in (skipped in unit tests
+    // that synth this stack in isolation).
+    if (apiAccessLogGroupName) {
+      // Unauthorized responses (401/403) across ALL services — complements the
+      // authorizer/admin log filters by also catching 403s from other services.
+      addLogSignal({
+        id: "ApiUnauthorized",
+        logGroupName: apiAccessLogGroupName,
+        metricName: "ApiUnauthorizedResponses",
+        pattern: logs.FilterPattern.literal("{ $.status = 401 || $.status = 403 }"),
+        alarmSuffix: "api-unauthorized",
+        threshold: 25,
+        description:
+          "Elevated 401/403 responses at API Gateway (>25 / 5 min) — possible " +
+          "unauthorized-access attempts across services.",
+      });
+
+      // Privileged document deletions — destructive, permanent removal of
+      // student work. A single delete is legitimate; a burst is suspicious.
+      addLogSignal({
+        id: "PrivilegedDocumentDeletes",
+        logGroupName: apiAccessLogGroupName,
+        metricName: "PrivilegedDocumentDeletes",
+        pattern: logs.FilterPattern.literal(
+          '{ ($.httpMethod = "DELETE") && ($.resourcePath = "/v1/documents/{documentId}") }',
+        ),
+        alarmSuffix: "privileged-document-deletes",
+        threshold: 10,
+        description:
+          "Elevated document deletions (>10 / 5 min). Deletion permanently " +
+          "destroys student work and attached feedback — review the actors.",
+      });
     }
   }
 

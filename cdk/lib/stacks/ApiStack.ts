@@ -1,10 +1,11 @@
 import * as fs from "fs";
 import * as path from "path";
 import YAML from "js-yaml";
-import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, RemovalPolicy } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
 
 import type { AppConfig } from "../config";
@@ -52,6 +53,8 @@ export interface ApiStackProps extends StackProps {
 export class ApiStack extends Stack {
   public readonly api: apigateway.SpecRestApi;
   public readonly apiEndpoint: string;
+  /** Name of the API Gateway access-log group (Issue #187) — consumed by the ObservabilityStack security alarms. */
+  public readonly accessLogGroupName: string;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -208,6 +211,52 @@ export class ApiStack extends Stack {
       }
     }
 
+    // -----------------------------------------------------------------------
+    // API Gateway access logging (Issue #187).
+    //
+    // The stage previously had loggingLevel: ERROR and NO access log, so there
+    // was no request-layer audit trail — every request (including 401/403s and
+    // privileged mutations) was invisible to operators. A dedicated access-log
+    // group with a structured JSON format makes each request queryable and
+    // gives the ObservabilityStack security alarms something to filter on.
+    //
+    // The format deliberately excludes the Authorization header (and any token
+    // material): only request metadata, the caller principal ($context.authorizer
+    // principalId = the app userId), status, and latency are logged.
+    // -----------------------------------------------------------------------
+    const isProd = config.environmentName === "prod";
+    const accessLogGroup = new logs.LogGroup(this, `${id}-AccessLogs`, {
+      logGroupName: `/aws/apigateway/${config.stackPrefix}-api/access`,
+      retention: isProd
+        ? logs.RetentionDays.THREE_MONTHS
+        : logs.RetentionDays.ONE_MONTH,
+      // Security/audit logs: keep them on prod teardown; destroy in ephemeral envs.
+      removalPolicy: isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+    this.accessLogGroupName = accessLogGroup.logGroupName;
+
+    const accessLogFormat = apigateway.AccessLogFormat.custom(
+      JSON.stringify({
+        requestId: "$context.requestId",
+        extendedRequestId: "$context.extendedRequestId",
+        requestTime: "$context.requestTime",
+        sourceIp: "$context.identity.sourceIp",
+        // The authorizer sets principalId to the app userId; NOT a secret.
+        principalId: "$context.authorizer.principalId",
+        userAgent: "$context.identity.userAgent",
+        httpMethod: "$context.httpMethod",
+        resourcePath: "$context.resourcePath",
+        path: "$context.path",
+        status: "$context.status",
+        protocol: "$context.protocol",
+        responseLength: "$context.responseLength",
+        integrationLatency: "$context.integrationLatency",
+        responseLatency: "$context.responseLatency",
+        // Present only when the authorizer denied/failed; useful for auth alarms.
+        authorizerError: "$context.authorizer.error",
+      }),
+    );
+
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
       apiDefinition: apigateway.ApiDefinition.fromInline(resolvedSpec),
       restApiName: `${config.stackPrefix}-api`,
@@ -218,6 +267,9 @@ export class ApiStack extends Stack {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.ERROR,
+        // Structured access log for every request (Issue #187).
+        accessLogDestination: new apigateway.LogGroupLogDestination(accessLogGroup),
+        accessLogFormat,
         tracingEnabled: true, // X-Ray tracing
         // Cache cluster stays enabled so Control Tower CT.APIGATEWAY.PR.3 can
         // require encryption on the catch-all method setting. Per-method
