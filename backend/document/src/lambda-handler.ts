@@ -4,7 +4,7 @@
  */
 import type { APIGatewayProxyResult, Context } from 'aws-lambda';
 import { freezeEventLoopOnReturn, getDataAccess, recordActivityEventRow } from '@wren/db-node';
-import { S3Client, GetObjectCommand, DeleteObjectsCommand, DeleteObjectTaggingCommand, PutObjectTaggingCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, DeleteObjectsCommand, PutObjectTaggingCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
@@ -22,6 +22,7 @@ import {
   TIPTAP_FIELD_MAX_BYTES,
 } from '@wren/types';
 
+import { clearOrphanUploadTag as clearOrphanUploadTagWithRetry } from './orphanUploadTag.js';
 import { MammothDocxExtractor } from './docxExtractor.js';
 import { createPdfExtractor } from './ocrFactory.js';
 import { resolveOcrEngine } from './textractOcr.js';
@@ -164,16 +165,18 @@ function canonicalUploadContentType(filename: string, contentType: string): stri
   return null;
 }
 
-async function clearOrphanUploadTag(key: string): Promise<void> {
-  const bucket = process.env.DOCUMENTS_BUCKET_NAME;
-  if (!bucket) return;
-  try {
-    await s3Client.send(
-      new DeleteObjectTaggingCommand({ Bucket: bucket, Key: key }),
-    );
-  } catch (err) {
-    console.warn('clearOrphanUploadTag: non-fatal error', err);
-  }
+/**
+ * Clear the `orphan-upload` tag on an attached upload so the retained original
+ * survives the lifecycle rule. Fails closed on unrecoverable failure (see
+ * `orphanUploadTag.ts` / finding S-2): a thrown `OrphanTagClearError` carries a
+ * 500 and is mapped to `INTERNAL_ERROR` by `wrapHandler`, so no document row is
+ * committed against an object S3 will delete within 24h.
+ */
+function clearOrphanUploadTag(key: string): Promise<void> {
+  return clearOrphanUploadTagWithRetry(key, {
+    client: s3Client,
+    bucket: process.env.DOCUMENTS_BUCKET_NAME,
+  });
 }
 
 /**
@@ -1052,13 +1055,54 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
   if (s3Keys.length > 0) {
     const s3 = new S3Client({ region: process.env.AWS_REGION || 'ca-central-1' });
     const bucketName = process.env.DOCUMENTS_BUCKET_NAME!;
-    // DeleteObjects accepts up to 1000 keys per call.
+    // DeleteObjects accepts up to 1000 keys per call. It returns a per-key
+    // Errors[] (even with Quiet: true) — this is a compliance-driven PII
+    // erasure (REQ-SEC-PII-01), so a partial failure must NOT be reported as a
+    // clean deletion. Accumulate any per-key errors and fail closed below.
+    const deleteErrors: { Key?: string; Code?: string; Message?: string }[] = [];
     for (let i = 0; i < s3Keys.length; i += 1000) {
       const batch = s3Keys.slice(i, i + 1000);
-      await s3.send(new DeleteObjectsCommand({
+      const resp = await s3.send(new DeleteObjectsCommand({
         Bucket: bucketName,
         Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
       }));
+      if (resp.Errors?.length) deleteErrors.push(...resp.Errors);
+    }
+    if (deleteErrors.length > 0) {
+      // EMF metric (parsed from stdout) so incomplete erasure is observable.
+      console.log(
+        JSON.stringify({
+          _aws: {
+            Timestamp: Date.now(),
+            CloudWatchMetrics: [
+              {
+                Namespace: 'WREN/Document',
+                Dimensions: [[]],
+                Metrics: [{ Name: 'PiiDeleteObjectsFailure', Unit: 'Count' }],
+              },
+            ],
+          },
+          PiiDeleteObjectsFailure: 1,
+          documentId,
+          failedCount: deleteErrors.length,
+        }),
+      );
+      // Error codes only — object keys/bodies are not logged as content.
+      console.error(
+        JSON.stringify({
+          event: 'pii_delete_failed',
+          documentId,
+          failedCount: deleteErrors.length,
+          codes: deleteErrors.map((e) => e.Code),
+        }),
+      );
+      // Fail closed: wrapHandler maps statusCode>=500 to a 500 INTERNAL_ERROR,
+      // so the incomplete erasure is neither audited as complete nor returned
+      // as a success. Positioned before the audit write and the final 200.
+      throw Object.assign(
+        new Error('Failed to delete all uploaded objects during erasure'),
+        { statusCode: 500 },
+      );
     }
   }
 
