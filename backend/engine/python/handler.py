@@ -10,7 +10,7 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Sequence
 import uuid
 import hashlib
 
@@ -48,6 +48,7 @@ from wren_engine.structural_feedback import StructuralFeedbackItem
 from wren_engine.strength_coverage import (
     accept_filled_strengths,
     build_strength_fill_prompt,
+    categories_without_improvements,
     document_text_from_segments,
     missing_strength_categories,
     normalize_feedback_kinds,
@@ -74,7 +75,9 @@ from wren_engine.debrief_budget import (
     cap_reference_materials_with_report,
     debrief_max_tokens,
     emit_reference_cap_telemetry,
+    strength_fill_max_tokens,
 )
+from wren_engine.enabled_categories import resolve_enabled_categories
 from wren_engine.models import Segment, Span
 from wren_engine.model_invocation import (
     resolve_bedrock_model_id,
@@ -652,6 +655,25 @@ def build_structured_prompt(
     category_names_list = doc_type_meta.get('category_names', [])
     category_guidance = doc_type_meta.get('category_guidance', {})
 
+    # Enabled category set E (same pure resolver process_feedback_request uses).
+    # With an explicit selection, list only enabled categories (in taxonomy
+    # order) in the taxonomy block and the criteria blocks, so the model does
+    # not spend output budget on categories Step 7b would drop. With no
+    # selection (or a fully stale one) the original tuples pass through
+    # unchanged, keeping the no-selection render byte-identical.
+    enabled = resolve_enabled_categories(
+        config.get('category_priority'), category_ids,
+    )
+    if enabled.explicit and category_ids:
+        enabled_set = set(enabled.ids)
+        enabled_pairs = [
+            (cid, cname)
+            for cid, cname in zip(category_ids, category_names_list)
+            if cid is not None and str(cid).strip() in enabled_set
+        ]
+        category_ids = [cid for cid, _ in enabled_pairs]
+        category_names_list = [cname for _, cname in enabled_pairs]
+
     criteria_blocks = []
     for cid, cname in zip(category_ids, category_names_list):
         if not cid or not cname:
@@ -696,7 +718,7 @@ def build_structured_prompt(
         category_ids=tuple(category_ids),
         tone=config.get('tone', 'supportive'),
         density=config.get('density', 'moderate'),
-        category_priority=tuple(config.get('category_priority', [])),
+        category_priority=enabled.prompt_priority,
         type_instructions=type_instructions,
         reference_grounding_note=grounding_note,
     )
@@ -708,7 +730,7 @@ def build_structured_prompt(
         category_ids=tuple(category_ids),
         tone=config.get('tone', 'supportive'),
         density=config.get('density', 'moderate'),
-        category_priority=tuple(config.get('category_priority', [])),
+        category_priority=enabled.prompt_priority,
         type_instructions=legacy_type_instructions,
         reference_grounding_note=grounding_note,
     )
@@ -1460,12 +1482,18 @@ def _run_quote_safety_net(
     config: dict[str, Any],
     doc_type_meta: dict[str, Any],
     conn: psycopg.Connection,
+    *,
+    enabled_category_ids: Sequence[str] | None = None,
 ) -> int:
     """After items are persisted, check that each visible section has at least
     one quoted item. If not, run a single targeted Bedrock fill-in and append
     the missing examples without wiping existing data. Returns the count of
     items inserted (0 if coverage was already adequate or if it failed).
-    Non-fatal: any error is logged and swallowed so the main job always completes."""
+    Non-fatal: any error is logged and swallowed so the main job always completes.
+
+    ``enabled_category_ids`` (the enabled set E) limits the categories offered
+    to the fill-in so fallback items cannot land in a deselected category.
+    ``None`` keeps the full taxonomy (equal to E when no selection is saved)."""
     try:
         has_strength, has_inline = _check_quote_coverage(draft_id, conn)
         missing = []
@@ -1483,6 +1511,13 @@ def _run_quote_safety_net(
 
         category_ids = list(doc_type_meta.get('category_ids', []))
         category_names = list(doc_type_meta.get('category_names', []))
+        if enabled_category_ids is not None:
+            id_to_name = {
+                str(cid): str(cname)
+                for cid, cname in zip(category_ids, category_names)
+            }
+            category_ids = [str(cid) for cid in enabled_category_ids]
+            category_names = [id_to_name.get(cid, cid) for cid in category_ids]
         if not category_ids:
             logger.warning("Quote safety net: no category IDs, skipping")
             return 0
@@ -1526,24 +1561,64 @@ def _run_quote_safety_net(
         return 0
 
 
+def _log_improvement_gap(
+    items: list[dict[str, Any]],
+    *,
+    enabled_category_ids: Sequence[str],
+    doc_type_meta: dict[str, Any],
+    stop_reason: str,
+    recovered: int | None = None,
+) -> list[str]:
+    """Warn (log only) when enabled categories have no inline/structural item.
+
+    Emits a single warning naming the uncovered categories (names from the
+    taxonomy, falling back to the ID), the stop reason, and the recovered item
+    count. Never logs draft text and never adds items. Returns the gap IDs.
+    """
+    gaps = categories_without_improvements(items, enabled_category_ids)
+    if gaps:
+        id_to_name = {
+            str(cid): str(name)
+            for cid, name in zip(
+                doc_type_meta.get('category_ids', []) or [],
+                doc_type_meta.get('category_names', []) or [],
+            )
+        }
+        names = [id_to_name.get(cid) or cid for cid in gaps]
+        logger.warning(
+            "debrief improvement coverage gap: %s enabled categor(ies) with no "
+            "improvement items: [%s] (stop_reason=%r, recovered=%s)",
+            len(gaps),
+            ", ".join(names),
+            stop_reason,
+            len(items) if recovered is None else recovered,
+        )
+    return gaps
+
+
 def _ensure_strength_coverage(
     feedback_items: list[dict[str, Any]],
     *,
     valid_category_ids: set[str],
-    category_priority: list[str],
+    enabled_category_ids: Sequence[str],
     category_ids: list[str],
     category_names: list[str],
     segments: list[dict[str, Any]],
     config: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Normalize, salvage, and fill so every required category has a strength."""
+    """Normalize, salvage, and fill so every enabled category has a strength.
+
+    ``enabled_category_ids`` is the enabled set E from
+    ``resolve_enabled_categories``; it is forwarded as the selection so the
+    coverage target is E on both the primary and carry-forward paths.
+    """
     normalize_feedback_kinds(feedback_items)
     salvage_strengths_from_positive_notes(feedback_items)
 
     required = required_strength_categories(
         feedback_items,
         valid_category_ids=valid_category_ids,
-        category_priority=category_priority,
+        category_priority=list(enabled_category_ids),
     )
     missing = missing_strength_categories(feedback_items, required)
     if not missing:
@@ -1572,7 +1647,10 @@ def _ensure_strength_coverage(
             missing_categories=missing_named,
         )
         raw, fill_stop = invoke_bedrock(
-            prompt, config, max_tokens=2048, workload='strength_fill'
+            prompt,
+            config,
+            max_tokens=strength_fill_max_tokens(len(missing)),
+            workload='strength_fill',
         )
         if fill_stop == 'max_tokens':
             logger.warning("Strength fill-in output was truncated (non-fatal)")
@@ -1590,6 +1668,15 @@ def _ensure_strength_coverage(
             logger.warning("Strength fill-in returned no usable strength items")
     except Exception as exc:
         logger.warning("Strength fill-in failed (non-fatal): %s", exc, exc_info=True)
+
+    still_missing = missing_strength_categories(feedback_items, required)
+    if still_missing:
+        logger.warning(
+            "strength coverage incomplete: %s enabled categor(ies) still without a "
+            "strength item: %s",
+            len(still_missing),
+            [id_to_name.get(cid, cid) for cid in sorted(still_missing)],
+        )
     return feedback_items
 
 
@@ -1614,6 +1701,23 @@ def _normalize_whitespace(text: str) -> str:
     """Collapse runs of whitespace to single spaces for fuzzy anchor matching."""
     import re
     return re.sub(r'\s+', ' ', text).strip()
+
+
+# Typographic quote fold for anchor matching. Word uploads keep curly quotes
+# and apostrophes, while the model usually writes straight ones.
+# Every key and value is a single code point, so translate() preserves string
+# length and character offsets: a match found in folded text sits at the same
+# offsets in the original text. Keep in sync with foldTypographicQuotes in
+# backend/feedback/src/quoteResolution.ts.
+_TYPOGRAPHIC_QUOTE_FOLD = str.maketrans({
+    '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201B': "'", '\u2032': "'",
+    '\u201C': '"', '\u201D': '"', '\u201E': '"', '\u201F': '"', '\u2033': '"',
+})
+
+
+def _fold_typographic_quotes(text: str) -> str:
+    """Map typographic single/double quotes to their straight forms (1:1, length-preserving)."""
+    return text.translate(_TYPOGRAPHIC_QUOTE_FOLD)
 
 
 def _fuzzy_find(para_text: str, model_quote: str) -> int:
@@ -1654,6 +1758,106 @@ def _fuzzy_find(para_text: str, model_quote: str) -> int:
     if pos_in_norm < len(norm_to_orig):
         return norm_to_orig[pos_in_norm]
     return -1
+
+
+def _fuzzy_end_offset(para_text: str, start_offset: int, norm_len: int) -> int:
+    """Walk forward from start_offset until norm_len normalized characters are covered.
+
+    Whitespace runs count as one character, matching _normalize_whitespace.
+    Returns the exclusive end offset in the ORIGINAL para_text.
+    """
+    count = 0
+    end_pos = start_offset
+    in_space = False
+    for j in range(start_offset, len(para_text)):
+        ch = para_text[j]
+        if ch in (' ', '\t', '\n', '\r', '\xa0'):
+            if not in_space:
+                count += 1
+                in_space = True
+        else:
+            count += 1
+            in_space = False
+        if count >= norm_len:
+            end_pos = j + 1
+            break
+    else:
+        end_pos = len(para_text)
+    return end_pos
+
+
+def _locate_quote_in_paragraph(para_text: str, model_quote: str) -> tuple[int, int, str] | None:
+    """Locate model_quote in para_text and return (start, end, match_method), or None.
+
+    Offsets refer to the ORIGINAL para_text, so para_text[start:end] is the
+    text to persist. The caller's model_quote is never mutated.
+    """
+    # 1. Exact match
+    start_offset = para_text.find(model_quote)
+    match_method = 'exact' if start_offset != -1 else None
+    if start_offset == -1:
+        # 2. Case-insensitive exact match
+        start_offset = para_text.lower().find(model_quote.lower())
+        if start_offset != -1:
+            match_method = 'case-insensitive'
+            model_quote = para_text[start_offset:start_offset + len(model_quote)]
+    if start_offset == -1:
+        # 3. Whitespace-normalized fuzzy match (handles OCR artifacts)
+        start_offset = _fuzzy_find(para_text, model_quote)
+        if start_offset != -1:
+            match_method = 'fuzzy-whitespace'
+            norm_len = len(_normalize_whitespace(model_quote))
+            end_pos = _fuzzy_end_offset(para_text, start_offset, norm_len)
+            model_quote = para_text[start_offset:end_pos]
+    if start_offset != -1:
+        return start_offset, start_offset + len(model_quote), match_method
+    # 4. Typographic quote fold (curly vs straight quotes/apostrophes).
+    # Runs only when steps 1-3 fail, so inputs matched today are unaffected.
+    return _locate_quote_typographic(para_text, model_quote)
+
+
+def _locate_quote_typographic(para_text: str, model_quote: str) -> tuple[int, int, str] | None:
+    """Step 4 of anchor matching: repeat exact / case-insensitive / fuzzy on folded text.
+
+    The fold is 1:1 and length-preserving, so offsets found in the folded
+    paragraph are valid in the original para_text. Every candidate span is
+    verified before acceptance, which guards against _fuzzy_find's leading-
+    whitespace and Unicode-space mapping quirks and length-changing lower().
+    """
+    fp = _fold_typographic_quotes(para_text)
+    fq = _fold_typographic_quotes(model_quote)
+    if fp == para_text and fq == model_quote:
+        # Fold changed nothing: steps 1-3 already covered this input.
+        return None
+
+    def _verified(start: int, end: int, method: str) -> tuple[int, int, str] | None:
+        if not (0 <= start < end <= len(para_text)):
+            return None
+        if _normalize_whitespace(fp[start:end]).lower() != _normalize_whitespace(fq).lower():
+            return None
+        return start, end, method
+
+    # 4a. Exact match on folded text
+    start = fp.find(fq)
+    if start != -1:
+        result = _verified(start, start + len(fq), 'typographic')
+        if result is not None:
+            return result
+    # 4b. Case-insensitive match on folded text
+    start = fp.lower().find(fq.lower())
+    if start != -1:
+        result = _verified(start, start + len(fq), 'typographic-case-insensitive')
+        if result is not None:
+            return result
+    # 4c. Whitespace-normalized match on folded text. The fold never touches
+    # whitespace, so the end-offset walk lands on the same original index.
+    start = _fuzzy_find(fp, fq)
+    if start != -1:
+        end = _fuzzy_end_offset(fp, start, len(_normalize_whitespace(fq)))
+        result = _verified(start, end, 'typographic-fuzzy-whitespace')
+        if result is not None:
+            return result
+    return None
 
 
 def expand_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]:
@@ -1714,41 +1918,9 @@ def insert_feedback_items(
                         model_quote = anchor_data.get('quotedText', '')
                         if para_index < len(segments) and model_quote:
                             para_text = segments[para_index].get('text', '')
-                            # 1. Exact match
-                            start_offset = para_text.find(model_quote)
-                            match_method = 'exact' if start_offset != -1 else None
-                            if start_offset == -1:
-                                # 2. Case-insensitive exact match
-                                start_offset = para_text.lower().find(model_quote.lower())
-                                if start_offset != -1:
-                                    match_method = 'case-insensitive'
-                                    model_quote = para_text[start_offset:start_offset + len(model_quote)]
-                            if start_offset == -1:
-                                # 3. Whitespace-normalized fuzzy match (handles OCR artifacts)
-                                start_offset = _fuzzy_find(para_text, model_quote)
-                                if start_offset != -1:
-                                    match_method = 'fuzzy-whitespace'
-                                    norm_len = len(_normalize_whitespace(model_quote))
-                                    count = 0
-                                    end_pos = start_offset
-                                    in_space = False
-                                    for j in range(start_offset, len(para_text)):
-                                        ch = para_text[j]
-                                        if ch in (' ', '\t', '\n', '\r', '\xa0'):
-                                            if not in_space:
-                                                count += 1
-                                                in_space = True
-                                        else:
-                                            count += 1
-                                            in_space = False
-                                        if count >= norm_len:
-                                            end_pos = j + 1
-                                            break
-                                    else:
-                                        end_pos = len(para_text)
-                                    model_quote = para_text[start_offset:end_pos]
-                            if start_offset != -1:
-                                end_offset = start_offset + len(model_quote)
+                            located = _locate_quote_in_paragraph(para_text, model_quote)
+                            if located is not None:
+                                start_offset, end_offset, match_method = located
                                 quoted_text = para_text[start_offset:end_offset]
                                 anchor_data['startOffset'] = start_offset
                                 anchor_data['endOffset'] = end_offset
@@ -2540,6 +2712,24 @@ def process_feedback_request(
         # Step 2b: Load document type name + error category taxonomy
         logger.info("Loading document type meta...")
         doc_type_meta = load_document_type_meta(writing_type_id, conn)
+        # Enabled category set E: saved selection ∩ taxonomy, or the full
+        # taxonomy when nothing (or only stale IDs) is selected.
+        enabled = resolve_enabled_categories(
+            config.get('category_priority'),
+            doc_type_meta.get('category_ids'),
+        )
+        if enabled.stale_ids:
+            logger.warning(
+                "Category selection contains %s ID(s) not in this document type's "
+                "taxonomy; ignoring them",
+                len(enabled.stale_ids),
+            )
+        if enabled.fell_back:
+            logger.warning(
+                "Category selection matches no taxonomy category; all %s "
+                "categories are enabled",
+                len(enabled.ids),
+            )
 
         # Step 2c: Load department-level prompt
         logger.info("Loading department prompt...")
@@ -2610,11 +2800,17 @@ def process_feedback_request(
                             }
                             for cached in remapped
                         ]
+                        _log_improvement_gap(
+                            cf_as_items,
+                            enabled_category_ids=enabled.ids,
+                            doc_type_meta=doc_type_meta,
+                            stop_reason='carry_forward',
+                        )
                         before_fill = len(cf_as_items)
                         _ensure_strength_coverage(
                             cf_as_items,
                             valid_category_ids=set(doc_type_meta.get('category_ids', [])),
-                            category_priority=list(config.get('category_priority', [])),
+                            enabled_category_ids=list(enabled.ids),
                             category_ids=list(doc_type_meta.get('category_ids', [])),
                             category_names=list(doc_type_meta.get('category_names', [])),
                             segments=segments,
@@ -2634,6 +2830,7 @@ def process_feedback_request(
                         persist_resolution_status(document_id, draft_id, segments, config, conn)
                         safety_net_count = _run_quote_safety_net(
                             document_id, draft_id, user_id, segments, config, doc_type_meta, conn,
+                            enabled_category_ids=enabled.ids,
                         )
                         total_cf = cf_count + filled + safety_net_count
                         update_aggregate_counters(writing_type_id, total_cf, conn)
@@ -2697,7 +2894,7 @@ def process_feedback_request(
                 word_count_from_segments(segments),
                 str(config.get('density') or 'medium'),
             ),
-            category_count=len(doc_type_meta.get('category_ids') or []),
+            category_count=len(enabled.ids),
         )
 
         # ─── Start resolution judging in parallel with Bedrock generation ─────
@@ -2778,22 +2975,46 @@ def process_feedback_request(
             if dropped > 0:
                 logger.warning(f"Dropped {dropped} feedback items with category IDs outside this document type's taxonomy")
 
-        category_priority = config.get('category_priority', [])
-        if category_priority:
+        # Selection filter uses the enabled set E (selection ∩ taxonomy). A
+        # fully stale selection falls back to E = T and filters nothing.
+        if enabled.explicit:
+            enabled_set = set(enabled.ids)
             original_count = len(feedback_items)
             feedback_items = [
                 item for item in feedback_items
-                if item.get('error_category_id') in category_priority
+                if item.get('error_category_id') in enabled_set
             ]
             filtered_count = original_count - len(feedback_items)
             if filtered_count > 0:
                 logger.info(f"Filtered {filtered_count} feedback items outside dept admin selection (kept {len(feedback_items)})")
+
+        # Carried-forward items already committed to DB for unchanged
+        # paragraphs. Built here (before the density trim) so the improvement
+        # gap check sees them; also reused by Step 7c's coverage view.
+        cf_phantom_items: list[dict[str, Any]] = [
+            {
+                'error_category_id': cached.item.category,
+                'kind': _cached_item_kind(cached),
+                'question_text': cached.item.question,
+            }
+            for cached in remapped
+        ] if remapped else []
+
+        # Improvement-coverage gap check (log only; never invents items).
+        _log_improvement_gap(
+            list(feedback_items) + cf_phantom_items,
+            enabled_category_ids=enabled.ids,
+            doc_type_meta=doc_type_meta,
+            stop_reason=stop_reason,
+            recovered=len(feedback_items),
+        )
 
         before_density = len(feedback_items)
         feedback_items = apply_raw_inline_density_cap(
             feedback_items,
             word_count=word_count_from_segments(segments),
             density=str(config.get('density') or 'medium'),
+            preserve_categories=enabled.ids,
         )
         trimmed_density = before_density - len(feedback_items)
         if trimmed_density > 0:
@@ -2807,20 +3028,13 @@ def process_feedback_request(
         # When CF items were already committed to DB for unchanged paragraphs,
         # include them as phantom entries so the coverage check does not
         # treat those categories as missing and insert duplicate strength items.
-        cf_phantom_items: list[dict[str, Any]] = [
-            {
-                'error_category_id': cached.item.category,
-                'kind': _cached_item_kind(cached),
-                'question_text': cached.item.question,
-            }
-            for cached in remapped
-        ] if remapped else []
+        # (cf_phantom_items is built above, before the density trim.)
         coverage_view = list(feedback_items) + cf_phantom_items
         before_coverage = len(coverage_view)
         _ensure_strength_coverage(
             coverage_view,
             valid_category_ids=valid_category_ids,
-            category_priority=list(category_priority or []),
+            enabled_category_ids=list(enabled.ids),
             category_ids=list(doc_type_meta.get('category_ids', [])),
             category_names=list(doc_type_meta.get('category_names', [])),
             segments=segments,
@@ -2879,6 +3093,7 @@ def process_feedback_request(
 
         safety_net_count = _run_quote_safety_net(
             document_id, draft_id, user_id, segments, config, doc_type_meta, conn,
+            enabled_category_ids=enabled.ids,
         )
 
         logger.info("Updating aggregate counters...")

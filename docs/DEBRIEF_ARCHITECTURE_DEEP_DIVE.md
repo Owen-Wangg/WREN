@@ -82,7 +82,7 @@ The Feedback Engine runs as an SQS-triggered Lambda. Conceptually it moves throu
 
 The exact function names for each stage are in [Appendix B](#appendix-b--implementation-reference).
 
-A note on category priority: the department admin's `category_priority` steers the prompt's ordering and emphasis. It is a soft priority signal, not a hard post-filter that drops items.
+A note on category priority: the department admin's `category_priority`, intersected with the document type's current taxonomy, is an enforced filter. Only the enabled categories are listed in the prompt's taxonomy, and only they appear in the debrief, each with at least one strength. An empty selection, or one whose IDs are all stale, enables every taxonomy category. The model's output budget is sized from the enabled category count.
 
 ---
 
@@ -498,7 +498,7 @@ Facts that aren't obvious from reading the code, and the magic numbers behind th
 
 **Constants and tuning:**
 
-- Feedback model call: `temperature` 0.4 (from config), `max_tokens` a computed debrief budget capped by `MAX_DEBRIEF_MAX_TOKENS`.
+- Feedback model call: `temperature` 0.4 (from config), `max_tokens` a computed debrief budget of about 300 tokens per expected item (`DEBRIEF_TOKENS_PER_ITEM`), where expected items come from the inline density cap and the enabled category count, clamped to `[MIN_DEBRIEF_MAX_TOKENS, MAX_DEBRIEF_MAX_TOKENS]` (2560–6144).
 - Diff span expansion: `DEFAULT_CONTEXT_WINDOW = 40` characters on each side.
 - Anchor disambiguation and fingerprint context: 32 characters of prefix/suffix.
 - Progress bar substance target: 600 words. Labels by score: `< 15` "Just getting started", `< 40` "Draft taking shape", `< 70` "Solid draft in progress", `< 90` "Strong draft — keep refining", `>= 90` "Well developed draft".

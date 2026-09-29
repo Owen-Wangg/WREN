@@ -1,0 +1,17 @@
+{
+  "_comment": "Values persisted by the engine's insert_feedback_items for a typographic anchor match. Asserted by backend/engine/python/tests/test_anchor_typographic_integration.py; consumed by the engine->API round trip test (task 4.2). Spec: .kiro/specs/debrief-quote-typographic-matching-fix.",
+  "segments": [
+    "The respondent admitted the email was sent on 3 March.",
+    "The investigator found that Fiona\u2019s conduct was consistent with the policy.",
+    "Acknowledgements",
+    "Acknowledgements are owed to my supervisor for her guidance."
+  ],
+  "paragraphIndex": 1,
+  "paragraphText": "The investigator found that Fiona\u2019s conduct was consistent with the policy.",
+  "modelQuote": "Fiona's conduct",
+  "quotedText": "Fiona\u2019s conduct",
+  "startOffset": 28,
+  "endOffset": 43,
+  "contentFingerprint": "d801c6c7b7154832",
+  "matchMethod": "typographic"
+}

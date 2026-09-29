@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 __all__ = [
+    "DEBRIEF_TOKENS_PER_ITEM",
     "MAX_REFERENCE_TOTAL_CHARS",
     "MAX_REFERENCE_PER_FILE_CHARS",
     "MIN_DEBRIEF_MAX_TOKENS",
@@ -30,6 +31,7 @@ __all__ = [
     "cap_reference_materials_with_report",
     "debrief_max_tokens",
     "emit_reference_cap_telemetry",
+    "strength_fill_max_tokens",
 ]
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,11 @@ MAX_REFERENCE_TOTAL_CHARS = 12_000
 MAX_REFERENCE_PER_FILE_CHARS = 4_000
 MIN_DEBRIEF_MAX_TOKENS = 2560
 MAX_DEBRIEF_MAX_TOKENS = 6144
+# Tokens budgeted per feedback item. Observed production cost is ~230
+# tokens/item (~850 chars at ~3.72 chars/token); 300 leaves ~30% headroom.
+DEBRIEF_TOKENS_PER_ITEM = 300
+_BUDGET_OVERHEAD_TOKENS = 200
+_MIN_STRENGTH_FILL_MAX_TOKENS = 2048
 
 # EMF namespace for Feedback Engine prompt-assembly metrics. Only ``workload``
 # is a dimension: no user, document, draft, department, or job identifiers.
@@ -190,9 +197,36 @@ def emit_reference_cap_telemetry(
 
 
 def debrief_max_tokens(*, inline_cap: int, category_count: int) -> int:
-    """Size the Bedrock output budget from the item cap, not a 16k ceiling."""
+    """Size the Bedrock output budget from the item cap, not a 16k ceiling.
+
+    ``estimated_items`` is the inline density cap, one strength per enabled
+    category, and about two structural items. Production items (UUID,
+    ``question_text``, ``positive_note``, verbatim anchor quote) cost about
+    850 chars, or ~230 tokens at the observed ~3.72 chars/token.
+    ``DEBRIEF_TOKENS_PER_ITEM`` (300) adds ~30% headroom over that. The result
+    is clamped to ``[MIN_DEBRIEF_MAX_TOKENS, MAX_DEBRIEF_MAX_TOKENS]``.
+    """
     estimated_items = max(1, inline_cap) + max(category_count, 1) + 2
     return min(
         MAX_DEBRIEF_MAX_TOKENS,
-        max(MIN_DEBRIEF_MAX_TOKENS, estimated_items * 150 + 200),
+        max(
+            MIN_DEBRIEF_MAX_TOKENS,
+            estimated_items * DEBRIEF_TOKENS_PER_ITEM + _BUDGET_OVERHEAD_TOKENS,
+        ),
+    )
+
+
+def strength_fill_max_tokens(missing_count: int) -> int:
+    """Output budget for the strength fill-in call.
+
+    Scales with the number of categories still missing a strength, never
+    drops below the historical 2048, and never exceeds
+    ``MAX_DEBRIEF_MAX_TOKENS``.
+    """
+    return min(
+        MAX_DEBRIEF_MAX_TOKENS,
+        max(
+            _MIN_STRENGTH_FILL_MAX_TOKENS,
+            missing_count * DEBRIEF_TOKENS_PER_ITEM + _BUDGET_OVERHEAD_TOKENS,
+        ),
     )
