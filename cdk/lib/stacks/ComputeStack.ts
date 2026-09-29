@@ -145,8 +145,9 @@ export class ComputeStack extends Stack {
 
     // One-way salt for activity-log actor pseudonyms. Generated into Secrets
     // Manager (never a guessable path). Only the secret's NAME is passed to
-    // Lambda; activityLogService fetches the value with GetSecretValue at
-    // runtime. Injecting the value itself (secretValue / dynamic reference)
+    // Lambda; the shared @wren/db-node activity-log writer fetches the value
+    // with GetSecretValue at runtime. Injecting the value itself (secretValue /
+    // dynamic reference)
     // would expose it to anyone with lambda:GetFunctionConfiguration.
     //
     // The name, not `secretArn`, is passed because in "external" mode
