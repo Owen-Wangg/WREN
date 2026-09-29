@@ -122,12 +122,10 @@ from .prompt_assembly import (
     UntrustedContent,
 )
 from .reference_store import (
-    EMBEDDING_TABLE_MIGRATION_SQL,
     ReferenceBundle,
     ReferenceBundleBuilder,
     ReferenceChunk,
     ReferenceMaterial,
-    ReferenceStore,
     ReferenceTier,
     RetrievalResult,
 )
@@ -207,16 +205,16 @@ __all__ = [
     "CachedFeedbackItem",
     "CacheKey",
     "ConfigSnapshot",
-    # Two-tier reference store (Requirement 20, 22 / Task 10.1)
-    "ReferenceStore",
+    # Two-tier reference models (Requirement 20, 22 / Task 10.1). Not wired
+    # into the request path: grounding is full-text, see handler.py.
     "ReferenceBundleBuilder",
     "ReferenceBundle",
     "ReferenceMaterial",
     "ReferenceChunk",
     "ReferenceTier",
     "RetrievalResult",
-    "EMBEDDING_TABLE_MIGRATION_SQL",
-    # Citation attachment (Requirement 21 / REQ-REFMAT-CITE-01 / Task 10.3)
+    # Citation attachment (Requirement 21 / REQ-REFMAT-CITE-01 / Task 10.3).
+    # Not wired into the request path.
     "CitationAttacher",
     "Citation",
     "CitedFeedbackItem",

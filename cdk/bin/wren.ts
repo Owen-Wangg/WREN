@@ -170,7 +170,7 @@ const apiStack = new ApiStack(app, stackName(config, "Api"), {
 });
 
 // Observability stack (CloudWatch, X-Ray, alarms)
-new ObservabilityStack(app, stackName(config, "Observability"), {
+const observabilityStack = new ObservabilityStack(app, stackName(config, "Observability"), {
   env: config.env,
   config,
   functionNames: [
@@ -188,7 +188,13 @@ new ObservabilityStack(app, stackName(config, "Observability"), {
   notificationDlqName: computeStack.notificationDlq.queueName,
   documentIngestDlqName: computeStack.documentIngestDlq.queueName,
   authorizerFunctionName: computeStack.authorizerFunction.functionName,
+  // API Gateway access-log group for the security metric filters (Issue #187).
+  apiAccessLogGroupName: apiStack.accessLogGroupName,
 });
+// The access-log metric filters reference the ApiStack's log group by name, so
+// that group must exist before Observability deploys. Make the ordering explicit
+// (no CFN output is consumed, so CDK would not otherwise infer it).
+observabilityStack.addDependency(apiStack);
 
 // CloudFront + WAF stack. A CLOUDFRONT-scoped WAF WebACL MUST live in
 // us-east-1, so this stack is pinned there regardless of the app's residency

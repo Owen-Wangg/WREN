@@ -243,6 +243,111 @@ class TestApplyDensityBound:
         )
 
 
+class TestCategoryPreservingDensityBound:
+    """Bugfix 1.7 / 2.7: keep one inline item per enabled category."""
+
+    _LEGAL_MEMO = (
+        "Citations",
+        "Tone",
+        "Consistency",
+        "Spelling/Grammar",
+        "Organization",
+        "Clarity",
+    )
+
+    def test_legal_memorandum_minority_categories_survive(
+        self, classifier: FeedbackClassifier
+    ) -> None:
+        # cap = 4 (1000 words, medium); SG x6, Citations x1, Tone x1.
+        items = [_item("Spelling/Grammar", f"SG{i}?") for i in range(3)]
+        items.append(_item("Citations", "Cite?"))
+        items += [_item("Spelling/Grammar", f"SG{i}?") for i in range(3, 6)]
+        items.append(_item("Tone", "Tone?"))
+
+        without = classifier.apply_density_bound(items, 1000, "medium")
+        assert [i.category for i in without.retained] == ["Spelling/Grammar"] * 4
+
+        result = classifier.apply_density_bound(
+            items, 1000, "medium", preserve_categories=self._LEGAL_MEMO
+        )
+        cats = [i.category for i in result.retained]
+        assert result.cap == 4
+        assert len(result.retained) == 4
+        assert cats.count("Spelling/Grammar") == 2
+        assert "Citations" in cats and "Tone" in cats
+        # Most-recurrent first, then order position.
+        assert [i.question for i in result.retained] == ["SG0?", "SG1?", "Cite?", "Tone?"]
+        assert len(result.trimmed) == 4
+
+    def test_cap_below_category_count_keeps_top_categories(
+        self, classifier: FeedbackClassifier
+    ) -> None:
+        # cap = 2 (500 words, medium); A x3, B x2, C x1, D x1.
+        items = [
+            _item("C", "c?"),
+            _item("A", "a1?"),
+            _item("B", "b1?"),
+            _item("A", "a2?"),
+            _item("D", "d?"),
+            _item("B", "b2?"),
+            _item("A", "a3?"),
+        ]
+        result = classifier.apply_density_bound(
+            items, 500, "medium", preserve_categories=["A", "B", "C", "D"]
+        )
+        assert result.cap == 2
+        assert [i.question for i in result.retained] == ["a1?", "b1?"]
+
+    def test_cap_equal_to_category_count_keeps_every_category(
+        self, classifier: FeedbackClassifier
+    ) -> None:
+        # cap = 4; A x5, B, C, D once each.
+        items = [_item("A", f"a{i}?") for i in range(5)]
+        items += [_item("B", "b?"), _item("C", "c?"), _item("D", "d?")]
+        result = classifier.apply_density_bound(
+            items, 1000, "medium", preserve_categories=["D", "C", "B", "A"]
+        )
+        assert sorted(i.category for i in result.retained) == ["A", "B", "C", "D"]
+
+    def test_categories_outside_preserve_set_are_not_seeded(
+        self, classifier: FeedbackClassifier
+    ) -> None:
+        # cap = 2; only B is preserved, so the other slot goes to recurrence (A).
+        items = [_item("A", f"a{i}?") for i in range(4)]
+        items += [_item("B", "b?"), _item("C", "c?")]
+        result = classifier.apply_density_bound(
+            items, 500, "medium", preserve_categories=["B"]
+        )
+        assert [i.question for i in result.retained] == ["a0?", "b?"]
+
+    def test_raw_cap_passes_preserve_through_and_keeps_non_inline(self) -> None:
+        items = [
+            {"kind": "strength", "error_category_id": "Tone", "question_text": "S?"},
+            *[
+                {"kind": "inline", "error_category_id": "SG", "question_text": f"{i}?"}
+                for i in range(6)
+            ],
+            {"kind": "structural", "error_category_id": "Org", "question_text": "St?"},
+            {"kind": "inline", "error_category_id": "Tone", "question_text": "T?"},
+        ]
+        result = apply_raw_inline_density_cap(
+            items, word_count=500, density="medium", preserve_categories=["SG", "Tone"]
+        )
+        inline = [i for i in result if i["kind"] == "inline"]
+        assert [i["error_category_id"] for i in inline] == ["SG", "Tone"]
+        assert [i for i in result if i["kind"] != "inline"] == [items[0], items[7]]
+
+    def test_raw_cap_under_limit_returns_input_unchanged(self) -> None:
+        items = [
+            {"kind": "inline", "error_category_id": "SG", "question_text": "A?"},
+            {"kind": "strength", "error_category_id": "SG", "question_text": "B?"},
+        ]
+        result = apply_raw_inline_density_cap(
+            items, word_count=1000, density="medium", preserve_categories=["SG"]
+        )
+        assert result is items
+
+
 def test_word_count_from_segments() -> None:
     assert word_count_from_segments([
         {"text": "One two three"},

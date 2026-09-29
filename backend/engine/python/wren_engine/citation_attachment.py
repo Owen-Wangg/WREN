@@ -35,7 +35,7 @@ __all__ = [
     "RELEVANCE_THRESHOLD",
 ]
 
-# Minimum similarity score for a retrieval result to be considered
+# Minimum relevance score for a scored reference chunk to be considered
 # "informing" a feedback item. Below this threshold, the reference
 # material did not meaningfully contribute and no citation is attached.
 RELEVANCE_THRESHOLD: float = 0.65
@@ -107,8 +107,8 @@ class CitationAttacher:
     """Attaches source-identity citations to feedback items (Task 10.3).
 
     Pure logic — decides whether and which citation to attach based on
-    retrieval results. Does NOT perform retrieval itself (that's the
-    ReferenceStore's job via Task 10.1).
+    caller-supplied scored reference chunks. It performs no retrieval, and
+    no production code supplies those chunks today.
 
     The attacher:
     1. Matches each feedback item to the most relevant retrieval result.
@@ -119,7 +119,7 @@ class CitationAttacher:
     def __init__(self, relevance_threshold: float = RELEVANCE_THRESHOLD) -> None:
         """Initialize with relevance threshold.
 
-        ``relevance_threshold``: minimum similarity score (0.0–1.0) for a
+        ``relevance_threshold``: minimum relevance score (0.0–1.0) for a
         retrieval result to be considered "informing" an item. Below this,
         no citation is attached (Requirement 21.4).
         """

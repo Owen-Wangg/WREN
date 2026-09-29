@@ -20,11 +20,21 @@ import {
   CognitoIdentityProviderClient,
   ListUsersInGroupCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { getDataAccess } from '@wren/db-node';
+import { getDataAccess, recordActivityEventRow } from '@wren/db-node';
 
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID!;
 const REGION = process.env.AWS_REGION ?? 'ca-central-1';
 const GROUP_NAME = 'SystemAdmin';
+
+/**
+ * Synthetic actor id for role grants performed by this out-of-band script
+ * rather than an interactive administrator (Issue #187). It has no real
+ * `AuthContext` — a script is not a logged-in user — so we attribute the audit
+ * event to a stable synthetic id, mirroring the `__system__` actor the audit
+ * service already uses for engine-driven guardrail events. The shared writer
+ * pseudonymizes it like any other actor.
+ */
+const SCRIPT_ACTOR_ID = '__script:sync-cognito-admins__';
 
 export async function syncCognitoAdmins(): Promise<{
   checked: number;
@@ -92,6 +102,40 @@ export async function syncCognitoAdmins(): Promise<{
       [userId],
     );
     console.log(`  userId=${userId} — granted TechnicalAdmin`);
+
+    // Audit the privileged role grant (Issue #187 / Requirement 45.2): granting
+    // TechnicalAdmin is a security event and must leave an audit record, even
+    // when performed by this script rather than an interactive admin. Shape
+    // mirrors auditRoleOrGrantChange's 'role.assigned' event. Best-effort and
+    // non-fatal: the grant already succeeded, so an audit-write failure must
+    // not abort the sync — record it visibly instead.
+    try {
+      await recordActivityEventRow(
+        {
+          actorUserId: SCRIPT_ACTOR_ID,
+          verb: 'role.assigned',
+          objectType: 'RoleAssignment',
+          objectRef: userId,
+          context: {
+            action: 'role.assigned',
+            targetUserId: userId,
+            targetRole: 'TechnicalAdmin',
+            source: 'sync-cognito-admins',
+          },
+        },
+        db,
+      );
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          event: 'audit_write_failed',
+          action: 'role.assigned',
+          targetUserId: userId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+
     upserted.push(userId);
   }
 
