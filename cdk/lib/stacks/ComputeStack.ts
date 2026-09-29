@@ -229,7 +229,8 @@ export class ComputeStack extends Stack {
         ...corsEnv,
         // Document deletion records an activity_event (Issue #187); the shared
         // writer needs the same pseudonym salt as Admin/Audit so an actor's
-        // pseudonym is correlatable across services.
+        // pseudonym is correlatable across services. Only the secret's name
+        // is passed; the value is fetched at runtime (grant below).
         ...activitySaltEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
         DOCUMENTS_KMS_KEY_ARN: props.storageEncryptionKey.keyArn,
@@ -562,12 +563,15 @@ export class ComputeStack extends Stack {
     this.grantDatabaseAccess(this.feedbackEngineFunction, secrets.wren_feedback_engine);
     this.grantDatabaseAccess(this.notificationFunction, secrets.wren_notification);
 
-    // Activity-log pseudonym salt: read at runtime by Admin and Audit only.
-    // grantRead scopes GetSecretValue/DescribeSecret to this one secret and,
-    // for fromSecretNameV2 ("external" mode), appends the `-??????` suffix
+    // Activity-log pseudonym salt: read at runtime by the shared
+    // @wren/db-node activity-log writer in Admin, Audit and Document only
+    // (Document records its deletion events through the same writer, Issue
+    // #187). grantRead scopes GetSecretValue/DescribeSecret to this one secret
+    // and, for fromSecretNameV2 ("external" mode), appends the `-??????` suffix
     // wildcard that a hand-written statement on `secretArn` would miss.
     activityPseudonymSalt.grantRead(this.adminFunction);
     activityPseudonymSalt.grantRead(this.auditFunction);
+    activityPseudonymSalt.grantRead(this.documentFunction);
 
     // Authorizer: look up Cognito email/name when auto-provisioning app_user on first login.
     this.authorizerFunction.addToRolePolicy(new iam.PolicyStatement({

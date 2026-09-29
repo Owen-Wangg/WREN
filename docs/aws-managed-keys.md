@@ -239,7 +239,7 @@ Current behaviour
 
 CDK: `NodejsFunction` / `DockerImageFunction` omit `environmentEncryption`.
 
-AWS: Lambda therefore encrypts environment variables with an AWS-managed KMS key by default. No secret values are stored in Lambda environment variables. For the activity-log pseudonym salt, the Admin and Audit functions receive only the secret's name (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`) and reads the value with `GetSecretValue` at runtime, the same pattern as `DB_SECRET_ARN`.
+AWS: Lambda therefore encrypts environment variables with an AWS-managed KMS key by default. No secret values are stored in Lambda environment variables. For the activity-log pseudonym salt, the Admin, Audit and Document functions receive only the secret's name (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`) and the shared `@wren/db-node` activity-log writer reads the value with `GetSecretValue` at runtime, the same pattern as `DB_SECRET_ARN`.
 
 To use a CMK
 
