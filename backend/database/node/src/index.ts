@@ -40,3 +40,11 @@ export {
   listMigrationFiles,
   DEFAULT_MIGRATIONS_DIR,
 } from './migrate';
+export {
+  ACTIVITY_EVENT_COLUMNS,
+  pseudonymForActor,
+  recordActivityEventRow,
+  type ActivityEventRow,
+  type ActivityLogQueryExecutor,
+  type RecordActivityEventInput,
+} from './activityLog';
