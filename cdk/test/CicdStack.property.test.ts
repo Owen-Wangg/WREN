@@ -241,7 +241,8 @@ describe("CicdStack policy properties", () => {
     );
 
     fc.assert(fc.property(service, roleArn, (principal, resource) => {
-      expect(passRoleTargets).toHaveLength(11);
+      // 12 Compute roles, including the operator-only sync-cognito-admins Lambda.
+      expect(passRoleTargets).toHaveLength(12);
       for (const target of passRoleTargets) {
         expect(evaluate(deployPolicy, {
           action: "iam:PassRole",
@@ -357,7 +358,7 @@ describe("CicdStack policy properties", () => {
     fc.assert(fc.property(
       fc.shuffledSubarray(computeRoles, { minLength: computeRoles.length, maxLength: computeRoles.length }),
       (roles) => {
-        expect(roles).toHaveLength(11);
+        expect(roles).toHaveLength(12);
         for (const [, role] of roles) {
           expect(role.Properties?.RoleName).toBeUndefined();
           expect(role.Properties?.PermissionsBoundary).toBe(boundaryArn);
