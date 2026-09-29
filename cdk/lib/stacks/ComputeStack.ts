@@ -567,6 +567,8 @@ export class ComputeStack extends Stack {
     }));
 
     // Document Lambda: S3 read/write for document uploads + presigned URLs.
+    // The batch delete API (DeleteObjects) authorizes as s3:DeleteObject, so
+    // there is no separate "s3:DeleteObjects" IAM action (IAM_review F-9).
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: [
         "s3:GetObject",
@@ -575,7 +577,6 @@ export class ComputeStack extends Stack {
         "s3:GetObjectTagging",
         "s3:DeleteObjectTagging",
         "s3:DeleteObject",
-        "s3:DeleteObjects",
       ],
       resources: [`arn:aws:s3:::${props.documentsBucketName}/*`],
     }));
@@ -603,9 +604,12 @@ export class ComputeStack extends Stack {
       ],
     }));
 
-    // Admin Lambda: S3 read/write for reference material uploads.
+    // Admin Lambda: S3 read/delete on reference material. PutObject is
+    // intentionally omitted (finding S-3): no code in the admin backend uploads
+    // reference bytes, so the write grant was unused. Restore it only alongside
+    // an in-repo, shape-validated upload path.
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      actions: ["s3:GetObject", "s3:DeleteObject"],
       resources: [`arn:aws:s3:::${props.referenceBucketName}/*`],
     }));
     props.storageEncryptionKey.grantEncryptDecrypt(this.adminFunction);

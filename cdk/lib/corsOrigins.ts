@@ -85,11 +85,26 @@ export function exactFrontendOrigins(config: CorsOriginConfig): string[] {
 }
 
 /**
- * Documents-bucket CORS origins. Includes the Amplify subdomain wildcard
- * because S3 cannot evaluate the Amplify regex used by API Gateway.
+ * Documents-bucket CORS origins (finding S-7).
+ *
+ * S3 cannot evaluate the Amplify default-host regex that API Gateway uses, so
+ * historically the bucket fell back to the broad `https://*.amplifyapp.com`
+ * wildcard. That wildcard is now only a FALLBACK: it is included solely when no
+ * exact production frontend origin is known at synth time (localhost-only). As
+ * soon as an exact origin is configured — a `customDomain` (+`www`) or explicit
+ * `-c corsAllowedOrigins=…` entries — the bucket is pinned to those exact
+ * origins and the shared `*.amplifyapp.com` space is dropped.
+ *
+ * Operational note: a production deployment that relies on the Amplify default
+ * host (`branch.appId.amplifyapp.com`) WITHOUT a custom domain should pass that
+ * concrete host via `-c corsAllowedOrigins=https://<host>` to pin it; the host
+ * is generated at deploy time and is not knowable at synth.
  */
 export function s3CorsAllowedOrigins(config: CorsOriginConfig): string[] {
-  return [...exactFrontendOrigins(config), AMPLIFY_APP_S3_ORIGIN];
+  const exact = exactFrontendOrigins(config);
+  const hasExactProdOrigin =
+    Boolean(config.customDomain) || (config.corsAllowedOrigins?.length ?? 0) > 0;
+  return hasExactProdOrigin ? exact : [...exact, AMPLIFY_APP_S3_ORIGIN];
 }
 
 /** Lambda env so aws_proxy responses echo the same allowlist as OPTIONS. */

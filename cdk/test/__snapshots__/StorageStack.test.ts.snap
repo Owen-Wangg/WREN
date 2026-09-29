@@ -43,6 +43,126 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
       },
       "Type": "AWS::SSM::Parameter",
     },
+    "StorageAuditLogBucketEC932D35": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256",
+              },
+            },
+          ],
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7,
+              },
+              "ExpirationInDays": 90,
+              "Id": "ExpireObjectAccessLogs",
+              "Status": "Enabled",
+            },
+          ],
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true,
+        },
+      },
+      "Type": "AWS::S3::Bucket",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "StorageAuditLogBucketPolicy60B23472": {
+      "Properties": {
+        "Bucket": {
+          "Ref": "StorageAuditLogBucketEC932D35",
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false",
+                },
+              },
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "*",
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "StorageAuditLogBucketEC932D35",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "StorageAuditLogBucketEC932D35",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": "s3:GetBucketAcl",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudtrail.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "StorageAuditLogBucketEC932D35",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": "s3:PutObject",
+              "Condition": {
+                "StringEquals": {
+                  "s3:x-amz-acl": "bucket-owner-full-control",
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudtrail.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "StorageAuditLogBucketEC932D35",
+                        "Arn",
+                      ],
+                    },
+                    "/AWSLogs/123456789012/*",
+                  ],
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::S3::BucketPolicy",
+    },
     "StorageConversationHistory53512F71": {
       "DeletionPolicy": "Retain",
       "Properties": {
@@ -81,6 +201,62 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Retain",
     },
+    "StorageDataEventTrail7FE2F1B3": {
+      "DependsOn": [
+        "StorageAuditLogBucketPolicy60B23472",
+      ],
+      "Properties": {
+        "EnableLogFileValidation": true,
+        "EventSelectors": [
+          {
+            "DataResources": [
+              {
+                "Type": "AWS::S3::Object",
+                "Values": [
+                  {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "StorageDocumentsBucket59145458",
+                            "Arn",
+                          ],
+                        },
+                        "/",
+                      ],
+                    ],
+                  },
+                  {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "StorageReferenceBucket77460B50",
+                            "Arn",
+                          ],
+                        },
+                        "/",
+                      ],
+                    ],
+                  },
+                ],
+              },
+            ],
+            "IncludeManagementEvents": false,
+            "ReadWriteType": "All",
+          },
+        ],
+        "IncludeGlobalServiceEvents": false,
+        "IsLogging": true,
+        "IsMultiRegionTrail": false,
+        "S3BucketName": {
+          "Ref": "StorageAuditLogBucketEC932D35",
+        },
+      },
+      "Type": "AWS::CloudTrail::Trail",
+    },
     "StorageDocumentsBucket59145458": {
       "DeletionPolicy": "Retain",
       "Properties": {
@@ -104,7 +280,11 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
           "CorsRules": [
             {
               "AllowedHeaders": [
-                "*",
+                "Content-Type",
+                "x-amz-server-side-encryption",
+                "x-amz-server-side-encryption-aws-kms-key-id",
+                "x-amz-server-side-encryption-bucket-key-enabled",
+                "x-amz-tagging",
               ],
               "AllowedMethods": [
                 "PUT",
@@ -218,6 +398,11 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
                 "s3:GetObject",
                 "s3:GetObjectVersion",
               ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceAccount": "123456789012",
+                },
+              },
               "Effect": "Allow",
               "Principal": {
                 "Service": "textract.amazonaws.com",
@@ -237,6 +422,33 @@ exports[`StorageStack matches the synthesized template snapshot 1`] = `
                 ],
               },
               "Sid": "AllowTextractReadDocuments",
+            },
+            {
+              "Action": "s3:PutObject",
+              "Condition": {
+                "StringNotEquals": {
+                  "s3:x-amz-server-side-encryption": "aws:kms",
+                },
+              },
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "*",
+              },
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "StorageDocumentsBucket59145458",
+                        "Arn",
+                      ],
+                    },
+                    "/*",
+                  ],
+                ],
+              },
+              "Sid": "DenyUnencryptedDocumentUploads",
             },
           ],
           "Version": "2012-10-17",

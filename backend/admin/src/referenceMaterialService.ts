@@ -112,6 +112,64 @@ function assertContentSourceMatchesKind(input: CreateReferenceMaterialInput): vo
   }
 }
 
+/**
+ * Validate the shape and scope of a `file` entry's `s3Key` BEFORE persistence
+ * (finding S-3). The catalog stored the key verbatim with only a non-empty
+ * check, so a malformed, traversal, or cross-scope key could be recorded and
+ * later dereferenced with the reference bucket's full authority.
+ *
+ * The key MUST be scoped to the caller's tier:
+ *   - tier `type`       → `document-types/{documentTypeId}/…` (matches the
+ *     Feedback Engine's real read prefix — see
+ *     `backend/engine/python/handler.py` `load_reference_material`);
+ *   - tier `department` → `departments/{departmentId}/…`.
+ *
+ * and MUST NOT contain traversal / absolute / scheme-like / control-character
+ * shapes. No-op for non-file content kinds.
+ */
+function assertValidReferenceMaterialS3Key(input: CreateReferenceMaterialInput): void {
+  if (input.contentKind !== 'file') return;
+
+  // `assertContentSourceMatchesKind` already guaranteed a non-empty key.
+  const key = input.s3Key as string;
+
+  if (key.trim() !== key) {
+    throw new Error('s3Key must not have leading or trailing whitespace');
+  }
+  if (/[\x00-\x1f\x7f]/.test(key)) {
+    throw new Error('s3Key must not contain control characters');
+  }
+  if (key.startsWith('/')) {
+    throw new Error('s3Key must not be absolute (leading "/")');
+  }
+  if (key.includes('\\')) {
+    throw new Error('s3Key must not contain backslashes');
+  }
+  if (key.includes('//')) {
+    throw new Error('s3Key must not contain empty path segments ("//")');
+  }
+  if (key.split('/').includes('..')) {
+    throw new Error('s3Key must not contain ".." path segments');
+  }
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(key)) {
+    throw new Error('s3Key must be a bare object key, not a URL');
+  }
+
+  let prefix: string;
+  if (input.tier === 'type') {
+    if (!input.documentTypeId) {
+      throw new Error("documentTypeId is required when tier is 'type'");
+    }
+    prefix = `document-types/${input.documentTypeId}/`;
+  } else {
+    prefix = `departments/${input.departmentId}/`;
+  }
+
+  if (!key.startsWith(prefix) || key.length <= prefix.length) {
+    throw new Error(`s3Key must be under '${prefix}'`);
+  }
+}
+
 /** Load a Document Type's owning Department id, or `null` when it is unknown. */
 async function findDepartmentIdForDocumentType(
   documentTypeId: string,
@@ -144,6 +202,7 @@ export async function createReferenceMaterial(
 ): Promise<ReferenceMaterial> {
   const parsed = createReferenceMaterialInputSchema.parse(input);
   assertContentSourceMatchesKind(parsed);
+  assertValidReferenceMaterialS3Key(parsed);
 
   if (parsed.tier === 'type') {
     if (!parsed.documentTypeId) {
