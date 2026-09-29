@@ -5,8 +5,10 @@
  * lives in its own function instead of behind an unauthenticated `_script`
  * branch in the API-facing Admin Lambda. This function:
  *   - has NO API Gateway (or any other service) invoke permission — only IAM
- *     principals explicitly granted `lambda:InvokeFunction` on it can run it,
- *     and every invoke is attributable via CloudTrail;
+ *     principals granted `lambda:InvokeFunction` on it can run it. Lambda does
+ *     not pass the caller's IAM identity to the function, so WHO invoked it is
+ *     recorded by the `${prefix}-privileged-invokes` CloudTrail trail
+ *     (ObservabilityStack) into `/aws/cloudtrail/${prefix}-privileged-invokes`;
  *   - accepts ONLY the exact operator payload `{"_script":"sync-cognito-admins"}`
  *     and refuses anything shaped like an API Gateway / AWS service event;
  *   - logs a structured record of every invocation (accepted or rejected);

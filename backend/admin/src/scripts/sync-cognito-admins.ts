@@ -8,8 +8,10 @@
  * This grants the most privileged application role, so it is NOT reachable
  * from the API-facing Admin Lambda. It runs only in its own dedicated Lambda
  * (`${StackPrefix}-sync-cognito-admins`, entry `../lambda-sync-cognito-admins.ts`)
- * which has no API Gateway permission — invoking it requires an explicit
- * `lambda:InvokeFunction` grant on that function (recorded by CloudTrail).
+ * which has no API Gateway permission — invoking it requires a
+ * `lambda:InvokeFunction` grant on that function. The caller's identity is
+ * recorded by the `${prefix}-privileged-invokes` CloudTrail trail in the
+ * CloudWatch log group `/aws/cloudtrail/${prefix}-privileged-invokes`.
  *
  * Run via Lambda invoke (payload must be exactly this object):
  *   aws lambda invoke \
