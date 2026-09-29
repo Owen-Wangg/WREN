@@ -16,7 +16,8 @@ import { synthStacks, testConfig, TEST_ACCOUNT, TEST_REGION } from "./helpers";
  * value into a Lambda environment (e.g. `secret.secretValue.unsafeUnwrap()`,
  * which CloudFormation resolves as a `{{resolve:secretsmanager:…}}` dynamic
  * reference) exposes it in plaintext to anyone with
- * `lambda:GetFunctionConfiguration`. Admin, Audit and Document instead receive the
+ * `lambda:GetFunctionConfiguration`. Admin, Audit, Document and
+ * sync-cognito-admins instead receive the
  * secret's NAME and fetch the value at runtime, with a grant scoped to that
  * one secret — in both "managed" and "external" ownership modes.
  */
@@ -25,7 +26,12 @@ const SALT_SECRET_NAME = "wren-test/audit/pseudonym-salt";
 const SALT_ENV = "WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID";
 // Every function that writes through the shared @wren/db-node activity-log
 // writer (Document records deletion events through it, Issue #187).
-const SALT_CONSUMERS = ["wren-test-admin", "wren-test-audit", "wren-test-document"] as const;
+const SALT_CONSUMERS = [
+  "wren-test-admin",
+  "wren-test-audit",
+  "wren-test-document",
+  "wren-test-sync-cognito-admins",
+] as const;
 
 type CfnFunction = {
   readonly Properties?: {
@@ -129,6 +135,18 @@ function saltGrants(
   return { roles, statements };
 }
 
+/** Role logical ids of every function whose environment carries the salt secret id. */
+function envConsumerRoleIds(template: Template): Set<string> {
+  const functions = template.findResources("AWS::Lambda::Function") as Record<string, CfnFunction>;
+  const roles = new Set<string>();
+  for (const fn of Object.values(functions)) {
+    if (fn.Properties?.Environment?.Variables?.[SALT_ENV] === undefined) continue;
+    const roleId = fn.Properties?.Role?.["Fn::GetAtt"]?.[0];
+    if (roleId) roles.add(roleId);
+  }
+  return roles;
+}
+
 function consumerRoleIds(template: Template): Set<string> {
   const byName = functionsByName(template);
   return new Set(
@@ -168,11 +186,19 @@ describe.each(["managed", "external"] as const)(
       expect(environmentHasSecretReference(fn!)).toBe(false);
     });
 
-    it("grants salt read access to exactly the Admin, Audit and Document roles", () => {
+    it("grants salt read access to exactly the expected consumer roles", () => {
       const { roles, statements } = saltGrants(template, matchesSalt);
 
       expect(statements.length).toBeGreaterThan(0);
       expect(roles).toEqual(consumerRoleIds(template));
+    });
+
+    it("grants every function that receives the salt secret id (no env-only consumer)", () => {
+      // Derived from the template, not SALT_CONSUMERS: a new function given
+      // `activitySaltEnv` without a grant would AccessDenied at runtime.
+      const { roles } = saltGrants(template, matchesSalt);
+
+      expect(envConsumerRoleIds(template)).toEqual(roles);
     });
 
     it("scopes the salt grant to read actions on that one secret", () => {

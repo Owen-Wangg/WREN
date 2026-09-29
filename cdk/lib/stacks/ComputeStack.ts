@@ -598,14 +598,17 @@ export class ComputeStack extends Stack {
     this.grantDatabaseAccess(this.notificationFunction, secrets.wren_notification);
 
     // Activity-log pseudonym salt: read at runtime by the shared
-    // @wren/db-node activity-log writer in Admin, Audit and Document only
-    // (Document records its deletion events through the same writer, Issue
-    // #187). grantRead scopes GetSecretValue/DescribeSecret to this one secret
+    // @wren/db-node activity-log writer in every function that receives
+    // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins; Document
+    // records its deletion events through the same writer, Issue #187). Every
+    // such function MUST be granted here — the CDK test enforces it. grantRead scopes GetSecretValue/DescribeSecret to this one secret
     // and, for fromSecretNameV2 ("external" mode), appends the `-??????` suffix
     // wildcard that a hand-written statement on `secretArn` would miss.
     activityPseudonymSalt.grantRead(this.adminFunction);
     activityPseudonymSalt.grantRead(this.auditFunction);
     activityPseudonymSalt.grantRead(this.documentFunction);
+    // sync-cognito-admins writes a pseudonymized activity_event per grant.
+    activityPseudonymSalt.grantRead(this.syncCognitoAdminsFunction);
 
     // Authorizer: look up Cognito email/name when auto-provisioning app_user on first login.
     this.authorizerFunction.addToRolePolicy(new iam.PolicyStatement({
