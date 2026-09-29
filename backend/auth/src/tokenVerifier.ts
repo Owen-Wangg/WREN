@@ -39,47 +39,43 @@ export interface TokenVerifier {
   verify(token: string): Promise<VerifiedIdentity>;
 }
 
-/** Configuration for the Cognito access-token verifier. */
+/** Configuration for the Cognito token verifier. */
 export interface CognitoVerifierConfig {
   readonly userPoolId: string;
   readonly clientId: string;
-  /** `access` tokens are used for API authorization by default. */
+  /**
+   * The ONE token use this verifier accepts. Defaults to `access`, which is
+   * what the REST API authorizer requires. Only the AppSync authorizer sets
+   * `id` (AppSync realtime clients send the ID token).
+   */
   readonly tokenUse?: 'access' | 'id';
 }
 
 /**
- * Concrete Cognito-backed verifier. `aws-jwt-verify` caches the JWKS internally
- * so warm Lambda invocations reuse fetched keys.
+ * Concrete Cognito-backed verifier pinned to a single `token_use`.
+ *
+ * There is deliberately NO fallback to the other token use: an ID token is
+ * issued for the client app and is routinely handed to front-end code or
+ * third parties, so it must not double as a REST API credential (and vice
+ * versa for AppSync). A token whose `token_use` does not match is rejected.
+ * See https://github.com/awslabs/aws-jwt-verify#verifying-jwts-from-amazon-cognito
+ *
+ * `aws-jwt-verify` caches the JWKS internally so warm Lambda invocations reuse
+ * fetched keys.
  */
 export class CognitoTokenVerifier implements TokenVerifier {
-  private readonly primary: ReturnType<typeof CognitoJwtVerifier.create>;
-  private readonly secondary: ReturnType<typeof CognitoJwtVerifier.create>;
+  private readonly verifier: ReturnType<typeof CognitoJwtVerifier.create>;
 
   public constructor(config: CognitoVerifierConfig) {
-    const preferred = config.tokenUse ?? 'access';
-    const other = preferred === 'access' ? 'id' : 'access';
-    this.primary = CognitoJwtVerifier.create({
+    this.verifier = CognitoJwtVerifier.create({
       userPoolId: config.userPoolId,
-      tokenUse: preferred,
-      clientId: config.clientId,
-    });
-    this.secondary = CognitoJwtVerifier.create({
-      userPoolId: config.userPoolId,
-      tokenUse: other,
+      tokenUse: config.tokenUse ?? 'access',
       clientId: config.clientId,
     });
   }
 
   public async verify(token: string): Promise<VerifiedIdentity> {
-    try {
-      return this.fromPayload(await this.primary.verify(token));
-    } catch (primaryError) {
-      try {
-        return this.fromPayload(await this.secondary.verify(token));
-      } catch {
-        throw primaryError;
-      }
-    }
+    return this.fromPayload(await this.verifier.verify(token));
   }
 
   private fromPayload(payload: { sub?: string; username?: unknown; [key: string]: unknown }): VerifiedIdentity {

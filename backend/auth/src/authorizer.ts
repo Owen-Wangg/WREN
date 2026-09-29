@@ -88,19 +88,16 @@ function logAuthFailure(detail: {
   );
 }
 
-/** Strip an optional `Bearer ` prefix and return the raw JWT (or `undefined`). */
+/**
+ * Return the JWT from an `Authorization: Bearer <token>` header (RFC 6750 §2.1),
+ * or `undefined`. The `Bearer` scheme is REQUIRED: a bare JWT, another scheme,
+ * or a lone `Bearer` keyword is rejected so only the documented credential
+ * shape is accepted on the REST API.
+ */
 export function extractBearerToken(authorizationToken: string | undefined): string | undefined {
   if (!authorizationToken) return undefined;
-  const trimmed = authorizationToken.trim();
-  if (trimmed.length === 0) return undefined;
-  const match = /^Bearer\s+(.+)$/i.exec(trimmed);
-  if (match) {
-    const token = match[1].trim();
-    return token.length > 0 ? token : undefined;
-  }
-  // A lone "Bearer" keyword carries no token; anything else is a raw token.
-  if (/^Bearer$/i.test(trimmed)) return undefined;
-  return trimmed;
+  const match = /^Bearer\s+(\S+)$/i.exec(authorizationToken.trim());
+  return match ? match[1] : undefined;
 }
 
 /**

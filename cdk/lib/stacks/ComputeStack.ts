@@ -90,6 +90,8 @@ export class ComputeStack extends Stack {
   public readonly authorizerFunction: lambda.Function;
   public readonly documentFunction: lambda.Function;
   public readonly adminFunction: lambda.Function;
+  /** Operator-only TechnicalAdmin sync; never wired to API Gateway. */
+  public readonly syncCognitoAdminsFunction: lambda.Function;
   public readonly auditFunction: lambda.Function;
   public readonly feedbackOrchestratorFunction: lambda.Function;
   public readonly feedbackEngineFunction: lambda.Function;
@@ -291,6 +293,36 @@ export class ComputeStack extends Stack {
         PROMPT_GUARDRAIL_ID: props.promptGuardrailId,
         PROMPT_GUARDRAIL_VERSION: "DRAFT",
         STACK_PREFIX: config.stackPrefix,
+      },
+      bundling: sharedBundling,
+    });
+
+    // -----------------------------------------------------------------------
+    // Operator-only sync-cognito-admins Lambda (Node 22)
+    //
+    // Grants TechnicalAdmin to Cognito SystemAdmin group members. Isolated from
+    // the API-facing Admin Lambda so that function has no unauthenticated
+    // privileged branch. Deliberately has NO resource-policy grant (no API
+    // Gateway / service principal): only IAM principals with an explicit
+    // lambda:InvokeFunction on this function can run it.
+    // -----------------------------------------------------------------------
+    this.syncCognitoAdminsFunction = new lambdaNodejs.NodejsFunction(this, "SyncCognitoAdminsFn", {
+      functionName: `${config.stackPrefix}-sync-cognito-admins`,
+      description: "Operator-only: grant TechnicalAdmin to Cognito SystemAdmin group members",
+      entry: path.join(monorepoRoot, "backend/admin/src/lambda-sync-cognito-admins.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: Duration.seconds(60),
+      vpc,
+      vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
+      environment: {
+        ...dbEnv(secrets.wren_admin),
+        // Each grant writes a pseudonymized activity_event (same salt as Admin).
+        ...activitySaltEnv,
+        COGNITO_USER_POOL_ID: props.userPoolId,
       },
       bundling: sharedBundling,
     });
@@ -553,6 +585,7 @@ export class ComputeStack extends Stack {
     this.grantDatabaseAccess(this.appSyncAuthorizerFunction, secrets.wren_appsync_auth);
     this.grantDatabaseAccess(this.documentFunction, secrets.wren_document);
     this.grantDatabaseAccess(this.adminFunction, secrets.wren_admin);
+    this.grantDatabaseAccess(this.syncCognitoAdminsFunction, secrets.wren_admin);
     this.grantDatabaseAccess(this.auditFunction, secrets.wren_audit);
     this.grantDatabaseAccess(this.feedbackOrchestratorFunction, secrets.wren_feedback_orch);
     this.grantDatabaseAccess(this.feedbackEngineFunction, secrets.wren_feedback_engine);
@@ -610,8 +643,9 @@ export class ComputeStack extends Stack {
     }));
     props.storageEncryptionKey.grantEncryptDecrypt(this.adminFunction);
 
-    // Admin Lambda: Cognito ListUsersInGroup for the sync-cognito-admins script.
-    this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
+    // Sync-cognito-admins Lambda: Cognito ListUsersInGroup (removed from the
+    // API-facing Admin role, which no longer runs the script).
+    this.syncCognitoAdminsFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["cognito-idp:ListUsersInGroup"],
       resources: [`arn:aws:cognito-idp:${this.region}:${this.account}:userpool/${props.userPoolId}`],
     }));
@@ -711,6 +745,10 @@ export class ComputeStack extends Stack {
     });
     new CfnOutput(this, "AdminFunctionArn", {
       value: this.adminFunction.functionArn,
+    });
+    new CfnOutput(this, "SyncCognitoAdminsFunctionName", {
+      value: this.syncCognitoAdminsFunction.functionName,
+      description: "Operator-only: aws lambda invoke --payload '{\"_script\":\"sync-cognito-admins\"}'",
     });
     new CfnOutput(this, "AuditFunctionArn", {
       value: this.auditFunction.functionArn,
