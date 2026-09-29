@@ -146,9 +146,13 @@ export class ComputeStack extends Stack {
     };
 
     // One-way salt for activity-log actor pseudonyms. Generated into Secrets
-    // Manager (never a guessable path). CloudFormation injects the value into
-    // Lambda env via a dynamic reference — activityLogService reads
-    // WREN_ACTIVITY_PSEUDONYM_SALT at runtime.
+    // Manager (never a guessable path). Only the secret's NAME is passed to
+    // Lambda; activityLogService fetches the value with GetSecretValue at
+    // runtime. Injecting the value itself (secretValue / dynamic reference)
+    // would expose it to anyone with lambda:GetFunctionConfiguration.
+    //
+    // The name, not `secretArn`, is passed because in "external" mode
+    // `fromSecretNameV2` only knows a partial ARN (no six-character suffix).
     const activityPseudonymSaltName = `${config.stackPrefix}/audit/pseudonym-salt`;
     const activityPseudonymSalt = config.auditPseudonymSaltOwnership === "external"
       ? secretsmanager.Secret.fromSecretNameV2(
@@ -168,7 +172,7 @@ export class ComputeStack extends Stack {
       activityPseudonymSalt.applyRemovalPolicy(RemovalPolicy.RETAIN);
     }
     const activitySaltEnv = {
-      WREN_ACTIVITY_PSEUDONYM_SALT: activityPseudonymSalt.secretValue.unsafeUnwrap(),
+      WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID: activityPseudonymSaltName,
     };
 
     // -----------------------------------------------------------------------
@@ -227,7 +231,8 @@ export class ComputeStack extends Stack {
         ...corsEnv,
         // Document deletion records an activity_event (Issue #187); the shared
         // writer needs the same pseudonym salt as Admin/Audit so an actor's
-        // pseudonym is correlatable across services.
+        // pseudonym is correlatable across services. Only the secret's name
+        // is passed; the value is fetched at runtime (grant below).
         ...activitySaltEnv,
         DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
         DOCUMENTS_KMS_KEY_ARN: props.storageEncryptionKey.keyArn,
@@ -590,6 +595,16 @@ export class ComputeStack extends Stack {
     this.grantDatabaseAccess(this.feedbackOrchestratorFunction, secrets.wren_feedback_orch);
     this.grantDatabaseAccess(this.feedbackEngineFunction, secrets.wren_feedback_engine);
     this.grantDatabaseAccess(this.notificationFunction, secrets.wren_notification);
+
+    // Activity-log pseudonym salt: read at runtime by the shared
+    // @wren/db-node activity-log writer in Admin, Audit and Document only
+    // (Document records its deletion events through the same writer, Issue
+    // #187). grantRead scopes GetSecretValue/DescribeSecret to this one secret
+    // and, for fromSecretNameV2 ("external" mode), appends the `-??????` suffix
+    // wildcard that a hand-written statement on `secretArn` would miss.
+    activityPseudonymSalt.grantRead(this.adminFunction);
+    activityPseudonymSalt.grantRead(this.auditFunction);
+    activityPseudonymSalt.grantRead(this.documentFunction);
 
     // Authorizer: look up Cognito email/name when auto-provisioning app_user on first login.
     this.authorizerFunction.addToRolePolicy(new iam.PolicyStatement({
