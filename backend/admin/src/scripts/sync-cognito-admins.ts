@@ -5,9 +5,17 @@
  * to app_user rows by idp_subject (Cognito sub), and upserts TechnicalAdmin
  * into role_assignment for any who don't already have it.
  *
- * Run via Lambda invoke:
+ * This grants the most privileged application role, so it is NOT reachable
+ * from the API-facing Admin Lambda. It runs only in its own dedicated Lambda
+ * (`${StackPrefix}-sync-cognito-admins`, entry `../lambda-sync-cognito-admins.ts`)
+ * which has no API Gateway permission — invoking it requires a
+ * `lambda:InvokeFunction` grant on that function. The caller's identity is
+ * recorded by the `${prefix}-privileged-invokes` CloudTrail trail in the
+ * CloudWatch log group `/aws/cloudtrail/${prefix}-privileged-invokes`.
+ *
+ * Run via Lambda invoke (payload must be exactly this object):
  *   aws lambda invoke \
- *     --function-name wren-dev-admin \
+ *     --function-name wren-dev-sync-cognito-admins \
  *     --region ca-central-1 \
  *     --cli-binary-format raw-in-base64-out \
  *     --payload '{"_script":"sync-cognito-admins"}' \
@@ -140,16 +148,6 @@ export async function syncCognitoAdmins(): Promise<{
   }
 
   return { checked: subs.length, upserted, alreadyAdmin, notFound };
-}
-
-// Allow the admin Lambda handler to delegate here when it sees _script
-export async function handler(event: Record<string, unknown>) {
-  if (event['_script'] !== 'sync-cognito-admins') {
-    return { statusCode: 400, body: 'wrong script name' };
-  }
-  const result = await syncCognitoAdmins();
-  console.log('Result:', JSON.stringify(result, null, 2));
-  return { statusCode: 200, body: JSON.stringify(result) };
 }
 
 // Direct invocation (ts-node / npx tsx)

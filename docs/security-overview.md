@@ -308,7 +308,7 @@ Each service has its own PostgreSQL role and a corresponding Secrets Manager cre
 | Per-service DB roles | Secrets Manager (generated), fronted by RDS Proxy | Generated secrets synced to PostgreSQL roles via a custom resource; no CDK rotation schedule today |
 | Cognito pool / client IDs | SSM Parameter Store | Static identifiers |
 | Bedrock model id, guardrail id | SSM | Updated by Technical Admin / deploy |
-| Activity-log pseudonym salt | Secrets Manager (`{prefix}/audit/pseudonym-salt`, generated). Admin, Audit and Document Lambdas receive only the secret name (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`); the shared `@wren/db-node` activity-log writer fetches the value at runtime under a grant scoped to that secret | Treat as a secret; changing it breaks historical grouping (pseudonyms are one-way, so past events cannot be re-keyed). Warm containers cache the value, so force new containers after any rotation |
+| Activity-log pseudonym salt | Secrets Manager (`{prefix}/audit/pseudonym-salt`, generated). Admin, Audit, Document and sync-cognito-admins Lambdas receive only the secret name (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`); the shared `@wren/db-node` activity-log writer fetches the value at runtime under a grant scoped to that secret | Treat as a secret; changing it breaks historical grouping (pseudonyms are one-way, so past events cannot be re-keyed). Warm containers cache the value, so force new containers after any rotation |
 
 Least-privilege PostgreSQL roles (examples): `wren_authorizer`, `wren_document`, `wren_admin`, `wren_audit`, `wren_feedback_orch`, `wren_feedback_engine`, `wren_notification`, `wren_appsync_auth`. Passwords are never committed to git or migration SQL.
 

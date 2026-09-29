@@ -5,6 +5,10 @@ import * as kms from "aws-cdk-lib/aws-kms";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
+import * as cloudtrail from "aws-cdk-lib/aws-cloudtrail";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import type { Construct } from "constructs";
 
 import { CACHE_WORKLOADS, type AppConfig } from "../config";
@@ -37,6 +41,14 @@ export interface ObservabilityStackProps extends StackProps {
    * tests that synth the stack in isolation.
    */
   readonly apiAccessLogGroupName?: string;
+  /**
+   * Names of operator-only Lambdas that perform privileged writes (e.g.
+   * `${prefix}-sync-cognito-admins`, which grants TechnicalAdmin). When
+   * provided, a dedicated CloudTrail trail records WHO invoked them into
+   * CloudWatch Logs (and S3). Lambda does not expose the IAM caller to the
+   * function, so this is the only way to attribute a direct invoke.
+   */
+  readonly privilegedInvokeFunctionNames?: readonly string[];
   /**
    * Optional, configurable thresholds for the prompt-cache alarms (plan
    * §16/§17). All have SAFE defaults chosen so that, under the default
@@ -248,6 +260,13 @@ export class ObservabilityStack extends Stack {
     // invisible at the request/auth layer.
     // -------------------------------------------------------------------
     this.addSecurityObservability(config, logRetentions, props.apiAccessLogGroupName);
+
+    // -------------------------------------------------------------------
+    // Caller attribution for privileged operator Lambdas. Only created when function names are supplied.
+    // -------------------------------------------------------------------
+    if (props.privilegedInvokeFunctionNames && props.privilegedInvokeFunctionNames.length > 0) {
+      this.addPrivilegedInvokeTrail(config, isProd, props.privilegedInvokeFunctionNames);
+    }
 
     // -------------------------------------------------------------------
     // Feedback Queue Depth Alarm (degradation signal)
@@ -467,6 +486,94 @@ export class ObservabilityStack extends Stack {
       });
       alarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
     }
+  }
+
+  /**
+   * Dedicated CloudTrail trail that records `lambda:Invoke` DATA events for the
+   * given privileged operator functions ONLY, delivered to CloudWatch Logs
+   * (queryable) and S3 (CloudTrail requires an S3 destination; file-integrity
+   * validation is on).
+   *
+   * Why a trail: Lambda does not pass the IAM caller to the function, so the
+   * function's own logs cannot say who invoked it. Invoke is a CloudTrail data
+   * event, which is off by default, and the account's Control Tower baseline
+   * trail is owned by the management account and has no data selectors.
+   * Each record carries `userIdentity` (role/session ARN), `sourceIPAddress`,
+   * and `eventTime` — never the invoke payload.
+   * https://docs.aws.amazon.com/lambda/latest/dg/logging-using-cloudtrail.html
+   *
+   * Scope/cost: management events are excluded and the selector names exact
+   * function ARNs, so volume is one record per operator invoke.
+   */
+  private addPrivilegedInvokeTrail(
+    config: AppConfig,
+    isProd: boolean,
+    functionNames: readonly string[],
+  ): void {
+    const bucket = new s3.Bucket(this, "PrivilegedInvokeTrailBucket", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      versioned: true,
+      lifecycleRules: [
+        {
+          id: "ExpirePrivilegedInvokeTrail",
+          expiration: Duration.days(isProd ? 365 : 90),
+          noncurrentVersionExpiration: Duration.days(30),
+          abortIncompleteMultipartUploadAfter: Duration.days(7),
+        },
+      ],
+      // Audit evidence: never destroyed with the stack.
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    const logGroup = new logs.LogGroup(this, "PrivilegedInvokeTrailLogs", {
+      logGroupName: `/aws/cloudtrail/${config.stackPrefix}-privileged-invokes`,
+      // 24 hours (the CloudWatch Logs minimum) in every environment. The S3
+      // copy delivered by the trail is the longer-lived record.
+      retention: logs.RetentionDays.ONE_DAY,
+      removalPolicy: isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+
+    const trailName = `${config.stackPrefix}-privileged-invokes`;
+    // Confused-deputy guard: CDK's generated CloudTrail bucket-policy grants
+    // carry no aws:SourceArn, so deny CloudTrail writes from any other trail.
+    // https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-s3-bucket-policy-for-cloudtrail.html
+    bucket.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "DenyOtherTrails",
+      effect: iam.Effect.DENY,
+      principals: [new iam.ServicePrincipal("cloudtrail.amazonaws.com")],
+      actions: ["s3:PutObject"],
+      resources: [bucket.arnForObjects("*")],
+      conditions: {
+        StringNotEquals: {
+          "aws:SourceArn": `arn:${this.partition}:cloudtrail:${this.region}:${this.account}:trail/${trailName}`,
+        },
+      },
+    }));
+
+    const trail = new cloudtrail.Trail(this, "PrivilegedInvokeTrail", {
+      trailName,
+      bucket,
+      s3KeyPrefix: "privileged-invokes",
+      sendToCloudWatchLogs: true,
+      cloudWatchLogGroup: logGroup,
+      // Functions are regional; nothing global to capture.
+      isMultiRegionTrail: false,
+      includeGlobalServiceEvents: false,
+      // Data events only — the Control Tower baseline already covers management events.
+      managementEvents: cloudtrail.ReadWriteType.NONE,
+      enableFileValidation: true,
+    });
+
+    const functions = functionNames.map((name, i) =>
+      lambda.Function.fromFunctionName(this, `PrivilegedInvokeFn${i}`, name),
+    );
+    trail.addLambdaEventSelector(functions, {
+      includeManagementEvents: false,
+      readWriteType: cloudtrail.ReadWriteType.ALL,
+    });
   }
 
   /**

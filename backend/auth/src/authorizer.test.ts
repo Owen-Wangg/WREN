@@ -123,12 +123,22 @@ function tokenFor(payload: Record<string, unknown>): string {
 describe('extractBearerToken', () => {
   it('strips a Bearer prefix and trims', () => {
     expect(extractBearerToken('Bearer abc.def.ghi')).toBe('abc.def.ghi');
-    expect(extractBearerToken('  raw-token  ')).toBe('raw-token');
+    expect(extractBearerToken('  bearer   abc.def.ghi  ')).toBe('abc.def.ghi');
   });
   it('returns undefined for missing/empty input', () => {
     expect(extractBearerToken(undefined)).toBeUndefined();
     expect(extractBearerToken('')).toBeUndefined();
     expect(extractBearerToken('Bearer   ')).toBeUndefined();
+    expect(extractBearerToken('Bearer')).toBeUndefined();
+  });
+  it('rejects a bare JWT without the Bearer scheme', () => {
+    expect(extractBearerToken('abc.def.ghi')).toBeUndefined();
+    expect(extractBearerToken('  raw-token  ')).toBeUndefined();
+  });
+  it('rejects other schemes and malformed Bearer values', () => {
+    expect(extractBearerToken('Basic dXNlcjpwYXNz')).toBeUndefined();
+    expect(extractBearerToken('Bearerabc.def.ghi')).toBeUndefined();
+    expect(extractBearerToken('Bearer abc def')).toBeUndefined();
   });
 });
 
@@ -197,6 +207,17 @@ describe('Lambda authorizer', () => {
     const deps = depsFor(makeDb([]));
     const handler = createAuthorizerHandler(async () => deps);
     await expect(handler(event(''))).rejects.toThrow(UNAUTHORIZED);
+  });
+
+  it('rejects a bare JWT sent without the Bearer scheme, before verification', async () => {
+    const verify = jest.fn(fakeVerifier.verify);
+    const deps = depsFor(makeDb([{ role: 'Student', scope: null }]), { verify });
+    const handler = createAuthorizerHandler(async () => deps);
+
+    await expect(
+      handler(event(JSON.stringify({ sub: USER.idp_subject }))),
+    ).rejects.toThrow(UNAUTHORIZED);
+    expect(verify).not.toHaveBeenCalled();
   });
 
   it('freezes the Lambda event loop so pooled postgres sockets do not race the response', async () => {
