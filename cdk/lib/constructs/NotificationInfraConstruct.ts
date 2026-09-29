@@ -1,5 +1,6 @@
 import { Construct } from "constructs";
 import { Duration } from "aws-cdk-lib";
+import * as kms from "aws-cdk-lib/aws-kms";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
@@ -39,8 +40,13 @@ export class NotificationInfraConstruct extends Construct {
     const { stackPrefix } = props;
 
     // --- SNS Topic ---
+    // SSE-SNS at rest using the AWS-managed key for SNS (alias/aws/sns).
+    // notification-events can reference user/document context, so encrypt the
+    // payload while it sits on the topic. Same-account SNS -> SQS fan-out works
+    // with the managed key without extra key-policy management.
     this.topic = new sns.Topic(this, "NotificationEventsTopic", {
       topicName: `${stackPrefix}-notification-events`,
+      masterKey: kms.Alias.fromAliasName(this, "NotificationTopicKey", "alias/aws/sns"),
     });
 
     // --- Dead Letter Queue ---

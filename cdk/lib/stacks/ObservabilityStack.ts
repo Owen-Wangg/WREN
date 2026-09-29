@@ -1,6 +1,7 @@
 import { Stack, type StackProps, Duration, RemovalPolicy } from "aws-cdk-lib";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as kms from "aws-cdk-lib/aws-kms";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
@@ -128,6 +129,8 @@ export class ObservabilityStack extends Stack {
     this.alarmTopic = new sns.Topic(this, "AlarmTopic", {
       topicName: `${config.stackPrefix}-alarms`,
       displayName: `${config.stackPrefix} Alarms`,
+      // SSE-SNS at rest using the AWS-managed key for SNS (alias/aws/sns).
+      masterKey: kms.Alias.fromAliasName(this, "AlarmTopicKey", "alias/aws/sns"),
     });
     if (config.alarmEmail !== undefined) {
       // SNS sends a confirmation email; alarms reach a human only after the
