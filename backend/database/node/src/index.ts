@@ -40,3 +40,15 @@ export {
   listMigrationFiles,
   DEFAULT_MIGRATIONS_DIR,
 } from './migrate';
+export {
+  ACTIVITY_EVENT_COLUMNS,
+  derivePseudonym,
+  loadPseudonymSaltFromSecretsManager,
+  pseudonymForActor,
+  recordActivityEventRow,
+  setPseudonymSaltLoader,
+  type PseudonymSaltLoader,
+  type ActivityEventRow,
+  type ActivityLogQueryExecutor,
+  type RecordActivityEventInput,
+} from './activityLog';

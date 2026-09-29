@@ -308,7 +308,7 @@ Each service has its own PostgreSQL role and a corresponding Secrets Manager cre
 | Per-service DB roles | Secrets Manager (generated), fronted by RDS Proxy | Generated secrets synced to PostgreSQL roles via a custom resource; no CDK rotation schedule today |
 | Cognito pool / client IDs | SSM Parameter Store | Static identifiers |
 | Bedrock model id, guardrail id | SSM | Updated by Technical Admin / deploy |
-| Activity-log pseudonym salt | Secrets Manager (`{prefix}/audit/pseudonym-salt`, generated). Admin and Audit Lambdas receive only the secret name (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`) and fetch the value at runtime under a grant scoped to that secret | Treat as a secret; changing it breaks historical grouping (pseudonyms are one-way, so past events cannot be re-keyed). Warm containers cache the value, so force new containers after any rotation |
+| Activity-log pseudonym salt | Secrets Manager (`{prefix}/audit/pseudonym-salt`, generated). Admin, Audit and Document Lambdas receive only the secret name (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`); the shared `@wren/db-node` activity-log writer fetches the value at runtime under a grant scoped to that secret | Treat as a secret; changing it breaks historical grouping (pseudonyms are one-way, so past events cannot be re-keyed). Warm containers cache the value, so force new containers after any rotation |
 
 Least-privilege PostgreSQL roles (examples): `wren_authorizer`, `wren_document`, `wren_admin`, `wren_audit`, `wren_feedback_orch`, `wren_feedback_engine`, `wren_notification`, `wren_appsync_auth`. Passwords are never committed to git or migration SQL.
 
@@ -390,7 +390,7 @@ Ghostwriting prevention (see [Section 7](#7-genai-security)) is enforced by four
 
 ### 8.1 Logging
 
-CloudWatch collects application, API, and network logs. API Gateway emits ERROR-level execution logs with X-Ray tracing; Lambdas emit execution logs; VPC Flow Logs capture network metadata for all traffic. These flow into CloudWatch metrics and alarms.
+CloudWatch collects application, API, and network logs. API Gateway emits ERROR-level execution logs with X-Ray tracing plus a structured JSON access log for every request (request id, source IP, caller principal, method, resource path, status, and latency — never the `Authorization` header or any token); Lambdas emit execution logs; VPC Flow Logs capture network metadata for all traffic. The authorizer and the capability guard emit structured deny lines (`auth_failure`, `authz_denial`) so authentication failures and authorization denials are queryable and alarmable. These flow into CloudWatch metrics and alarms.
 
 ```mermaid
 flowchart TB
@@ -409,17 +409,17 @@ flowchart TB
 | Log Type | Content | Retention |
 |----------|---------|-----------|
 | **Lambda logs** | Execution and errors (do not log JWTs or raw student PII in new code) | 30 days (non-prod) / 90 days (`prod` environment) |
-| **API Gateway** | ERROR-level execution logs; stage metrics; X-Ray tracing enabled | Follows the API log-group configuration |
+| **API Gateway** | ERROR-level execution logs; structured JSON access log (no `Authorization` header/token); stage metrics; X-Ray tracing enabled | 30 days (non-prod) / 90 days (`prod`) for the access log |
 | **VPC Flow Logs** | Network metadata (all traffic) | 1 month |
 | **WAF** | CloudWatch metrics and sampled requests on the WebACL | Retention follows the deployed CloudWatch configuration |
-| **Activity log (app DB)** | Privileged actions, prompt edits, guardrail outcomes; pseudonymous actor | Application retention (independent of document delete) |
+| **Activity log (app DB)** | Privileged actions (model/usage-cap changes, access-state flips, document deletion, role grants), prompt edits with their actual guardrail outcome, guardrail outcomes; pseudonymous actor | Application retention (independent of document delete) |
 | **RDS** | Enhanced Monitoring (60s interval) | RDS monitoring retention |
 
 Exact log-group names and alarm names are implementation detail and live in the operations and deployment documentation ([Deployment Guide](./deployment-guide.md)).
 
 ### 8.2 Audit Events
 
-The app-database activity log (append-only, pseudonymized actor IDs, survives document deletion — see [6.6](#66-data-deletion)) records privileged actions, prompt edits, and guardrail outcomes for security review.
+The app-database activity log (append-only, pseudonymized actor IDs, survives document deletion — see [6.6](#66-data-deletion)) records privileged actions and prompt/guardrail outcomes for security review. Every privileged mutation is audited: model-config and usage-cap changes, Document-Type/Department access-state flips, permanent document deletion, and TechnicalAdmin role grants (including the out-of-band Cognito-sync script). Prompt edits record their actual guardrail outcome — `passed` on success and `rejected` (with a reason) when the save-time ghostwriting or prompt-injection guard rejects the content. The Document service records its deletion event through the same shared writer as the Admin service, so an actor's pseudonym correlates across services; that path required granting the `wren_document` role `INSERT` on `activity_event`.
 
 ### 8.3 Alerting
 
@@ -432,6 +432,11 @@ CloudWatch alarms notify operators through an SNS alarm topic. Alarms include:
 | **Feedback queue depth** | Queue depth > 50 | Debrief backlog / degradation |
 | **Feedback DLQ** | Any messages on the DLQ | Poison jobs |
 | **API p99 latency** | p99 > 10 seconds | Slow API / debrief path |
+| **Authentication failures** | `auth_failure` > 25 in 5 minutes | Credential stuffing / broken client |
+| **Authorization denials** | `authz_denial` > 10 in 5 minutes | Privilege probing |
+| **Unauthorized API responses** | 401/403 > 25 in 5 minutes (access log) | Unauthorized-access attempts across services |
+| **Privileged document deletions** | DELETE `/v1/documents/{documentId}` > 10 in 5 minutes | Bulk destruction of student work |
+| **Audit-write failures** | Any `audit_write_failed` (admin or document) | A privileged action could not be audited — retention contract at risk |
 
 WAF block rate is visible in WAF CloudWatch metrics; there is no dedicated WAF-block alarm in the Observability stack today.
 

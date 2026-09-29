@@ -16,14 +16,16 @@ import { synthStacks, testConfig, TEST_ACCOUNT, TEST_REGION } from "./helpers";
  * value into a Lambda environment (e.g. `secret.secretValue.unsafeUnwrap()`,
  * which CloudFormation resolves as a `{{resolve:secretsmanager:…}}` dynamic
  * reference) exposes it in plaintext to anyone with
- * `lambda:GetFunctionConfiguration`. Admin and Audit instead receive the
+ * `lambda:GetFunctionConfiguration`. Admin, Audit and Document instead receive the
  * secret's NAME and fetch the value at runtime, with a grant scoped to that
  * one secret — in both "managed" and "external" ownership modes.
  */
 
 const SALT_SECRET_NAME = "wren-test/audit/pseudonym-salt";
 const SALT_ENV = "WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID";
-const SALT_CONSUMERS = ["wren-test-admin", "wren-test-audit"] as const;
+// Every function that writes through the shared @wren/db-node activity-log
+// writer (Document records deletion events through it, Issue #187).
+const SALT_CONSUMERS = ["wren-test-admin", "wren-test-audit", "wren-test-document"] as const;
 
 type CfnFunction = {
   readonly Properties?: {
@@ -166,7 +168,7 @@ describe.each(["managed", "external"] as const)(
       expect(environmentHasSecretReference(fn!)).toBe(false);
     });
 
-    it("grants salt read access to exactly the Admin and Audit roles", () => {
+    it("grants salt read access to exactly the Admin, Audit and Document roles", () => {
       const { roles, statements } = saltGrants(template, matchesSalt);
 
       expect(statements.length).toBeGreaterThan(0);

@@ -3,8 +3,8 @@
  * Adapter: API Gateway proxy events → backend/document service handlers.
  */
 import type { APIGatewayProxyResult, Context } from 'aws-lambda';
-import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
-import { S3Client, GetObjectCommand, DeleteObjectsCommand, DeleteObjectTaggingCommand } from '@aws-sdk/client-s3';
+import { freezeEventLoopOnReturn, getDataAccess, recordActivityEventRow } from '@wren/db-node';
+import { S3Client, GetObjectCommand, DeleteObjectsCommand, DeleteObjectTaggingCommand, PutObjectTaggingCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
@@ -173,6 +173,31 @@ async function clearOrphanUploadTag(key: string): Promise<void> {
     );
   } catch (err) {
     console.warn('clearOrphanUploadTag: non-fatal error', err);
+  }
+}
+
+/**
+ * Re-apply the `orphan-upload=true` tag so the bucket lifecycle rule
+ * (StorageResources.ts: 1-day expiry on this tag) reclaims the object.
+ * Called on failed create/draft paths so a rejected upload key cannot be
+ * replayed to force repeated paid OCR. Best-effort and non-fatal — a tagging
+ * failure must never mask the underlying create error.
+ */
+async function tagOrphanUploadForExpiry(key: string): Promise<void> {
+  const bucket = process.env.DOCUMENTS_BUCKET_NAME;
+  if (!bucket) return;
+  try {
+    await s3Client.send(
+      new PutObjectTaggingCommand({
+        Bucket: bucket,
+        Key: key,
+        Tagging: {
+          TagSet: [{ Key: 'orphan-upload', Value: 'true' }],
+        },
+      }),
+    );
+  } catch (err) {
+    console.warn('tagOrphanUploadForExpiry: non-fatal error', err);
   }
 }
 
@@ -663,6 +688,9 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   let asyncPdf:
     | { key: string; fileName: string }
     | null = null;
+  // Set once the lifetime upload slot has been reserved ahead of OCR on the
+  // sync file branch, so the final transaction does not reserve a second time.
+  let slotReserved = false;
 
   if (source.kind === 'paste') {
     const text = typeof source.text === 'string' ? source.text : '';
@@ -704,6 +732,21 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
       asyncPdf = { key, fileName };
     } else {
+      // Reserve the lifetime upload slot BEFORE fetching bytes or running paid
+      // extraction (pdf.js/Textract), mirroring the async branch's
+      // reserve-before-enqueue ordering. An over-cap user is rejected before
+      // any S3 fetch or OCR and before the Lambda is held for the Textract poll
+      // loop. On rejection, re-tag the upload for lifecycle expiry so the key
+      // cannot be replayed to force repeated paid OCR.
+      try {
+        await reserveDocumentUpload(actor.userId, db);
+        slotReserved = true;
+      } catch (error) {
+        if (error instanceof UsageLimitReachedError) {
+          await tagOrphanUploadForExpiry(key);
+        }
+        throw error;
+      }
       const bytes = await readS3ObjectBytes(key);
       ingestSource = { kind: 'file', fileName, bytes };
     }
@@ -791,15 +834,18 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     });
   } catch (error) {
     if (error instanceof UnsupportedFileFormatError) {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
       return {
         statusCode: 400,
         body: JSON.stringify({ code: 'UNSUPPORTED_FORMAT', message: error.message }),
       };
     }
+    if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
     throw error;
   }
 
   if (ingestResult.status === 'fallback') {
+    if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -819,6 +865,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     platformSizeLimitWords: platformWordLimit,
   });
   if (sizeResult.status === 'over-limit') {
+    if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -840,11 +887,18 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       ? wordCountFromTipTapContent(storedContent)
       : sizeResult.measuredWords;
     const overLimit = overSizeLimitHttpResponse(bodyWords + headerFooterWords, sizeLimitWords, platformWordLimit);
-    if (overLimit) return overLimit;
+    if (overLimit) {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
+      return overLimit;
+    }
   }
 
   const created = await db.transaction(async (tx) => {
-    await reserveDocumentUpload(actor.userId, tx);
+    // The sync file branch already reserved the slot ahead of OCR; only reserve
+    // here for the paste branch to avoid double-counting.
+    if (!slotReserved) {
+      await reserveDocumentUpload(actor.userId, tx);
+    }
     const rows = await tx.query<any>(
       `INSERT INTO document (
          owner_user_id, document_type_id, content_type_id, name, metadata,
@@ -1030,6 +1084,41 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
         Key: { sessionId: `${actor.userId}#${canonicalId}` },
       }));
     }
+  }
+
+  // Audit the destructive deletion (Issue #187 / Requirement 44). The
+  // activity_event table holds NO foreign key to document/draft/feedback_item,
+  // so this record survives the deletion it describes. Best-effort and
+  // non-fatal: an audit-write failure must never turn a successful deletion
+  // into a user-visible error (the data is already gone). The actor is
+  // pseudonymized by the shared writer — the raw userId is never stored.
+  try {
+    await recordActivityEventRow(
+      {
+        actorUserId: actor.userId,
+        verb: 'document.deleted',
+        objectType: 'Document',
+        objectRef: documentId,
+        documentTypeId,
+        context: {
+          deletedDrafts: draftResult.length,
+          deletedFeedbackItems: feedbackResult.length,
+          deletedS3Objects: s3Keys.length,
+        },
+      },
+      db,
+    );
+  } catch (err) {
+    // Structured, non-content log line so the gap is observable even when the
+    // audit row could not be written (e.g. a missing GRANT on activity_event).
+    console.error(
+      JSON.stringify({
+        event: 'audit_write_failed',
+        action: 'document.deleted',
+        documentId,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }
 
   return {
@@ -1233,6 +1322,9 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   let storedHeader: TipTapDoc | undefined;
   let storedFooter: TipTapDoc | undefined;
   let storedOcrConfidence: number | undefined;
+  // Set once the draft slot has been reserved ahead of OCR on the sync file
+  // branch, so the final transaction does not reserve a second time.
+  let slotReserved = false;
 
   if (hasSource) {
     let ingestSource:
@@ -1336,6 +1428,29 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
         };
       }
 
+      // Reserve the draft slot BEFORE paid extraction on the sync file branch,
+      // mirroring the async branch's lock → verify → reserve → enqueue ordering.
+      // An over-cap request is rejected before any OCR runs. On rejection,
+      // re-tag the upload for lifecycle expiry so the key cannot be replayed.
+      try {
+        await db.transaction(async (tx) => {
+          const locked = await tx.query<{ owner_user_id: string }>(
+            'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
+            [documentId],
+          );
+          if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
+            throw Object.assign(new Error('Document not found'), { statusCode: 404 });
+          }
+          await reserveDraftCreate(documentId, tx);
+        });
+        slotReserved = true;
+      } catch (error) {
+        if (error instanceof UsageLimitReachedError) {
+          await tagOrphanUploadForExpiry(key);
+        }
+        throw error;
+      }
+
       const bytes = await readS3ObjectBytes(key);
       ingestSource = { kind: 'file', fileName, bytes };
     }
@@ -1353,15 +1468,18 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       });
     } catch (error) {
       if (error instanceof UnsupportedFileFormatError) {
+        if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
         return {
           statusCode: 400,
           body: JSON.stringify({ code: 'UNSUPPORTED_FORMAT', message: error.message }),
         };
       }
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
       throw error;
     }
 
     if (ingestResult.status === 'fallback') {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
       return {
         statusCode: 400,
         body: JSON.stringify({
@@ -1384,6 +1502,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       platformSizeLimitWords: draftPlatformWordLimit,
     });
     if (sizeResult.status === 'over-limit') {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
       return {
         statusCode: 400,
         body: JSON.stringify({
@@ -1443,7 +1562,10 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     (storedFooter ? wordCountFromTipTapContent(storedFooter) : 0);
   if (headerFooterWords > 0) {
     const overLimit = overSizeLimitHttpResponse(wordCount + headerFooterWords, sizeLimitWords, draftPlatformWordLimit);
-    if (overLimit) return overLimit;
+    if (overLimit) {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
+      return overLimit;
+    }
     wordCount += headerFooterWords;
   }
 
@@ -1455,7 +1577,11 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
       throw Object.assign(new Error('Document not found'), { statusCode: 404 });
     }
-    await reserveDraftCreate(documentId, tx);
+    // The sync file branch already reserved the slot ahead of OCR; only reserve
+    // here for the paste / segments / client-TipTap branches.
+    if (!slotReserved) {
+      await reserveDraftCreate(documentId, tx);
+    }
     const draftRepo = new DbDraftRepository(tx);
     const result = await createDraftRevision(
       {

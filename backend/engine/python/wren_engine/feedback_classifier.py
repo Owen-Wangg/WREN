@@ -34,7 +34,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from .output_guardrail import ValidatedFeedbackItem
 
@@ -222,6 +222,7 @@ class FeedbackClassifier:
         density: str,
         *,
         custom_items_per_1000: Optional[float] = None,
+        preserve_categories: Iterable[str] | None = None,
     ) -> DensityOutcome:
         """Apply the density cap to inline (anchored) items.
 
@@ -231,6 +232,13 @@ class FeedbackClassifier:
            criterion 3).
         2. Within the same frequency tier, original order is preserved
            (the model's own priority ordering).
+
+        When ``preserve_categories`` is given (the job's enabled categories),
+        the trim first reserves one slot per preserved category present in
+        the input — most-recurrent category first, at most ``cap`` of them —
+        and fills the remaining slots by recurrence. This stops one heavily
+        recurring category from crowding every other enabled category out.
+        ``None`` keeps the pure recurrence trim exactly as before.
 
         Non-anchored (structural) items are NOT subject to this density
         bound — they are handled separately (Task 9.9).
@@ -248,10 +256,14 @@ class FeedbackClassifier:
                 cap=cap,
             )
 
-        # Prioritize recurring patterns
-        prioritized = self._prioritize_by_recurrence(items_list, cap)
-
-        retained = prioritized[:cap]
+        if preserve_categories is None:
+            # Prioritize recurring patterns
+            prioritized = self._prioritize_by_recurrence(items_list, cap)
+            retained = prioritized[:cap]
+        else:
+            retained = self._prioritize_preserving_categories(
+                items_list, cap, preserve_categories
+            )
         # Use id-based comparison since items may contain unhashable dicts
         retained_ids = {id(item) for item in retained}
         trimmed = [item for item in items_list if id(item) not in retained_ids]
@@ -289,6 +301,40 @@ class FeedbackClassifier:
 
         return [item for _, _, item in scored]
 
+    def _prioritize_preserving_categories(
+        self,
+        items: list[ValidatedFeedbackItem],
+        cap: int,
+        preserve_categories: Iterable[str],
+    ) -> list[ValidatedFeedbackItem]:
+        """Select up to ``cap`` items, keeping one per preserved category first.
+
+        ``order`` is the recurrence ordering (``(-count[category], index)``).
+        ``seeds`` is the first index in ``order`` of each preserved category
+        that appears in ``items`` (so most-recurrent categories come first),
+        truncated to ``cap``. The remaining ``cap - len(seeds)`` slots are
+        filled from ``order``. The result is returned in ``order`` position.
+        """
+        preserve = {str(c) for c in preserve_categories if c is not None}
+        ordered = self._prioritize_by_recurrence(items, cap)
+
+        seed_positions: list[int] = []
+        seen_categories: set[str] = set()
+        for pos, item in enumerate(ordered):
+            if item.category in preserve and item.category not in seen_categories:
+                seen_categories.add(item.category)
+                seed_positions.append(pos)
+        seed_positions = seed_positions[:cap]
+
+        seed_set = set(seed_positions)
+        remaining = cap - len(seed_positions)
+        fill_positions = [pos for pos in range(len(ordered)) if pos not in seed_set][
+            : max(remaining, 0)
+        ]
+
+        kept = sorted(seed_set.union(fill_positions))
+        return [ordered[pos] for pos in kept]
+
 
 def word_count_from_segments(segments: list[dict[str, Any]]) -> int:
     """Count whitespace-delimited words across draft segments."""
@@ -305,11 +351,15 @@ def apply_raw_inline_density_cap(
     *,
     word_count: int,
     density: str,
+    preserve_categories: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Trim ``kind=inline`` engine items to the density cap; leave others.
 
     Operates on the raw Bedrock JSON dicts used by ``handler.py`` so the live
     job path can apply Task 9.6 without converting the whole batch.
+    ``preserve_categories`` is passed through to
+    :meth:`FeedbackClassifier.apply_density_bound` (``None`` keeps the pure
+    recurrence trim).
     """
     inline_items = [item for item in items if item.get("kind") == "inline"]
     if not inline_items:
@@ -322,7 +372,9 @@ def apply_raw_inline_density_cap(
         )
         for item in inline_items
     ]
-    outcome = FeedbackClassifier().apply_density_bound(wrappers, word_count, density)
+    outcome = FeedbackClassifier().apply_density_bound(
+        wrappers, word_count, density, preserve_categories=preserve_categories
+    )
     if not outcome.trimmed:
         return items
 

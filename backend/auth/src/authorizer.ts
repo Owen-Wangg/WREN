@@ -64,6 +64,30 @@ export type DepsProvider = () => Promise<AuthorizerDeps>;
 /** Sentinel error mapped by API Gateway to a 401 response for a TOKEN authorizer. */
 export const UNAUTHORIZED = 'Unauthorized';
 
+/**
+ * Emit a single structured, machine-queryable log line for an authentication
+ * failure or deny decision (Issue #187). Previously the authorizer threw/denied
+ * with no log line, so 401/403s at the request layer were invisible to
+ * operators and unalarmable. Deliberately logs NO secrets: never the token or
+ * Authorization header — only the reason, the route (methodArn), and the
+ * verified subject when one is already known. Uses the stable
+ * `event: "auth_failure"` key so a CloudWatch metric filter can count it.
+ */
+function logAuthFailure(detail: {
+  reason: 'missing_token' | 'token_verification_failed' | 'provisioning_failed';
+  methodArn?: string;
+  subject?: string;
+}): void {
+  console.warn(
+    JSON.stringify({
+      event: 'auth_failure',
+      reason: detail.reason,
+      ...(detail.methodArn ? { methodArn: detail.methodArn } : {}),
+      ...(detail.subject ? { subject: detail.subject } : {}),
+    }),
+  );
+}
+
 /** Strip an optional `Bearer ` prefix and return the raw JWT (or `undefined`). */
 export function extractBearerToken(authorizationToken: string | undefined): string | undefined {
   if (!authorizationToken) return undefined;
@@ -146,6 +170,7 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
 
     const token = extractBearerToken(event.authorizationToken);
     if (!token) {
+      logAuthFailure({ reason: 'missing_token', methodArn: event.methodArn });
       throw new Error(UNAUTHORIZED);
     }
 
@@ -162,6 +187,7 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         username = identity.username;
       } catch {
         // Any verification error (signature, issuer, expiry) is a 401.
+        logAuthFailure({ reason: 'token_verification_failed', methodArn: event.methodArn });
         throw new Error(UNAUTHORIZED);
       }
 
@@ -186,6 +212,11 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         context = await mapSubjectToAuthContext(subject, db);
         if (!context) {
           // Provisioning failed unexpectedly — deny rather than allow without identity.
+          logAuthFailure({
+            reason: 'provisioning_failed',
+            methodArn: event.methodArn,
+            subject,
+          });
           const resource = stageWildcardResource(event.methodArn);
           return {
             principalId: subject,

@@ -3,6 +3,7 @@ import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as kms from "aws-cdk-lib/aws-kms";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
@@ -226,6 +227,8 @@ export class CloudFrontWafStack extends Stack {
     const alarmTopic = new sns.Topic(this, "AlarmTopic", {
       topicName: `${config.stackPrefix}-cloudfront-alarms`,
       displayName: `${config.stackPrefix} CloudFront Alarms`,
+      // SSE-SNS at rest using the AWS-managed key for SNS (alias/aws/sns).
+      masterKey: kms.Alias.fromAliasName(this, "AlarmTopicKey", "alias/aws/sns"),
     });
     if (config.alarmEmail !== undefined) {
       alarmTopic.addSubscription(new subscriptions.EmailSubscription(config.alarmEmail));

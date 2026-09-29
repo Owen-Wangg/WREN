@@ -35,31 +35,36 @@
  * choose what to log), but no field name here suggests raw document content
  * and none is ever populated by this module itself.
  */
-import { createHash } from 'crypto';
-
-import {
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from '@aws-sdk/client-secrets-manager';
 import { activityEventSchema, type ActivityEvent } from '@wren/types';
+import {
+  ACTIVITY_EVENT_COLUMNS,
+  derivePseudonym,
+  loadPseudonymSaltFromSecretsManager,
+  pseudonymForActor,
+  recordActivityEventRow,
+  setPseudonymSaltLoader,
+  type ActivityEventRow,
+  type PseudonymSaltLoader,
+  type RecordActivityEventInput,
+} from '@wren/db-node';
 
 import type { QueryExecutor } from './db';
 
-/** Raw `activity_event` row (snake_case columns from PostgreSQL, post-V4 rename). */
-interface ActivityEventRow {
-  readonly id: string;
-  readonly actor_pseudonym: string;
-  readonly verb: string;
-  readonly object_type: string;
-  readonly object_ref: string;
-  readonly document_type_id: string | null;
-  readonly department_id: string | null;
-  readonly timestamp: string | Date;
-  readonly context: Record<string, unknown>;
-}
+// The pseudonymization and the append-only writer now live in the shared
+// `@wren/db-node` layer (Issue #187) so Admin and Document record events
+// through ONE algorithm/salt and produce correlatable pseudonyms. The salt is
+// fetched from Secrets Manager at runtime by that layer (never injected into
+// the Lambda environment). Re-export them here so existing importers of this
+// module keep working unchanged.
+export {
+  derivePseudonym,
+  loadPseudonymSaltFromSecretsManager,
+  pseudonymForActor,
+  setPseudonymSaltLoader,
+};
+export type { PseudonymSaltLoader, RecordActivityEventInput };
 
-const RETURNING =
-  'id, actor_pseudonym, verb, object_type, object_ref, document_type_id, department_id, "timestamp", context';
+const RETURNING = ACTIVITY_EVENT_COLUMNS;
 
 function toIsoString(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
@@ -81,141 +86,23 @@ function toActivityEvent(row: ActivityEventRow): ActivityEvent {
 }
 
 /**
- * A server-side secret that salts every pseudonym so it cannot be reversed to
- * a `userId` by an observer who only sees {@link pseudonymForActor}'s output
- * (e.g. from an activity-log export). It is NOT a substitute for access
- * control on the activity log itself — only a defense against the pseudonym
- * leaking `userId` structure (which is a bare UUID and would otherwise be
- * trivially distinguishable/guessable across a small user base).
+ * Append one Actor–Verb–Object event to the activity log (Requirement 44.1)
+ * and return the validated {@link ActivityEvent} DTO. No capability check:
+ * called by other services as a side effect of their own (already-authorized)
+ * operations, not exposed as a standalone privileged endpoint. Always resolves
+ * to a persisted event with a pseudonymous actor — the raw `actorUserId` is
+ * never written to storage.
  *
- * The value lives only in Secrets Manager. The Lambda environment carries the
- * secret's NAME (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`), never the value,
- * so reading it requires `secretsmanager:GetSecretValue` rather than the
- * much more widely held `lambda:GetFunctionConfiguration`.
- *
- * Fetched lazily (not at module load) and cached once per Lambda container.
- * Production always fails closed if the secret id is missing or the fetch
- * fails, rather than silently using a constant, guessable salt. The value is
- * never logged or included in an error message.
- */
-export type PseudonymSaltLoader = () => Promise<string>;
-
-let secretsClient: SecretsManagerClient | undefined;
-
-/**
- * Default loader: fetch the salt from Secrets Manager using the secret id in
- * `WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`. The secret is a plain string
- * (generated without a JSON template), so `SecretString` is the salt itself.
- */
-export async function loadPseudonymSaltFromSecretsManager(
-  client?: Pick<SecretsManagerClient, 'send'>,
-): Promise<string> {
-  const secretId = process.env.WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID;
-  if (!secretId) {
-    throw new Error(
-      'WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID is not configured — cannot derive a stable actor pseudonym',
-    );
-  }
-  const sm = client ?? (secretsClient ??= new SecretsManagerClient({}));
-  const response = await sm.send(new GetSecretValueCommand({ SecretId: secretId }));
-  if (!response.SecretString) {
-    throw new Error('Activity pseudonym salt secret is empty or binary; expected SecretString');
-  }
-  return response.SecretString;
-}
-
-let saltLoader: PseudonymSaltLoader = loadPseudonymSaltFromSecretsManager;
-// One shared promise per container: concurrent first callers trigger a single
-// fetch. No TTL — the salt must never change for the lifetime of the data
-// (rotating it breaks historical pseudonym grouping).
-let saltPromise: Promise<string> | undefined;
-
-/**
- * Test seam: replace the salt source (or restore the Secrets Manager default
- * by passing `undefined`) and clear the cached value. Not exported from the
- * package index.
- */
-export function setPseudonymSaltLoader(loader: PseudonymSaltLoader | undefined): void {
-  saltLoader = loader ?? loadPseudonymSaltFromSecretsManager;
-  saltPromise = undefined;
-}
-
-function pseudonymSalt(): Promise<string> {
-  // On failure, drop the cached rejection so a transient Secrets Manager error
-  // does not break this container for the rest of its lifetime.
-  saltPromise ??= saltLoader().catch((err: unknown) => {
-    saltPromise = undefined;
-    throw err;
-  });
-  return saltPromise;
-}
-
-/**
- * Derive a STABLE pseudonym for `userId` (Requirement 44.4 — "a stable
- * pseudonymous identifier"). Stable: the same `userId` always yields the same
- * pseudonym, so per-actor aggregation still works on the pseudonym alone.
- * One-way: a salted SHA-256 digest, so the raw `userId` cannot be recovered
- * from the pseudonym without the salt.
- */
-export async function pseudonymForActor(userId: string): Promise<string> {
-  return derivePseudonym(await pseudonymSalt(), userId);
-}
-
-/**
- * Pure derivation behind {@link pseudonymForActor}: salted SHA-256 of
- * `${salt}:${userId}`. Exposed so the derivation's properties (stability,
- * distinctness) can be tested synchronously without a salt source. The input
- * format must never change — doing so orphans every stored pseudonym.
- */
-export function derivePseudonym(salt: string, userId: string): string {
-  return createHash('sha256').update(`${salt}:${userId}`).digest('hex');
-}
-
-/** One Actor–Verb–Object activity to record. */
-export interface RecordActivityEventInput {
-  /** The acting User's app-database id; converted to a pseudonym, never stored raw. */
-  readonly actorUserId: string;
-  readonly verb: string;
-  readonly objectType: string;
-  readonly objectRef: string;
-  /** Document Type scope, when the activity is Document-Type-scoped. */
-  readonly documentTypeId?: string;
-  /** Department scope, when the activity is Department-scoped. */
-  readonly departmentId?: string;
-  /** Structured context only — never raw document content (Requirement 44.1). */
-  readonly context?: Record<string, unknown>;
-  /** Defaults to `now()`; overridable so callers/tests can pin the timestamp. */
-  readonly timestamp?: Date;
-}
-
-/**
- * Append one Actor–Verb–Object event to the activity log (Requirement 44.1).
- * No capability check: called by other services as a side effect of their
- * own (already-authorized) operations, not exposed as a standalone
- * privileged endpoint. Always resolves to a persisted event with a
- * pseudonymous actor — the raw `actorUserId` is never written to storage.
+ * The append itself (pseudonymization + INSERT) is delegated to the shared
+ * `@wren/db-node` writer so Admin and Document produce correlatable pseudonyms;
+ * this wrapper adds the Admin_Service's `@wren/types` DTO validation on top.
  */
 export async function recordActivityEvent(
   input: RecordActivityEventInput,
   db: QueryExecutor,
 ): Promise<ActivityEvent> {
-  const rows = await db.query<ActivityEventRow>(
-    `INSERT INTO activity_event
-       (actor_pseudonym, verb, object_type, object_ref, document_type_id, department_id, "timestamp", context)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING ${RETURNING}`,
-    [
-      await pseudonymForActor(input.actorUserId),
-      input.verb,
-      input.objectType,
-      input.objectRef,
-      input.documentTypeId ?? null,
-      input.departmentId ?? null,
-      input.timestamp ?? new Date(),
-      input.context ?? {},
-    ],
-  );
-  return toActivityEvent(rows[0]!);
+  const row = await recordActivityEventRow(input, db);
+  return toActivityEvent(row);
 }
 
 /**
