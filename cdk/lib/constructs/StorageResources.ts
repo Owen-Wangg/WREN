@@ -1,4 +1,4 @@
-import { Duration, RemovalPolicy } from "aws-cdk-lib";
+import { Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
 import {
   AttributeType,
   BillingMode,
@@ -63,6 +63,9 @@ export class StorageResources extends Construct {
         principals: [new ServicePrincipal("textract.amazonaws.com")],
         actions: ["s3:GetObject", "s3:GetObjectVersion"],
         resources: [this.documentsBucket.arnForObjects("*")],
+          conditions: {
+            StringEquals: { "aws:SourceAccount": Stack.of(this).account },
+        },
       }),
     );
     this.referenceBucket = this.createBucket("Reference");

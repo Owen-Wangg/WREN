@@ -1463,16 +1463,34 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 },
                 {
                   "Action": [
-                    "kms:CreateGrant",
                     "kms:Decrypt",
                     "kms:DescribeKey",
                     "kms:Encrypt",
                     "kms:GenerateDataKey",
                     "kms:GenerateDataKeyWithoutPlaintext",
                   ],
+                  "Condition": {
+                    "StringEquals": {
+                      "kms:ViaService": [
+                        "s3.ca-central-1.amazonaws.com",
+                        "dynamodb.ca-central-1.amazonaws.com",
+                      ],
+                    },
+                  },
                   "Effect": "Allow",
-                  "Resource": "*",
-                  "Sid": "KmsUseExistingStorageKey",
+                  "Resource": "arn:aws:kms:ca-central-1:123456789012:key/*",
+                  "Sid": "KmsUseStorageKeyViaService",
+                },
+                {
+                  "Action": "kms:CreateGrant",
+                  "Condition": {
+                    "Bool": {
+                      "kms:GrantIsForAWSResource": "true",
+                    },
+                  },
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:kms:ca-central-1:123456789012:key/*",
+                  "Sid": "KmsCreateGrantForAwsResourcesOnly",
                 },
                 {
                   "Action": [
@@ -1536,6 +1554,14 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 "ecr:BatchGetImage",
                 "ecr:BatchCheckLayerAvailability",
               ],
+              "Condition": {
+                "ArnLike": {
+                  "aws:SourceArn": "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-engine",
+                },
+                "StringEquals": {
+                  "aws:SourceAccount": "123456789012",
+                },
+              },
               "Effect": "Allow",
               "Principal": {
                 "Service": "lambda.amazonaws.com",

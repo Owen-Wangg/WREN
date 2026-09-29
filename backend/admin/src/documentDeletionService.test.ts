@@ -17,12 +17,11 @@ import {
   deleteDocument,
   getDocumentDeletionImpact,
 } from './documentDeletionService';
-import { recordActivityEvent } from './activityLogService';
+import { recordActivityEvent, setPseudonymSaltLoader } from './activityLogService';
 import { NotFoundError } from './errors';
 
-const ORIGINAL_SALT = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-beforeAll(() => { process.env.WREN_ACTIVITY_PSEUDONYM_SALT = 'test-salt-deletion'; });
-afterAll(() => { process.env.WREN_ACTIVITY_PSEUDONYM_SALT = ORIGINAL_SALT; });
+beforeAll(() => { setPseudonymSaltLoader(async () => 'test-salt-deletion'); });
+afterAll(() => { setPseudonymSaltLoader(undefined); });
 
 const DEPT = 'dept-1';
 const DT = 'dt-1';

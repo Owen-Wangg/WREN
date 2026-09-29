@@ -12,10 +12,10 @@ import {
   auditPromptEdit,
   auditRoleOrGrantChange,
 } from './auditRecordingService';
+import { setPseudonymSaltLoader } from './activityLogService';
 
-const ORIGINAL_SALT = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-beforeAll(() => { process.env.WREN_ACTIVITY_PSEUDONYM_SALT = 'test-salt-audit'; });
-afterAll(() => { process.env.WREN_ACTIVITY_PSEUDONYM_SALT = ORIGINAL_SALT; });
+beforeAll(() => { setPseudonymSaltLoader(async () => 'test-salt-audit'); });
+afterAll(() => { setPseudonymSaltLoader(undefined); });
 
 describe('auditConfigEdit (Requirement 23.3)', () => {
   it('records a config edit with actor, Document Type, field, and action', async () => {
