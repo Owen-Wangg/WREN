@@ -44,11 +44,11 @@ export class CognitoStack extends Stack {
         email: true,
       },
       passwordPolicy: {
-        minLength: 8,
+        minLength: 10,
         requireLowercase: true,
         requireUppercase: true,
         requireDigits: true,
-        requireSymbols: false,
+        requireSymbols: true,
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       mfa: cognito.Mfa.OPTIONAL,
