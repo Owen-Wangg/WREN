@@ -17,7 +17,7 @@ import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct
 import { NotificationInfraConstruct } from "../constructs/NotificationInfraConstruct";
 
 import type { AppDbRole } from "../appDbRoles.js";
-import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, type AppConfig } from "../config";
+import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, resolveLogRetention, type AppConfig } from "../config";
 import { corsLambdaEnvironment } from "../corsOrigins";
 
 /** IAM resources for us.anthropic.* / us.meta.* cross-region inference profiles. */
@@ -148,8 +148,8 @@ export class ComputeStack extends Stack {
     // One-way salt for activity-log actor pseudonyms. Generated into Secrets
     // Manager (never a guessable path). Only the secret's NAME is passed to
     // Lambda; the shared @wren/db-node activity-log writer fetches the value
-    // with GetSecretValue at runtime. Injecting the value itself (secretValue /
-    // dynamic reference)
+    // with GetSecretValue at runtime (outside the handler, cached per
+    // container). Injecting the value itself (secretValue / dynamic reference)
     // would expose it to anyone with lambda:GetFunctionConfiguration.
     //
     // The name, not `secretArn`, is passed because in "external" mode
@@ -573,6 +573,7 @@ export class ComputeStack extends Stack {
       feedbackEngineRole: this.feedbackEngineFunction.role!,
       notificationLambdaRole: this.notificationFunction.role!,
       stackPrefix: config.stackPrefix,
+      logRetention: resolveLogRetention(config),
     });
     this.appSyncGraphqlUrl = appSyncRealtime.graphqlUrl;
 
@@ -601,8 +602,9 @@ export class ComputeStack extends Stack {
     // @wren/db-node activity-log writer in every function that receives
     // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins; Document
     // records its deletion events through the same writer, Issue #187). Every
-    // such function MUST be granted here — the CDK test enforces it. grantRead scopes GetSecretValue/DescribeSecret to this one secret
-    // and, for fromSecretNameV2 ("external" mode), appends the `-??????` suffix
+    // such function MUST be granted here — the CDK test enforces it. grantRead
+    // scopes GetSecretValue/DescribeSecret to this one secret and, for
+    // fromSecretNameV2 ("external" mode), appends the `-??????` suffix
     // wildcard that a hand-written statement on `secretArn` would miss.
     activityPseudonymSalt.grantRead(this.adminFunction);
     activityPseudonymSalt.grantRead(this.auditFunction);

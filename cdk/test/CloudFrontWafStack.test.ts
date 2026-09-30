@@ -15,7 +15,7 @@ function synthCloudFront() {
 }
 
 describe("CloudFrontWafStack observability", () => {
-  it("enables distribution access logging to an S3 bucket that expires objects after 90 days", () => {
+  it("enables distribution access logging to an S3 bucket that expires objects after 30 days", () => {
     const { template } = synthCloudFront();
 
     template.hasResourceProperties("AWS::S3::Bucket", {
@@ -23,7 +23,7 @@ describe("CloudFrontWafStack observability", () => {
         Rules: Match.arrayWith([
           Match.objectLike({
             Status: "Enabled",
-            ExpirationInDays: 90,
+            ExpirationInDays: 30,
           }),
         ]),
       },
@@ -65,5 +65,74 @@ describe("CloudFrontWafStack observability", () => {
       MetricName: "4xxErrorRate",
       Threshold: 50,
     });
+  });
+});
+
+/**
+ * WAF request logging (logging review gap 3.2). visibilityConfig only emits
+ * aggregate metrics + a sampled subset; full per-request logs must be delivered
+ * to a dedicated, retention-bound `aws-waf-logs-*` CloudWatch Logs group so a
+ * specific blocked/allowed request can be investigated.
+ */
+describe("CloudFrontWafStack WAF request logging", () => {
+  it("creates a retention-bound aws-waf-logs-* CloudWatch log group", () => {
+    const { config, template } = synthCloudFront();
+    template.hasResourceProperties("AWS::Logs::LogGroup", {
+      // WAF -> CloudWatch requires the group name to start with aws-waf-logs-.
+      LogGroupName: `aws-waf-logs-${config.stackPrefix}-cloudfront`,
+      // Non-prod test config -> 30-day retention.
+      RetentionInDays: 30,
+    });
+  });
+
+  it("retains the WAF log group on stack teardown", () => {
+    const { template } = synthCloudFront();
+    template.hasResource("AWS::Logs::LogGroup", {
+      Properties: Match.objectLike({
+        LogGroupName: Match.stringLikeRegexp("^aws-waf-logs-.*"),
+      }),
+      DeletionPolicy: "Retain",
+      UpdateReplacePolicy: "Retain",
+    });
+  });
+
+  it("delivers WebACL request logs to the log group (ARN without :* wildcard)", () => {
+    const { template } = synthCloudFront();
+    const configs = template.findResources("AWS::WAFv2::LoggingConfiguration");
+    const entries = Object.values(configs);
+    expect(entries).toHaveLength(1);
+
+    const logging = entries[0]!;
+    // The destination must be the log-group ARN with a colon separator and NO
+    // trailing ":*" — WAF rejects the wildcard form CDK's logGroupArn produces.
+    const destinations = logging.Properties?.LogDestinationConfigs as unknown[];
+    expect(destinations).toHaveLength(1);
+
+    // The destination is the log-group ARN (built via formatArn) referencing
+    // the aws-waf-logs group. Its name is emitted as a Ref, so assert on the
+    // ARN shape + group reference rather than a literal name.
+    const logGroups = template.findResources("AWS::Logs::LogGroup");
+    const wafLogGroupId = Object.entries(logGroups).find(([, r]) =>
+      JSON.stringify(r.Properties?.LogGroupName ?? "").includes("aws-waf-logs-"),
+    )?.[0];
+    expect(wafLogGroupId).toBeDefined();
+
+    const destJson = JSON.stringify(destinations[0]);
+    expect(destJson).toContain(":log-group:");
+    expect(destJson).toContain(wafLogGroupId!);
+    // WAF rejects the ":*" wildcard suffix that logGroup.logGroupArn produces.
+    expect(destJson).not.toContain(":*");
+  });
+
+  it("associates the logging configuration with the CloudFront WebACL", () => {
+    const { template } = synthCloudFront();
+    const webAcls = template.findResources("AWS::WAFv2::WebACL");
+    const webAclLogicalId = Object.keys(webAcls)[0]!;
+    const configs = template.findResources("AWS::WAFv2::LoggingConfiguration");
+    const resourceArn = JSON.stringify(
+      Object.values(configs)[0]?.Properties?.ResourceArn,
+    );
+    // ResourceArn is an intrinsic referencing the WebACL's Arn attribute.
+    expect(resourceArn).toContain(webAclLogicalId);
   });
 });

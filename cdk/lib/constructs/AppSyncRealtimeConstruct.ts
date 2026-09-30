@@ -3,6 +3,7 @@ import { Duration } from "aws-cdk-lib";
 import * as appsync from "aws-cdk-lib/aws-appsync";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as wafv2 from "aws-cdk-lib/aws-wafv2";
 import { Construct } from "constructs";
 
@@ -19,6 +20,13 @@ export interface AppSyncRealtimeProps {
   /** IAM role of the Notification Lambda — granted notification publish access. */
   readonly notificationLambdaRole?: iam.IRole;
   readonly stackPrefix: string;
+  /**
+   * CloudWatch Logs retention for the AppSync-managed `/aws/appsync/apis/{apiId}`
+   * log group. Without this, AppSync creates that group with no expiry (logs
+   * accumulate and bill forever). Passed in from the stack via
+   * `resolveLogRetention(config)` so it tracks the project-wide 90/30-day policy.
+   */
+  readonly logRetention: logs.RetentionDays;
 }
 
 /**
@@ -79,6 +87,9 @@ export class AppSyncRealtimeConstruct extends Construct {
       logConfig: {
         fieldLogLevel: appsync.FieldLogLevel.ERROR,
         excludeVerboseContent: true,
+        // Bound the AppSync-managed log group so it expires on the project's
+        // 90-day-prod / 30-day-else schedule instead of never expiring.
+        retention: props.logRetention,
       },
     });
 
