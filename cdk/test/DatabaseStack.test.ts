@@ -54,6 +54,25 @@ describe("DatabaseStack", () => {
     });
   });
 
+  it("exports PostgreSQL engine + upgrade logs to CloudWatch (gap 3.3)", () => {
+    template.hasResourceProperties("AWS::RDS::DBInstance", {
+      EnableCloudwatchLogsExports: Match.arrayWith(["postgresql", "upgrade"]),
+    });
+  });
+
+  it("bounds the RDS engine log group with a retention (30 days in non-prod)", () => {
+    // cloudwatchLogsRetention makes CDK emit a LogRetention custom resource for
+    // the auto-created /aws/rds/instance/{id}/postgresql (and upgrade) groups.
+    const retentions = template.findResources("Custom::LogRetention");
+    const rdsRetentions = Object.values(retentions).filter((r) =>
+      JSON.stringify(r.Properties?.LogGroupName ?? "").includes("/aws/rds/instance/"),
+    );
+    expect(rdsRetentions.length).toBeGreaterThan(0);
+    for (const retention of rdsRetentions) {
+      expect(retention.Properties?.RetentionInDays).toBe(30);
+    }
+  });
+
   it("keeps exporting the RDS admin secret while Compute still imports it", () => {
     const outputs = template.findOutputs("*");
     const exported = Object.values(outputs).some((output) => {

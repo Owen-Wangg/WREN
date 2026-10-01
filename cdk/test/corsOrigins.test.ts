@@ -47,9 +47,30 @@ describe("CORS origin helpers", () => {
     ]);
   });
 
-  it("adds the Amplify S3 wildcard and never uses * as a full origin", () => {
-    const origins = s3CorsAllowedOrigins({ customDomain: "coach.example.com" });
+  it("keeps the Amplify S3 wildcard only as a localhost-only fallback (finding S-7)", () => {
+    const origins = s3CorsAllowedOrigins({});
     expect(origins).toContain(AMPLIFY_APP_S3_ORIGIN);
+    expect(origins).not.toContain("*");
+  });
+
+  it("drops the Amplify S3 wildcard once a custom domain pins the origin (finding S-7)", () => {
+    const origins = s3CorsAllowedOrigins({ customDomain: "coach.example.com" });
+    expect(origins).toEqual([
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "https://coach.example.com",
+      "https://www.coach.example.com",
+    ]);
+    expect(origins).not.toContain(AMPLIFY_APP_S3_ORIGIN);
+    expect(origins).not.toContain("*");
+  });
+
+  it("drops the Amplify S3 wildcard when exact corsAllowedOrigins are provided (finding S-7)", () => {
+    const origins = s3CorsAllowedOrigins({
+      corsAllowedOrigins: ["https://a.example"],
+    });
+    expect(origins).toContain("https://a.example");
+    expect(origins).not.toContain(AMPLIFY_APP_S3_ORIGIN);
     expect(origins).not.toContain("*");
   });
 

@@ -206,6 +206,11 @@ async function uploadFigureToS3(
         Key: s3Key,
         Body: pngBuffer,
         ContentType: 'image/png',
+        // The documents bucket denies PutObject that isn't SSE-KMS (finding
+        // S-4). Set the header explicitly so figure writes comply; S3 uses the
+        // bucket's default CMK.
+        ServerSideEncryption: 'aws:kms',
+        BucketKeyEnabled: true,
       }),
     );
     return true;

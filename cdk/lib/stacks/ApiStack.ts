@@ -8,7 +8,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
 
-import type { AppConfig } from "../config";
+import { resolveLogRetention, type AppConfig } from "../config";
 import {
   CORS_ALLOW_HEADERS,
   CORS_ALLOW_METHODS,
@@ -212,7 +212,7 @@ export class ApiStack extends Stack {
     }
 
     // -----------------------------------------------------------------------
-    // API Gateway access logging (Issue #187).
+    // API Gateway access logging (Issue #187, logging review gap 3.1).
     //
     // The stage previously had loggingLevel: ERROR and NO access log, so there
     // was no request-layer audit trail — every request (including 401/403s and
@@ -220,18 +220,19 @@ export class ApiStack extends Stack {
     // group with a structured JSON format makes each request queryable and
     // gives the ObservabilityStack security alarms something to filter on.
     //
+    // Retention follows the shared policy (resolveLogRetention: 90d prod / 30d
+    // non-prod) and the group is RETAINed on teardown, matching the Lambda-log
+    // convention so the audit trail survives stack deletion.
+    //
     // The format deliberately excludes the Authorization header (and any token
     // material): only request metadata, the caller principal ($context.authorizer
     // principalId = the app userId), status, and latency are logged.
     // -----------------------------------------------------------------------
-    const isProd = config.environmentName === "prod";
     const accessLogGroup = new logs.LogGroup(this, `${id}-AccessLogs`, {
       logGroupName: `/aws/apigateway/${config.stackPrefix}-api/access`,
-      retention: isProd
-        ? logs.RetentionDays.THREE_MONTHS
-        : logs.RetentionDays.ONE_MONTH,
-      // Security/audit logs: keep them on prod teardown; destroy in ephemeral envs.
-      removalPolicy: isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+      retention: resolveLogRetention(config),
+      // Security/audit logs: keep the trail even if the stack is torn down.
+      removalPolicy: RemovalPolicy.RETAIN,
     });
     this.accessLogGroupName = accessLogGroup.logGroupName;
 
@@ -267,7 +268,9 @@ export class ApiStack extends Stack {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.ERROR,
-        // Structured access log for every request (Issue #187).
+        // Per-request structured access logging (Issue #187, gap 3.1): request
+        // id, source IP, caller principal, method, resource path, status, and
+        // latency — the security/audit trail (format defined above).
         accessLogDestination: new apigateway.LogGroupLogDestination(accessLogGroup),
         accessLogFormat,
         tracingEnabled: true, // X-Ray tracing
@@ -290,6 +293,17 @@ export class ApiStack extends Stack {
         },
       },
       cloudWatchRole: true,
+    });
+
+    // Bound the API-Gateway-managed *execution* log group (gap 2.2). API Gateway
+    // creates `API-Gateway-Execution-Logs_{apiId}/{stage}` itself with no expiry
+    // when loggingLevel is set. A LogRetention custom resource upserts a
+    // retention on that service-created group (same pattern as the Lambda log
+    // groups in ObservabilityStack); RETAIN leaves the group in place on teardown.
+    new logs.LogRetention(this, "ExecutionLogRetention", {
+      logGroupName: `API-Gateway-Execution-Logs_${this.api.restApiId}/${config.environmentName}`,
+      retention: resolveLogRetention(config),
+      removalPolicy: RemovalPolicy.RETAIN,
     });
 
     // CORS on Gateway-generated errors. DEFAULT_4XX / DEFAULT_5XX do NOT cover
