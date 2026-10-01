@@ -143,7 +143,7 @@ export WREN_GITHUB_OWNER=YourOrgOrUser
 export WREN_GITHUB_REPO=WREN
 export WREN_GITHUB_BRANCH=main
 export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'       # the PAT from Step 1
-export WREN_ALLOWED_EMAIL_DOMAINS=example.com    # required: exact domains allowed to sign up
+export WREN_ALLOWED_EMAIL_DOMAINS=example.com    # Required: exact email domains allowed for signup; separate multiple domains with commas (,)
 export WREN_ADMIN_EMAIL=admin@example.com        # who will be the first admin (must use a listed domain)
 export WREN_REQUIRE_APPROVAL=never               # skips the interactive IAM prompt
 npm run deploy
