@@ -8,6 +8,7 @@
 import { GetSecretValueCommand, type SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 
 import {
+  appendActivityEventRow,
   derivePseudonym,
   loadPseudonymSaltFromSecretsManager,
   pseudonymForActor,
@@ -141,5 +142,23 @@ describe('recordActivityEventRow', () => {
       ),
     ).rejects.toThrow('AccessDeniedException');
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('appendActivityEventRow', () => {
+  it('inserts the pseudonymized event without reading it back (INSERT-only privilege)', async () => {
+    const query = jest.fn(async () => []);
+
+    await appendActivityEventRow(
+      { actorUserId: 'user-7', verb: 'identity.relinked', objectType: 'AppUser', objectRef: 'u-1' },
+      { query } as unknown as ActivityLogQueryExecutor,
+    );
+
+    expect(query).toHaveBeenCalledTimes(1);
+    const [text, params] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(text).toMatch(/INSERT INTO activity_event/);
+    expect(text).not.toMatch(/RETURNING/i);
+    expect(params[0]).toBe(derivePseudonym(TEST_SALT, 'user-7'));
+    expect(params).not.toContain('user-7');
   });
 });
