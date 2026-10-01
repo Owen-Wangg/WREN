@@ -43,6 +43,14 @@ export class CognitoStack extends Stack {
       signInAliases: {
         email: true,
       },
+      // Explicit (matches the CDK default for an email alias): email must be
+      // verified by code. Required by `keepOriginal` below.
+      autoVerify: { email: true },
+      // A changed email does not take effect (and `email_verified` stays true
+      // for the original) until the user verifies the new address. Without
+      // this, UpdateUserAttributes immediately stores an unverified email,
+      // including one already used by another app identity (finding f-4531f8e7).
+      keepOriginal: { email: true },
       passwordPolicy: {
         minLength: 10,
         requireLowercase: true,
@@ -94,6 +102,15 @@ export class CognitoStack extends Stack {
         adminUserPassword: false,
       },
       disableOAuth: true,
+      // Least privilege: the SPA only writes these at SignUp (see
+      // cognitoAuthService.signUp). Without an explicit list Cognito lets users
+      // UpdateUserAttributes on every standard attribute. `email` stays
+      // writable for signup; changes are gated by `keepOriginal` above.
+      writeAttributes: new cognito.ClientAttributes().withStandardAttributes({
+        email: true,
+        givenName: true,
+        familyName: true,
+      }),
       accessTokenValidity: Duration.hours(1),
       idTokenValidity: Duration.hours(1),
       refreshTokenValidity: Duration.days(30),

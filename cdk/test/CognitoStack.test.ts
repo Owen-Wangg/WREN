@@ -40,6 +40,35 @@ describe("CognitoStack app client", () => {
   });
 });
 
+describe("CognitoStack email attribute integrity (finding f-4531f8e7)", () => {
+  function synth() {
+    const config = testConfig();
+    const stack = new CognitoStack(new App(), `${config.stackPrefix}-Cognito`, {
+      env: config.env,
+      config,
+    });
+    return Template.fromStack(stack);
+  }
+
+  it("requires verification before an email change takes effect", () => {
+    synth().hasResourceProperties("AWS::Cognito::UserPool", {
+      AutoVerifiedAttributes: ["email"],
+      UserAttributeUpdateSettings: {
+        AttributesRequireVerificationBeforeUpdate: ["email"],
+      },
+    });
+  });
+
+  it("limits the SPA client to writing only the attributes signup sets", () => {
+    const template = synth();
+    const clients = Object.values(template.findResources("AWS::Cognito::UserPoolClient"));
+    const writeAttributes = clients[0]?.Properties?.WriteAttributes as string[] | undefined;
+    expect(writeAttributes).toBeDefined();
+    expect([...writeAttributes!].sort()).toEqual(["email", "family_name", "given_name"]);
+    expect(writeAttributes).not.toContain("email_verified");
+  });
+});
+
 describe("CognitoStack PreSignUp email-domain allowlist", () => {
   function synth(overrides: Parameters<typeof testConfig>[0] = {}) {
     const config = testConfig(overrides);
