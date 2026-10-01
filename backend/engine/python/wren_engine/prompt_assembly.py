@@ -53,6 +53,7 @@ __all__ = [
     "AssembledPrompt",
     "PromptAssembler",
     "StructuredFeedbackPrompt",
+    "render_untrusted_data_block",
 ]
 
 
@@ -471,12 +472,11 @@ class PromptAssembler:
     def _render_untrusted_block(
         self, block: UntrustedContent, boundary_token: str
     ) -> str:
-        begin = f"BEGIN UNTRUSTED DATA [{boundary_token}] label={block.label}"
-        end = f"END UNTRUSTED DATA [{boundary_token}]"
         # The label is rendered inside the delimited block itself (not as a
         # heading outside it) so a label value can never masquerade as
-        # trusted, out-of-band structure.
-        return "\n".join([begin, block.text, end])
+        # trusted, out-of-band structure. Shares one formatter with
+        # render_untrusted_data_block so the delimiter format has one source.
+        return _format_untrusted_block(block, boundary_token)
 
     def _render_trusted_reference_block(self, block: UntrustedContent) -> str:
         """Render an approved reference block with a STABLE, deterministic
@@ -528,6 +528,23 @@ def _stable_reference_token(label: str, text: str) -> str:
     digest.update(b"\x00")
     digest.update(text.encode("utf-8"))
     return digest.hexdigest()[:32]
+
+
+def _format_untrusted_block(block: UntrustedContent, boundary_token: str) -> str:
+    """Render the BEGIN/END-delimited data block. Single source of truth for the
+    delimiter format, shared by ``PromptAssembler`` and ``render_untrusted_data_block``."""
+    begin = f"BEGIN UNTRUSTED DATA [{boundary_token}] label={block.label}"
+    end = f"END UNTRUSTED DATA [{boundary_token}]"
+    return "\n".join([begin, block.text, end])
+
+
+def render_untrusted_data_block(text: str, *, label: str) -> str:
+    """Wrap untrusted author-supplied text in a randomized-boundary DATA block for
+    secondary prompt paths that build prompts outside :class:`PromptAssembler`. A
+    fresh per-call token prevents the author forging a closing delimiter to escape
+    the data region (REQ-SEC-PROMPTINJECT-01 criteria 1, 2)."""
+    block = UntrustedContent(label=label, text=text)
+    return _format_untrusted_block(block, _generate_boundary_token())
 
 
 def _generate_boundary_token() -> str:

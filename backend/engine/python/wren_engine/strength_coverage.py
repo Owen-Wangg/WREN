@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from .prompt_assembly import render_untrusted_data_block
 from .enabled_categories import resolve_enabled_categories
 
 __all__ = [
@@ -301,6 +302,5 @@ def build_strength_fill_prompt(
         "Categories that still need a strength item:\n"
         f"{taxonomy_lines}\n\n"
         "---\n\n"
-        "SUBMITTED DOCUMENT\n\n"
-        f"{document_text}"
+        + render_untrusted_data_block(document_text, label="SUBMITTED DOCUMENT")
     )
