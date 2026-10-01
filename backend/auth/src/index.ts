@@ -24,11 +24,20 @@ export {
   type RoleAssignmentRow,
   type AccessGrantRow,
 } from './identityMapping';
-export { ensureAppUser, type ProvisionUserInput } from './provisionUser';
+export {
+  ensureAppUser,
+  IdentityProvisioningRefusedError,
+  type ProvisionUserInput,
+  type ProvisionUserDeps,
+  type ProvisioningDb,
+  type ProvisioningRefusalReason,
+} from './provisionUser';
 export {
   createCognitoProfileLookup,
+  createCognitoSubjectLivenessCheck,
   type CognitoProfile,
   type CognitoProfileLookup,
+  type CognitoSubjectLivenessCheck,
 } from './cognitoProfile';
 export {
   CognitoTokenVerifier,

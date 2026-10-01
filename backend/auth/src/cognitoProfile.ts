@@ -9,6 +9,11 @@ import {
 
 export interface CognitoProfile {
   readonly email: string;
+  /**
+   * Cognito's `email_verified` attribute. Only a verified email may be used to
+   * provision or reclaim an application identity (see `ensureAppUser`).
+   */
+  readonly emailVerified: boolean;
   readonly firstName: string;
   readonly lastName: string;
 }
@@ -17,6 +22,14 @@ export type CognitoProfileLookup = (
   idpSubject: string,
   username?: string,
 ) => Promise<CognitoProfile>;
+
+/**
+ * Report whether an IdP subject still resolves to a user in the pool. Used to
+ * decide whether an existing `app_user` row is still bound to a live identity
+ * before it may be reclaimed. Implementations MUST fail closed: anything other
+ * than a definitive "user does not exist" answer is reported as live (or throws).
+ */
+export type CognitoSubjectLivenessCheck = (idpSubject: string) => Promise<boolean>;
 
 function attrMap(
   attributes: ReadonlyArray<{ Name?: string; Value?: string }> | undefined,
@@ -28,6 +41,14 @@ function attrMap(
     }
   }
   return out;
+}
+
+function isUserNotFound(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { name?: unknown }).name === 'UserNotFoundException'
+  );
 }
 
 /**
@@ -60,6 +81,9 @@ export function createCognitoProfileLookup(
         }
         return {
           email,
+          // Cognito stores booleans as the strings "true" / "false". Anything
+          // other than an exact "true" is treated as unverified (fail closed).
+          emailVerified: attrs.email_verified === 'true',
           firstName: attrs.given_name?.trim() || 'User',
           lastName: attrs.family_name?.trim() || 'Account',
         };
@@ -71,5 +95,33 @@ export function createCognitoProfileLookup(
     throw lastError instanceof Error
       ? lastError
       : new Error(`Cognito user ${idpSubject} not found for provisioning`);
+  };
+}
+
+/**
+ * Build an AdminGetUser-backed liveness check. The pool signs in with email as
+ * the username attribute, so a user's `sub` is accepted as `Username`
+ * (the same lookup {@link createCognitoProfileLookup} already relies on).
+ *
+ * Only `UserNotFoundException` yields `false`. Disabled users are still bound
+ * identities and report `true`. Every other error propagates so the caller
+ * fails closed rather than treating an outage as "user gone".
+ */
+export function createCognitoSubjectLivenessCheck(
+  userPoolId: string,
+  client: CognitoIdentityProviderClient = new CognitoIdentityProviderClient({}),
+): CognitoSubjectLivenessCheck {
+  return async (idpSubject: string): Promise<boolean> => {
+    try {
+      await client.send(
+        new AdminGetUserCommand({ UserPoolId: userPoolId, Username: idpSubject }),
+      );
+      // Any user that resolves counts as live, even if it resolved through an
+      // alias rather than the `sub`: that is not a definitive "subject gone".
+      return true;
+    } catch (error) {
+      if (isUserNotFound(error)) return false;
+      throw error;
+    }
   };
 }
