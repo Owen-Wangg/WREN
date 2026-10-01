@@ -362,7 +362,7 @@ Ask WREN follows the same coaching posture (Socratic replies, a draft-anchored s
 |---------|-------------|
 | **Untrusted-data delimiters** | Student-controlled content is placed inside a delimited untrusted-data block using a generated boundary token, reducing the chance that submitted content can reproduce the delimiter |
 | **Save-time prompt scan** | Department Type prompts that instruct rewrites are rejected before the DB write (`PromptGuardrailError`) |
-| **Bedrock prompt attack** | Admin-submitted prompt fields are scanned with a dedicated Guardrail (`PROMPT_ATTACK`, input MEDIUM) |
+| **Bedrock prompt attack** | Admin-submitted prompt fields are scanned with a dedicated Guardrail (`PROMPT_ATTACK`, input MEDIUM). Fails closed: if `PROMPT_GUARDRAIL_ID` is unset, prompt saves are rejected (HTTP 503 `PROMPT_GUARDRAIL_UNCONFIGURED`) and the `prompt-guardrail-skipped` alarm fires. Only `PROMPT_GUARDRAIL_SKIP=true` (local dev/tests) bypasses the scan |
 | **Injection audit** | Guardrail outcomes are recorded (`guardrail.passed`, `guardrail.violation_rejected`, `guardrail.injection_mitigated`) |
 
 This Guardrail is prompt-attack detection on admin configuration. It is not a general PII redaction filter on student essays.
