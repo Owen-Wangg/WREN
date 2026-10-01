@@ -138,12 +138,43 @@ export class ObservabilityStack extends Stack {
     // -------------------------------------------------------------------
     // SNS Topic for alarm notifications
     // -------------------------------------------------------------------
+    // SSE-SNS at rest with a dedicated CMK. The AWS-managed SNS key
+    // (alias/aws/sns) cannot be used here: its key policy is not editable, so
+    // CloudWatch alarms cannot generate data keys for it and alarm publishes
+    // fail silently. The CMK grants cloudwatch.amazonaws.com the two KMS
+    // actions it needs (per the CloudWatch alarm + encrypted SNS docs:
+    // https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html).
+    // The key only protects in-flight alarm messages, so it is destroyed on
+    // teardown (7-day pending window) rather than retained.
+    const alarmTopicKey = new kms.Key(this, "AlarmTopicKey", {
+      description: `${config.stackPrefix} alarm SNS topic key (CloudWatch alarms)`,
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.DESTROY,
+      pendingWindow: Duration.days(7),
+    });
+    alarmTopicKey.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowCloudWatchAlarmsToUseKey",
+      principals: [new iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+      actions: ["kms:Decrypt", "kms:GenerateDataKey*"],
+      resources: ["*"],
+    }));
+
     this.alarmTopic = new sns.Topic(this, "AlarmTopic", {
       topicName: `${config.stackPrefix}-alarms`,
       displayName: `${config.stackPrefix} Alarms`,
-      // SSE-SNS at rest using the AWS-managed key for SNS (alias/aws/sns).
-      masterKey: kms.Alias.fromAliasName(this, "AlarmTopicKey", "alias/aws/sns"),
+      masterKey: alarmTopicKey,
+      // Adds a topic policy denying aws:SecureTransport=false (TLS-only).
+      enforceSSL: true,
     });
+    // An explicit topic policy replaces SNS's default policy, so CloudWatch
+    // needs an explicit publish allow, scoped to alarms in this account.
+    this.alarmTopic.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowCloudWatchAlarmsPublish",
+      principals: [new iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+      actions: ["sns:Publish"],
+      resources: [this.alarmTopic.topicArn],
+      conditions: { StringEquals: { "aws:SourceAccount": this.account } },
+    }));
     if (config.alarmEmail !== undefined) {
       // SNS sends a confirmation email; alarms reach a human only after the
       // recipient accepts that subscription.
