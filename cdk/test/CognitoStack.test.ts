@@ -1,5 +1,5 @@
 import { App } from "aws-cdk-lib";
-import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
+import { Match, Template } from "aws-cdk-lib/assertions";
 
 import { CognitoStack } from "../lib/stacks/CognitoStack.js";
 import { testConfig } from "./helpers.js";
@@ -40,7 +40,7 @@ describe("CognitoStack app client", () => {
   });
 });
 
-describe("CognitoStack email attribute integrit", () => {
+describe("CognitoStack email attribute integrity (finding f-4531f8e7)", () => {
   function synth() {
     const config = testConfig();
     const stack = new CognitoStack(new App(), `${config.stackPrefix}-Cognito`, {
@@ -79,20 +79,7 @@ describe("CognitoStack PreSignUp email-domain allowlist", () => {
     return Template.fromStack(stack);
   }
 
-  function stackFor(overrides: Parameters<typeof testConfig>[0] = {}) {
-    const config = testConfig(overrides);
-    return new CognitoStack(new App(), `${config.stackPrefix}-Cognito`, {
-      env: config.env,
-      config,
-    });
-  }
-
-  function preSignUpEnv(template: Template): Record<string, string> {
-    const fns = Object.values(template.findResources("AWS::Lambda::Function"));
-    return fns[0]?.Properties?.Environment?.Variables as Record<string, string>;
-  }
-
-  it("always attaches exactly one PreSignUp Lambda", () => {
+  it("always attaches a PreSignUp Lambda; with no context its empty allowlist denies signup", () => {
     const template = synth();
     template.hasResourceProperties("AWS::Cognito::UserPool", {
       LambdaConfig: Match.objectLike({
@@ -100,41 +87,15 @@ describe("CognitoStack PreSignUp email-domain allowlist", () => {
       }),
     });
     template.resourceCountIs("AWS::Lambda::Function", 1);
-  });
-
-  it("passes configured exact domains with open signup off", () => {
-    const env = preSignUpEnv(synth({ allowedEmailDomains: ["ubc.ca", "student.ubc.ca"] }));
-    expect(env.ALLOWED_EMAIL_DOMAINS).toBe("ubc.ca,student.ubc.ca");
-    expect(env.ALLOW_OPEN_SIGNUP).toBe("false");
-  });
-
-  it("passes the explicit open-signup opt-in with an empty allowlist", () => {
-    const env = preSignUpEnv(synth({ allowedEmailDomains: [], allowOpenSignup: true }));
+    const fns = Object.values(template.findResources("AWS::Lambda::Function"));
+    const env = fns[0]?.Properties?.Environment?.Variables as Record<string, string>;
     expect(env.ALLOWED_EMAIL_DOMAINS).toBe("");
-    expect(env.ALLOW_OPEN_SIGNUP).toBe("true");
   });
 
-  it("reports no synth error for a valid policy", () => {
-    Annotations.fromStack(stackFor()).hasNoError("*", Match.anyValue());
-    Annotations.fromStack(
-      stackFor({ allowedEmailDomains: [], allowOpenSignup: true }),
-    ).hasNoError("*", Match.anyValue());
-  });
-
-  it("fails synth when there is no allowlist and no explicit open signup", () => {
-    const stack = stackFor({ allowedEmailDomains: [], allowOpenSignup: false });
-    Annotations.fromStack(stack).hasError(
-      "*",
-      Match.stringLikeRegexp("allowedEmailDomains is required"),
-    );
-    // Defense in depth: even if the error were ignored, the Lambda denies.
-    const env = preSignUpEnv(Template.fromStack(stack));
-    expect(env.ALLOWED_EMAIL_DOMAINS).toBe("");
-    expect(env.ALLOW_OPEN_SIGNUP).toBe("false");
-  });
-
-  it("fails synth when an allowlist is combined with open signup", () => {
-    const stack = stackFor({ allowedEmailDomains: ["ubc.ca"], allowOpenSignup: true });
-    Annotations.fromStack(stack).hasError("*", Match.stringLikeRegexp("mutually exclusive"));
+  it("passes configured exact domains to the PreSignUp Lambda", () => {
+    const template = synth({ allowedEmailDomains: ["ubc.ca", "alumni.ubc.ca"] });
+    const fns = Object.values(template.findResources("AWS::Lambda::Function"));
+    const env = fns[0]?.Properties?.Environment?.Variables as Record<string, string>;
+    expect(env.ALLOWED_EMAIL_DOMAINS).toBe("ubc.ca,alumni.ubc.ca");
   });
 });

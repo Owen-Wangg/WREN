@@ -3,15 +3,15 @@ import { configFingerprint } from "../scripts/operations/checkpoint.js";
 import { redactText, withoutSecretEnvironment } from "../scripts/operations/redaction.js";
 import { runCommand } from "../scripts/operations/runner.js";
 
-/** GitHub settings without any signup policy, for the policy-specific tests. */
-const githubNoSignupPolicy = {
+/** GitHub settings without a signup allowlist, for the allowlist-specific tests. */
+const githubNoAllowlist = {
   WREN_GITHUB_OWNER: "example-owner",
   WREN_GITHUB_REPO: "WREN",
 };
 
 const github = {
-  ...githubNoSignupPolicy,
-  // Deploys must declare a signup policy (secure by default).
+  ...githubNoAllowlist,
+  // Deploys require a signup allowlist (empty denies every signup).
   WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
 };
 
@@ -133,47 +133,25 @@ describe("deployment configuration", () => {
     expect(configFingerprint(withDomain)).not.toBe(configFingerprint(base));
   });
 
-  it("parses an exact signup email-domain allowlist", () => {
+  it("parses the signup email-domain allowlist", () => {
     const config = parseDeploymentConfig({
-      ...githubNoSignupPolicy,
-      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca, student.ubc.ca",
+      ...github,
+      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca, alumni.ubc.ca",
     });
-    expect(config.allowedEmailDomains).toEqual(["ubc.ca", "student.ubc.ca"]);
-    expect(config.allowOpenSignup).toBe(false);
+    expect(config.allowedEmailDomains).toEqual(["ubc.ca", "alumni.ubc.ca"]);
   });
 
-  it("requires a signup policy for deploy (empty allowlist is not open signup)", () => {
-    expect(() => parseDeploymentConfig(githubNoSignupPolicy)).toThrow(
-      /WREN_ALLOWED_EMAIL_DOMAINS is required.*WREN_ALLOW_OPEN_SIGNUP=true/,
+  it("requires a non-empty allowlist for deploy", () => {
+    expect(() => parseDeploymentConfig(githubNoAllowlist)).toThrow(
+      "WREN_ALLOWED_EMAIL_DOMAINS is required",
     );
     expect(() =>
-      parseDeploymentConfig({ ...githubNoSignupPolicy, WREN_ALLOWED_EMAIL_DOMAINS: " " }),
-    ).toThrow("WREN_ALLOWED_EMAIL_DOMAINS is required");
-    expect(() =>
-      parseDeploymentConfig({ ...githubNoSignupPolicy, WREN_ALLOW_OPEN_SIGNUP: "false" }),
+      parseDeploymentConfig({ ...githubNoAllowlist, WREN_ALLOWED_EMAIL_DOMAINS: "  " }),
     ).toThrow("WREN_ALLOWED_EMAIL_DOMAINS is required");
   });
 
-  it("accepts an explicit open-signup opt-in without an allowlist", () => {
-    const config = parseDeploymentConfig({ ...githubNoSignupPolicy, WREN_ALLOW_OPEN_SIGNUP: "true" });
-    expect(config.allowOpenSignup).toBe(true);
-    expect(config.allowedEmailDomains).toEqual([]);
-  });
-
-  it("rejects an allowlist combined with open signup, for deploy and undeploy", () => {
-    const env = { ...github, WREN_ALLOW_OPEN_SIGNUP: "true" };
-    expect(() => parseDeploymentConfig(env)).toThrow("mutually exclusive");
-    expect(() => parseDeploymentConfig(env, "undeploy")).toThrow("mutually exclusive");
-  });
-
-  it("does not require a signup policy for undeploy", () => {
-    expect(parseDeploymentConfig(githubNoSignupPolicy, "undeploy").allowedEmailDomains).toEqual([]);
-  });
-
-  it("rejects a malformed WREN_ALLOW_OPEN_SIGNUP value", () => {
-    expect(() =>
-      parseDeploymentConfig({ ...githubNoSignupPolicy, WREN_ALLOW_OPEN_SIGNUP: "yes" }),
-    ).toThrow("WREN_ALLOW_OPEN_SIGNUP");
+  it("does not require an allowlist for undeploy", () => {
+    expect(parseDeploymentConfig(githubNoAllowlist, "undeploy").allowedEmailDomains).toEqual([]);
   });
 
   it.each([
@@ -189,25 +167,24 @@ describe("deployment configuration", () => {
     ).toThrow("WREN_ALLOWED_EMAIL_DOMAINS");
   });
 
-  it("echoes the signup policy in public configuration", () => {
+  it("echoes allowed email domains in public configuration", () => {
+    expect(
+      publicDeploymentConfig(parseDeploymentConfig(githubNoAllowlist, "undeploy")).allowedEmailDomains,
+    ).toBe("(none: signup denied)");
     const restricted = parseDeploymentConfig({
       ...github,
       WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca",
     });
     expect(publicDeploymentConfig(restricted).allowedEmailDomains).toBe("ubc.ca");
-    const open = parseDeploymentConfig({ ...githubNoSignupPolicy, WREN_ALLOW_OPEN_SIGNUP: "true" });
-    expect(publicDeploymentConfig(open).allowedEmailDomains).toBe("(open signup)");
   });
 
-  it("changes the checkpoint fingerprint when the signup policy changes", () => {
+  it("changes the checkpoint fingerprint when allowed email domains change", () => {
     const base = parseDeploymentConfig(github);
     const restricted = parseDeploymentConfig({
       ...github,
       WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca",
     });
-    const open = parseDeploymentConfig({ ...githubNoSignupPolicy, WREN_ALLOW_OPEN_SIGNUP: "true" });
     expect(configFingerprint(restricted)).not.toBe(configFingerprint(base));
-    expect(configFingerprint(open)).not.toBe(configFingerprint(base));
   });
 
   it("rejects an admin email outside the signup allowlist", () => {

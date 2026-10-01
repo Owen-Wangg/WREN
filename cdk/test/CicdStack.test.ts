@@ -6,7 +6,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 
 import { CicdStack } from "../lib/stacks/CicdStack.js";
 
-import { TEST_ACCOUNT, testConfig } from "./helpers.js";
+import { TEST_ACCOUNT } from "./helpers.js";
 import { policyFixtures, asArray, statements } from "./support/cicdPolicyFixtures.js";
 import { synthCicd, synthCompute } from "./support/cicdSynth.js";
 import { matchesActionPattern, matchesArnPattern, type PolicyStatement } from "./support/policyEval.js";
@@ -357,40 +357,5 @@ describe("CicdStack prerequisite-only modes", () => {
 
     template.resourceCountIs("AWS::ECR::Repository", 0);
     template.resourceCountIs("AWS::IAM::ManagedPolicy", 1);
-  });
-});
-
-describe("CicdStack pipeline synth carries the signup policy", () => {
-  /**
-   * The pipeline's `cdk synth` command line. The buildspec embeds tokens (ECR
-   * URI), so it is a Fn::Join in the template; search the serialized template
-   * for the synth segment instead of parsing the buildspec.
-   */
-  function pipelineSynthCommand(overrides: Parameters<typeof testConfig>[0]): string {
-    const config = testConfig(overrides);
-    const stack = new CicdStack(new App(), `${config.stackPrefix}-Cicd`, {
-      env: config.env,
-      config,
-      enablePipeline: true,
-      repositoryOwner: "test-owner",
-      repositoryName: "test-repo",
-      branch: "main",
-    });
-    const serialized = JSON.stringify(Template.fromStack(stack).toJSON());
-    const match = /cd cdk && npx cdk synth [^"\\]*/.exec(serialized);
-    if (match === null) throw new Error("pipeline cdk synth command not found");
-    return match[0];
-  }
-
-  it("re-passes the exact allowlist so the pipeline synth keeps the restriction", () => {
-    const command = pipelineSynthCommand({ allowedEmailDomains: ["ubc.ca", "student.ubc.ca"] });
-    expect(command).toContain("-c allowedEmailDomains='ubc.ca,student.ubc.ca'");
-    expect(command).not.toContain("allowOpenSignup");
-  });
-
-  it("re-passes an explicit open-signup opt-in", () => {
-    const command = pipelineSynthCommand({ allowedEmailDomains: [], allowOpenSignup: true });
-    expect(command).toContain("-c allowOpenSignup=true");
-    expect(command).not.toContain("allowedEmailDomains");
   });
 });

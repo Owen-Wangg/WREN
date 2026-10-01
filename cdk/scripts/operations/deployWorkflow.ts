@@ -195,7 +195,6 @@ export function cdkContextArgs(
     ...(config.allowedEmailDomains.length > 0
       ? ["-c", `allowedEmailDomains=${config.allowedEmailDomains.join(",")}`]
       : []),
-    ...(config.allowOpenSignup ? ["-c", "allowOpenSignup=true"] : []),
     ...(technicalAdminBootstrapSubject
       ? ["-c", `technicalAdminBootstrapSubject=${technicalAdminBootstrapSubject}`]
       : []),

@@ -1,4 +1,4 @@
-import { Annotations, Stack, type StackProps, Duration } from "aws-cdk-lib";
+import { Stack, type StackProps, Duration } from "aws-cdk-lib";
 import * as path from "path";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -6,7 +6,7 @@ import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import type { Construct } from "constructs";
 
-import { allowedEmailDomainsEnv, signupPolicyProblem } from "../signupEmailDomains.js";
+import { allowedEmailDomainsEnv } from "../signupEmailDomains.js";
 import { ssmParameterNames, type AppConfig } from "../config.js";
 
 export interface CognitoStackProps extends StackProps {
@@ -19,9 +19,7 @@ export interface CognitoStackProps extends StackProps {
  * Instantiates a User Pool (email sign-in, SRP auth, self-signup enabled)
  * and a User Pool Client (public client for SPA, no secret, OAuth hosted-UI
  * disabled). A PreSignUp Lambda enforces an exact email-domain allowlist for
- * new accounts. Secure by default: the stack reports a synth error unless the
- * allowlist is non-empty or `allowOpenSignup` is explicitly true, and the
- * Lambda itself denies every signup when neither is configured. Admin
+ * new accounts only; an empty list denies every new signup. Admin
  * USER_PASSWORD_AUTH / `AdminInitiateAuth` is not enabled on this client.
  * Pool and client IDs are published to SSM for Lambdas and the frontend.
  */
@@ -51,7 +49,7 @@ export class CognitoStack extends Stack {
       // A changed email does not take effect (and `email_verified` stays true
       // for the original) until the user verifies the new address. Without
       // this, UpdateUserAttributes immediately stores an unverified email,
-      // including one already used by another app identity.
+      // including one already used by another app identity (finding f-4531f8e7).
       keepOriginal: { email: true },
       passwordPolicy: {
         minLength: 10,
@@ -124,22 +122,10 @@ export class CognitoStack extends Stack {
     // -----------------------------------------------------------------------
     // PreSignUp email-domain allowlist (new accounts only)
     // -----------------------------------------------------------------------
-    // Always attached so changing the policy is an env change rather than
-    // adding or removing the trigger. Fail closed: an empty
-    // ALLOWED_EMAIL_DOMAINS denies every signup unless ALLOW_OPEN_SIGNUP=true.
+    // Always attached so changing the list is an env change rather than adding
+    // or removing the trigger. Fail closed: an empty ALLOWED_EMAIL_DOMAINS
+    // denies every new signup. `npm run deploy` refuses to run without a list.
     // No VPC or database: this is a hostname check only.
-    //
-    // A missing policy is a synth ERROR on this stack (not a throw), so
-    // `cdk deploy` of Cognito fails while synth of unrelated stacks still works.
-    const policyProblem = signupPolicyProblem({
-      allowedDomains: config.allowedEmailDomains,
-      allowOpenSignup: config.allowOpenSignup,
-    });
-    if (policyProblem) {
-      Annotations.of(this).addError(
-        `Signup policy: ${policyProblem} (deploy orchestrator: WREN_ALLOWED_EMAIL_DOMAINS / WREN_ALLOW_OPEN_SIGNUP).`,
-      );
-    }
     const monorepoRoot = path.join(__dirname, "../../..");
     const preSignUp = new lambdaNodejs.NodejsFunction(this, "PreSignUpFn", {
       functionName: `${config.stackPrefix}-pre-signup`,
@@ -152,7 +138,6 @@ export class CognitoStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ALLOWED_EMAIL_DOMAINS: allowedEmailDomainsEnv(config.allowedEmailDomains),
-        ALLOW_OPEN_SIGNUP: config.allowOpenSignup ? "true" : "false",
         NODE_OPTIONS: "--enable-source-maps",
       },
       bundling: {

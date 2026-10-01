@@ -176,20 +176,11 @@ export interface AppConfig {
   readonly customDomain?: string;
   /**
    * Exact email hostnames allowed for new Cognito self-signups. Set with
-   * `-c allowedEmailDomains=ubc.ca,student.ubc.ca`. Subdomains are never
-   * implied and there is no wildcard syntax: list every hostname.
-   *
-   * Secure by default: an empty list DENIES signup. The Cognito stack reports a
-   * synth error unless this list is non-empty or {@link allowOpenSignup} is
-   * explicitly `true`.
+   * `-c allowedEmailDomains=ubc.ca`. An empty list DENIES every new signup
+   * (`npm run deploy` requires a non-empty list). Subdomains are not implied:
+   * `ubc.ca` does not allow `law.ubc.ca`.
    */
   readonly allowedEmailDomains: readonly string[];
-  /**
-   * Explicit opt-in to unrestricted self-signup (any email domain). Defaults to
-   * `false`. Mutually exclusive with a non-empty {@link allowedEmailDomains}.
-   * Set with `-c allowOpenSignup=true`.
-   */
-  readonly allowOpenSignup: boolean;
   /**
    * Extra exact browser origins for API/S3 CORS (scheme://host[:port]).
    * Local Vite (`http://localhost:5173`, `http://127.0.0.1:5173`) and
@@ -209,24 +200,6 @@ function readContext(app: App, key: string): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
- * Read a strict boolean context value. Accepts a JSON boolean (cdk.json) or the
- * exact strings `true` / `false` (`-c key=true`). Anything else fails synth so
- * a typo cannot silently flip a security setting.
- */
-function readBooleanContext(app: App, key: string, fallback: boolean): boolean {
-  const value = app.node.tryGetContext(key) as unknown;
-  if (value === undefined || value === null) return fallback;
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return fallback;
-    if (trimmed === "true") return true;
-    if (trimmed === "false") return false;
-  }
-  throw new Error(`${key} must be exactly 'true' or 'false'`);
 }
 
 /**
@@ -300,9 +273,6 @@ function resolveCacheEnabledWorkloads(
  *   - `stackPrefix`     -> defaults to `${projectName}-${environmentName}`
  *   - `corsAllowedOrigins` -> extra exact CORS origins, comma-separated
  *   - `allowedEmailDomains` -> exact signup email hostnames, comma-separated
- *   - `allowOpenSignup` -> `true` to allow any email domain; defaults to `false`.
- *     One of `allowedEmailDomains` / `allowOpenSignup=true` is required for the
- *     Cognito stack (empty allowlist denies signup).
  *
  * Override at synth/deploy time, e.g.:
  *   cdk synth -c appName="My Coach" -c environmentName=prod
@@ -347,15 +317,6 @@ export function resolveAppConfig(app: App): AppConfig {
     readContext(app, "allowedEmailDomains"),
     "allowedEmailDomains",
   );
-  const allowOpenSignup = readBooleanContext(app, "allowOpenSignup", false);
-  // A contradictory policy is always a mistake, so reject it for every synth.
-  // A MISSING policy is reported by the Cognito stack instead (selection-scoped
-  // synth error), so unrelated tooling such as `cdk synth <prefix>-Cicd` works.
-  if (allowedEmailDomains.length > 0 && allowOpenSignup) {
-    throw new Error(
-      "allowedEmailDomains and allowOpenSignup=true are mutually exclusive",
-    );
-  }
   const corsAllowedOrigins = parseCorsAllowedOrigins(
     readContext(app, "corsAllowedOrigins"),
   );
@@ -386,7 +347,6 @@ export function resolveAppConfig(app: App): AppConfig {
     lambdaConcurrency,
     ...(customDomain ? { customDomain } : {}),
     allowedEmailDomains,
-    allowOpenSignup,
     corsAllowedOrigins,
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,

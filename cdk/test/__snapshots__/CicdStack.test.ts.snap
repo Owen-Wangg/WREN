@@ -831,7 +831,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
         "if [ \\"$BOOTSTRAP_SUBJECT\\" = \\"None\\" ] || [ \\"$BOOTSTRAP_SUBJECT\\" = \\"none\\" ]; then BOOTSTRAP_SUBJECT=\\"\\"; fi",
         "SUBJECT_CONTEXT=\\"\\"",
         "if [ -n \\"$BOOTSTRAP_SUBJECT\\" ]; then SUBJECT_CONTEXT=\\"-c technicalAdminBootstrapSubject=$BOOTSTRAP_SUBJECT\\"; fi",
-        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main -c allowedEmailDomains='example.ca' $SUBJECT_CONTEXT && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
+        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main $SUBJECT_CONTEXT && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
       ]
     }
   },

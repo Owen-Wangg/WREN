@@ -277,16 +277,6 @@ export class CicdStack extends Stack {
       throw new Error("repositoryOwner, repositoryName, and branch are required when the CI/CD pipeline is enabled");
     }
 
-    // The pipeline synthesizes the whole app, and the Cognito stack reports a
-    // synth error without a signup policy, so re-pass the policy this pipeline
-    // was deployed with. Domains are validated hostnames ([a-z0-9.-]), so the
-    // single-quoted shell form is safe.
-    const signupContext = config.allowedEmailDomains.length > 0
-      ? ` -c allowedEmailDomains='${config.allowedEmailDomains.join(",")}'`
-      : config.allowOpenSignup
-        ? " -c allowOpenSignup=true"
-        : "";
-
     // -------------------------------------------------------------------
     // Stage 2: Build — test, build + push image, synth CDK
     // -------------------------------------------------------------------
@@ -340,7 +330,7 @@ export class CicdStack extends Stack {
               `if [ "$BOOTSTRAP_SUBJECT" = "None" ] || [ "$BOOTSTRAP_SUBJECT" = "none" ]; then BOOTSTRAP_SUBJECT=""; fi`,
               `SUBJECT_CONTEXT=""`,
               `if [ -n "$BOOTSTRAP_SUBJECT" ]; then SUBJECT_CONTEXT="-c technicalAdminBootstrapSubject=$BOOTSTRAP_SUBJECT"; fi`,
-              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=${config.auditPseudonymSaltOwnership} -c enableCicd=true -c ecrOwnership=${props.ecrOwnership ?? "managed"} -c githubOwner=${repositoryOwner} -c githubRepo=${repositoryNameFromSource} -c githubBranch=${branch}${signupContext} $SUBJECT_CONTEXT && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
+              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=${config.auditPseudonymSaltOwnership} -c enableCicd=true -c ecrOwnership=${props.ecrOwnership ?? "managed"} -c githubOwner=${repositoryOwner} -c githubRepo=${repositoryNameFromSource} -c githubBranch=${branch} $SUBJECT_CONTEXT && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
             ],
           },
         },
