@@ -14,8 +14,8 @@ export interface NotificationInfraConstructProps {
  * Notification infrastructure construct (Wave 7).
  *
  * Creates the messaging backbone for in-app notifications:
- *   - SNS topic for publishing notification events
- *   - SQS queue (with DLQ) for reliable, ordered processing
+ *   - SNS topic for publishing notification events (SSE-SNS, TLS-only)
+ *   - SQS queue (with DLQ) for reliable, ordered processing (SSE-SQS, TLS-only)
  *   - SSM Parameters for configurable notification thresholds
  *
  * The construct exposes all created resources as public properties so that
@@ -44,20 +44,31 @@ export class NotificationInfraConstruct extends Construct {
     // notification-events can reference user/document context, so encrypt the
     // payload while it sits on the topic. Same-account SNS -> SQS fan-out works
     // with the managed key without extra key-policy management.
+    // enforceSSL adds a topic policy denying any request with
+    // aws:SecureTransport=false (TLS-only publish/subscribe).
     this.topic = new sns.Topic(this, "NotificationEventsTopic", {
       topicName: `${stackPrefix}-notification-events`,
       masterKey: kms.Alias.fromAliasName(this, "NotificationTopicKey", "alias/aws/sns"),
+      enforceSSL: true,
     });
 
     // --- Dead Letter Queue ---
+    // Failed notification payloads carry the same user/document context, so
+    // the DLQ is SSE-SQS encrypted at rest and TLS-only like the main queue.
     this.dlq = new sqs.Queue(this, "NotificationDLQ", {
       queueName: `${stackPrefix}-notification-dlq`,
       retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
     });
 
     // --- Main SQS Queue ---
+    // SSE-SQS (SQS-owned key) rather than a KMS key: SNS -> SQS delivery and
+    // the Lambda event source need no key-policy or IAM changes.
     this.queue = new sqs.Queue(this, "NotificationQueue", {
       queueName: `${stackPrefix}-notification-queue`,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
       // AWS SQS+Lambda: visibility timeout must be ≥ 6× the function timeout
       // so a throttle/retry cannot redeliver while the original invoke is live.
       // NotificationFn timeout is 30s → 180s.

@@ -3,6 +3,7 @@ import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as kms from "aws-cdk-lib/aws-kms";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -262,12 +263,42 @@ export class CloudFrontWafStack extends Stack {
 
     // CloudFront metrics are us-east-1 / Region=Global — keep alarms in this
     // stack rather than importing the ca-central-1 Observability SNS topic.
+    //
+    // SSE-SNS at rest with a dedicated CMK (KMS keys are regional, so this
+    // stack gets its own us-east-1 key). The AWS-managed SNS key
+    // (alias/aws/sns) cannot be used: its key policy is not editable, so
+    // CloudWatch alarms cannot generate data keys for it and alarm publishes
+    // fail silently. Mirrors the Observability stack's alarm topic; see
+    // https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html.
+    const alarmTopicKey = new kms.Key(this, "AlarmTopicKey", {
+      description: `${config.stackPrefix} alarm SNS topic key (CloudWatch alarms)`,
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.DESTROY,
+      pendingWindow: Duration.days(7),
+    });
+    alarmTopicKey.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowCloudWatchAlarmsToUseKey",
+      principals: [new iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+      actions: ["kms:Decrypt", "kms:GenerateDataKey*"],
+      resources: ["*"],
+    }));
+
     const alarmTopic = new sns.Topic(this, "AlarmTopic", {
       topicName: `${config.stackPrefix}-cloudfront-alarms`,
       displayName: `${config.stackPrefix} CloudFront Alarms`,
-      // SSE-SNS at rest using the AWS-managed key for SNS (alias/aws/sns).
-      masterKey: kms.Alias.fromAliasName(this, "AlarmTopicKey", "alias/aws/sns"),
+      masterKey: alarmTopicKey,
+      // Adds a topic policy denying aws:SecureTransport=false (TLS-only).
+      enforceSSL: true,
     });
+    // An explicit topic policy replaces SNS's default policy, so CloudWatch
+    // needs an explicit publish allow, scoped to alarms in this account.
+    alarmTopic.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowCloudWatchAlarmsPublish",
+      principals: [new iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+      actions: ["sns:Publish"],
+      resources: [alarmTopic.topicArn],
+      conditions: { StringEquals: { "aws:SourceAccount": this.account } },
+    }));
     if (config.alarmEmail !== undefined) {
       alarmTopic.addSubscription(new subscriptions.EmailSubscription(config.alarmEmail));
     }

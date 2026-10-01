@@ -248,13 +248,18 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Document ingest queue (async PDF OCR via Textract)
     // -----------------------------------------------------------------------
+    // Messages reference user documents: SSE-SQS at rest + TLS-only queue policy.
     this.documentIngestDlq = new sqs.Queue(this, "DocumentIngestDlq", {
       queueName: `${config.stackPrefix}-document-ingest-dlq`,
       retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
     });
 
     this.documentIngestQueue = new sqs.Queue(this, "DocumentIngestQueue", {
       queueName: `${config.stackPrefix}-document-ingest-queue`,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
       // Must exceed DocumentFn timeout so in-flight OCR is not redelivered early.
       visibilityTimeout: Duration.minutes(4),
       deadLetterQueue: {
@@ -368,13 +373,18 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Feedback DLQ + Queue (SQS — async job execution, REQ-NFR-SCALE-01)
     // -----------------------------------------------------------------------
+    // Feedback jobs reference user drafts: SSE-SQS at rest + TLS-only queue policy.
     this.feedbackDlq = new sqs.Queue(this, "FeedbackDlq", {
       queueName: `${config.stackPrefix}-feedback-dlq`,
       retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
     });
 
     this.feedbackQueue = new sqs.Queue(this, "FeedbackQueue", {
       queueName: `${config.stackPrefix}-feedback-queue`,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
       visibilityTimeout: Duration.minutes(16), // Must exceed engine timeout
       deadLetterQueue: {
         queue: this.feedbackDlq,
