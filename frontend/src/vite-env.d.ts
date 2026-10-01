@@ -23,7 +23,7 @@ interface ImportMetaEnv {
   readonly VITE_AWS_REGION?: string;
   /**
    * Optional comma-separated exact email hostnames allowed for self-signup.
-   * Unset keeps signup unrestricted.
+   * UX hint only; unset skips the form check and Cognito decides.
    */
   readonly VITE_ALLOWED_EMAIL_DOMAINS?: string;
 }

@@ -1,3 +1,5 @@
+import fc from 'fast-check';
+
 import {
   allowedEmailDomainsEnv,
   emailHostname,
@@ -42,9 +44,14 @@ describe('parseAllowedEmailDomains', () => {
 });
 
 describe('isSignupEmailDomainAllowed', () => {
-  it('allows any email when the list is empty', () => {
-    expect(isSignupEmailDomainAllowed('ada@example.com', [])).toBe(true);
-    expect(isSignupEmailDomainAllowed('not-an-email', [])).toBe(true);
+  it('denies every email when the list is empty (fail closed)', () => {
+    expect(isSignupEmailDomainAllowed('ada@example.com', [])).toBe(false);
+    expect(isSignupEmailDomainAllowed('user@ubc.ca', [])).toBe(false);
+    expect(isSignupEmailDomainAllowed('not-an-email', [])).toBe(false);
+  });
+
+  it('property: an empty list denies any input', () => {
+    fc.assert(fc.property(fc.string(), (email) => !isSignupEmailDomainAllowed(email, [])));
   });
 
   it('matches the hostname exactly and case-insensitively', () => {
@@ -73,7 +80,7 @@ describe('emailHostname and messaging', () => {
     expect(emailHostname('not-an-email')).toBeUndefined();
   });
 
-  it('names a single domain, lists several, and falls back when unrestricted', () => {
+  it('names a single domain, lists several, and falls back when none are configured', () => {
     expect(signupEmailDomainRestrictionMessage(['ubc.ca'])).toBe(
       'Sign-up is limited to @ubc.ca addresses.',
     );

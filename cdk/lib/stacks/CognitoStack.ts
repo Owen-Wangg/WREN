@@ -18,8 +18,8 @@ export interface CognitoStackProps extends StackProps {
  *
  * Instantiates a User Pool (email sign-in, SRP auth, self-signup enabled)
  * and a User Pool Client (public client for SPA, no secret, OAuth hosted-UI
- * disabled). A PreSignUp Lambda enforces an optional exact email-domain
- * allowlist for new accounts only; an empty list is unrestricted. Admin
+ * disabled). A PreSignUp Lambda enforces an exact email-domain allowlist for
+ * new accounts only; an empty list denies every new signup. Admin
  * USER_PASSWORD_AUTH / `AdminInitiateAuth` is not enabled on this client.
  * Pool and client IDs are published to SSM for Lambdas and the frontend.
  */
@@ -122,10 +122,10 @@ export class CognitoStack extends Stack {
     // -----------------------------------------------------------------------
     // PreSignUp email-domain allowlist (new accounts only)
     // -----------------------------------------------------------------------
-    // Always attached so enabling/disabling the list is an env change rather
-    // than adding or removing the trigger. Empty ALLOWED_EMAIL_DOMAINS allows
-    // every valid email (current behaviour). No VPC or database: this is a
-    // hostname check only.
+    // Always attached so changing the list is an env change rather than adding
+    // or removing the trigger. Fail closed: an empty ALLOWED_EMAIL_DOMAINS
+    // denies every new signup. `npm run deploy` refuses to run without a list.
+    // No VPC or database: this is a hostname check only.
     const monorepoRoot = path.join(__dirname, "../../..");
     const preSignUp = new lambdaNodejs.NodejsFunction(this, "PreSignUpFn", {
       functionName: `${config.stackPrefix}-pre-signup`,

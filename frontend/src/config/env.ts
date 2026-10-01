@@ -33,8 +33,9 @@ const envSchema = z.object({
   VITE_APPSYNC_URL: z.string().url().optional(),
   /**
    * Optional comma-separated exact email hostnames allowed for self-signup.
-   * Unset or empty keeps signup unrestricted. The Cognito PreSignUp trigger
-   * is the authoritative gate; this value is UX only.
+   * Unset or empty skips the sign-up form's domain check. The Cognito
+   * PreSignUp trigger is the authoritative gate (and denies every signup when
+   * the deployed list is empty); this value is UX only.
    */
   VITE_ALLOWED_EMAIL_DOMAINS: z.string().optional(),
   /**
@@ -88,7 +89,7 @@ export interface AppConfig {
   /** AppSync endpoint for real-time subscriptions. Undefined in local mock mode. */
   readonly appSyncUrl: string | undefined;
   /**
-   * Exact email hostnames allowed for new sign-ups. Empty means unrestricted.
+   * Exact email hostnames allowed for new sign-ups. Empty skips the client check.
    */
   readonly allowedEmailDomains: readonly string[];
 }

@@ -79,7 +79,7 @@ describe("CognitoStack PreSignUp email-domain allowlist", () => {
     return Template.fromStack(stack);
   }
 
-  it("always attaches a PreSignUp Lambda with an empty allowlist by default", () => {
+  it("always attaches a PreSignUp Lambda; with no context its empty allowlist denies signup", () => {
     const template = synth();
     template.hasResourceProperties("AWS::Cognito::UserPool", {
       LambdaConfig: Match.objectLike({

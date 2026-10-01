@@ -1,10 +1,10 @@
 /**
  * Deploy-time signup email-domain allowlist (exact hostname match).
  *
- * Empty/absent list means unrestricted self-signup. A non-empty list allows
- * only new Cognito sign-ups whose email hostname equals one of the configured
- * domains (case-insensitive). Subdomains are not implied: `ubc.ca` does not
- * allow `law.ubc.ca`.
+ * Fail closed: an empty/absent list DENIES every new self-signup. A non-empty
+ * list allows only new Cognito sign-ups whose email hostname equals one of the
+ * configured domains (case-insensitive). Subdomains are not implied and there
+ * are no wildcards: `ubc.ca` does not allow `law.ubc.ca`.
  */
 
 /** Conservative hostname: two or more labels, lowercase `[a-z0-9-]`, no scheme/path. */
@@ -21,7 +21,7 @@ export function isAllowedEmailDomainHostname(domain: string): boolean {
 
 /**
  * Parse a comma/whitespace-separated list of exact email hostnames.
- * Empty or absent input yields an empty allowlist (unrestricted). Unknown or
+ * Empty or absent input yields an empty allowlist (denies signup). Unknown or
  * malformed tokens fail loud so a typo cannot silently mis-configure signup.
  */
 export function parseAllowedEmailDomains(
@@ -51,14 +51,14 @@ export function emailHostname(email: string): string | undefined {
 }
 
 /**
- * Whether a signup email is allowed. An empty allowlist always returns true
- * (current open-signup behaviour). Matching is exact and case-insensitive.
+ * Whether a signup email is allowed. Fail closed: an EMPTY allowlist denies
+ * every email. Matching is exact and case-insensitive.
  */
 export function isSignupEmailDomainAllowed(
   email: string,
   allowedDomains: readonly string[],
 ): boolean {
-  if (allowedDomains.length === 0) return true;
+  if (allowedDomains.length === 0) return false;
   const host = emailHostname(email);
   if (host === undefined) return false;
   return allowedDomains.includes(host);
@@ -76,7 +76,7 @@ export function signupEmailDomainRestrictionMessage(
   return `Sign-up is limited to these email domains: ${listed}.`;
 }
 
-/** Serialize the allowlist for Lambda/Amplify env (empty string when unrestricted). */
+/** Serialize the allowlist for Lambda/Amplify env (empty string when none). */
 export function allowedEmailDomainsEnv(domains: readonly string[]): string {
   return domains.join(",");
 }
