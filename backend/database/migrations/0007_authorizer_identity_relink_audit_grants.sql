@@ -1,7 +1,7 @@
 -- ===========================================================================
 -- 0007_authorizer_identity_relink_audit_grants.sql
 --
--- First-login identity-relink hardening (security finding f-4531f8e7): give
+-- First-login identity-relink hardening: give
 -- the wren_authorizer role exactly what the hardened ensureAppUser needs.
 --
 -- WHY: first-login provisioning could relink an existing app_user (and all its

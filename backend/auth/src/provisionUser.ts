@@ -13,7 +13,7 @@
  * default-off; a non-matching subject or a token without SystemAdmin never
  * escalates from group membership.
  *
- * Email reconciliation (security finding f-4531f8e7). The durable identity key
+ * Email reconciliation. The durable identity key
  * is the IdP `sub`. Email is only consulted to let a *recreated* Cognito user
  * (same email, new `sub`) reclaim their previous, unprivileged app_user row.
  * That one-time claim is allowed only when ALL of the following hold:
