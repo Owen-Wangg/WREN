@@ -11,6 +11,16 @@ const SQL = readFileSync(
   'utf8',
 );
 
+/**
+ * Executable statements only: `--` line comments stripped, split on `;`.
+ * Negative assertions run per statement so prose in the header comment
+ * (e.g. "deliberately NOT granted SELECT ... activity_event") can't trip them.
+ */
+const STATEMENTS = SQL.replace(/--[^\n]*/g, '')
+  .split(';')
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0);
+
 describe('0007_authorizer_identity_relink_audit_grants', () => {
   it('grants read-only access to department_visibility_grant for the privilege check', () => {
     expect(SQL).toMatch(
@@ -23,7 +33,11 @@ describe('0007_authorizer_identity_relink_audit_grants', () => {
   });
 
   it('never lets the authorizer read or mutate the activity log', () => {
-    expect(SQL).not.toMatch(/GRANT[^;]*\b(SELECT|UPDATE|DELETE|TRUNCATE)\b[^;]*activity_event/i);
+    const activityGrants = STATEMENTS.filter((s) => /^GRANT\b[\s\S]*\bactivity_event\b/i.test(s));
+    expect(activityGrants).toHaveLength(1);
+    for (const stmt of activityGrants) {
+      expect(stmt).not.toMatch(/\b(SELECT|UPDATE|DELETE|TRUNCATE|ALL)\b/i);
+    }
   });
 
   it('guards on role existence so it fails loudly if the baseline never ran', () => {
@@ -32,7 +46,9 @@ describe('0007_authorizer_identity_relink_audit_grants', () => {
   });
 
   it('grants no DDL / CREATE privilege (stays least-privilege)', () => {
-    expect(SQL).not.toMatch(/GRANT\s+CREATE\s+ON\s+SCHEMA/i);
-    expect(SQL).not.toMatch(/GRANT\s+ALL/i);
+    for (const stmt of STATEMENTS) {
+      expect(stmt).not.toMatch(/^GRANT\s+CREATE\s+ON\s+SCHEMA/i);
+      expect(stmt).not.toMatch(/^GRANT\s+ALL/i);
+    }
   });
 });
