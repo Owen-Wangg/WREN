@@ -15,7 +15,7 @@ import {
   setDepartmentVisibilityState,
   updateDepartmentAskWrenPrompt,
 } from './departmentService';
-import { AuthorizationError, NotFoundError } from './errors';
+import { AuthorizationError, NotFoundError, PromptGuardrailUnavailableError } from './errors';
 import { PromptGuardrailError } from './promptGuardrail';
 import { FakeDb } from './fakeDb';
 import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
@@ -239,6 +239,34 @@ describe('updateDepartmentAskWrenPrompt (department.manageAskWrenPrompt capabili
     // Deny-with-no-mutation: the previously persisted value is untouched.
     expect(db.mutationCount).toBe(0);
     expect(db.departments.get(DEPT)!.ask_wren_prompt).toBe('safe original context');
+  });
+
+  it('fails closed with no mutation when the injection guardrail is unconfigured', async () => {
+    const savedId = process.env.PROMPT_GUARDRAIL_ID;
+    const savedSkip = process.env.PROMPT_GUARDRAIL_SKIP;
+    delete process.env.PROMPT_GUARDRAIL_ID;
+    delete process.env.PROMPT_GUARDRAIL_SKIP;
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const db = new FakeDb();
+      db.seedDepartment({ id: DEPT, name: 'Allard Law', ask_wren_prompt: 'safe original context' });
+
+      await expect(
+        updateDepartmentAskWrenPrompt(
+          deptAdminContext([DEPT]),
+          DEPT,
+          { askWrenPrompt: 'Law students writing legal memoranda.' },
+          db,
+        ),
+      ).rejects.toBeInstanceOf(PromptGuardrailUnavailableError);
+
+      expect(db.mutationCount).toBe(0);
+      expect(db.departments.get(DEPT)!.ask_wren_prompt).toBe('safe original context');
+    } finally {
+      warnSpy.mockRestore();
+      if (savedId !== undefined) process.env.PROMPT_GUARDRAIL_ID = savedId;
+      if (savedSkip !== undefined) process.env.PROMPT_GUARDRAIL_SKIP = savedSkip;
+    }
   });
 
   it('denies a DepartmentAdmin of a DIFFERENT department with no mutation', async () => {

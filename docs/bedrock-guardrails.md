@@ -151,7 +151,9 @@ The check runs before the database write on these routes:
 
 Outcomes:
 
-- **Unconfigured or empty text** — when `PROMPT_GUARDRAIL_ID` is unset (local development, unit tests) or the text is empty, the function returns without calling Bedrock. Fail-open by design.
+- **Empty text** — returns without calling Bedrock (nothing to screen).
+- **Unconfigured guardrail** — when `PROMPT_GUARDRAIL_ID` is unset, the check fails closed: it throws `PromptGuardrailUnavailableError` (`PROMPT_GUARDRAIL_UNCONFIGURED`) → HTTP 503 with a generic message, and nothing is saved. The only bypass is `PROMPT_GUARDRAIL_SKIP=true` (exact value), intended for local development and unit tests (set in `testing/typescript/jest.setup.ts`). CDK never sets it. Both cases log `{"event":"prompt_guardrail_skipped","reason":"unconfigured"|"dev_flag"}`.
+- **Deploy-time check** — `ComputeStack` throws at synth if `promptGuardrailId` is an empty string. In normal deploys the id comes from the CDK-created guardrail, so the Admin Lambda always has it.
 - **Guardrail intervenes** — `GUARDRAIL_INTERVENED` throws `PromptInjectionError` (`PROMPT_INJECTION_DETECTED`) → HTTP 400. The save is aborted.
 - **Bedrock or IAM error** — the error propagates → HTTP 500. Since the check runs before the write, nothing is saved.
 
@@ -159,7 +161,9 @@ Outcomes:
 
 ### What Exists Today
 
-Amazon Bedrock publishes `ApplyGuardrail` metrics (invocations, interventions, latency, errors) to the `AWS/Bedrock` CloudWatch namespace, filterable by guardrail id. There is no custom CloudWatch metric or alarm for this guardrail in CDK.
+Amazon Bedrock publishes `ApplyGuardrail` metrics (invocations, interventions, latency, errors) to the `AWS/Bedrock` CloudWatch namespace, filterable by guardrail id.
+
+CDK also adds a metric filter on the Admin log group for `prompt_guardrail_skipped` (metric `PromptGuardrailSkipped` in the `{stackPrefix}/Security` namespace) and an alarm, `{stackPrefix}-prompt-guardrail-skipped`, that fires on any occurrence and notifies the alarm SNS topic. In a deployed environment this means the guardrail is unconfigured; check `PROMPT_GUARDRAIL_ID` on the Admin Lambda.
 
 Admin Lambda logs are at `/aws/lambda/wren-dev-admin` (prefix as deployed). Bedrock SDK errors, HTTP 400s with `PROMPT_INJECTION_DETECTED`, and HTTP 500s from `ApplyGuardrail` all land there.
 

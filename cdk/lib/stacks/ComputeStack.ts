@@ -1,5 +1,5 @@
 import * as path from "path";
-import { Stack, type StackProps, Duration, CfnOutput, RemovalPolicy } from "aws-cdk-lib";
+import { Stack, type StackProps, Duration, CfnOutput, RemovalPolicy, Token } from "aws-cdk-lib";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as ecr from "aws-cdk-lib/aws-ecr";
@@ -278,6 +278,16 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Admin / Config / Auth / Usage Service Lambda (Node 22)
     // -----------------------------------------------------------------------
+    // The admin prompt-injection scan fails closed without a guardrail id
+    // (Issue #181). Catch a literally-empty id at synth; the normal value is an
+    // unresolved SSM token. CDK must NEVER set PROMPT_GUARDRAIL_SKIP (dev/test
+    // bypass only).
+    if (!Token.isUnresolved(props.promptGuardrailId) && props.promptGuardrailId.trim() === "") {
+      throw new Error(
+        "ComputeStack: promptGuardrailId must be a non-empty Bedrock Guardrail id " +
+          "(admin prompt-injection screening fails closed without it).",
+      );
+    }
     this.adminFunction = new lambdaNodejs.NodejsFunction(this, "AdminFn", {
       functionName: `${config.stackPrefix}-admin`,
       entry: path.join(monorepoRoot, "backend/admin/src/lambda-handler.ts"),
