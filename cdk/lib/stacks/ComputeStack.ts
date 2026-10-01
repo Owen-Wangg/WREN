@@ -197,6 +197,9 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_authorizer),
+        // First-login identity relinks write a pseudonymized `identity.relinked`
+        // activity_event (finding f-4531f8e7). Secret NAME only (grant below).
+        ...activitySaltEnv,
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
         ...(config.technicalAdminBootstrapSubject
@@ -600,7 +603,7 @@ export class ComputeStack extends Stack {
 
     // Activity-log pseudonym salt: read at runtime by the shared
     // @wren/db-node activity-log writer in every function that receives
-    // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins; Document
+    // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins, Authorizer; Document
     // records its deletion events through the same writer, Issue #187). Every
     // such function MUST be granted here — the CDK test enforces it. grantRead
     // scopes GetSecretValue/DescribeSecret to this one secret and, for
@@ -611,8 +614,12 @@ export class ComputeStack extends Stack {
     activityPseudonymSalt.grantRead(this.documentFunction);
     // sync-cognito-admins writes a pseudonymized activity_event per grant.
     activityPseudonymSalt.grantRead(this.syncCognitoAdminsFunction);
+    // Authorizer audits first-login identity relinks (finding f-4531f8e7).
+    activityPseudonymSalt.grantRead(this.authorizerFunction);
 
-    // Authorizer: look up Cognito email/name when auto-provisioning app_user on first login.
+    // Authorizer: look up Cognito email/name/email_verified when auto-provisioning
+    // app_user on first login, and check whether a previously linked subject
+    // still exists before an email relink (both via AdminGetUser).
     this.authorizerFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["cognito-idp:AdminGetUser"],
       resources: [

@@ -175,9 +175,10 @@ export interface AppConfig {
    */
   readonly customDomain?: string;
   /**
-   * Exact email hostnames allowed for new Cognito self-signups. Empty by
-   * default (unrestricted). Set with `-c allowedEmailDomains=ubc.ca`.
-   * Subdomains are not implied: `ubc.ca` does not allow `law.ubc.ca`.
+   * Exact email hostnames allowed for new Cognito self-signups. Set with
+   * `-c allowedEmailDomains=ubc.ca`. An empty list DENIES every new signup
+   * (`npm run deploy` requires a non-empty list). Subdomains are not implied:
+   * `ubc.ca` does not allow `law.ubc.ca`.
    */
   readonly allowedEmailDomains: readonly string[];
   /**

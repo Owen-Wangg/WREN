@@ -99,9 +99,11 @@ npm run synth       # cdk synth (cdk.json context defaults)
 npm run cdk -- ...  # CDK CLI
 
 npx cdk deploy wren-dev-Config
-npx cdk deploy --all          # includes Compute; ECR bootstrap image must exist
+npx cdk deploy --all -c allowedEmailDomains=ubc.ca   # includes Compute; ECR bootstrap image must exist
 npx cdk destroy wren-dev-Amplify
 ```
+
+**Signup allowlist:** any `cdk deploy` that includes `{prefix}-Cognito` deploys the `allowedEmailDomains` context value as the sign-up allowlist. Without it the list is empty, which blocks every new sign-up. Pass `-c allowedEmailDomains=…` or set it once in `~/.cdk.json`. `cdk synth` / `cdk diff` are unaffected. See [Restricting signup to email domains](../docs/deployment-guide.md#restricting-signup-to-email-domains).
 
 RDS uses deletion protection and `RemovalPolicy.RETAIN`. `cdk destroy --all` will not fully stop spend — see Cleanup in the deployment guide.
 

@@ -18,6 +18,7 @@ import {
   type AuthorizerDeps,
 } from './authorizer';
 import type { AccessGrantRow, AppUserRow, QueryExecutor, RoleAssignmentRow } from './identityMapping';
+import type { ProvisioningDb } from './provisionUser';
 import type { TokenVerifier } from './tokenVerifier';
 
 const METHOD_ARN =
@@ -44,7 +45,7 @@ const fakeVerifier: TokenVerifier = {
   },
 };
 
-function makeDb(roles: RoleAssignmentRow[], grants: AccessGrantRow[] = [], user: AppUserRow | null = USER): QueryExecutor {
+function makeDb(roles: RoleAssignmentRow[], grants: AccessGrantRow[] = [], user: AppUserRow | null = USER): ProvisioningDb {
   const users = user ? [user] : [];
   const roleRows = [...roles];
   return {
@@ -67,17 +68,26 @@ function makeDb(roles: RoleAssignmentRow[], grants: AccessGrantRow[] = [], user:
         }
         return [] as unknown as Row[];
       }
+      if (text.includes('has_elevated_role')) {
+        // Relink privilege pre-check (provisionUser.ts).
+        return [{
+          has_elevated_role: roleRows.some((r) => r.role !== 'Student' || r.scope !== null),
+          has_access_grant: grants.length > 0,
+          has_visibility_grant: false,
+          roles: [...new Set(roleRows.map((r) => r.role))].sort(),
+        }] as unknown as Row[];
+      }
       if (text.includes('UPDATE app_user') && text.includes('idp_subject')) {
-        const [idpSubject, id] = params as [string, string];
-        const idx = users.findIndex((u) => u.id === id);
-        if (idx >= 0) {
-          users[idx] = { ...users[idx], idp_subject: idpSubject };
-        }
-        return [] as unknown as Row[];
+        // Guarded relink: params [id, newSubject, expectedOldSubject, first, last].
+        const [id, idpSubject, expectedOld] = params as [string, string, string];
+        const idx = users.findIndex((u) => u.id === id && u.idp_subject === expectedOld);
+        if (idx < 0) return [] as unknown as Row[];
+        users[idx] = { ...users[idx], idp_subject: idpSubject };
+        return [{ id }] as unknown as Row[];
       }
       if (text.includes('lower(email)')) {
         const found = users.find((u) => u.email.toLowerCase() === String(params[0]).toLowerCase());
-        return (found ? [{ id: found.id }] : []) as unknown as Row[];
+        return (found ? [{ id: found.id, idp_subject: found.idp_subject }] : []) as unknown as Row[];
       }
       if (text.includes('SELECT id FROM app_user')) {
         const found = users.find((u) => u.idp_subject === params[0]);
@@ -99,17 +109,34 @@ function makeDb(roles: RoleAssignmentRow[], grants: AccessGrantRow[] = [], user:
       }
       throw new Error(`unexpected query: ${text}`);
     },
+    // Mirrors the production DataAccess: the relink path requires a transaction.
+    async transaction<T>(fn: (tx: QueryExecutor) => Promise<T>): Promise<T> {
+      return fn(this);
+    },
   };
 }
 
 const lookupProfile = async () => ({
   email: 'writer@example.com',
+  emailVerified: true,
   firstName: 'Test',
   lastName: 'User',
 });
 
-function depsFor(db: QueryExecutor, verifier: TokenVerifier = fakeVerifier): AuthorizerDeps {
-  return { verifier, db, lookupProfile };
+function depsFor(
+  db: QueryExecutor,
+  verifier: TokenVerifier = fakeVerifier,
+  overrides: Partial<AuthorizerDeps> = {},
+): AuthorizerDeps {
+  return {
+    verifier,
+    db,
+    lookupProfile,
+    // Default: a previously linked subject no longer exists in the pool.
+    isSubjectLive: async () => false,
+    recordActivityEvent: async () => undefined,
+    ...overrides,
+  };
 }
 
 function event(authorizationToken: string): APIGatewayTokenAuthorizerEvent {
@@ -240,17 +267,83 @@ describe('Lambda authorizer', () => {
     );
   });
 
-  it('relinks an existing app_user row whose email matches but idp_subject does not', async () => {
+  describe('email relink on first login (finding f-4531f8e7)', () => {
     const existing: AppUserRow = {
       id: '44444444-4444-4444-4444-444444444444',
       email: 'writer@example.com',
       idp_subject: 'old-cognito-sub',
     };
-    const deps = depsFor(makeDb([], [], existing));
-    const handler = createAuthorizerHandler(async () => deps);
-    const result = await handler(event(tokenFor({ sub: 'new-cognito-sub' })));
-    expect(result.principalId).toBe(existing.id);
-    expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Allow' });
+
+    it('reclaims an unprivileged row whose previous subject no longer exists, and audits it', async () => {
+      const audits: unknown[] = [];
+      const deps = depsFor(makeDb([{ role: 'Student', scope: null }], [], existing), fakeVerifier, {
+        recordActivityEvent: async (input) => {
+          audits.push(input);
+        },
+      });
+      const handler = createAuthorizerHandler(async () => deps);
+      const result = await handler(event(tokenFor({ sub: 'new-cognito-sub' })));
+      expect(result.principalId).toBe(existing.id);
+      expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Allow' });
+      expect(audits).toEqual([expect.objectContaining({ verb: 'identity.relinked', objectRef: existing.id })]);
+    });
+
+    it('denies (no relink) when the matched row is still bound to a live subject', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const deps = depsFor(makeDb([], [], existing), fakeVerifier, {
+          isSubjectLive: async () => true,
+        });
+        const handler = createAuthorizerHandler(async () => deps);
+        const result = await handler(event(tokenFor({ sub: 'attacker-sub' })));
+        expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Deny' });
+        expect(result.context).toBeUndefined();
+        const lines = warn.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+        expect(lines).toContainEqual(expect.objectContaining({
+          event: 'auth_failure',
+          reason: 'provisioning_refused',
+          detail: 'identity_still_bound',
+          subject: 'attacker-sub',
+        }));
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('denies (no relink) when the matched row holds an admin role', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const deps = depsFor(makeDb([
+          { role: 'Student', scope: null },
+          { role: 'TechnicalAdmin', scope: null },
+        ], [], existing));
+        const handler = createAuthorizerHandler(async () => deps);
+        const result = await handler(event(tokenFor({ sub: 'attacker-sub' })));
+        expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Deny' });
+        expect(result.principalId).toBe('attacker-sub');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('denies first-login provisioning when Cognito reports the email unverified', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const deps = depsFor(makeDb([], [], null), fakeVerifier, {
+          lookupProfile: async () => ({
+            email: 'victim@example.com',
+            emailVerified: false,
+            firstName: 'Test',
+            lastName: 'User',
+          }),
+        });
+        const handler = createAuthorizerHandler(async () => deps);
+        const result = await handler(event(tokenFor({ sub: 'ghost-subject' })));
+        expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Deny' });
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 
   it('provisions a verified subject with no app_user as Student on first login', async () => {

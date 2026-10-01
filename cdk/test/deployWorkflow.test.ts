@@ -37,6 +37,7 @@ const config = parseDeploymentConfig({
   WREN_EXPECTED_ACCOUNT_ID: "123456789012",
   WREN_NON_INTERACTIVE: "true",
   WREN_ECR_OWNERSHIP: "external",
+  WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
 });
 
 describe("deployment workflow command construction", () => {
@@ -79,14 +80,12 @@ describe("deployment workflow command construction", () => {
       WREN_NON_INTERACTIVE: "true",
       WREN_ECR_OWNERSHIP: "external",
       WREN_CUSTOM_DOMAIN: "cloud-inov.com",
+      WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
     });
     expect(cdkContextArgs(domainConfig, "sha-abc123", false)).toContain("customDomain=cloud-inov.com");
   });
 
-  it("adds the allowed-email-domains context only when configured", () => {
-    const withoutDomains = cdkContextArgs(config, "sha-abc123", false);
-    expect(withoutDomains.some((value) => value.startsWith("allowedEmailDomains="))).toBe(false);
-
+  it("passes the required allowed-email-domains context to CDK", () => {
     const domainConfig = parseDeploymentConfig({
       WREN_GITHUB_OWNER: "owner",
       WREN_GITHUB_REPO: "repo",

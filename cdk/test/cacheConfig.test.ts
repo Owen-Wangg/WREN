@@ -77,7 +77,7 @@ describe("resolveAppConfig — optional custom domain", () => {
     expect(resolve({ customDomain: "cloud-inov.com" }).customDomain).toBe("cloud-inov.com");
   });
 
-  it("defaults allowedEmailDomains to unrestricted and maps context", () => {
+  it("defaults allowedEmailDomains to empty (signup denied) and maps context", () => {
     expect(resolve().allowedEmailDomains).toEqual([]);
     expect(resolve({ allowedEmailDomains: "ubc.ca, alumni.ubc.ca" }).allowedEmailDomains).toEqual([
       "ubc.ca",

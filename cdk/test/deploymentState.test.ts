@@ -16,6 +16,7 @@ import { pendingStages } from "../scripts/operations/plan.js";
 const config = parseDeploymentConfig({
   WREN_ENABLE_AMPLIFY: "false",
   WREN_EXPECTED_ACCOUNT_ID: "123456789012",
+  WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
 });
 
 describe("deployment checkpoints", () => {
@@ -68,7 +69,11 @@ describe("deployment checkpoints", () => {
   it("rejects stale configuration and account state", () => {
     const checkpoint = newCheckpoint("deploy", config, "123456789012");
     expect(() => assertCheckpointMatches(checkpoint, "deploy", config, "999999999999")).toThrow("does not match");
-    const changed = parseDeploymentConfig({ WREN_ENABLE_AMPLIFY: "false", WREN_ENVIRONMENT: "staging" });
+    const changed = parseDeploymentConfig({
+      WREN_ENABLE_AMPLIFY: "false",
+      WREN_ENVIRONMENT: "staging",
+      WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
+    });
     expect(configFingerprint(changed)).not.toBe(configFingerprint(config));
   });
 

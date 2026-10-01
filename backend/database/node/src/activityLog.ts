@@ -171,6 +171,24 @@ export function derivePseudonym(salt: string, userId: string): string {
   return createHash('sha256').update(`${salt}:${userId}`).digest('hex');
 }
 
+const INSERT_ACTIVITY_EVENT_SQL = `INSERT INTO activity_event
+       (actor_pseudonym, verb, object_type, object_ref, document_type_id, department_id, "timestamp", context)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
+
+/** Bind parameters for an activity_event insert; the raw actor id is pseudonymized first. */
+async function activityEventParams(input: RecordActivityEventInput): Promise<unknown[]> {
+  return [
+    await pseudonymForActor(input.actorUserId),
+    input.verb,
+    input.objectType,
+    input.objectRef,
+    input.documentTypeId ?? null,
+    input.departmentId ?? null,
+    input.timestamp ?? new Date(),
+    input.context ?? {},
+  ];
+}
+
 /**
  * Append one Actor–Verb–Object event to the activity log (Requirement 44.1)
  * and return the raw inserted row. No capability check: called by other
@@ -182,20 +200,22 @@ export async function recordActivityEventRow(
   db: ActivityLogQueryExecutor,
 ): Promise<ActivityEventRow> {
   const rows = await db.query<ActivityEventRow>(
-    `INSERT INTO activity_event
-       (actor_pseudonym, verb, object_type, object_ref, document_type_id, department_id, "timestamp", context)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `${INSERT_ACTIVITY_EVENT_SQL}
      RETURNING ${ACTIVITY_EVENT_COLUMNS}`,
-    [
-      await pseudonymForActor(input.actorUserId),
-      input.verb,
-      input.objectType,
-      input.objectRef,
-      input.documentTypeId ?? null,
-      input.departmentId ?? null,
-      input.timestamp ?? new Date(),
-      input.context ?? {},
-    ],
+    await activityEventParams(input),
   );
   return rows[0]!;
+}
+
+/**
+ * Write-only variant of {@link recordActivityEventRow}: appends the event
+ * without reading it back. A role that only records events (e.g. the
+ * authorizer auditing identity relinks) then needs INSERT on `activity_event`
+ * but not SELECT, so it cannot read the rest of the activity log.
+ */
+export async function appendActivityEventRow(
+  input: RecordActivityEventInput,
+  db: ActivityLogQueryExecutor,
+): Promise<void> {
+  await db.query(INSERT_ACTIVITY_EVENT_SQL, await activityEventParams(input));
 }

@@ -110,7 +110,7 @@ The trust boundary worth remembering: **network reachability and CloudFront/WAF 
 
 All users authenticate with Amazon Cognito (email alias, SRP). All application REST requests require authentication. CORS `OPTIONS` preflight requests are unauthenticated because they are handled as browser preflight requests, not application calls.
 
-Self-signup is enabled; email verification uses a one-time code. Account recovery is email only. MFA is optional. New sign-ups may optionally be limited to exact email hostnames configured at deploy time (`WREN_ALLOWED_EMAIL_DOMAINS`); the default is unrestricted. The Cognito PreSignUp trigger is the authoritative gate. Existing accounts can still sign in regardless of domain.
+Self-signup is enabled; email verification uses a one-time code. A changed email does not take effect until the new address is verified (`keepOriginal`), and the SPA client may write only `email`, `given_name` and `family_name`. Account recovery is email only. MFA is optional. New sign-ups are limited to exact email hostnames configured at deploy time (`WREN_ALLOWED_EMAIL_DOMAINS`, required by `npm run deploy`); an empty list denies every sign-up. The Cognito PreSignUp trigger is the authoritative gate. Existing accounts can still sign in regardless of domain.
 
 Cognito tokens: access and ID tokens are valid for 1 hour; refresh tokens for 30 days. The React web app sends `Authorization: Bearer {accessToken}` on REST calls. AppSync realtime subscriptions use the ID token.
 
@@ -125,6 +125,8 @@ flowchart TB
 ```
 
 The IdP proves identity only. After first login, PostgreSQL is the authorization source of truth. Membership in the Cognito `SystemAdmin` group seeds a `TechnicalAdmin` role on first provision; groups are not re-read on later requests. **Cognito groups are therefore a provisioning mechanism, not an ongoing authorization mechanism** — changing a user's Cognito group after provisioning does not change their in-app authorization.
+
+Application identity is keyed on the Cognito `sub`, never on email. First-login provisioning requires Cognito to report the email as verified. An email that matches an existing `app_user` row may reclaim it only as a one-time claim by a recreated Cognito user: the row's previous subject must be a `seed:` placeholder or no longer exist in the pool, and the row must hold nothing beyond the default Student role (no admin or scoped role, no active access or department-visibility grant). Otherwise the authorizer denies with `auth_failure` / `provisioning_refused` and an operator must reassign the identity explicitly. Every successful relink writes an `identity.relinked` activity event (user id, previous and new subject, roles at relink) in the same transaction; the authorizer's database role can append to the activity log but not read it.
 
 ### 3.2 Authorization
 

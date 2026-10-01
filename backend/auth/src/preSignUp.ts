@@ -1,8 +1,9 @@
 /**
  * Cognito PreSignUp trigger — exact email-domain allowlist for new accounts.
  *
- * Empty `ALLOWED_EMAIL_DOMAINS` is a no-op (unrestricted signup). A non-empty
- * list rejects sign-ups whose hostname is not an exact, case-insensitive match.
+ * Fail closed: an empty `ALLOWED_EMAIL_DOMAINS` denies every new signup. A
+ * non-empty list rejects sign-ups whose hostname is not an exact,
+ * case-insensitive match.
  * Sign-in and password reset do not invoke this trigger.
  */
 import type { PreSignUpTriggerEvent, PreSignUpTriggerHandler } from 'aws-lambda';

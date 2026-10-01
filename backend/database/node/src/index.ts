@@ -42,6 +42,7 @@ export {
 } from './migrate';
 export {
   ACTIVITY_EVENT_COLUMNS,
+  appendActivityEventRow,
   derivePseudonym,
   loadPseudonymSaltFromSecretsManager,
   pseudonymForActor,
