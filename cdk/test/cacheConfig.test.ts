@@ -77,16 +77,31 @@ describe("resolveAppConfig — optional custom domain", () => {
     expect(resolve({ customDomain: "cloud-inov.com" }).customDomain).toBe("cloud-inov.com");
   });
 
-  it("defaults allowedEmailDomains to unrestricted and maps context", () => {
-    expect(resolve().allowedEmailDomains).toEqual([]);
+  it("defaults to no allowlist and open signup off, and maps context", () => {
+    const defaults = resolve();
+    expect(defaults.allowedEmailDomains).toEqual([]);
+    expect(defaults.allowOpenSignup).toBe(false);
     expect(resolve({ allowedEmailDomains: "ubc.ca, alumni.ubc.ca" }).allowedEmailDomains).toEqual([
       "ubc.ca",
       "alumni.ubc.ca",
     ]);
+    expect(resolve({ allowOpenSignup: "true" }).allowOpenSignup).toBe(true);
+    expect(resolve({ allowOpenSignup: "false" }).allowOpenSignup).toBe(false);
   });
 
-  it("rejects a malformed allowedEmailDomains context value", () => {
+  it("rejects a malformed allowedEmailDomains context value, including wildcards", () => {
     expect(() => resolve({ allowedEmailDomains: "UBC.CA" })).toThrow("allowedEmailDomains");
+    expect(() => resolve({ allowedEmailDomains: "*.ubc.ca" })).toThrow("allowedEmailDomains");
+  });
+
+  it("rejects a malformed allowOpenSignup value", () => {
+    expect(() => resolve({ allowOpenSignup: "yes" })).toThrow("allowOpenSignup");
+  });
+
+  it("rejects an allowlist combined with allowOpenSignup=true", () => {
+    expect(() => resolve({ allowedEmailDomains: "ubc.ca", allowOpenSignup: "true" })).toThrow(
+      "mutually exclusive",
+    );
   });
 
   it("parses corsAllowedOrigins and defaults to none", () => {

@@ -47,13 +47,17 @@ All naming and display settings come from **CDK context** (or env vars for GitHu
 | `githubOwner` | `GITHUB_OWNER` | unset | Enables Amplify + CICD stacks |
 | `githubRepo` | `GITHUB_REPO` | unset | GitHub repository name |
 | `githubBranch` | `GITHUB_BRANCH` | `main` | Pipeline / Amplify source branch |
+| `allowedEmailDomains` | — (orchestrator: `WREN_ALLOWED_EMAIL_DOMAINS`) | unset | Exact email hostnames allowed to sign up, comma-separated, no wildcards |
+| `allowOpenSignup` | — (orchestrator: `WREN_ALLOW_OPEN_SIGNUP`) | `false` | `true` deliberately allows any email; mutually exclusive with `allowedEmailDomains` |
+
+**Signup is closed by default.** Synthesizing or deploying the `{prefix}-Cognito` stack (including `cdk synth` / `cdk deploy --all`) reports an error unless you pass `-c allowedEmailDomains=…` or `-c allowOpenSignup=true`. Commands that select only other stacks (for example `cdk synth wren-dev-Cicd`) are unaffected. The PreSignUp Lambda also denies every sign-up when no policy reaches it.
 
 **Region is not taken from `CDK_DEFAULT_REGION`.** It is pinned to `ca-central-1` unless you pass `-c region=...`. Account still comes from `CDK_DEFAULT_ACCOUNT` (your AWS CLI identity).
 
 ```bash
-npx cdk synth -c appName="My Coach" -c environmentName=prod
-npx cdk synth -c bedrockModelId=anthropic.claude-3-5-haiku-20241022-v1:0
-npx cdk deploy wren-dev-Amplify -c githubOwner=MyOrg -c githubRepo=WREN
+npx cdk synth -c allowedEmailDomains=ubc.ca,student.ubc.ca -c appName="My Coach" -c environmentName=prod
+npx cdk synth -c allowedEmailDomains=ubc.ca -c bedrockModelId=anthropic.claude-3-5-haiku-20241022-v1:0
+npx cdk deploy wren-dev-Amplify -c allowedEmailDomains=ubc.ca -c githubOwner=MyOrg -c githubRepo=WREN
 ```
 
 Stacks are tagged: `Project` = stack prefix, `Application` = display name, `Environment`, `ManagedBy` = `cdk`.
@@ -95,11 +99,11 @@ Run direct infrastructure-development commands from `cdk/`:
 npm run build       # tsc compile
 npm run typecheck   # tsc --noEmit
 npm test            # Jest
-npm run synth       # cdk synth (cdk.json context defaults)
+npm run synth -- -c allowedEmailDomains=ubc.ca   # cdk synth; a signup policy is required for Cognito
 npm run cdk -- ...  # CDK CLI
 
 npx cdk deploy wren-dev-Config
-npx cdk deploy --all          # includes Compute; ECR bootstrap image must exist
+npx cdk deploy --all -c allowedEmailDomains=ubc.ca   # includes Compute; ECR bootstrap image must exist
 npx cdk destroy wren-dev-Amplify
 ```
 

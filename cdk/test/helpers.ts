@@ -33,7 +33,10 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     stackPrefix: "wren-test",
     lambdaConcurrency: DEFAULT_LAMBDA_CONCURRENCY,
     corsAllowedOrigins: [],
-    allowedEmailDomains: [],
+    // A valid (restricted) signup policy; the Cognito stack reports a synth
+    // error when neither an allowlist nor allowOpenSignup is configured.
+    allowedEmailDomains: ["example.ca"],
+    allowOpenSignup: false,
     env: { account: TEST_ACCOUNT, region: TEST_REGION },
     ...overrides,
   };

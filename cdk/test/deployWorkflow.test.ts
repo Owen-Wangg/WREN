@@ -37,6 +37,7 @@ const config = parseDeploymentConfig({
   WREN_EXPECTED_ACCOUNT_ID: "123456789012",
   WREN_NON_INTERACTIVE: "true",
   WREN_ECR_OWNERSHIP: "external",
+  WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
 });
 
 describe("deployment workflow command construction", () => {
@@ -79,14 +80,12 @@ describe("deployment workflow command construction", () => {
       WREN_NON_INTERACTIVE: "true",
       WREN_ECR_OWNERSHIP: "external",
       WREN_CUSTOM_DOMAIN: "cloud-inov.com",
+      WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
     });
     expect(cdkContextArgs(domainConfig, "sha-abc123", false)).toContain("customDomain=cloud-inov.com");
   });
 
-  it("adds the allowed-email-domains context only when configured", () => {
-    const withoutDomains = cdkContextArgs(config, "sha-abc123", false);
-    expect(withoutDomains.some((value) => value.startsWith("allowedEmailDomains="))).toBe(false);
-
+  it("passes the allowlist context and no open-signup flag for a restricted deploy", () => {
     const domainConfig = parseDeploymentConfig({
       WREN_GITHUB_OWNER: "owner",
       WREN_GITHUB_REPO: "repo",
@@ -94,11 +93,26 @@ describe("deployment workflow command construction", () => {
       WREN_EXPECTED_ACCOUNT_ID: "123456789012",
       WREN_NON_INTERACTIVE: "true",
       WREN_ECR_OWNERSHIP: "external",
-      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca,alumni.ubc.ca",
+      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca,student.ubc.ca",
     });
-    expect(cdkContextArgs(domainConfig, "sha-abc123", false)).toContain(
-      "allowedEmailDomains=ubc.ca,alumni.ubc.ca",
-    );
+    const args = cdkContextArgs(domainConfig, "sha-abc123", false);
+    expect(args).toContain("allowedEmailDomains=ubc.ca,student.ubc.ca");
+    expect(args.some((value) => value.startsWith("allowOpenSignup="))).toBe(false);
+  });
+
+  it("passes allowOpenSignup=true and no allowlist for an explicit open-signup deploy", () => {
+    const openConfig = parseDeploymentConfig({
+      WREN_GITHUB_OWNER: "owner",
+      WREN_GITHUB_REPO: "repo",
+      WREN_GITHUB_BRANCH: "release",
+      WREN_EXPECTED_ACCOUNT_ID: "123456789012",
+      WREN_NON_INTERACTIVE: "true",
+      WREN_ECR_OWNERSHIP: "external",
+      WREN_ALLOW_OPEN_SIGNUP: "true",
+    });
+    const args = cdkContextArgs(openConfig, "sha-abc123", false);
+    expect(args).toContain("allowOpenSignup=true");
+    expect(args.some((value) => value.startsWith("allowedEmailDomains="))).toBe(false);
   });
 
   it("prefers the custom domain over the Amplify default for the frontend host", () => {

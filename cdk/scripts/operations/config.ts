@@ -1,6 +1,7 @@
 import {
-  isSignupEmailDomainAllowed,
+  isEmailDomainAllowlisted,
   parseAllowedEmailDomains,
+  signupPolicyProblem,
 } from "../../lib/signupEmailDomains.js";
 
 import {
@@ -50,9 +51,15 @@ export interface DeploymentConfig {
   readonly customDomain?: string;
   /**
    * Exact email hostnames allowed for new Cognito self-signups (e.g. `ubc.ca`).
-   * Empty by default (unrestricted). Subdomains are not implied.
+   * Subdomains are not implied and wildcards are not supported. Required for
+   * `deploy` unless {@link allowOpenSignup} is true.
    */
   readonly allowedEmailDomains: readonly string[];
+  /**
+   * Explicit opt-in to unrestricted signup (WREN_ALLOW_OPEN_SIGNUP=true).
+   * Defaults to false; mutually exclusive with {@link allowedEmailDomains}.
+   */
+  readonly allowOpenSignup: boolean;
   readonly adminEmail?: string;
   readonly adminAlreadyConfigured: boolean;
   readonly dryRun: boolean;
@@ -234,6 +241,7 @@ export function parseDeploymentConfig(
     value(env, "WREN_ALLOWED_EMAIL_DOMAINS"),
     "WREN_ALLOWED_EMAIL_DOMAINS",
   );
+  const allowOpenSignup = parseBoolean(env, "WREN_ALLOW_OPEN_SIGNUP", false);
 
   validateAccountId(expectedAccountId);
   validateRegion(region);
@@ -245,7 +253,7 @@ export function parseDeploymentConfig(
   if (
     allowedEmailDomains.length > 0 &&
     adminEmail !== undefined &&
-    !isSignupEmailDomainAllowed(adminEmail, allowedEmailDomains)
+    !isEmailDomainAllowlisted(adminEmail, allowedEmailDomains)
   ) {
     throw new Error(
       "WREN_ADMIN_EMAIL must use a domain listed in WREN_ALLOWED_EMAIL_DOMAINS.",
@@ -270,6 +278,17 @@ export function parseDeploymentConfig(
     throw new Error(
       "WREN_EXPECTED_ACCOUNT_ID is required in CI/non-interactive and production deployments.",
     );
+  }
+  // Secure by default: a deploy must state its signup policy (an allowlist, or
+  // an explicit open-signup opt-in). Undeploy does not touch Cognito signup,
+  // so it does not require one. A contradictory policy is always rejected.
+  const signupProblem = signupPolicyProblem(
+    { allowedDomains: allowedEmailDomains, allowOpenSignup },
+    { domains: "WREN_ALLOWED_EMAIL_DOMAINS", openSignup: "WREN_ALLOW_OPEN_SIGNUP" },
+  );
+  const contradictory = allowedEmailDomains.length > 0 && allowOpenSignup;
+  if (signupProblem && (operation === "deploy" || contradictory)) {
+    throw new Error(signupProblem);
   }
 
   return {
@@ -297,6 +316,7 @@ export function parseDeploymentConfig(
     ),
     ...(customDomain ? { customDomain } : {}),
     allowedEmailDomains,
+    allowOpenSignup,
     ...(adminEmail ? { adminEmail } : {}),
     adminAlreadyConfigured: parseBoolean(
       env,
@@ -344,8 +364,11 @@ export function publicDeploymentConfig(
     // an in-flight checkpoint — intended, since a domain change is a real
     // config change that should force reconfirmation.
     customDomain: config.customDomain ?? "(amplify default)",
-    allowedEmailDomains:
-      config.allowedEmailDomains.join(",") || "(unrestricted)",
+    // Single field (no separate allowOpenSignup key) so restricted
+    // deployments keep the same checkpoint fingerprint as before.
+    allowedEmailDomains: config.allowOpenSignup
+      ? "(open signup)"
+      : config.allowedEmailDomains.join(",") || "(none: signup denied)",
     adminConfiguredOverride: config.adminAlreadyConfigured,
     dryRun: config.dryRun,
     nonInteractive: config.nonInteractive,
