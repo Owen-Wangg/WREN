@@ -143,7 +143,8 @@ export WREN_GITHUB_OWNER=YourOrgOrUser
 export WREN_GITHUB_REPO=WREN
 export WREN_GITHUB_BRANCH=main
 export WREN_GITHUB_TOKEN='YOUR_GITHUB_PAT'       # the PAT from Step 1
-export WREN_ADMIN_EMAIL=admin@example.com        # who will be the first admin
+export WREN_ALLOWED_EMAIL_DOMAINS=example.com    # required: exact domains allowed to sign up
+export WREN_ADMIN_EMAIL=admin@example.com        # who will be the first admin (must use a listed domain)
 export WREN_REQUIRE_APPROVAL=never               # skips the interactive IAM prompt
 npm run deploy
 ```
@@ -159,6 +160,7 @@ $env:WREN_GITHUB_OWNER = "YourOrgOrUser"
 $env:WREN_GITHUB_REPO = "WREN"
 $env:WREN_GITHUB_BRANCH = "main"
 $env:WREN_GITHUB_TOKEN = "YOUR_GITHUB_PAT"
+$env:WREN_ALLOWED_EMAIL_DOMAINS = "example.com"   # required: exact domains allowed to sign up
 $env:WREN_ADMIN_EMAIL = "admin@example.com"
 $env:WREN_REQUIRE_APPROVAL = "never"     # skips the interactive IAM prompt
 npm run deploy
@@ -175,6 +177,7 @@ set WREN_GITHUB_OWNER=YourOrgOrUser
 set WREN_GITHUB_REPO=WREN
 set WREN_GITHUB_BRANCH=main
 set WREN_GITHUB_TOKEN=YOUR_GITHUB_PAT
+set WREN_ALLOWED_EMAIL_DOMAINS=example.com
 set WREN_ADMIN_EMAIL=admin@example.com
 set WREN_REQUIRE_APPROVAL=never
 npm run deploy
@@ -279,7 +282,7 @@ Do not commit GitHub personal access tokens to source control. The deployment wo
 | --- | --- | --- |
 | `WREN_ENABLE_AMPLIFY` | `true` | Running an API-only deployment with `false`. GitHub owner/repository variables become optional only when both Amplify and CI/CD are disabled. |
 | `WREN_CUSTOM_DOMAIN` | unset | Serving the frontend on your own domain instead of only the Amplify default. Set a bare hostname such as `example.com`; the production branch is mapped to the root and `www`. When unset, the frontend is reachable only via the Amplify default `*.amplifyapp.com` domain. No domain is hard-coded. See [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain). |
-| `WREN_ALLOWED_EMAIL_DOMAINS` | unset | Restricting **new** self-signups to specific email hostnames (for example `example.ca`). Unset keeps signup open to any valid email; existing accounts can always sign in. See [Restricting signup to email domains](#restricting-signup-to-email-domains). |
+| `WREN_ALLOWED_EMAIL_DOMAINS` | **required** | Exact email hostnames allowed to create **new** accounts (for example `example.ca`). `npm run deploy` fails when this is unset or empty; an empty list denies every sign-up. Existing accounts can always sign in. See [Restricting signup to email domains](#restricting-signup-to-email-domains). |
 | `WREN_ENABLE_CICD` | `true` | Skipping the CodePipeline CI/CD pipeline with `false`. Enabled by default, so the standard path builds it and needs `WREN_GITHUB_TOKEN` on first setup; the `Cicd` prerequisite stack is created regardless. |
 | `WREN_ECR_OWNERSHIP` | `managed` | Reusing a verified pre-existing repository by setting `external`. New deployments should keep `managed`; ownership is never silently adopted. |
 | `WREN_ENGINE_IMAGE_TAG` | commit-scoped `src-<shortsha>` | Forcing a specific ECR image tag instead of the commit-derived one. By default the workflow builds the image under `src-<first 12 of the commit sha>` and pins the deployed Lambda to the resulting immutable **digest**; leave this unset for that commit-safe behavior. Setting it bypasses commit-scoping, so safe reuse then relies on the checkpoint's recorded source commit matching the revision being deployed. See [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built). |
@@ -307,7 +310,7 @@ In both cases the certificate and domain association can take several minutes (o
 
 #### Restricting signup to email domains
 
-By default anyone with a valid email can create an account. To allow **new** sign-ups only from listed hostnames, set `WREN_ALLOWED_EMAIL_DOMAINS` before deploying:
+Signup is closed by default: only listed hostnames can create **new** accounts, and `npm run deploy` refuses to run until `WREN_ALLOWED_EMAIL_DOMAINS` is set:
 
 ```bash
 export WREN_ALLOWED_EMAIL_DOMAINS=ubc.ca
@@ -315,7 +318,41 @@ export WREN_ALLOWED_EMAIL_DOMAINS=ubc.ca
 
 Matching is exact and case-insensitive. `example.ca` allows `user@example.ca` and `user@EXAMPLE.CA`. It does **not** allow `user@department.example.ca` — list every hostname you need, comma-separated (`example.ca,department.example.ca`).
 
-This applies only to new Cognito self-signups. Sign-in, password reset, and accounts that already exist are unchanged. Unset the variable (or set it empty) and deploy again to return to unrestricted signup.
+Wildcards such as `*.example.ca` are rejected. This applies only to new Cognito self-signups. Sign-in, password reset, and accounts that already exist are unchanged.
+
+An empty list denies every sign-up. How each command affects the **deployed** list:
+
+| Command | List set? | Effect on the deployed list |
+| --- | --- | --- |
+| `npm run deploy` | `WREN_ALLOWED_EMAIL_DOMAINS` set | Replaced with exactly that value (not merged). To add a domain, pass the full list. |
+| `npm run deploy` | unset or empty | Refuses to run before touching AWS. The deployed list is unchanged. |
+| `cdk deploy` including the Cognito stack (or `--all`) | `-c allowedEmailDomains=…` | Replaced with exactly that value. |
+| `cdk deploy` including the Cognito stack (or `--all`) | no `-c` value | **Cleared**: the PreSignUp Lambda gets an empty list and blocks all new sign-ups until you redeploy with the list. |
+| `cdk synth` / `cdk diff` | either | No change; these never modify deployed resources. |
+
+Plain `cdk` commands do not read `WREN_ALLOWED_EMAIL_DOMAINS`; they only see CDK context. To avoid retyping the list:
+
+- **For `npm run deploy`:** save it as a user environment variable so every new terminal has it.
+
+  ```powershell
+  [Environment]::SetEnvironmentVariable("WREN_ALLOWED_EMAIL_DOMAINS", "ubc.ca,student.ubc.ca", "User")   # open a new terminal afterwards
+  ```
+
+  On macOS/Linux, add `export WREN_ALLOWED_EMAIL_DOMAINS=ubc.ca,student.ubc.ca` to your shell profile.
+
+- **For direct `cdk deploy`:** put it in your user-level CDK config, `~/.cdk.json` (Windows: `%USERPROFILE%\.cdk.json`). CDK reads it on every command, it stays out of the repository, and a `-c` value on the command line still overrides it.
+
+  ```json
+  {
+    "context": {
+      "allowedEmailDomains": "ubc.ca,student.ubc.ca"
+    }
+  }
+  ```
+
+In PowerShell, `-c allowedEmailDomains=ubc.ca,student.ubc.ca` is passed as a single argument; quoting the value (`allowedEmailDomains="ubc.ca,student.ubc.ca"`) also works.
+
+`npm run redrive:dlq` shares the deploy configuration parser, so it also requires `WREN_ALLOWED_EMAIL_DOMAINS` to be set, even though it never touches Cognito.
 
 If you also set `WREN_ADMIN_EMAIL`, that address must use one of the listed domains; otherwise the first-admin signup cannot complete.
 

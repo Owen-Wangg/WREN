@@ -110,7 +110,7 @@ The trust boundary worth remembering: **network reachability and CloudFront/WAF 
 
 All users authenticate with Amazon Cognito (email alias, SRP). All application REST requests require authentication. CORS `OPTIONS` preflight requests are unauthenticated because they are handled as browser preflight requests, not application calls.
 
-Self-signup is enabled; email verification uses a one-time code. A changed email does not take effect until the new address is verified (`keepOriginal`), and the SPA client may write only `email`, `given_name` and `family_name`. Account recovery is email only. MFA is optional. New sign-ups may optionally be limited to exact email hostnames configured at deploy time (`WREN_ALLOWED_EMAIL_DOMAINS`); the default is unrestricted. The Cognito PreSignUp trigger is the authoritative gate. Existing accounts can still sign in regardless of domain.
+Self-signup is enabled; email verification uses a one-time code. A changed email does not take effect until the new address is verified (`keepOriginal`), and the SPA client may write only `email`, `given_name` and `family_name`. Account recovery is email only. MFA is optional. New sign-ups are limited to exact email hostnames configured at deploy time (`WREN_ALLOWED_EMAIL_DOMAINS`, required by `npm run deploy`); an empty list denies every sign-up. The Cognito PreSignUp trigger is the authoritative gate. Existing accounts can still sign in regardless of domain.
 
 Cognito tokens: access and ID tokens are valid for 1 hour; refresh tokens for 30 days. The React web app sends `Authorization: Bearer {accessToken}` on REST calls. AppSync realtime subscriptions use the ID token.
 
