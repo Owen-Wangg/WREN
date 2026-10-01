@@ -18,7 +18,7 @@ export const loginSchema = z.object({
 export type LoginFormValues = z.infer<typeof loginSchema>;
 
 export const PASSWORD_REQUIREMENTS = {
-  minLength: 8,
+  minLength: 10,
   requireUppercase: true,
   requireLowercase: true,
   requireNumbers: true,
