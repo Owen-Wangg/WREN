@@ -700,6 +700,25 @@ export class ObservabilityStack extends Stack {
       });
     }
 
+    // ---- Prompt-injection guardrail skipped (admin log) --------------------
+    // The admin prompt-injection scan fails closed when PROMPT_GUARDRAIL_ID is
+    // unset and logs `prompt_guardrail_skipped` (Issue #181). Deployed
+    // environments always have the id and never set the dev bypass, so ANY
+    // occurrence alarms.
+    addLogSignal({
+      id: "PromptGuardrailSkipped",
+      logGroupName: `/aws/lambda/${adminName}`,
+      dependency: logRetentions.get(adminName),
+      metricName: "PromptGuardrailSkipped",
+      pattern: logs.FilterPattern.literal('{ $.event = "prompt_guardrail_skipped" }'),
+      alarmSuffix: "prompt-guardrail-skipped",
+      threshold: 0,
+      description:
+        "Admin prompt-injection guardrail scan was skipped (guardrail unconfigured " +
+        "or dev bypass). Any occurrence in a deployed environment indicates " +
+        "misconfiguration — check PROMPT_GUARDRAIL_ID on the Admin Lambda.",
+    });
+
     // ---- API Gateway access-log signals ------------------------------------
     // Only when the access log group name is wired in (skipped in unit tests
     // that synth this stack in isolation).

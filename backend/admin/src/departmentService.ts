@@ -303,7 +303,7 @@ export async function updateDepartmentPrompt(
  * mirroring `document_type_config`): {@link assertGhostwritingFree} rejects
  * instructions that would make Ask WREN produce replacement prose, and
  * {@link assertPromptInjectionFree} runs the text through Bedrock Guardrails
- * (skipped gracefully when unconfigured). A rejection leaves the previously
+ * (fails closed when unconfigured). A rejection leaves the previously
  * persisted value untouched.
  *
  * Throws {@link NotFoundError} when the Department does not exist.
