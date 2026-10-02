@@ -126,7 +126,12 @@ export async function getPlatformUsagePolicyForAdmin(
   return getPlatformUsagePolicy(db);
 }
 
-export async function countDocumentsOwnedByUser(
+/**
+ * Read the user's lifetime document-upload counter. This is the same counter
+ * {@link reserveDocumentUpload} increments; it is never decremented when
+ * documents are deleted, so it is NOT a count of live documents.
+ */
+export async function getLifetimeDocumentUploadCount(
   userId: string,
   db: QueryExecutor,
 ): Promise<number> {
@@ -239,8 +244,8 @@ export async function assertDocumentUploadAllowed(
   db: QueryExecutor,
 ): Promise<void> {
   const policy = await getPlatformUsagePolicy(db);
-  const owned = await countDocumentsOwnedByUser(userId, db);
-  if (owned >= policy.documentUploadLimit) {
+  const lifetimeUploads = await getLifetimeDocumentUploadCount(userId, db);
+  if (lifetimeUploads >= policy.documentUploadLimit) {
     throw new UsageLimitReachedError(
       `Document upload limit of ${policy.documentUploadLimit} reached.`,
     );

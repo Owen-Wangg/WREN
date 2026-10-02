@@ -220,7 +220,7 @@ export class ComputeStack extends Stack {
       // Textract OCR needs headroom for multi-page PDF analysis.
       // PDF ingest is async via SQS so API Gateway's ~29s sync cap does not
       // abort large OCR jobs — the worker uses this full timeout.
-      memorySize: 2048,
+      memorySize: 384,
       timeout: Duration.minutes(3),
       // Reserved CAP so a burst of long-running OCR jobs cannot consume the
       // whole account pool and starve the authorizer. Aligns with the ingest
@@ -301,7 +301,7 @@ export class ComputeStack extends Stack {
       entry: path.join(monorepoRoot, "backend/admin/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 512,
+      memorySize: 256,
       timeout: Duration.seconds(30),
       vpc,
       vpcSubnets: privateSubnets,
@@ -403,7 +403,7 @@ export class ComputeStack extends Stack {
       entry: path.join(monorepoRoot, "backend/feedback/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 512,
+      memorySize: 256,
       // Ask WREN invokes Bedrock synchronously on this Lambda.
       timeout: Duration.seconds(60),
       vpc,
@@ -437,7 +437,7 @@ export class ComputeStack extends Stack {
         tagOrDigest: config.feedbackEngineImageTag,
       }),
       handler: lambda.Handler.FROM_IMAGE,
-      memorySize: 1024,
+      memorySize: 512,
       timeout: Duration.minutes(15), // long documents can exceed 5m on Bedrock
       // Reserved CAP so the longest-running function (15-min timeout, holds a
       // slot for minutes) cannot exhaust the shared account pool and starve the
@@ -502,7 +502,7 @@ export class ComputeStack extends Stack {
       entry: path.join(monorepoRoot, "backend/notification/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 512,
+      memorySize: 256,
       timeout: Duration.seconds(30),
       vpc,
       vpcSubnets: privateSubnets,
