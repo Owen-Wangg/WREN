@@ -220,7 +220,7 @@ export class ComputeStack extends Stack {
       // Textract OCR needs headroom for multi-page PDF analysis.
       // PDF ingest is async via SQS so API Gateway's ~29s sync cap does not
       // abort large OCR jobs — the worker uses this full timeout.
-      memorySize: 2048,
+      memorySize: 384,
       timeout: Duration.minutes(3),
       // Reserved CAP so a burst of long-running OCR jobs cannot consume the
       // whole account pool and starve the authorizer. Aligns with the ingest
