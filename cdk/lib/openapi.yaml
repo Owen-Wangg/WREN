@@ -85,7 +85,7 @@ components:
         prompt:
           type: string
           nullable: true
-          description: TechnicalAdmin-authored prompt; omitted for other callers
+          description: Feedback-Engine department prompt; returned to TechnicalAdmins and to DepartmentAdmins of this department, omitted for other callers
         accessState:
           type: string
           enum: [OPEN, LOCKED]
@@ -3142,7 +3142,11 @@ paths:
 
   /v1/departments/{departmentId}/prompt:
     put:
-      summary: Update department-level prompt
+      summary: Update department-level Feedback-Engine prompt
+      description: >-
+        Allowed for a TechnicalAdmin, or a DepartmentAdmin for an administered
+        Department (capability department.managePrompt). Rejected with 400 when
+        the text fails the no-ghostwriting or prompt-injection guardrails.
       tags: [Departments]
       operationId: updateDepartmentPrompt
       parameters:
@@ -3170,6 +3174,8 @@ paths:
             application/json:
               schema:
                 type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

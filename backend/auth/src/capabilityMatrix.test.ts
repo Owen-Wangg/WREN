@@ -73,6 +73,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: Capability[] = [
   'documentType.readConfig',
   'documentType.modifyConfig',
   'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'analytics.view',
 ];
 
@@ -83,6 +84,7 @@ const DEPARTMENT_ADMIN_CAPABILITIES: Capability[] = [
   'topic.manage',
   'department.manage',
   'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageOverride.grant',
