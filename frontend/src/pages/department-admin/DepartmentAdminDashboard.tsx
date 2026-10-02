@@ -10,7 +10,9 @@ import {
   createDocumentType,
   deleteDocumentType,
   updateDepartmentAskWrenPrompt,
+  updateDepartmentPrompt,
 } from '@/features/department-admin/departmentAdminApi';
+import { DepartmentPromptEditor } from '@/features/department-admin/DepartmentPromptEditor';
 import { ApiError } from '@/services';
 
 function createErrorMessage(error: unknown): string {
@@ -140,7 +142,9 @@ export function DepartmentAdminDashboard() {
     );
   }
 
-  const canManageAskWrenPrompt = Boolean(
+  // Both department prompts (Feedback-Engine + Ask Wren) are editable by a
+  // DepartmentAdmin appointed to this department; the backend re-checks scope.
+  const canManageDepartmentPrompts = Boolean(
     user?.roles.includes('DepartmentAdmin') &&
     user.administeredDepartmentIds.includes(activeDepartment.id),
   );
@@ -184,8 +188,23 @@ export function DepartmentAdminDashboard() {
         </p>
       </div>
 
+      {/* Department-level Feedback-Engine prompt */}
+      {canManageDepartmentPrompts && (
+        <section className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <h1 className="mb-4 text-2xl font-bold text-gray-900">Department Prompt</h1>
+          <DepartmentPromptEditor
+            departmentId={activeDepartment.id}
+            prompt={activeDepartment.prompt}
+            save={updateDepartmentPrompt}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: ['dept-admin-departments'] });
+            }}
+          />
+        </section>
+      )}
+
       {/* Department-level Ask Wren coaching context */}
-      {canManageAskWrenPrompt && (
+      {canManageDepartmentPrompts && (
         <section className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
         <h1 className="text-2xl font-bold text-gray-900">Ask Wren Prompt</h1>
         <p className="mt-2 text-sm text-gray-600">

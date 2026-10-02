@@ -64,6 +64,7 @@ import {
   assertCanViewDepartment,
   filterDocumentTypesForActor,
   mustScopeDepartmentCatalog,
+  redactDepartmentPrompt,
 } from './departmentScope';
 import type { AuthContext } from '@wren/types';
 import { getBedrockModelIdFromSsm, putBedrockModelIdToSsm } from './bedrockModelParameter';
@@ -294,13 +295,11 @@ async function handleListDepartments(event: any): Promise<APIGatewayProxyResult>
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const departments = await listDepartments(actor, db);
-  // The department `prompt` field is a TechnicalAdmin-authored system instruction
-  // injected into Bedrock prompts. Strip it for non-TechnicalAdmin callers so that
-  // DeptAdmins and Students cannot enumerate another department's prompt content.
-  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
-  const sanitized = departments.map((d: any) =>
-    isTechAdmin ? d : { ...d, prompt: undefined },
-  );
+  // The department `prompt` field is a Feedback-Engine system instruction
+  // injected into Bedrock prompts. Only TechnicalAdmins and the department's own
+  // DepartmentAdmins may read it; everyone else gets it stripped so Students and
+  // foreign DeptAdmins cannot enumerate another department's prompt content.
+  const sanitized = departments.map((d) => redactDepartmentPrompt(actor, d));
   return {
     statusCode: 200,
     body: JSON.stringify(sanitized),
@@ -316,8 +315,7 @@ async function handleGetDepartment(event: any): Promise<APIGatewayProxyResult> {
   if (!department) {
     throw new NotFoundError(`Department '${departmentId}' not found`);
   }
-  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
-  const response = isTechAdmin ? department : { ...department, prompt: undefined };
+  const response = redactDepartmentPrompt(actor, department);
   return {
     statusCode: 200,
     body: JSON.stringify(response),

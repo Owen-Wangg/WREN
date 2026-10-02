@@ -50,6 +50,9 @@ import { idSchema } from './common';
  *   context. Shared educational-content operation: a `DepartmentAdmin` for
  *   administered Departments, and a `TechnicalAdmin` at platform scope (the
  *   Ask WREN prompt is surfaced within the Technical Admin domain).
+ * - `department.managePrompt` — edit a Department's Feedback-Engine
+ *   department prompt (`department.prompt`). A `DepartmentAdmin` for
+ *   administered Departments, and a `TechnicalAdmin` at platform scope.
  * - `departmentVisibility.manage` — change student-catalog visibility and
  *   manage explicit Department visibility grants (TechnicalAdmin only).
  * - `accessGrant.create` / `accessGrant.revoke` — create/revoke Access Grants
@@ -75,6 +78,7 @@ export const capabilitySchema = z.enum([
   'topic.manage',
   'department.manage',
   'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'departmentVisibility.manage',
   'accessGrant.create',
   'accessGrant.revoke',
