@@ -230,8 +230,14 @@ export function DepartmentDetailPage() {
       setRolesAtOpen([]);
       setRoleSaveError(null);
     },
-    onError: () => {
-      setRoleSaveError('Failed to update roles. Please try again.');
+    onError: (error) => {
+      // Surface the server's reason (e.g. the first System Admin cannot be
+      // demoted) and refresh, since earlier assign/revoke calls may have applied.
+      setRoleSaveError(
+        getServerErrorMessage(error, 'Failed to update roles. Please try again.'),
+      );
+      void queryClient.invalidateQueries({ queryKey: ['department-users', departmentId] });
+      void queryClient.invalidateQueries({ queryKey: ['system-users'] });
     },
   });
 
@@ -1222,7 +1228,7 @@ export function DepartmentDetailPage() {
               </div>
 
               {(assignMutation.isError || roleSaveError) && (
-                <p className="mt-3 text-sm text-red-600">
+                <p role="alert" className="mt-3 text-sm text-red-600">
                   {roleSaveError ?? 'Failed to update roles. Please try again.'}
                 </p>
               )}
