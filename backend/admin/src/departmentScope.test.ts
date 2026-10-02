@@ -7,6 +7,7 @@ import {
   filterDepartmentsForActor,
   filterDocumentTypesForActor,
   mustScopeDepartmentCatalog,
+  redactDepartmentPrompt,
 } from './departmentScope';
 import { NotFoundError } from './errors';
 import { listDepartments } from './departmentService';
@@ -119,5 +120,33 @@ describe('department catalog isolation via list + scope', () => {
     expect(() => assertCanViewDepartment(lawAdmin, TEST)).toThrow(NotFoundError);
     // Content-type / error-category list handlers use this same gate for DeptAdmins.
     expect(mustScopeDepartmentCatalog(lawAdmin)).toBe(true);
+  });
+});
+
+describe('redactDepartmentPrompt (Feedback-Engine prompt read access)', () => {
+  const law = { id: LAW, name: 'Law', prompt: 'Law context' };
+
+  it('returns the prompt to a DepartmentAdmin of that department', () => {
+    expect(redactDepartmentPrompt(deptAdminContext([LAW]), law).prompt).toBe('Law context');
+  });
+
+  it('strips the prompt for a DepartmentAdmin of a different department', () => {
+    expect(redactDepartmentPrompt(deptAdminContext([TEST]), law).prompt).toBeUndefined();
+  });
+
+  it('returns the prompt to a TechnicalAdmin and strips it for a Student', () => {
+    expect(redactDepartmentPrompt(techAdminContext(), law).prompt).toBe('Law context');
+    expect(redactDepartmentPrompt(studentContext(), law).prompt).toBeUndefined();
+  });
+
+  it('only exposes administered departments in a full catalog listing', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: LAW, name: 'Law', prompt: 'Law context' });
+    db.seedDepartment({ id: TEST, name: 'Test Department', prompt: 'Test context' });
+    const actor = deptAdminContext([LAW]);
+
+    const listed = (await listDepartments(actor, db)).map((d) => redactDepartmentPrompt(actor, d));
+    expect(listed.find((d) => d.id === LAW)?.prompt).toBe('Law context');
+    expect(listed.find((d) => d.id === TEST)?.prompt).toBeUndefined();
   });
 });
