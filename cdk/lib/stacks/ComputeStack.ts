@@ -17,7 +17,7 @@ import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct
 import { NotificationInfraConstruct } from "../constructs/NotificationInfraConstruct";
 
 import type { AppDbRole } from "../appDbRoles.js";
-import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, resolveLogRetention, type AppConfig } from "../config";
+import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, resolveLogRetention, ssmParameterNames, type AppConfig } from "../config";
 import { corsLambdaEnvironment } from "../corsOrigins";
 
 /** IAM resources for us.anthropic.* / us.meta.* cross-region inference profiles. */
@@ -760,6 +760,14 @@ export class ComputeStack extends Stack {
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["ssm:PutParameter"],
       resources: [bedrockModelParamArn],
+    }));
+    // Read-only: the first admin's Cognito sub, so revokeRole can refuse to
+    // demote them. Written by the deploy workflow, not this stack.
+    this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ssm:GetParameter"],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter${ssmParameterNames.technicalAdminBootstrapSubject(config)}`,
+      ],
     }));
 
     // ConversationHistory is SSE-KMS with the storage CMK — DynamoDB calls need decrypt/encrypt.
