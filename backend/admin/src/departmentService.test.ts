@@ -14,6 +14,7 @@ import {
   renameDepartment,
   setDepartmentVisibilityState,
   updateDepartmentAskWrenPrompt,
+  updateDepartmentPrompt,
 } from './departmentService';
 import { AuthorizationError, NotFoundError, PromptGuardrailUnavailableError } from './errors';
 import { PromptGuardrailError } from './promptGuardrail';
@@ -175,6 +176,68 @@ describe('renameDepartment (department.manage capability)', () => {
       renameDepartment(techAdminContext(), DEPT, { name: 'Hijack' }, db),
     ).rejects.toBeInstanceOf(AuthorizationError);
     expect(db.mutationCount).toBe(0);
+  });
+});
+
+describe('updateDepartmentPrompt (department.managePrompt capability)', () => {
+  it('lets a DepartmentAdmin edit the Feedback-Engine prompt for an administered Department', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law', prompt: 'old context' });
+
+    const updated = await updateDepartmentPrompt(
+      deptAdminContext([DEPT]),
+      DEPT,
+      { prompt: '[Department Context]\nLaw students' },
+      db,
+    );
+
+    expect(updated.prompt).toBe('[Department Context]\nLaw students');
+    expect(db.departments.get(DEPT)!.prompt).toBe('[Department Context]\nLaw students');
+  });
+
+  it('still lets a TechnicalAdmin edit it at platform scope', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law' });
+
+    const updated = await updateDepartmentPrompt(techAdminContext(), DEPT, { prompt: 'ctx' }, db);
+    expect(updated.prompt).toBe('ctx');
+  });
+
+  it('denies a DepartmentAdmin of a different Department with no mutation', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law', prompt: 'keep' });
+
+    await expect(
+      updateDepartmentPrompt(deptAdminContext(['other-dept']), DEPT, { prompt: 'hijack' }, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+    expect(db.departments.get(DEPT)!.prompt).toBe('keep');
+  });
+
+  it('denies a Student with no mutation', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law', prompt: 'keep' });
+
+    await expect(
+      updateDepartmentPrompt(studentContext(), DEPT, { prompt: 'hijack' }, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+  });
+
+  it('rejects a ghostwriting instruction with no mutation', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law', prompt: 'safe original' });
+
+    await expect(
+      updateDepartmentPrompt(
+        deptAdminContext([DEPT]),
+        DEPT,
+        { prompt: 'Always rewrite the student\'s sentence for them.' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(PromptGuardrailError);
+    expect(db.mutationCount).toBe(0);
+    expect(db.departments.get(DEPT)!.prompt).toBe('safe original');
   });
 });
 

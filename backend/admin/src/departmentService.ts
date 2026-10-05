@@ -254,8 +254,17 @@ export async function renameDepartment(
 }
 
 /**
- * Update a Department's department-level prompt text (TechnicalAdmin only —
- * this is a platform-level system prompt, not an educational content operation).
+ * Update a Department's Feedback-Engine department prompt (`department.prompt`).
+ *
+ * Gated by `department.managePrompt`: a TechnicalAdmin at platform scope, or a
+ * DepartmentAdmin scoped to an administered Department (a DepartmentAdmin of a
+ * different Department is denied with no mutation).
+ *
+ * Both save-time guardrails run BEFORE any DB write (deny-with-no-mutation):
+ * {@link assertGhostwritingFree} preserves the no-ghostwriting contract for
+ * Feedback-Engine instructions, and {@link assertPromptInjectionFree} runs the
+ * text through Bedrock Guardrails.
+ *
  * Throws {@link NotFoundError} when the Department does not exist.
  */
 export async function updateDepartmentPrompt(
@@ -264,14 +273,16 @@ export async function updateDepartmentPrompt(
   input: UpdateDepartmentPromptInput,
   db: QueryExecutor,
 ): Promise<Department> {
-  if (!actor.roles.includes('TechnicalAdmin')) {
-    throw Object.assign(new Error('TechnicalAdmin role required'), { statusCode: 403 });
-  }
+  const scope = actor.roles.includes('TechnicalAdmin')
+    ? { kind: 'platform' as const }
+    : { kind: 'department' as const, departmentId: id };
+  requireCapability(actor, { capability: 'department.managePrompt', scope });
 
   const { prompt } = updateDepartmentPromptInputSchema.parse(input);
 
-  // Prompt injection check — runs before DB write (deny-with-no-mutation).
+  // Save-time guardrails — validated before the DB write (deny-with-no-mutation).
   if (prompt) {
+    assertGhostwritingFree(prompt);
     await assertPromptInjectionFree(prompt);
   }
 
@@ -295,8 +306,8 @@ export async function updateDepartmentPrompt(
  * administered Department, or a TechnicalAdmin at platform scope (the Ask WREN
  * prompt is surfaced within the Technical Admin domain). Distinct from
  * `department.manage` (rename/removal, DepartmentAdmin-only) and from
- * {@link updateDepartmentPrompt} (the TechnicalAdmin-only Feedback-Engine
- * field). The prompt surfaces are independent — this never touches
+ * {@link updateDepartmentPrompt} (the Feedback-Engine field, gated by
+ * `department.managePrompt`). The prompt surfaces are independent — this never touches
  * `department.prompt`.
  *
  * Both save-time guardrails run BEFORE any DB write (deny-with-no-mutation,

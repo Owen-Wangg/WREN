@@ -77,7 +77,8 @@ export async function auditPromptEdit(
     /**
      * Which prompt surface was edited:
      *  - `documentType` — Document-Type prompt config (`type_prompt_text`).
-     *  - `system`       — TechnicalAdmin-owned Feedback-Engine `department.prompt`.
+     *  - `system`       — Feedback-Engine `department.prompt` (TechnicalAdmin, or
+     *                     DepartmentAdmin for an administered Department).
      *  - `department`   — DepartmentAdmin-owned department Ask WREN prompt
      *                     (`department.ask_wren_prompt`).
      */

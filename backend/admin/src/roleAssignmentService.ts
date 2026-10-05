@@ -37,6 +37,38 @@ import {
 
 import { AuthorizationError } from './errors';
 import type { QueryExecutor } from './db';
+import {
+  loadProtectedAdminSubject,
+  type ProtectedAdminSubjectLoader,
+} from './protectedAdminSubject';
+
+/** Collaborators for {@link revokeRole}; injectable for tests. */
+export interface RevokeRoleDeps {
+  /** Resolves the first admin's Cognito `sub` (never demotable). */
+  readonly protectedAdminSubject?: ProtectedAdminSubjectLoader;
+}
+
+/**
+ * Refuse to revoke TechnicalAdmin from the first (bootstrap) admin. Runs
+ * before any mutation so a refused revoke changes nothing.
+ */
+async function assertNotProtectedAdmin(
+  userId: string,
+  db: QueryExecutor,
+  loadSubject: ProtectedAdminSubjectLoader,
+): Promise<void> {
+  const protectedSubject = await loadSubject();
+  if (!protectedSubject) return;
+  const rows = await db.query<{ idp_subject: string | null }>(
+    'SELECT idp_subject FROM app_user WHERE id = $1',
+    [userId],
+  );
+  if (rows[0]?.idp_subject === protectedSubject) {
+    throw new AuthorizationError(
+      'The first System Admin cannot be demoted. Their TechnicalAdmin role is protected.',
+    );
+  }
+}
 
 /** Raw `role_assignment` row (snake_case columns from PostgreSQL). */
 interface RoleAssignmentRow {
@@ -144,11 +176,15 @@ export async function assignRole(
 /**
  * Revoke a role from a global User, per the role-assignment matrix
  * (Requirement 5.1, symmetric assign/revoke authority).
+ *
+ * TechnicalAdmin can never be revoked from the first (bootstrap) admin; that
+ * refusal is an {@link AuthorizationError} raised before any mutation.
  */
 export async function revokeRole(
   actor: AuthContext,
   input: RevokeRoleInput,
   db: QueryExecutor,
+  deps: RevokeRoleDeps = {},
 ): Promise<void> {
   const parsed = revokeRoleInputSchema.parse(input);
   const { userId, role, scope, departmentId } = parsed;
@@ -156,6 +192,14 @@ export async function revokeRole(
   const decision = authorizeRoleAssignment(actor, { action: 'revoke', role, scope });
   if (!decision.allowed) {
     throw new AuthorizationError(decision.reason);
+  }
+
+  if (role === 'TechnicalAdmin') {
+    await assertNotProtectedAdmin(
+      userId,
+      db,
+      deps.protectedAdminSubject ?? loadProtectedAdminSubject,
+    );
   }
 
   if (role === 'DepartmentAdmin') {

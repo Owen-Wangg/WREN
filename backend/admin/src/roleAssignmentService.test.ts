@@ -276,15 +276,71 @@ describe('revokeRole', () => {
 
   it('revokes a global TechnicalAdmin assignment (TechnicalAdmin actor)', async () => {
     const db = new FakeDb();
+    db.seedAppUser({ id: USER, idp_subject: 'sub-ordinary' });
     db.seedRoleAssignment({ id: 'ra-1', user_id: USER, role: 'TechnicalAdmin', scope: null });
 
     await revokeRole(
       techAdminContext(),
       { userId: USER, role: 'TechnicalAdmin', scope: { kind: 'platform' } },
       db,
+      { protectedAdminSubject: async () => 'sub-first-admin' },
     );
 
     expect(db.roleAssignments.has('ra-1')).toBe(false);
+  });
+
+  it('REFUSES to demote the first (bootstrap) admin, no mutation', async () => {
+    const db = new FakeDb();
+    db.seedAppUser({ id: USER, idp_subject: 'sub-first-admin' });
+    db.seedRoleAssignment({ id: 'ra-1', user_id: USER, role: 'TechnicalAdmin', scope: null });
+
+    await expect(
+      revokeRole(
+        techAdminContext(),
+        { userId: USER, role: 'TechnicalAdmin', scope: { kind: 'platform' } },
+        db,
+        { protectedAdminSubject: async () => 'sub-first-admin' },
+      ),
+    ).rejects.toThrow('The first System Admin cannot be demoted');
+    expect(db.mutationCount).toBe(0);
+    expect(db.roleAssignments.has('ra-1')).toBe(true);
+  });
+
+  it('still lets the first admin lose non-TechnicalAdmin roles', async () => {
+    const db = new FakeDb();
+    db.seedAppUser({ id: USER, idp_subject: 'sub-first-admin' });
+    db.seedRoleAssignment({ id: 'ra-1', user_id: USER, role: 'Student', scope: null });
+    const loader = jest.fn(async () => 'sub-first-admin');
+
+    await revokeRole(
+      techAdminContext(),
+      { userId: USER, role: 'Student', scope: { kind: 'platform' } },
+      db,
+      { protectedAdminSubject: loader },
+    );
+
+    expect(db.roleAssignments.has('ra-1')).toBe(false);
+    expect(loader).not.toHaveBeenCalled();
+  });
+
+  it('fails closed (no mutation) when the protected subject cannot be resolved', async () => {
+    const db = new FakeDb();
+    db.seedAppUser({ id: USER, idp_subject: 'sub-ordinary' });
+    db.seedRoleAssignment({ id: 'ra-1', user_id: USER, role: 'TechnicalAdmin', scope: null });
+
+    await expect(
+      revokeRole(
+        techAdminContext(),
+        { userId: USER, role: 'TechnicalAdmin', scope: { kind: 'platform' } },
+        db,
+        {
+          protectedAdminSubject: async () => {
+            throw new Error('SSM unavailable');
+          },
+        },
+      ),
+    ).rejects.toThrow('SSM unavailable');
+    expect(db.roleAssignments.has('ra-1')).toBe(true);
   });
 
   it('is a no-op when the DepartmentAdmin assignment does not exist', async () => {

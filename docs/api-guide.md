@@ -1098,7 +1098,7 @@ curl -X PUT "https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1/depa
 
 **Endpoint:** `PUT /v1/departments/{departmentId}/prompt`
 
-**Authorization:** Department Admin for this department (capability `department.manage`)
+**Authorization:** Department Admin for this department, or a Technical Admin (capability `department.managePrompt`). The text must pass the no-ghostwriting and prompt-injection guardrails.
 
 **Request Body:**
 
