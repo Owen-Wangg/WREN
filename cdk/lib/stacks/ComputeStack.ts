@@ -685,6 +685,48 @@ export class ComputeStack extends Stack {
       ],
     }));
 
+    // -----------------------------------------------------------------------
+    // Orphan-upload reconciliation sweep (Node 22, daily EventBridge schedule)
+    // -----------------------------------------------------------------------
+    // The documents-bucket lifecycle rule only expires objects tagged
+    // `orphan-upload=true`. This sweep re-tags presigned uploads older than a
+    // day that are untagged and referenced by no draft / ingest-job row, so a
+    // failed attach can never strand an object permanently. Own role, scoped
+    // to list + tag on the documents bucket; it never reads or deletes bytes.
+    const orphanUploadSweepFunction = new lambdaNodejs.NodejsFunction(this, "OrphanUploadSweepFn", {
+      functionName: `${config.stackPrefix}-orphan-upload-sweep`,
+      entry: path.join(monorepoRoot, "backend/document/src/orphanUploadSweepHandler.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: Duration.minutes(10),
+      vpc,
+      vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
+      environment: {
+        ...dbEnv(secrets.wren_document),
+        DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
+      },
+      bundling: sharedBundling,
+    });
+    this.grantDatabaseAccess(orphanUploadSweepFunction, secrets.wren_document);
+    orphanUploadSweepFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:ListBucket"],
+      resources: [`arn:aws:s3:::${props.documentsBucketName}`],
+      conditions: { StringLike: { "s3:prefix": ["documents/*"] } },
+    }));
+    orphanUploadSweepFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:GetObjectTagging", "s3:PutObjectTagging"],
+      resources: [`arn:aws:s3:::${props.documentsBucketName}/documents/*`],
+    }));
+    const orphanUploadSweepRule = new events.Rule(this, "OrphanUploadSweepRule", {
+      ruleName: `${config.stackPrefix}-orphan-upload-sweep`,
+      schedule: events.Schedule.rate(Duration.days(1)),
+      description: "Re-tags stranded, unreferenced document uploads for lifecycle expiry",
+    });
+    orphanUploadSweepRule.addTarget(new targets.LambdaFunction(orphanUploadSweepFunction));
+
     // Admin Lambda: S3 read/delete on reference material. PutObject is
     // intentionally omitted (finding S-3): no code in the admin backend uploads
     // reference bytes, so the write grant was unused. Restore it only alongside
