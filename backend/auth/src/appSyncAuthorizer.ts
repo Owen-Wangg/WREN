@@ -27,6 +27,14 @@
  *   requestContext.queryString   — the GraphQL operation string
  *   requestContext.variables     — arguments for the subscription
  */
+import {
+  Kind,
+  OperationTypeNode,
+  parse,
+  valueFromASTUntyped,
+  type DocumentNode,
+  type OperationDefinitionNode,
+} from 'graphql';
 import { resolveCognitoVerifierConfig } from './config';
 import { mapSubjectToAuthContext, type QueryExecutor } from './identityMapping';
 import type { TokenVerifier } from './tokenVerifier';
@@ -104,45 +112,6 @@ async function isDocumentOwner(
   return rows[0]?.owner_user_id === userId;
 }
 
-/** Strip GraphQL comments and neutralize string literals so field parsing
- * cannot be confused by quoted/commented subscription names. */
-function stripGraphqlNoise(query: string): string {
-  return query
-    .replace(/#[^\n\r]*/g, ' ')
-    .replace(/"""[\s\S]*?"""/g, ' ')
-    .replace(/"(?:\\.|[^"\\])*"/g, '""');
-}
-
-/**
- * Return the executed GraphQL field name for a subscription operation.
- * Handles aliases (`alias: onDebriefReady`) and anonymous selection sets.
- * Returns null when the query is empty (connection-phase) or unparseable.
- */
-export function parseExecutedSubscriptionField(
-  queryString: string | undefined,
-): string | null {
-  if (!queryString || !queryString.trim()) return null;
-  const stripped = stripGraphqlNoise(queryString);
-
-  const subscriptionMatch =
-    /\bsubscription\b(?:\s+[A-Za-z_][A-Za-z0-9_]*)?(?:\s*\([^)]*\))?\s*\{/i.exec(
-      stripped,
-    );
-  let bodyStart = -1;
-  if (subscriptionMatch) {
-    bodyStart = (subscriptionMatch.index ?? 0) + subscriptionMatch[0].length;
-  } else {
-    const brace = stripped.indexOf('{');
-    if (brace >= 0) bodyStart = brace + 1;
-  }
-  if (bodyStart < 0) return null;
-
-  const rest = stripped.slice(bodyStart).trim();
-  const fieldMatch =
-    /^(?:[A-Za-z_][A-Za-z0-9_]*\s*:\s*)?([A-Za-z_][A-Za-z0-9_]*)/.exec(rest);
-  return fieldMatch?.[1] ?? null;
-}
-
 export type SubscriptionType = 'debrief' | 'notification';
 
 const SUBSCRIPTION_FIELD_TYPE: Record<string, SubscriptionType> = {
@@ -151,33 +120,146 @@ const SUBSCRIPTION_FIELD_TYPE: Record<string, SubscriptionType> = {
   onNotificationStateChange: 'notification',
 };
 
+interface ParsedSubscriptionOperation {
+  /** The executed root field name (alias ignored), e.g. `onNotification`. */
+  readonly field: string;
+  /**
+   * Arguments coerced exactly as AppSync will bind them: variable references
+   * resolve from the `variables` map, inline literals are used directly.
+   */
+  readonly args: Record<string, unknown>;
+}
+
+/**
+ * Parse the GraphQL document and return the single executed subscription root
+ * field plus its coerced arguments — bound to the operation AppSync will
+ * actually run, not to a regex over the raw text.
+ *
+ * Deny-closed: returns null on parse failure, when the operation cannot be
+ * selected (operationName mismatch, or ambiguous multi-operation document with
+ * no operationName), when the selected operation is not a subscription, or
+ * when the selection set is not exactly one root field. The caller treats null
+ * as "deny".
+ */
+function parseSubscriptionOperation(
+  queryString: string,
+  variables: Record<string, unknown> | undefined,
+  operationName: string | undefined,
+): ParsedSubscriptionOperation | null {
+  let doc: DocumentNode;
+  try {
+    doc = parse(queryString);
+  } catch {
+    return null;
+  }
+
+  const operations = doc.definitions.filter(
+    (d): d is OperationDefinitionNode => d.kind === Kind.OPERATION_DEFINITION,
+  );
+  if (operations.length === 0) return null;
+
+  // Select the operation AppSync will execute: by operationName when provided,
+  // otherwise the sole operation. A multi-operation document with no
+  // operationName is ambiguous — AppSync rejects it, so we deny.
+  let operation: OperationDefinitionNode | undefined;
+  if (operationName && operationName.trim().length > 0) {
+    operation = operations.find((op) => op.name?.value === operationName);
+  } else if (operations.length === 1) {
+    operation = operations[0];
+  }
+  if (!operation) return null;
+
+  if (operation.operation !== OperationTypeNode.SUBSCRIPTION) return null;
+
+  // AppSync subscriptions carry exactly one root field. Reject anything else
+  // (extra fields, fragment spreads) so the authorized field is unambiguous.
+  const selections = operation.selectionSet.selections;
+  if (selections.length !== 1) return null;
+  const only = selections[0];
+  if (!only || only.kind !== Kind.FIELD) return null;
+
+  const args: Record<string, unknown> = {};
+  for (const arg of only.arguments ?? []) {
+    // valueFromASTUntyped resolves a VariableNode from `variables` and uses a
+    // literal value directly — matching GraphQL argument coercion exactly.
+    args[arg.name.value] = valueFromASTUntyped(arg.value, variables);
+  }
+
+  return { field: only.name.value, args };
+}
+
+/**
+ * Return the executed GraphQL field name for a subscription operation, bound to
+ * the operation AppSync will run. Returns null when the query is empty
+ * (connection-phase) or cannot be resolved to a single subscription field.
+ */
+export function parseExecutedSubscriptionField(
+  queryString: string | undefined,
+  operationName?: string,
+): string | null {
+  if (!queryString || !queryString.trim()) return null;
+  return parseSubscriptionOperation(queryString, undefined, operationName)?.field ?? null;
+}
+
+export type ResolvedSubscription =
+  | { readonly kind: 'connection' }
+  | { readonly kind: 'invalid' }
+  | {
+      readonly kind: 'subscription';
+      readonly field: string;
+      readonly type: SubscriptionType;
+      readonly args: Record<string, unknown>;
+    };
+
+/**
+ * Resolve a subscription request to the operation AppSync will execute and the
+ * arguments it will bind. An empty query is the connection-phase handshake;
+ * anything that cannot be resolved to a known subscription field is `invalid`
+ * (deny-closed).
+ */
+export function resolveSubscriptionRequest(
+  queryString: string | undefined,
+  variables: Record<string, unknown> | undefined,
+  operationName: string | undefined,
+): ResolvedSubscription {
+  if (!queryString || !queryString.trim()) return { kind: 'connection' };
+
+  const parsed = parseSubscriptionOperation(queryString, variables, operationName);
+  if (!parsed) return { kind: 'invalid' };
+
+  const type = SUBSCRIPTION_FIELD_TYPE[parsed.field];
+  if (!type) return { kind: 'invalid' };
+
+  return { kind: 'subscription', field: parsed.field, type, args: parsed.args };
+}
+
 /**
  * Resolve the subscription kind from the executed field name. Unrecognized
  * fields return null so the caller can deny.
  */
 export function resolveSubscriptionType(
   queryString: string | undefined,
+  operationName?: string,
 ): SubscriptionType | 'connection' | null {
   if (!queryString || !queryString.trim()) return 'connection';
-  const field = parseExecutedSubscriptionField(queryString);
+  const field = parseExecutedSubscriptionField(queryString, operationName);
   if (!field) return null;
   return SUBSCRIPTION_FIELD_TYPE[field] ?? null;
 }
 
+/**
+ * Read a required string argument from the coerced argument map. Non-string or
+ * empty values are treated as missing.
+ */
 function readStringArg(
-  variables: Record<string, unknown> | undefined,
-  queryString: string | undefined,
+  args: Record<string, unknown>,
   name: string,
 ): string | null {
-  const fromVar = variables?.[name];
-  if (typeof fromVar === 'string' && fromVar.trim().length > 0) {
-    return fromVar.trim();
+  const value = args[name];
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim();
   }
-  if (!queryString) return null;
-  const re = new RegExp(`\\b${name}\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`);
-  const match = re.exec(queryString);
-  if (!match?.[1]) return null;
-  return match[1].replace(/\\"/g, '"').trim() || null;
+  return null;
 }
 
 export function createAppSyncAuthorizerHandler(depsProvider: AppSyncDepsProvider) {
@@ -206,25 +288,30 @@ export function createAppSyncAuthorizerHandler(depsProvider: AppSyncDepsProvider
     const context = await mapSubjectToAuthContext(subject, db);
     if (!context) return deny();
 
-    const subscriptionType = resolveSubscriptionType(event.requestContext.queryString);
+    // Bind the decision to the operation AppSync will execute: the field and
+    // its coerced arguments come from the parsed GraphQL document + variables,
+    // selected via operationName — never from a regex over the raw query.
+    const resolved = resolveSubscriptionRequest(
+      event.requestContext.queryString,
+      event.requestContext.variables,
+      event.requestContext.operationName,
+    );
 
     // Connection-phase handshake: queryString and variables are empty.
     // Allow the WebSocket upgrade for any authenticated user, but do not cache
     // this permissive decision (ttlOverride: 0).
-    if (subscriptionType === 'connection') {
+    if (resolved.kind === 'connection') {
       return allow(context, 0);
     }
 
-    if (subscriptionType === null) {
+    // Parse failure, ambiguous/unselectable operation, non-subscription,
+    // multi-root-field, or unknown subscription field — all deny-closed.
+    if (resolved.kind === 'invalid') {
       return deny();
     }
 
-    if (subscriptionType === 'notification') {
-      const recipientUserId = readStringArg(
-        event.requestContext.variables,
-        event.requestContext.queryString,
-        'recipientUserId',
-      );
+    if (resolved.type === 'notification') {
+      const recipientUserId = readStringArg(resolved.args, 'recipientUserId');
       if (!recipientUserId || recipientUserId !== context.userId) {
         return deny();
       }
@@ -232,14 +319,10 @@ export function createAppSyncAuthorizerHandler(depsProvider: AppSyncDepsProvider
     }
 
     // Debrief subscriptions: Student role + document ownership. Deny by default
-    // when documentId is missing (inline literals are still extracted above).
+    // when documentId is missing or unresolvable.
     if (!context.roles.includes('Student')) return deny();
 
-    const documentId = readStringArg(
-      event.requestContext.variables,
-      event.requestContext.queryString,
-      'documentId',
-    );
+    const documentId = readStringArg(resolved.args, 'documentId');
     if (!documentId || !(await isDocumentOwner(documentId, context.userId, db))) {
       return deny();
     }
