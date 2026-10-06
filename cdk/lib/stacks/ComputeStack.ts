@@ -888,21 +888,6 @@ export class ComputeStack extends Stack {
       value: this.syncCognitoAdminsFunction.functionName,
       description: "Operator-only: aws lambda invoke --payload '{\"_script\":\"sync-cognito-admins\"}'",
     });
-    // TRANSITIONAL (remove after one deploy of every environment): the retired
-    // `${prefix}-audit` Lambda was imported by the deployed Api and
-    // Observability stacks. CloudFormation refuses to drop an export that is
-    // still imported, and Compute deploys before its consumers, so re-publish
-    // the same export names with the identical literal values. Once Api and
-    // Observability have redeployed without the import, delete these two.
-    // https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.Stack.html#exportwbrvalueexportedvalue-options
-    const retiredAuditFunctionName = `${config.stackPrefix}-audit`;
-    this.exportValue(retiredAuditFunctionName, {
-      name: `${this.stackName}:ExportsOutputRefAuditFnD8B666F69F4A5249`,
-    });
-    this.exportValue(
-      `arn:${this.partition}:lambda:${this.region}:${this.account}:function:${retiredAuditFunctionName}`,
-      { name: `${this.stackName}:ExportsOutputFnGetAttAuditFnD8B666F6ArnDE69B904` },
-    );
     new CfnOutput(this, "FeedbackOrchestratorFunctionArn", {
       value: this.feedbackOrchestratorFunction.functionArn,
     });

@@ -24,15 +24,20 @@ describe('0008_drop_wren_audit_role', () => {
     expect(CODE).toMatch(/nspowner/);
     expect(CODE).toMatch(/RAISE EXCEPTION/);
     // The ownership guard must run before anything destructive.
-    expect(CODE.indexOf('RAISE EXCEPTION')).toBeLessThan(CODE.indexOf('DROP OWNED BY'));
+    expect(CODE.indexOf('RAISE EXCEPTION')).toBeLessThan(CODE.indexOf('ALTER ROLE'));
+  });
+
+  it('does not use DROP OWNED BY (not permitted for the non-superuser RDS admin)', () => {
+    expect(CODE).not.toMatch(/DROP OWNED/i);
   });
 
   it('disables login, revokes privileges, then drops the role', () => {
     const order = [
       'ALTER ROLE wren_audit NOLOGIN',
       'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM wren_audit',
+      'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM wren_audit',
+      'REVOKE ALL PRIVILEGES ON SCHEMA public FROM wren_audit',
       'REVOKE ALL PRIVILEGES ON DATABASE appdb FROM wren_audit',
-      'DROP OWNED BY wren_audit',
       'DROP ROLE wren_audit',
     ].map((stmt) => CODE.indexOf(stmt));
     for (const idx of order) expect(idx).toBeGreaterThan(-1);

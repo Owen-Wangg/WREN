@@ -20,13 +20,7 @@ import {
 } from "aws-cdk-lib/aws-rds";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
-import {
-  APP_DB_ROLES,
-  RETIRED_APP_DB_ROLES,
-  appDbRolePascal,
-  type AppDbRole,
-  type RetiredAppDbRole,
-} from "../appDbRoles.js";
+import { APP_DB_ROLES, appDbRolePascal, type AppDbRole } from "../appDbRoles.js";
 import { resolveLogRetention, type AppConfig } from "../config.js";
 
 export interface DatabaseResourcesProps {
@@ -59,8 +53,6 @@ export class DatabaseResources extends Construct {
   public readonly proxySecurityGroup: SecurityGroup;
   /** Per-app-role Secrets Manager secrets (RDS Proxy JSON: username + password). */
   public readonly appUserSecrets: Record<AppDbRole, secretsmanager.ISecret>;
-  /** TRANSITIONAL: secrets of retired roles, kept only for their in-use export. */
-  public readonly retiredAppUserSecrets: Record<RetiredAppDbRole, secretsmanager.ISecret>;
 
   private readonly props: DatabaseResourcesProps;
 
@@ -73,7 +65,6 @@ export class DatabaseResources extends Construct {
     this.proxySecurityGroup = this.createProxySecurityGroup();
     this.instance = this.createInstance();
     this.appUserSecrets = this.createAppUserSecrets();
-    this.retiredAppUserSecrets = this.createRetiredAppUserSecrets();
     this.proxy = this.createProxy();
   }
 
@@ -91,21 +82,7 @@ export class DatabaseResources extends Construct {
     return secrets;
   }
 
-  /**
-   * TRANSITIONAL: secrets for {@link RETIRED_APP_DB_ROLES}. Same construct ids
-   * as before so CloudFormation keeps (not replaces) them and the export the
-   * deployed Compute stack imports keeps its value. Deliberately NOT attached
-   * to the proxy and NOT password-synced. Delete with RETIRED_APP_DB_ROLES.
-   */
-  protected createRetiredAppUserSecrets(): Record<RetiredAppDbRole, secretsmanager.ISecret> {
-    const secrets = {} as Record<RetiredAppDbRole, secretsmanager.ISecret>;
-    for (const role of RETIRED_APP_DB_ROLES) {
-      secrets[role] = this.createAppUserSecret(role);
-    }
-    return secrets;
-  }
-
-  private createAppUserSecret(role: AppDbRole | RetiredAppDbRole): secretsmanager.Secret {
+  private createAppUserSecret(role: AppDbRole): secretsmanager.Secret {
     return new secretsmanager.Secret(
       this,
       `AppUserSecret${appDbRolePascal(role)}`,

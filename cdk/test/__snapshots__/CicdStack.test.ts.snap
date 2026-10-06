@@ -1369,16 +1369,6 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 },
                 {
                   "Action": [
-                    "lambda:DeleteFunction",
-                    "lambda:GetFunction",
-                    "lambda:GetFunctionConfiguration",
-                  ],
-                  "Effect": "Allow",
-                  "Resource": "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-audit",
-                  "Sid": "LambdaDeleteRetiredFunctions",
-                },
-                {
-                  "Action": [
                     "iam:AttachRolePolicy",
                     "iam:CreateRole",
                     "iam:PutRolePermissionsBoundary",

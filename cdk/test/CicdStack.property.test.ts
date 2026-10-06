@@ -266,7 +266,7 @@ describe("CicdStack policy properties", () => {
   it("Property 5: amplifier permissions are confined to their designated patterns", () => {
     // Feature: cicd-deploy-role-privilege-escalation-fix, Property 5: Amplifier permissions are confined to their designated patterns
     const serviceFunctions = [
-      "authorizer", "document", "admin", "audit", "feedback-orchestrator",
+      "authorizer", "document", "admin", "feedback-orchestrator",
       "feedback-engine", "diff-anchor-progress", "notification", "appsync-authorizer",
     ].map((name) => `arn:aws:lambda:${region}:${account}:function:${prefix}-${name}`);
     const suffix = fc.stringOf(fc.constantFrom(..."ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), {
@@ -322,6 +322,12 @@ describe("CicdStack policy properties", () => {
       }
       const logRetentionArn = `arn:aws:lambda:${region}:${account}:function:${prefix}-Compute-LogRetentionABC`;
       expect(evaluate(deployPolicy, { action: "lambda:InvokeFunction", resource: logRetentionArn })).toBe("allowed");
+      // The retired `${prefix}-audit` name is outside the deploy role's scope
+      // (finding f-499abf7c): it can't be re-created, granted, or invoked.
+      const retiredAuditArn = `arn:aws:lambda:${region}:${account}:function:${prefix}-audit`;
+      for (const retiredAction of ["lambda:CreateFunction", "lambda:AddPermission", "lambda:InvokeFunction"]) {
+        expect(evaluate(deployPolicy, { action: retiredAction, resource: retiredAuditArn })).not.toBe("allowed");
+      }
       const databaseSecret = `arn:aws:secretsmanager:${region}:${account}:secret:${prefix}/database/wren_admin-${databaseSuffix}`;
       expect(evaluate(deployPolicy, { action: "secretsmanager:GetSecretValue", resource: databaseSecret })).not.toBe("allowed");
       const expected = matchesArnPattern(designatedPatterns[action]!, resource);

@@ -86,12 +86,10 @@ describe("DatabaseStack", () => {
   });
 
   it("generates DB credentials into Secrets Manager (never inlined)", () => {
-    // dbadmin + 7 app roles + the TRANSITIONAL retired wren_audit secret
-    // (drop to 8 when RETIRED_APP_DB_ROLES is removed).
-    template.resourceCountIs("AWS::SecretsManager::Secret", 9);
+    // dbadmin + 7 app roles.
+    template.resourceCountIs("AWS::SecretsManager::Secret", 8);
     const proxies = template.findResources("AWS::RDS::DBProxy");
     const auth = Object.values(proxies)[0]?.Properties?.Auth as unknown[];
-    // dbadmin + 7 app roles; the retired wren_audit secret is NOT attached.
     expect(auth).toHaveLength(8);
     // The instance's MasterUserPassword must resolve from the secret, not a
     // plaintext literal — regardless of whether CDK emits a resolve token
@@ -103,27 +101,10 @@ describe("DatabaseStack", () => {
     }
   });
 
-  it("keeps the retired wren_audit secret off the proxy, password sync and SSM, but still exported (TRANSITIONAL)", () => {
-    const json = template.toJSON();
-    // Same logical id as before, so CloudFormation keeps the deployed secret.
-    expect(json.Resources.DatabaseAppUserSecretWrenAudit745C8337?.Type).toBe(
-      "AWS::SecretsManager::Secret",
-    );
-    // Export name the deployed Compute stack imports.
-    const exportNames = Object.values(json.Outputs ?? {}).map(
-      (o: any) => o.Export?.Name as string | undefined,
-    );
-    expect(exportNames).toContain(
-      `${databaseStack.stackName}:ExportsOutputRefDatabaseAppUserSecretWrenAudit745C83379CA2BA61`,
-    );
-    const proxy = Object.values(template.findResources("AWS::RDS::DBProxy"))[0];
-    expect(JSON.stringify(proxy?.Properties?.Auth)).not.toContain("WrenAudit");
-    expect(JSON.stringify(json.Resources)).not.toContain("/database/wren_audit/secret-arn");
-    for (const res of Object.values(json.Resources) as any[]) {
-      if (res.Type === "AWS::CloudFormation::CustomResource" || res.Type?.startsWith("Custom::")) {
-        expect(JSON.stringify(res.Properties)).not.toContain("WrenAudit");
-      }
-    }
+  it("provisions nothing for the retired wren_audit role (finding f-71876844)", () => {
+    const json = JSON.stringify(template.toJSON());
+    expect(json).not.toContain("wren_audit");
+    expect(json).not.toContain("WrenAudit");
   });
 
   it("matches the synthesized template snapshot", () => {

@@ -18,14 +18,8 @@ import { CACHE_WORKLOADS, type AppConfig } from "../config";
  */
 export interface ObservabilityStackProps extends StackProps {
   readonly config: AppConfig;
-  /**
-   * Lambda function names to create log groups and alarms for. Construct IDs
-   * are index-based (LogRetention{i}, ErrorAlarm{i}, ThrottleAlarm{i}), so a
-   * retired function leaves a `null` slot instead of being spliced out —
-   * shifting indices would hand an existing alarm name to a different logical
-   * ID, and the old resource's deletion would then delete the live alarm.
-   */
-  readonly functionNames: ReadonlyArray<string | null>;
+  /** Lambda function names to create log groups and alarms for. */
+  readonly functionNames: string[];
   /** SQS queue name for the feedback queue (alarm on depth). */
   readonly feedbackQueueName: string;
   /** SQS DLQ name (alarm on non-zero messages). */
@@ -206,8 +200,7 @@ export class ObservabilityStack extends Stack {
     // first deploy where the function has never run.
     const logRetentions = new Map<string, logs.LogRetention>();
     for (let i = 0; i < functionNames.length; i++) {
-      const functionName = functionNames[i];
-      if (!functionName) continue; // retired slot
+      const functionName = functionNames[i]!;
       const logRetention = new logs.LogRetention(this, `LogRetention${i}`, {
         logGroupName: `/aws/lambda/${functionName}`,
         retention: retentionDays,
@@ -223,8 +216,7 @@ export class ObservabilityStack extends Stack {
     // Lambda Error Alarms
     // -------------------------------------------------------------------
     for (let i = 0; i < functionNames.length; i++) {
-      const functionName = functionNames[i];
-      if (!functionName) continue; // retired slot
+      const functionName = functionNames[i]!;
       const errorMetric = new cloudwatch.Metric({
         namespace: "AWS/Lambda",
         metricName: "Errors",
@@ -249,8 +241,7 @@ export class ObservabilityStack extends Stack {
     // Lambda Throttle Alarms
     // -------------------------------------------------------------------
     for (let i = 0; i < functionNames.length; i++) {
-      const functionName = functionNames[i];
-      if (!functionName) continue; // retired slot
+      const functionName = functionNames[i]!;
       const throttleMetric = new cloudwatch.Metric({
         namespace: "AWS/Lambda",
         metricName: "Throttles",

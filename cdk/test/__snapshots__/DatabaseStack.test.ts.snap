@@ -3,14 +3,6 @@
 exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
 {
   "Outputs": {
-    "ExportsOutputRefDatabaseAppUserSecretWrenAudit745C83379CA2BA61": {
-      "Export": {
-        "Name": "wren-test-Database:ExportsOutputRefDatabaseAppUserSecretWrenAudit745C83379CA2BA61",
-      },
-      "Value": {
-        "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
-      },
-    },
     "ExportsOutputRefDatabaseInstanceSecretAttachmentFCA06D3827B468B8": {
       "Export": {
         "Name": "wren-test-Database:ExportsOutputRefDatabaseInstanceSecretAttachmentFCA06D3827B468B8",
@@ -54,21 +46,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "SecretStringTemplate": "{"username":"wren_appsync_auth","port":5432,"dbname":"appdb","engine":"postgres"}",
         },
         "Name": "wren-test/database/wren_appsync_auth",
-      },
-      "Type": "AWS::SecretsManager::Secret",
-      "UpdateReplacePolicy": "Delete",
-    },
-    "DatabaseAppUserSecretWrenAudit745C8337": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "Description": "RDS Proxy credentials for Postgres role wren_audit",
-        "GenerateSecretString": {
-          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
-          "GenerateStringKey": "password",
-          "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_audit","port":5432,"dbname":"appdb","engine":"postgres"}",
-        },
-        "Name": "wren-test/database/wren_audit",
       },
       "Type": "AWS::SecretsManager::Secret",
       "UpdateReplacePolicy": "Delete",
@@ -692,7 +669,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "99eddffb4b0ac69cad043d8cfcfc96706cca1afd0f13cf33a5ba3905f4cab155.zip",
+          "S3Key": "984f90212d131b8ea8f58142a11a4e7b4e206551e76592e9a911993f982c1da0.zip",
         },
         "Environment": {
           "Variables": {
@@ -1091,7 +1068,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "databaseSecretArn": {
           "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
         },
-        "migrationsFingerprint": "029937107b4eab11",
+        "migrationsFingerprint": "58afe609c2934ddd",
       },
       "Type": "AWS::CloudFormation::CustomResource",
       "UpdateReplacePolicy": "Delete",
@@ -1104,7 +1081,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "8f3d53cf2b3cde58faba7f2cba525956db659eea6a0a6cb901d44eaa93217b99.zip",
+          "S3Key": "6dd3f1efcbd05a4fd880dc08bfba711954a43fd979178ca9956808ff845dd1d6.zip",
         },
         "Environment": {
           "Variables": {

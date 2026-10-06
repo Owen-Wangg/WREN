@@ -37,16 +37,6 @@ const COMPUTE_FUNCTION_SUFFIXES = [
 ] as const;
 
 /**
- * TRANSITIONAL — delete after every environment has deployed once.
- *
- * Compute functions removed from the app. The Compute deploy that deletes
- * them needs to read and delete the existing function, and nothing else: no
- * create, update, permission or invoke, so the trusted name can't be
- * re-created by the deploy role.
- */
-const RETIRED_COMPUTE_FUNCTION_SUFFIXES = ["audit"] as const;
-
-/**
  * Props for the CICD stack.
  */
 export interface CicdStackProps extends StackProps {
@@ -93,8 +83,6 @@ export interface ComputeDeployScopes {
    * credentials) are excluded.
    */
   readonly ownedFunctionArns: string[];
-  /** TRANSITIONAL: retired function ARNs — delete-only (see RETIRED_COMPUTE_FUNCTION_SUFFIXES). */
-  readonly retiredFunctionArns: string[];
   /** `secret:${prefix}/audit/*` — excludes the cicd and database secrets. */
   readonly auditSecretArn: string;
   /** `parameter/${prefix}/notifications/*` — the only parameters Compute writes. */
@@ -572,9 +560,6 @@ export class CicdStack extends Stack {
         ),
         `arn:aws:lambda:${region}:${account}:function:${prefix}-Compute-*`,
       ],
-      retiredFunctionArns: RETIRED_COMPUTE_FUNCTION_SUFFIXES.map(
-        (suffix) => `arn:aws:lambda:${region}:${account}:function:${prefix}-${suffix}`,
-      ),
       // Audit_Salt_Secret only. Excludes `${prefix}/cicd/` and `${prefix}/database/`.
       // Trailing `*` covers the six-character suffix Secrets Manager appends.
       auditSecretArn: `arn:aws:secretsmanager:${region}:${account}:secret:${prefix}/audit/*`,
@@ -916,7 +901,6 @@ export class CicdStack extends Stack {
       deployRoleArn,
       boundaryArn,
       ownedFunctionArns,
-      retiredFunctionArns,
       auditSecretArn,
       notificationParameterArn,
       storageKeyArnPattern,
@@ -1004,18 +988,6 @@ export class CicdStack extends Stack {
               sid: "LambdaInvokeOwnedFunctions",
               actions: ["lambda:InvokeFunction"],
               resources: ownedFunctionArns,
-            }),
-            // TRANSITIONAL: lets this release's Compute deploy delete the
-            // retired functions. Read + delete only; remove with
-            // RETIRED_COMPUTE_FUNCTION_SUFFIXES.
-            new iam.PolicyStatement({
-              sid: "LambdaDeleteRetiredFunctions",
-              actions: [
-                "lambda:DeleteFunction",
-                "lambda:GetFunction",
-                "lambda:GetFunctionConfiguration",
-              ],
-              resources: retiredFunctionArns,
             }),
             // -----------------------------------------------------------
             // IAM: the former `IamForLambdaRoles` statement, split by

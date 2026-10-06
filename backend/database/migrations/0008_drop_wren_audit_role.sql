@@ -12,8 +12,15 @@
 --
 -- WHAT: revokes every privilege the baseline (0001) granted to wren_audit,
 -- then drops the role. The role was created by the migration admin and owns
--- no objects; the ownership guard below fails loudly instead of letting
--- DROP OWNED silently delete anything if that ever stops being true.
+-- no objects; the ownership guard below fails loudly if that ever stops being
+-- true.
+--
+-- No DROP OWNED BY: on RDS the migration admin is not a superuser, and
+-- PostgreSQL 16 only lets a role run DROP OWNED BY for roles whose privileges
+-- it holds ("permission denied to drop objects"). The explicit REVOKEs cover
+-- every grant the baseline made, and DROP ROLE (which needs only CREATEROLE +
+-- ADMIN OPTION, both held by the role's creator) fails — rolling the whole
+-- migration back — if any dependent privilege were left.
 --
 -- Forward-only and idempotent: a no-op when the role is already gone.
 -- ===========================================================================
@@ -46,10 +53,6 @@ BEGIN
   REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM wren_audit;
   REVOKE ALL PRIVILEGES ON SCHEMA public FROM wren_audit;
   REVOKE ALL PRIVILEGES ON DATABASE appdb FROM wren_audit;
-
-  -- Ownership was asserted empty above, so this only clears any remaining
-  -- privilege/default-ACL entries in this database.
-  DROP OWNED BY wren_audit;
 
   DROP ROLE wren_audit;
 END $$;
