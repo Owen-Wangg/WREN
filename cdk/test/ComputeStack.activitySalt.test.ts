@@ -28,7 +28,6 @@ const SALT_ENV = "WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID";
 // writer (Document records deletion events through it, Issue #187).
 const SALT_CONSUMERS = [
   "wren-test-admin",
-  "wren-test-audit",
   "wren-test-document",
   "wren-test-sync-cognito-admins",
   // The authorizer audits first-login identity relinks (finding f-4531f8e7).

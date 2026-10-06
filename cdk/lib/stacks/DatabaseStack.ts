@@ -5,7 +5,12 @@ import type { IVpc } from "aws-cdk-lib/aws-ec2";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import type { Construct } from "constructs";
 import { ssmParameterNames, type AppConfig } from "../config.js";
-import { APP_DB_ROLES, appDbRolePascal, type AppDbRole } from "../appDbRoles.js";
+import {
+  APP_DB_ROLES,
+  RETIRED_APP_DB_ROLES,
+  appDbRolePascal,
+  type AppDbRole,
+} from "../appDbRoles.js";
 import { DatabaseResources } from "../constructs/DatabaseResources.js";
 import { DbPasswordSync } from "../constructs/DbPasswordSync.js";
 import { MigrationRunner } from "../constructs/MigrationRunner.js";
@@ -53,6 +58,13 @@ export class DatabaseStack extends Stack {
     // to delete an in-use export, so keep publishing it until Compute has been
     // deployed once on per-role secrets; then remove this call and redeploy.
     this.exportValue(this.database.credentialsSecret.secretArn);
+
+    // TRANSITIONAL: the deployed Compute stack imports the retired wren_audit
+    // secret ARN (it fed the removed audit Lambda). Keep the export alive for
+    // one release; delete together with RETIRED_APP_DB_ROLES.
+    for (const role of RETIRED_APP_DB_ROLES) {
+      this.exportValue(this.database.retiredAppUserSecrets[role].secretArn);
+    }
 
     new StringParameter(this, "ProxyEndpointParameter", {
       parameterName: ssmParameterNames.databaseProxyEndpoint(props.config),

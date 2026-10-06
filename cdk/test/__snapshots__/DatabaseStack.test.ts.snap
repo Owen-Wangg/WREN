@@ -3,6 +3,14 @@
 exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
 {
   "Outputs": {
+    "ExportsOutputRefDatabaseAppUserSecretWrenAudit745C83379CA2BA61": {
+      "Export": {
+        "Name": "wren-test-Database:ExportsOutputRefDatabaseAppUserSecretWrenAudit745C83379CA2BA61",
+      },
+      "Value": {
+        "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
+      },
+    },
     "ExportsOutputRefDatabaseInstanceSecretAttachmentFCA06D3827B468B8": {
       "Export": {
         "Name": "wren-test-Database:ExportsOutputRefDatabaseInstanceSecretAttachmentFCA06D3827B468B8",
@@ -287,13 +295,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
             "AuthScheme": "SECRETS",
             "IAMAuth": "DISABLED",
             "SecretArn": {
-              "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
-            },
-          },
-          {
-            "AuthScheme": "SECRETS",
-            "IAMAuth": "DISABLED",
-            "SecretArn": {
               "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
             },
           },
@@ -409,16 +410,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
               "Effect": "Allow",
               "Resource": {
                 "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
-              },
-            },
-            {
-              "Action": [
-                "secretsmanager:GetSecretValue",
-                "secretsmanager:DescribeSecret",
-              ],
-              "Effect": "Allow",
-              "Resource": {
-                "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
               },
             },
             {
@@ -670,9 +661,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
             "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
           },
           {
-            "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
-          },
-          {
             "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
           },
           {
@@ -704,7 +692,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "bac68ad5ab477cb385f4cb9d417e00fd76fe5fe68c7da4b2affef51ee9dd8f93.zip",
+          "S3Key": "99eddffb4b0ac69cad043d8cfcfc96706cca1afd0f13cf33a5ba3905f4cab155.zip",
         },
         "Environment": {
           "Variables": {
@@ -723,9 +711,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
                   },
                   {
                     "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
-                  },
-                  {
-                    "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
                   },
                   {
                     "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
@@ -821,9 +806,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
                 },
                 {
                   "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
-                },
-                {
-                  "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
                 },
                 {
                   "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
@@ -1109,7 +1091,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "databaseSecretArn": {
           "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
         },
-        "migrationsFingerprint": "c631443567218195",
+        "migrationsFingerprint": "029937107b4eab11",
       },
       "Type": "AWS::CloudFormation::CustomResource",
       "UpdateReplacePolicy": "Delete",
@@ -1122,7 +1104,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "6ebb4a3364f586633a918b9836fe1507d90b1961beb432068ba766ded654cb29.zip",
+          "S3Key": "8f3d53cf2b3cde58faba7f2cba525956db659eea6a0a6cb901d44eaa93217b99.zip",
         },
         "Environment": {
           "Variables": {
@@ -1416,17 +1398,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "Type": "String",
         "Value": {
           "Ref": "DatabaseAppUserSecretWrenAppsyncAuth50B90F32",
-        },
-      },
-      "Type": "AWS::SSM::Parameter",
-    },
-    "SecretArnParameterWrenAuditA593D4FF": {
-      "Properties": {
-        "Description": "ARN of the Secrets Manager secret for Postgres role wren_audit.",
-        "Name": "/wren-test/database/wren_audit/secret-arn",
-        "Type": "String",
-        "Value": {
-          "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
         },
       },
       "Type": "AWS::SSM::Parameter",

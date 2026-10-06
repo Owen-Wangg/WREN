@@ -31,8 +31,6 @@ export interface ApiStackProps extends StackProps {
   readonly feedbackFunctionArn: string;
   /** ARN of the Admin/Config/Auth/Usage service Lambda. */
   readonly adminFunctionArn: string;
-  /** ARN of the Audit/Activity-Log/Analytics service Lambda. */
-  readonly auditFunctionArn: string;
   /** ARN of the Notification service Lambda. */
   readonly notificationFunctionArn: string;
 }
@@ -79,7 +77,6 @@ export class ApiStack extends Stack {
       DocumentFunctionArn: String(props.documentFunctionArn),
       FeedbackFunctionArn: String(props.feedbackFunctionArn),
       AdminFunctionArn: String(props.adminFunctionArn),
-      AuditFunctionArn: String(props.auditFunctionArn),
       NotificationFunctionArn: String(props.notificationFunctionArn),
     };
 
@@ -361,7 +358,6 @@ export class ApiStack extends Stack {
       { id: "DocumentFn", arn: props.documentFunctionArn },
       { id: "FeedbackFn", arn: props.feedbackFunctionArn },
       { id: "AdminFn", arn: props.adminFunctionArn },
-      { id: "AuditFn", arn: props.auditFunctionArn },
       { id: "NotificationFn", arn: props.notificationFunctionArn },
     ];
 

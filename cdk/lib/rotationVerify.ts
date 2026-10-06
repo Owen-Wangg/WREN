@@ -25,7 +25,7 @@ export const INVALID_PASSWORD_SQLSTATE = "28P01";
  *
  * The sync handler verifies all APP_DB_ROLES SEQUENTIALLY, so the worst-case
  * total is roughly `APP_DB_ROLES.length * VERIFY_MAX_ATTEMPTS * VERIFY_DELAY_MS`.
- * With 8 roles that is ~4 minutes; the DbPasswordSync Lambda timeout is sized
+ * With 7 roles that is ~3.5 minutes; the DbPasswordSync Lambda timeout is sized
  * above that (see DbPasswordSync.ts) so a multi-role proxy-cache lag surfaces as
  * the explicit "still fails ... desynced" error, not an opaque Lambda timeout.
  */

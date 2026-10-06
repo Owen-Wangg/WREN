@@ -165,7 +165,6 @@ const apiStack = new ApiStack(app, stackName(config, "Api"), {
   documentFunctionArn: computeStack.documentFunction.functionArn,
   feedbackFunctionArn: computeStack.feedbackOrchestratorFunction.functionArn,
   adminFunctionArn: computeStack.adminFunction.functionArn,
-  auditFunctionArn: computeStack.auditFunction.functionArn,
   notificationFunctionArn: computeStack.notificationFunction.functionArn,
 });
 
@@ -179,7 +178,9 @@ const observabilityStack = new ObservabilityStack(app, stackName(config, "Observ
     computeStack.feedbackOrchestratorFunction.functionName,
     computeStack.feedbackEngineFunction.functionName,
     computeStack.adminFunction.functionName,
-    computeStack.auditFunction.functionName,
+    // Index 5: retired `${prefix}-audit` Lambda (unrouted; /v1/analytics is
+    // served by the admin Lambda). Kept as a hole so indices 6–8 don't shift.
+    null,
     computeStack.diffAnchorProgressFunction.functionName,
     computeStack.notificationFunction.functionName,
     // Keep at index 8: the deployed Observability stack already imports this
