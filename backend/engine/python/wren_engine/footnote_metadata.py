@@ -91,11 +91,27 @@ class FootnoteMetadata:
     year: str = ""
 
 
+def _sanitize_inline(value: str) -> str:
+    """Neutralize line-structure characters in attacker-controlled footnote text.
+
+    Rendered footnote lines are newline-joined and interpolated verbatim, so a
+    body or metadata value containing a newline/carriage return could forge
+    extra ``[N] ...`` lines or ``(field: ...)`` segments inside the untrusted
+    FOOTNOTES/CITATIONS block. Collapsing CR/LF to a single
+    space keeps the value one line and length-preserving (so budget math is
+    unaffected) while removing the forging primitive. The block is already
+    labelled untrusted, so this is defense-in-depth against structure forgery
+    rather than the sole control.
+    """
+    return value.replace("\r", " ").replace("\n", " ")
+
+
 def _truncate_field(value: str, limit: int) -> tuple[str, int]:
-    """Trim ``value`` to ``limit`` chars with a trailing ``…`` when cut.
+    """Sanitize then trim ``value`` to ``limit`` chars with a trailing ``…``.
 
     Returns the (possibly truncated) value and the number of omitted chars.
     """
+    value = _sanitize_inline(value)
     if len(value) <= limit:
         return value, 0
     omitted = len(value) - limit
