@@ -78,6 +78,23 @@ export {
   resolveAllowedOrigin,
   withCorsHeaders,
 } from './cors';
+export {
+  signSerializedAuthContext,
+  verifySerializedAuthContext,
+  rejectIfForgedAuthContext,
+  computeAuthContextSignature,
+  loadAuthContextSigningSecret,
+  getAuthContextSigningSecret,
+  resetAuthContextSigningSecretCache,
+  resolveAuthContextVerifyMode,
+  isAuthContextSigningConfigured,
+  ForgedAuthContextError,
+  AUTH_CONTEXT_SIGNING_SECRET_ENV,
+  AUTH_CONTEXT_VERIFY_MODE_ENV,
+  AUTH_CONTEXT_SIG_FIELD,
+  type AuthContextVerifyMode,
+  type VerifyAuthContextOptions,
+} from './authContextSigning';
 
 export type {
   AccessDecision,

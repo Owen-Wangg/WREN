@@ -72,6 +72,20 @@ export const DEFAULT_REGION = "ca-central-1";
  * rollback that fully disables cache decisions at runtime.
  */
 export type CacheMode = "off" | "observe" | "explicit";
+
+/**
+ * Enforcement mode for the HMAC-signed authorizer context (finding f-140e2506).
+ * `enforce` (default): service Lambdas reject any request whose authorizer
+ * context is missing or carries an invalid signature. `permissive`: a missing
+ * signature is allowed (an invalid one is still rejected) — used ONLY for the
+ * one-time rollout window where API Gateway may still serve cached authorizer
+ * results minted before signing shipped. Flip back to `enforce` once the
+ * authorizer result cache has turned over.
+ */
+export type AuthContextVerifyMode = "enforce" | "permissive";
+
+/** Secure default: reject forged/unsigned authorizer contexts. */
+export const DEFAULT_AUTH_CONTEXT_VERIFY_MODE: AuthContextVerifyMode = "enforce";
 export type CacheTtl = "5m" | "1h";
 
 /** Plan §14 workload tokens. Canonical (underscore) form used for env output. */
@@ -139,6 +153,12 @@ export interface AppConfig {
    * only mode that can ever cache.
    */
   readonly cacheMode: CacheMode;
+  /**
+   * Authorizer-context signature enforcement (finding f-140e2506). Defaults to
+   * {@link DEFAULT_AUTH_CONTEXT_VERIFY_MODE} (`enforce`). Propagated to the
+   * service Lambdas as `AUTH_CONTEXT_VERIFY_MODE`.
+   */
+  readonly authContextVerifyMode: AuthContextVerifyMode;
   /**
    * Prompt-cache write TTL (plan §7/§10). Defaults to {@link DEFAULT_CACHE_TTL}
    * (`5m`). Propagated as `CACHE_TTL`.
@@ -212,6 +232,20 @@ function resolveCacheMode(raw: string | undefined): CacheMode {
   const v = raw.toLowerCase();
   if (v === "off" || v === "observe" || v === "explicit") return v;
   throw new Error("cacheMode must be one of: off, observe, explicit");
+}
+
+/**
+ * Resolve the authorizer-context verify mode from `authContextVerifyMode`
+ * context, defaulting to the secure `enforce`. An unrecognized value is
+ * rejected at synth so a typo cannot silently weaken enforcement.
+ */
+function resolveAuthContextVerifyMode(
+  raw: string | undefined,
+): AuthContextVerifyMode {
+  if (raw === undefined) return DEFAULT_AUTH_CONTEXT_VERIFY_MODE;
+  const v = raw.toLowerCase();
+  if (v === "enforce" || v === "permissive") return v;
+  throw new Error("authContextVerifyMode must be one of: enforce, permissive");
 }
 
 /** Resolve the cache TTL from `cacheTtl` context, defaulting to `5m`. */
@@ -303,6 +337,9 @@ export function resolveAppConfig(app: App): AppConfig {
   );
   const alarmEmail = readContext(app, "alarmEmail");
   const cacheMode = resolveCacheMode(readContext(app, "cacheMode"));
+  const authContextVerifyMode = resolveAuthContextVerifyMode(
+    readContext(app, "authContextVerifyMode"),
+  );
   const cacheTtl = resolveCacheTtl(readContext(app, "cacheTtl"));
   const cacheEnabledWorkloads = resolveCacheEnabledWorkloads(
     readContext(app, "cacheEnabledWorkloads"),
@@ -341,6 +378,7 @@ export function resolveAppConfig(app: App): AppConfig {
       : {}),
     ...(alarmEmail ? { alarmEmail } : {}),
     cacheMode,
+    authContextVerifyMode,
     cacheTtl,
     cacheEnabledWorkloads,
     stackPrefix,
