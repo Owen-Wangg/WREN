@@ -18,6 +18,7 @@ import {
   tipTapContentToSegments,
   wordCountFromTipTapContent,
   findDisallowedTipTapNodeType,
+  findUnsafeTipTapAttr,
   serializedTipTapBytes,
   TIPTAP_FIELD_MAX_BYTES,
 } from '@wren/types';
@@ -308,6 +309,18 @@ function rejectUnsafeTipTap(
       body: JSON.stringify({
         code: 'BAD_REQUEST',
         message: `Unsupported TipTap node type '${disallowed}' in ${field}`,
+      }),
+    };
+  }
+  // Node-type allowlisting does not constrain attribute values that the
+  // client renderer interpolates into style/src (stored-XSS vector).
+  const unsafeAttr = findUnsafeTipTapAttr(doc);
+  if (unsafeAttr) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: `Unsupported TipTap attribute value '${unsafeAttr}' in ${field}`,
       }),
     };
   }

@@ -6,12 +6,14 @@
  * - False center/right alignment on body paragraphs
  * - Mid-sentence wrap fragments split into separate paragraphs
  * - OCR glued words, missing spaces, and scattered bold/italic marks
+ * - Attribute values outside the shared allowlist (see `tiptapAttrSafety`)
  */
 import type { JSONContent } from '@tiptap/react';
 import {
   cleanOcrInlineContent,
   isWrapContinuation,
   PAGE_NUMBER_RE,
+  stripUnsafeTipTapAttrs,
   type TipTapNode,
 } from '@wren/types';
 
@@ -191,13 +193,15 @@ function sanitizeTopLevelBlocks(nodes: JSONContent[]): JSONContent[] {
  * No-op for non-doc roots.
  */
 export function sanitizeTipTapContent(doc: JSONContent): JSONContent {
-  if (doc.type !== 'doc' || !Array.isArray(doc.content)) {
-    return cleanOcrMarks(stripMisInferredParagraphAlign(capMarks(doc)));
+  // Drop attribute values the document API would reject (legacy drafts).
+  const safe = stripUnsafeTipTapAttrs(doc as TipTapNode) as JSONContent;
+  if (safe.type !== 'doc' || !Array.isArray(safe.content)) {
+    return cleanOcrMarks(stripMisInferredParagraphAlign(capMarks(safe)));
   }
 
   return {
-    ...doc,
-    content: sanitizeTopLevelBlocks(doc.content),
+    ...safe,
+    content: sanitizeTopLevelBlocks(safe.content),
   };
 }
 

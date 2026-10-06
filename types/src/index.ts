@@ -12,6 +12,7 @@ export * from './common';
 export * from './no-ghostwriting';
 export * from './schemas';
 export * from './tiptapContent';
+export * from './tiptapAttrSafety';
 export * from './wrapContinuation';
 export * from './ocrTextCleanup';
 export * from './auth';
