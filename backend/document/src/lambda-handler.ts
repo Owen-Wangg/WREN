@@ -17,6 +17,7 @@ import {
   stripAiMarksFromTipTapContent,
   tipTapContentToSegments,
   wordCountFromTipTapContent,
+  charCountFromTipTapContent,
   findDisallowedTipTapNodeType,
   serializedTipTapBytes,
   TIPTAP_FIELD_MAX_BYTES,
@@ -29,7 +30,7 @@ import { createPdfExtractor } from './ocrFactory.js';
 import { resolveOcrEngine } from './textractOcr.js';
 import { UnsupportedFileFormatError } from './errors.js';
 import { ingestUpload } from './ingestion.js';
-import { enforceSizeLimit } from './sizeLimit.js';
+import { countWords, countChars } from './sizeLimit.js';
 import { overSizeLimitHttpResponse } from './patchDraftSizeLimit.js';
 import { gateSubmission } from './submissionGating.js';
 import { validateDocumentMetadata } from './metadataGating.js';
@@ -282,13 +283,6 @@ function normalizeSegments(segments: unknown): Array<{ index: number; text: stri
       text: typeof seg.text === 'string' ? seg.text : '',
     };
   });
-}
-
-function wordCountFromSegments(segments: Array<{ text: string }>): number {
-  return segments.reduce(
-    (total, seg) => total + seg.text.split(/\s+/).filter(Boolean).length,
-    0,
-  );
 }
 
 /** Parse and sanitize optional TipTap `content` from a request body. */
@@ -930,37 +924,33 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   const segments = storedContent
     ? tipTapContentToSegments(storedContent)
     : ingestResult.segments;
-  const sizeResult = enforceSizeLimit(segments, {
-    documentTypeSizeLimitWords: sizeLimitWords,
-    platformSizeLimitWords: platformWordLimit,
-  });
-  if (sizeResult.status === 'over-limit') {
-    if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        code: 'OVER_SIZE_LIMIT',
-        message: sizeResult.message,
-        measuredWords: sizeResult.measuredWords,
-        effectiveLimitWords: sizeResult.effectiveLimitWords,
-      }),
-    };
-  }
 
   // Header and footer are stored in the draft and fed to AI prompts — include
-  // them in the total word count and enforce the same size cap.
+  // them in the total word/char counts and enforce the same size cap.
+  // Body counts are footnote-aware when a TipTap doc is the source so footnote
+  // bodies (which reach the Bedrock prompt) cannot bypass the gate; when the
+  // source is raw ingest segments, measure the segments directly (f-ca2d70a5).
+  const bodyWords = storedContent
+    ? wordCountFromTipTapContent(storedContent)
+    : countWords(segments);
+  const bodyChars = storedContent
+    ? charCountFromTipTapContent(storedContent)
+    : countChars(segments);
   const headerFooterWords =
     (ingestResult.header ? wordCountFromTipTapContent(ingestResult.header) : 0) +
     (ingestResult.footer ? wordCountFromTipTapContent(ingestResult.footer) : 0);
-  if (headerFooterWords > 0) {
-    const bodyWords = storedContent
-      ? wordCountFromTipTapContent(storedContent)
-      : sizeResult.measuredWords;
-    const overLimit = overSizeLimitHttpResponse(bodyWords + headerFooterWords, sizeLimitWords, platformWordLimit);
-    if (overLimit) {
-      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
-      return overLimit;
-    }
+  const headerFooterChars =
+    (ingestResult.header ? charCountFromTipTapContent(ingestResult.header) : 0) +
+    (ingestResult.footer ? charCountFromTipTapContent(ingestResult.footer) : 0);
+  const overLimit = overSizeLimitHttpResponse(
+    bodyWords + headerFooterWords,
+    sizeLimitWords,
+    platformWordLimit,
+    bodyChars + headerFooterChars,
+  );
+  if (overLimit) {
+    if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
+    return overLimit;
   }
 
   const created = await db.transaction(async (tx) => {
@@ -991,10 +981,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       {
         documentId,
         segments,
-        wordCount:
-          (storedContent
-            ? wordCountFromTipTapContent(storedContent)
-            : sizeResult.measuredWords) + headerFooterWords,
+        wordCount: bodyWords + headerFooterWords,
         s3Key,
         ...(storedContent ? { content: storedContent } : {}),
         ...(ingestResult.header ? { header: ingestResult.header } : {}),
@@ -1343,7 +1330,16 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
     wordCountFromTipTapContent(cleaned) +
     (header ? wordCountFromTipTapContent(header) : 0) +
     (footer ? wordCountFromTipTapContent(footer) : 0);
-  const overLimit = overSizeLimitHttpResponse(wordCount, sizeLimitWords, patchPolicy.maxWordCount);
+  const charCount =
+    charCountFromTipTapContent(cleaned) +
+    (header ? charCountFromTipTapContent(header) : 0) +
+    (footer ? charCountFromTipTapContent(footer) : 0);
+  const overLimit = overSizeLimitHttpResponse(
+    wordCount,
+    sizeLimitWords,
+    patchPolicy.maxWordCount,
+    charCount,
+  );
   if (overLimit) {
     return overLimit;
   }
@@ -1430,6 +1426,9 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   let s3Key = 'inline';
   let normalizedSegments: Array<{ index: number; text: string }>;
   let wordCount: number;
+  // Authoritative character count (footnote-aware for TipTap sources), used for
+  // the defense-in-depth character ceiling alongside wordCount (f-ca2d70a5).
+  let charCount: number;
   let storedContent: TipTapDoc | undefined = tipTapContent;
   let storedHeader: TipTapDoc | undefined;
   let storedFooter: TipTapDoc | undefined;
@@ -1622,62 +1621,64 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     normalizedSegments = storedContent
       ? tipTapContentToSegments(storedContent)
       : normalizeSegments(ingestResult.segments);
-    const sizeResult = enforceSizeLimit(normalizedSegments, {
-      documentTypeSizeLimitWords: sizeLimitWords,
-      platformSizeLimitWords: draftPlatformWordLimit,
-    });
-    if (sizeResult.status === 'over-limit') {
-      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          code: 'OVER_SIZE_LIMIT',
-          message: sizeResult.message,
-          measuredWords: sizeResult.measuredWords,
-          effectiveLimitWords: sizeResult.effectiveLimitWords,
-        }),
-      };
-    }
+    // Body counts are footnote-aware for TipTap sources so footnote bodies
+    // cannot bypass the gate; raw ingest segments are measured directly.
     wordCount = storedContent
       ? wordCountFromTipTapContent(storedContent)
-      : sizeResult.measuredWords;
+      : countWords(normalizedSegments);
+    charCount = storedContent
+      ? charCountFromTipTapContent(storedContent)
+      : countChars(normalizedSegments);
+    const overLimit = overSizeLimitHttpResponse(
+      wordCount,
+      sizeLimitWords,
+      draftPlatformWordLimit,
+      charCount,
+    );
+    if (overLimit) {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
+      return overLimit;
+    }
   } else if (tipTapContent) {
     normalizedSegments = tipTapContentToSegments(tipTapContent);
-    const sizeResult = enforceSizeLimit(normalizedSegments, {
-      documentTypeSizeLimitWords: sizeLimitWords,
-      platformSizeLimitWords: draftPlatformWordLimit,
-    });
-    if (sizeResult.status === 'over-limit') {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          code: 'OVER_SIZE_LIMIT',
-          message: sizeResult.message,
-          measuredWords: sizeResult.measuredWords,
-          effectiveLimitWords: sizeResult.effectiveLimitWords,
-        }),
-      };
-    }
     wordCount = wordCountFromTipTapContent(tipTapContent);
+    charCount = charCountFromTipTapContent(tipTapContent);
+    const overLimit = overSizeLimitHttpResponse(
+      wordCount,
+      sizeLimitWords,
+      draftPlatformWordLimit,
+      charCount,
+    );
+    if (overLimit) {
+      return overLimit;
+    }
   } else {
-    normalizedSegments = normalizeSegments(segments);
-    wordCount = wordCountFromSegments(normalizedSegments);
-    const sizeResult = enforceSizeLimit(normalizedSegments, {
-      documentTypeSizeLimitWords: sizeLimitWords,
-      platformSizeLimitWords: draftPlatformWordLimit,
-    });
-    if (sizeResult.status === 'over-limit') {
+    // Segments write branch: body.segments is taken directly and is NOT passed
+    // through rejectUnsafeTipTap, so the 8MB-per-field TipTap bound does not
+    // apply here. Enforce a serialized-bytes cap on the raw payload plus the
+    // word/char ceiling BEFORE reserving a draft slot (f-ca2d70a5).
+    const segmentBytes = serializedTipTapBytes(segments);
+    if (segmentBytes > TIPTAP_FIELD_MAX_BYTES) {
       return {
         statusCode: 400,
         body: JSON.stringify({
-          code: 'OVER_SIZE_LIMIT',
-          message: sizeResult.message,
-          measuredWords: sizeResult.measuredWords,
-          effectiveLimitWords: sizeResult.effectiveLimitWords,
+          code: 'PAYLOAD_TOO_LARGE',
+          message: `segments exceeds the ${Math.round(TIPTAP_FIELD_MAX_BYTES / 1_048_576)}MB serialized size limit`,
         }),
       };
     }
-    wordCount = sizeResult.measuredWords;
+    normalizedSegments = normalizeSegments(segments);
+    wordCount = countWords(normalizedSegments);
+    charCount = countChars(normalizedSegments);
+    const overLimit = overSizeLimitHttpResponse(
+      wordCount,
+      sizeLimitWords,
+      draftPlatformWordLimit,
+      charCount,
+    );
+    if (overLimit) {
+      return overLimit;
+    }
   }
 
   // Include header and footer words in the total — they are stored in the
@@ -1685,8 +1686,16 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   const headerFooterWords =
     (storedHeader ? wordCountFromTipTapContent(storedHeader) : 0) +
     (storedFooter ? wordCountFromTipTapContent(storedFooter) : 0);
-  if (headerFooterWords > 0) {
-    const overLimit = overSizeLimitHttpResponse(wordCount + headerFooterWords, sizeLimitWords, draftPlatformWordLimit);
+  const headerFooterChars =
+    (storedHeader ? charCountFromTipTapContent(storedHeader) : 0) +
+    (storedFooter ? charCountFromTipTapContent(storedFooter) : 0);
+  if (headerFooterWords > 0 || headerFooterChars > 0) {
+    const overLimit = overSizeLimitHttpResponse(
+      wordCount + headerFooterWords,
+      sizeLimitWords,
+      draftPlatformWordLimit,
+      charCount + headerFooterChars,
+    );
     if (overLimit) {
       if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
       return overLimit;

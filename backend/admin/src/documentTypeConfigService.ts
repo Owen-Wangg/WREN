@@ -170,10 +170,19 @@ export async function upsertDocumentTypeConfig(
     assertGhostwritingFree(patch.typePromptText);
   }
 
-  // Prompt injection check — runs on all fields that land in Bedrock system
-  // prompts, before any DB write (deny-with-no-mutation pattern).
+  // Prompt injection check — runs on EVERY prompt-bearing field that lands in
+  // the Feedback Engine's trusted (undelimited) Document-Type configuration
+  // block, before any DB write (deny-with-no-mutation pattern). All six
+  // persisted prompt fields are screened: typePromptText, toneDescription,
+  // densityDescription, structureDescription, restrictionsDescription and
+  // notesDescription. (toneDescription/densityDescription are consumed by the
+  // engine as the reference-grounding note and per-category density overrides
+  // respectively, so an unscreened value there carries configuration-level
+  // authority in the debrief prompt — same risk class as the other fields.)
   const promptFields = [
     patch.typePromptText,
+    patch.toneDescription,
+    patch.densityDescription,
     patch.structureDescription,
     patch.restrictionsDescription,
     patch.notesDescription,

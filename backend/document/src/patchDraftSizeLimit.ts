@@ -10,11 +10,16 @@ export function overSizeLimitHttpResponse(
   wordCount: number,
   documentTypeSizeLimitWords: number | null,
   platformSizeLimitWords?: number | null,
+  charCount?: number,
 ): APIGatewayProxyResult | null {
-  const sizeResult = enforceSizeLimitForWordCount(wordCount, {
-    documentTypeSizeLimitWords,
-    platformSizeLimitWords,
-  });
+  const sizeResult = enforceSizeLimitForWordCount(
+    wordCount,
+    {
+      documentTypeSizeLimitWords,
+      platformSizeLimitWords,
+    },
+    charCount,
+  );
   if (sizeResult.status !== 'over-limit') {
     return null;
   }
@@ -25,6 +30,12 @@ export function overSizeLimitHttpResponse(
       message: sizeResult.message,
       measuredWords: sizeResult.measuredWords,
       effectiveLimitWords: sizeResult.effectiveLimitWords,
+      ...(sizeResult.measuredChars !== undefined
+        ? { measuredChars: sizeResult.measuredChars }
+        : {}),
+      ...(sizeResult.effectiveLimitChars !== undefined
+        ? { effectiveLimitChars: sizeResult.effectiveLimitChars }
+        : {}),
     }),
   };
 }
