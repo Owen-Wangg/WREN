@@ -928,10 +928,14 @@ async function handleListDepartmentUsers(event: any): Promise<APIGatewayProxyRes
   const { departmentId } = event.pathParameters || {};
   assertCanListDepartmentUsers(actor, departmentId);
   const qs = event.queryStringParameters || {};
+  // Bound page size (1–100) and reject malformed/negative values with a 400,
+  // matching handleListDepartmentVisibilityGrants.
+  const limit = parseOptionalIntegerQuery(qs.limit, 'limit', 1, 100);
+  const offset = parseOptionalIntegerQuery(qs.offset, 'offset', 0);
   const result = await listDepartmentUsers(departmentId, db, {
     q: qs.q,
-    limit: qs.limit ? parseInt(qs.limit, 10) : undefined,
-    offset: qs.offset ? parseInt(qs.offset, 10) : undefined,
+    limit,
+    offset,
   });
   return { statusCode: 200, body: JSON.stringify(result) };
 }
