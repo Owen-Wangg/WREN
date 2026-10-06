@@ -30,6 +30,7 @@ from wren_engine.prompt_assembly import (
 )
 from wren_engine.footnote_metadata import (
     FootnoteMetadata,
+    MAX_FOOTNOTE_NUMBER,
     build_footnotes_untrusted_content,
 )
 from wren_engine.diff_engine import DiffEngine
@@ -316,11 +317,14 @@ def _extract_footnotes_from_content(content: Any) -> list[FootnoteMetadata]:
             attrs = node.get("attrs") or {}
             fn_num = attrs.get("footnoteNumber")
             fn_content = attrs.get("content")
-            # Validate: must have positive int footnoteNumber and a content field
+            # Validate: must have a content field and a footnoteNumber that is a
+            # positive integer within the sane magnitude bound. Bounding the
+            # magnitude keeps a rendered number from expanding to hundreds of
+            # digits (finding f-b4f8ddb1); real footnote numbers are small.
             if (
                 fn_num is not None
                 and isinstance(fn_num, (int, float))
-                and int(fn_num) > 0
+                and 0 < int(fn_num) <= MAX_FOOTNOTE_NUMBER
                 and fn_content is not None
             ):
                 body_text = _collect_plain_text(fn_content)
