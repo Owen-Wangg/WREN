@@ -176,6 +176,46 @@ export class ComputeStack extends Stack {
       WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID: activityPseudonymSaltName,
     };
 
+    // HMAC key binding the API Gateway authorizer context to this deployment
+    // (finding f-140e2506). The authorizer signs the context it mints; the
+    // service Lambdas verify the signature and reject forged contexts from a
+    // direct `lambda:InvokeFunction`. Like the pseudonym salt, only the secret
+    // NAME is passed to the functions — the value is fetched with
+    // GetSecretValue at runtime (cached per container), never exposed via
+    // lambda:GetFunctionConfiguration.
+    //
+    // Co-located under `${prefix}/audit/*` ON PURPOSE: that path is already the
+    // only Secrets Manager scope the Compute permissions boundary allows roles
+    // to read and the only one the scoped Compute CFN deploy role may create
+    // (CicdStack). Reusing it keeps this change from widening either hardened
+    // scope. Ownership tracks the audit salt so protected teardown retains it.
+    const authContextSigningSecretName = `${config.stackPrefix}/audit/auth-context-signing-key`;
+    const authContextSigningSecret = config.auditPseudonymSaltOwnership === "external"
+      ? secretsmanager.Secret.fromSecretNameV2(
+        this,
+        "AuthContextSigningKey",
+        authContextSigningSecretName,
+      )
+      : new secretsmanager.Secret(this, "AuthContextSigningKey", {
+        secretName: authContextSigningSecretName,
+        description: "HMAC key for signing the API Gateway authorizer context",
+        generateSecretString: {
+          passwordLength: 64,
+          excludePunctuation: true,
+        },
+      });
+    if (config.auditPseudonymSaltOwnership === "managed") {
+      authContextSigningSecret.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    }
+    // Signer (authorizer) and verifiers (service Lambdas) both need the name.
+    const authContextSigningEnv = {
+      AUTH_CONTEXT_SIGNING_SECRET_ID: authContextSigningSecretName,
+    };
+    // Enforcement mode is set on the VERIFIERS only; the authorizer always signs.
+    const authContextVerifyEnv = {
+      AUTH_CONTEXT_VERIFY_MODE: config.authContextVerifyMode,
+    };
+
     // -----------------------------------------------------------------------
     // Lambda Authorizer (Node 22)
     // -----------------------------------------------------------------------
@@ -200,6 +240,8 @@ export class ComputeStack extends Stack {
         // First-login identity relinks write a pseudonymized `identity.relinked`
         // activity_event (finding f-4531f8e7). Secret NAME only (grant below).
         ...activitySaltEnv,
+        // Signs the authorizer context it mints (finding f-140e2506).
+        ...authContextSigningEnv,
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
         ...(config.technicalAdminBootstrapSubject
@@ -233,6 +275,9 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_document),
         ...corsEnv,
+        // Verifies the authorizer-context signature (finding f-140e2506).
+        ...authContextSigningEnv,
+        ...authContextVerifyEnv,
         // Document deletion records an activity_event (Issue #187); the shared
         // writer needs the same pseudonym salt as Admin/Audit so an actor's
         // pseudonym is correlatable across services. Only the secret's name
@@ -311,6 +356,9 @@ export class ComputeStack extends Stack {
         ...dbEnv(secrets.wren_admin),
         ...corsEnv,
         ...activitySaltEnv,
+        // Verifies the authorizer-context signature (finding f-140e2506).
+        ...authContextSigningEnv,
+        ...authContextVerifyEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         COGNITO_USER_POOL_ID: props.userPoolId,
@@ -413,6 +461,9 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_feedback_orch),
         ...corsEnv,
+        // Verifies the authorizer-context signature (finding f-140e2506).
+        ...authContextSigningEnv,
+        ...authContextVerifyEnv,
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
         CONVERSATION_TABLE_NAME: props.conversationTableName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
@@ -636,6 +687,16 @@ export class ComputeStack extends Stack {
     activityPseudonymSalt.grantRead(this.syncCognitoAdminsFunction);
     // Authorizer audits first-login identity relinks (finding f-4531f8e7).
     activityPseudonymSalt.grantRead(this.authorizerFunction);
+
+    // Auth-context signing key (finding f-140e2506): the authorizer signs; the
+    // three API Gateway service Lambdas verify. grantRead scopes
+    // GetSecretValue/DescribeSecret to this one secret (and, in "external"
+    // mode, appends the `-??????` suffix wildcard). All four reads fall under
+    // the `${prefix}/audit/*` scope the permissions boundary already permits.
+    authContextSigningSecret.grantRead(this.authorizerFunction);
+    authContextSigningSecret.grantRead(this.adminFunction);
+    authContextSigningSecret.grantRead(this.documentFunction);
+    authContextSigningSecret.grantRead(this.feedbackOrchestratorFunction);
 
     // Authorizer: look up Cognito email/name/email_verified when auto-provisioning
     // app_user on first login, and check whether a previously linked subject

@@ -9,7 +9,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { v4 as uuid } from 'uuid';
-import { resolveAccess, bindCorsOrigin, withCorsHeaders } from '@wren/auth';
+import { resolveAccess, bindCorsOrigin, withCorsHeaders, rejectIfForgedAuthContext } from '@wren/auth';
 import type { AccessGrant, CustomMetadataField, TipTapDoc } from '@wren/types';
 import {
   createDocumentInputSchema,
@@ -420,6 +420,10 @@ export const handler = async (
 
   bindCorsOrigin(event);
   try {
+    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    const forged = await rejectIfForgedAuthContext(event);
+    if (forged) return withCors(forged);
+
     const { httpMethod, resource } = event;
     const accessFailure = studentAccessFailure(event);
     if (accessFailure) return withCors(accessFailure);
