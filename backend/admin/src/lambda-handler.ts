@@ -956,9 +956,13 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
       scope: 'system',
       guardrailOutcome: 'passed',
     }, db);
+    // Mirror the read paths (handleListDepartments/handleGetDepartment): strip
+    // the confidential Feedback-Engine `prompt` for callers who may not read it.
+    // A no-op for the authorized editor (TechnicalAdmin / administering
+    // DepartmentAdmin), but keeps write and read response shapes consistent.
     return {
       statusCode: 200,
-      body: JSON.stringify(department),
+      body: JSON.stringify(redactDepartmentPrompt(actor, department)),
     };
   } catch (err) {
     // Requirement 32.6 (Issue #187): record the rejected prompt edit with its
@@ -992,9 +996,12 @@ async function handleUpdateDepartmentAskWrenPrompt(
       { departmentId, scope: 'department', guardrailOutcome: 'passed' },
       db,
     );
+    // Mirror the read paths: strip the confidential Feedback-Engine `prompt`
+    // for callers who may not read it. `askWrenPrompt` (the field being edited)
+    // is unaffected; this is a no-op for the authorized editor.
     return {
       statusCode: 200,
-      body: JSON.stringify(department),
+      body: JSON.stringify(redactDepartmentPrompt(actor, department)),
     };
   } catch (err) {
     // Requirement 32.6: record the edit attempt with its guardrail outcome even
