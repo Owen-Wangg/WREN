@@ -23,6 +23,7 @@ import {
 } from '@wren/types';
 
 import { clearOrphanUploadTag as clearOrphanUploadTagWithRetry } from './orphanUploadTag.js';
+import { findUnreferencedUploadKeys } from './uploadKeyReferences.js';
 import { MammothDocxExtractor } from './docxExtractor.js';
 import { createPdfExtractor } from './ocrFactory.js';
 import { resolveOcrEngine } from './textractOcr.js';
@@ -185,10 +186,32 @@ function clearOrphanUploadTag(key: string): Promise<void> {
  * Called on failed create/draft paths so a rejected upload key cannot be
  * replayed to force repeated paid OCR. Best-effort and non-fatal — a tagging
  * failure must never mask the underlying create error.
+ *
+ * The key is re-tagged only when no `draft` / `document_ingest_job` row
+ * references it: a key already attached elsewhere must not be handed to the
+ * lifecycle rule. If the reference check fails the tag is skipped (fail-safe
+ * against data loss); the scheduled sweep (`orphanUploadSweep.ts`) re-tags any
+ * key left untagged and unreferenced.
+ *
+ * Race with a concurrent request attaching the same key: references are
+ * re-checked AFTER the tag write, and the tag is removed if the key is now
+ * referenced. Together with the attach paths' post-commit clear
+ * ({@link clearOrphanUploadTagAfterCommit}), any tag written here is either
+ * removed by the winner's post-commit clear (tag landed first) or seen by this
+ * re-check (winner committed first).
  */
 async function tagOrphanUploadForExpiry(key: string): Promise<void> {
   const bucket = process.env.DOCUMENTS_BUCKET_NAME;
   if (!bucket) return;
+  let db;
+  try {
+    db = await getDataAccess();
+    const unreferenced = await findUnreferencedUploadKeys(db, [key]);
+    if (unreferenced.length === 0) return;
+  } catch (err) {
+    console.warn('tagOrphanUploadForExpiry: reference check failed; leaving tag for sweep', err);
+    return;
+  }
   try {
     await s3Client.send(
       new PutObjectTaggingCommand({
@@ -201,6 +224,33 @@ async function tagOrphanUploadForExpiry(key: string): Promise<void> {
     );
   } catch (err) {
     console.warn('tagOrphanUploadForExpiry: non-fatal error', err);
+    return;
+  }
+  let stillUnreferenced = true;
+  try {
+    stillUnreferenced = (await findUnreferencedUploadKeys(db, [key])).length > 0;
+  } catch (err) {
+    // Cannot prove the key is still unattached: undo the tag (fail-safe).
+    console.warn('tagOrphanUploadForExpiry: post-tag reference check failed; removing tag', err);
+    stillUnreferenced = false;
+  }
+  if (!stillUnreferenced) {
+    await clearOrphanUploadTagAfterCommit(key);
+  }
+}
+
+/**
+ * Best-effort second clear after an attach transaction commits. The fail-closed
+ * clear before the transaction remains the primary guarantee; this one removes
+ * any tag a concurrent failing request wrote in between. A failure here is
+ * logged (and `clearOrphanUploadTag` emits its failure metric) but does not
+ * fail the already-committed request.
+ */
+async function clearOrphanUploadTagAfterCommit(key: string): Promise<void> {
+  try {
+    await clearOrphanUploadTag(key);
+  } catch (err) {
+    console.error('clearOrphanUploadTagAfterCommit: failed to clear orphan tag', { key, error: err });
   }
 }
 
@@ -730,6 +780,9 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     }
     const fileName = key.split('/').pop() || 'upload.docx';
     s3Key = key;
+    // Fail-closed clear BEFORE any transaction (no S3 call is made while a DB
+    // connection or row lock is held). Every failure path below re-tags, and
+    // every success path clears again after commit.
     await clearOrphanUploadTag(key);
     // PDF OCR can exceed API Gateway ~29s — enqueue and return immediately.
     if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
@@ -739,15 +792,14 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       // extraction (pdf.js/Textract), mirroring the async branch's
       // reserve-before-enqueue ordering. An over-cap user is rejected before
       // any S3 fetch or OCR and before the Lambda is held for the Textract poll
-      // loop. On rejection, re-tag the upload for lifecycle expiry so the key
-      // cannot be replayed to force repeated paid OCR.
+      // loop. On any rejection, re-tag the upload for lifecycle expiry so the
+      // key cannot be replayed to force repeated paid OCR and is not left
+      // untagged with nothing referencing it.
       try {
         await reserveDocumentUpload(actor.userId, db);
         slotReserved = true;
       } catch (error) {
-        if (error instanceof UsageLimitReachedError) {
-          await tagOrphanUploadForExpiry(key);
-        }
+        await tagOrphanUploadForExpiry(key);
         throw error;
       }
       const bytes = await readS3ObjectBytes(key);
@@ -756,40 +808,51 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   }
 
   if (asyncPdf) {
-    const created = await db.transaction(async (tx) => {
-      await reserveDocumentUpload(actor.userId, tx);
-      const rows = await tx.query<any>(
-        `INSERT INTO document (
-           owner_user_id, document_type_id, content_type_id, name, metadata,
-           status, created_at, draft_create_count
-         ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
-         RETURNING id, owner_user_id, document_type_id, content_type_id,
-                   name, metadata, status, created_at`,
-        [
-          actor.userId,
-          documentTypeId,
-          contentTypeId,
-          name,
-          JSON.stringify(metadata),
-          'Still Drafting',
-        ],
-      );
-      const documentId = rows[0].id as string;
-      const job = await insertQueuedIngestJob(tx, {
-        documentId,
-        s3Key: asyncPdf.key,
-        fileName: asyncPdf.fileName,
-        ocrEngine,
+    const pdf = asyncPdf;
+    // Any throw out of the transaction (reservation 429, insert or commit
+    // failure) means it rolled back and this request references nothing, so
+    // re-tag the upload for lifecycle expiry.
+    let created;
+    try {
+      created = await db.transaction(async (tx) => {
+        await reserveDocumentUpload(actor.userId, tx);
+        const rows = await tx.query<any>(
+          `INSERT INTO document (
+             owner_user_id, document_type_id, content_type_id, name, metadata,
+             status, created_at, draft_create_count
+           ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
+           RETURNING id, owner_user_id, document_type_id, content_type_id,
+                     name, metadata, status, created_at`,
+          [
+            actor.userId,
+            documentTypeId,
+            contentTypeId,
+            name,
+            JSON.stringify(metadata),
+            'Still Drafting',
+          ],
+        );
+        const documentId = rows[0].id as string;
+        const job = await insertQueuedIngestJob(tx, {
+          documentId,
+          s3Key: pdf.key,
+          fileName: pdf.fileName,
+          ocrEngine,
+        });
+        return { rows, documentId, job };
       });
-      return { rows, documentId, job };
-    });
+    } catch (error) {
+      await tagOrphanUploadForExpiry(pdf.key);
+      throw error;
+    }
+    await clearOrphanUploadTagAfterCommit(pdf.key);
 
     try {
       await enqueueIngestJob({
         jobId: created.job.id,
         documentId: created.documentId,
-        s3Key: asyncPdf.key,
-        fileName: asyncPdf.fileName,
+        s3Key: pdf.key,
+        fileName: pdf.fileName,
         userId: actor.userId,
         sizeLimitWords,
         platformSizeLimitWords: platformWordLimit,
@@ -940,6 +1003,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     );
     return { rows, documentId };
   });
+  if (s3Key !== 'inline') await clearOrphanUploadTagAfterCommit(s3Key);
 
   // Analytics counters are intentionally best-effort and outside the atomic
   // user-visible document/draft transaction.
@@ -1410,25 +1474,39 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       }
       const fileName = key.split('/').pop() || 'upload.docx';
       s3Key = key;
+      // Fail-closed clear BEFORE any transaction (no S3 call is made while a
+      // DB connection or row lock is held). Every failure path below re-tags,
+      // and every success path clears again after commit.
       await clearOrphanUploadTag(key);
 
       if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
-        const job = await db.transaction(async (tx) => {
-          const locked = await tx.query<{ owner_user_id: string }>(
-            'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
-            [documentId],
-          );
-          if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
-            throw Object.assign(new Error('Document not found'), { statusCode: 404 });
-          }
-          await reserveDraftCreate(documentId, tx);
-          return insertQueuedIngestJob(tx, {
-            documentId: documentId as string,
-            s3Key: key,
-            fileName,
-            ocrEngine,
+        // Any throw out of the transaction (ownership 404, reservation 429,
+        // insert or commit failure) means it rolled back and this request
+        // references nothing, so re-tag the upload.
+        let job;
+        try {
+          job = await db.transaction(async (tx) => {
+            const locked = await tx.query<{ owner_user_id: string }>(
+              'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
+              [documentId],
+            );
+            if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
+              throw Object.assign(new Error('Document not found'), { statusCode: 404 });
+            }
+            await reserveDraftCreate(documentId, tx);
+            const queued = await insertQueuedIngestJob(tx, {
+              documentId: documentId as string,
+              s3Key: key,
+              fileName,
+              ocrEngine,
+            });
+            return queued;
           });
-        });
+        } catch (error) {
+          await tagOrphanUploadForExpiry(key);
+          throw error;
+        }
+        await clearOrphanUploadTagAfterCommit(key);
         try {
           await enqueueIngestJob({
             jobId: job.id,
@@ -1489,9 +1567,8 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
         });
         slotReserved = true;
       } catch (error) {
-        if (error instanceof UsageLimitReachedError) {
-          await tagOrphanUploadForExpiry(key);
-        }
+        // Ownership 404 or reservation 429: nothing references the key.
+        await tagOrphanUploadForExpiry(key);
         throw error;
       }
 
@@ -1644,6 +1721,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     );
     return result.draft;
   });
+  if (s3Key !== 'inline') await clearOrphanUploadTagAfterCommit(s3Key);
 
   return {
     statusCode: 201,
