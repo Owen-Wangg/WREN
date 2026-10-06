@@ -47,7 +47,7 @@ import {
   updatePlatformUsagePolicy,
 } from './lifetimeUsagePolicy';
 import type { QueryExecutor } from './db';
-import { parseAuthContext, wrapHandler, withCors, bindCorsOrigin } from './lambda-utils';
+import { parseAuthContext, wrapHandler, withCors, bindCorsOrigin, rejectIfForgedAuthContext } from './lambda-utils';
 import { AuthorizationError, NotFoundError, PromptInjectionError } from './errors';
 import { PromptGuardrailError } from './promptGuardrail';
 import { assertCanListDepartmentUsers, requireCapability } from './capabilityGuard';
@@ -136,6 +136,10 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
   // (`lambda-sync-cognito-admins.ts`) so no unauthenticated branch exists here.
   bindCorsOrigin(event);
   try {
+    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    const forged = await rejectIfForgedAuthContext(event);
+    if (forged) return withCors(forged);
+
     const { httpMethod, resource } = event;
 
     // Route by HTTP method + resource path

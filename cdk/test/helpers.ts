@@ -28,6 +28,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     feedbackEngineImageTag: "bootstrap",
     auditPseudonymSaltOwnership: "managed",
     cacheMode: "observe",
+    authContextVerifyMode: "enforce",
     cacheTtl: "5m",
     cacheEnabledWorkloads: [],
     stackPrefix: "wren-test",

@@ -7,7 +7,35 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import type { Construct } from "constructs";
 
-import { ssmParameterNames, type AppConfig } from "../config";
+import { bedrockModelIdParameterName, ssmParameterNames, type AppConfig } from "../config";
+
+/**
+ * Service-function name suffixes the `${prefix}-Compute` stack creates
+ * (ComputeStack.ts). Single source of truth for the Lambda ARNs the Compute
+ * deploy role may mutate and invoke.
+ *
+ * These functions are named `${prefix}-<suffix>`, NOT `${prefix}-Compute-*`, so
+ * they are enumerated here rather than matched by a prefix wildcard. A prefix
+ * wildcard (`${prefix}-*`) would also match the Database stack's `${prefix}-migrate`
+ * and `${prefix}-sync-db-passwords` functions, which hold database credentials and
+ * must stay outside the Compute deploy role's reach.
+ *
+ * Adding a new Compute function here is required: omit it and its deploy
+ * surfaces an `AccessDenied` in the CloudFormation stack events — add the
+ * suffix, never widen back to `"*"`.
+ */
+const COMPUTE_FUNCTION_SUFFIXES = [
+  "authorizer",
+  "document",
+  "admin",
+  "sync-cognito-admins",
+  "audit",
+  "feedback-orchestrator",
+  "feedback-engine",
+  "diff-anchor-progress",
+  "notification",
+  "appsync-authorizer",
+] as const;
 
 /**
  * Props for the CICD stack.
@@ -37,12 +65,25 @@ export interface ComputeDeployScopes {
   readonly ownedRolePrefix: string;
   /** ARN of the deploy role itself, denied `iam:*` so it cannot mutate itself. */
   readonly deployRoleArn: string;
+  /**
+   * `arn:aws:cloudformation:${region}:${account}:stack/${prefix}-Compute/*` —
+   * the Compute stack ARN pattern used in the deploy role's trust policy
+   * `aws:SourceArn` condition. The trailing `/*` covers the stack's unique id.
+   */
+  readonly computeStackArnPattern: string;
   /** Managed-policy name of the Compute permissions boundary. */
   readonly boundaryName: string;
   /** ARN of {@link boundaryName}. */
   readonly boundaryArn: string;
-  /** `function:${prefix}-*` — covers the nine service functions and the LogRetention provider. */
-  readonly invokableFunctionArn: string;
+  /**
+   * The exact Lambda ARNs the Compute deploy role may mutate and invoke: the
+   * ten `${prefix}-<service>` functions from {@link COMPUTE_FUNCTION_SUFFIXES}
+   * plus `function:${prefix}-Compute-*` for the CFN-auto-named LogRetention
+   * provider. Enumerated rather than `function:${prefix}-*` so the Database
+   * stack's `${prefix}-migrate` / `${prefix}-sync-db-passwords` (which hold DB
+   * credentials) are excluded.
+   */
+  readonly ownedFunctionArns: string[];
   /** `secret:${prefix}/audit/*` — excludes the cicd and database secrets. */
   readonly auditSecretArn: string;
   /** `parameter/${prefix}/notifications/*` — the only parameters Compute writes. */
@@ -506,11 +547,20 @@ export class CicdStack extends Stack {
     return {
       ownedRolePrefix: `arn:aws:iam::${account}:role/${prefix}-Compute-*`,
       deployRoleArn: `arn:aws:iam::${account}:role/${prefix}-compute-cfn-deploy`,
+      computeStackArnPattern: `arn:aws:cloudformation:${region}:${account}:stack/${prefix}-Compute/*`,
       boundaryName: CicdStack.boundaryPolicyNameFor(prefix),
       boundaryArn: CicdStack.boundaryPolicyArnFor(account, prefix),
-      // `function:${prefix}-*`, deliberately not `function:${prefix}-Compute-*`:
-      // the nine service functions are explicitly named `${prefix}-<service>`.
-      invokableFunctionArn: `arn:aws:lambda:${region}:${account}:function:${prefix}-*`,
+      // Enumerated owned functions, deliberately NOT `function:${prefix}-*`:
+      // that wildcard also matches the Database stack's `${prefix}-migrate` and
+      // `${prefix}-sync-db-passwords`, which hold DB credentials. The ten named
+      // service functions are listed explicitly; `${prefix}-Compute-*` covers
+      // the CFN-auto-named LogRetention provider.
+      ownedFunctionArns: [
+        ...COMPUTE_FUNCTION_SUFFIXES.map(
+          (suffix) => `arn:aws:lambda:${region}:${account}:function:${prefix}-${suffix}`,
+        ),
+        `arn:aws:lambda:${region}:${account}:function:${prefix}-Compute-*`,
+      ],
       // Audit_Salt_Secret only. Excludes `${prefix}/cicd/` and `${prefix}/database/`.
       // Trailing `*` covers the six-character suffix Secrets Manager appends.
       auditSecretArn: `arn:aws:secretsmanager:${region}:${account}:secret:${prefix}/audit/*`,
@@ -657,17 +707,33 @@ export class CicdStack extends Stack {
             ],
           }),
           new iam.PolicyStatement({
-            // Covers the seven `/${prefix}/notifications/*` parameters and
-            // `/${prefix}/config/bedrock-model-id`, which the admin function
-            // reads and writes at runtime.
-            sid: "Parameters",
+            // Reads span the whole `/${prefix}/*` subtree (toast/notification
+            // config, bedrock model id, the bootstrap-subject parameter the
+            // admin function reads for de-elevation protection). Reads cannot
+            // escalate, so the broad scope is intentional headroom.
+            sid: "ParametersRead",
             actions: [
               "ssm:GetParameter",
               "ssm:GetParameters",
               "ssm:GetParametersByPath",
-              "ssm:PutParameter",
             ],
             resources: [`arn:aws:ssm:${region}:${account}:parameter/${prefix}/*`],
+          }),
+          new iam.PolicyStatement({
+            // `ssm:PutParameter` is scoped to the ONLY parameter a runtime role
+            // writes: `/${prefix}/config/bedrock-model-id` (admin function,
+            // `putBedrockModelIdToSsm`). On the former `/${prefix}/*` scope a
+            // tampered runtime role could overwrite
+            // `/${prefix}/auth/technical-admin-bootstrap-subject` — the
+            // operator-armed first-admin gate the admin function treats as the
+            // source of truth for protected subjects — and the rest of the
+            // subtree. Those are deploy-time-only parameters and are
+            // intentionally non-writable at runtime.
+            sid: "ParametersWriteBedrockModelOnly",
+            actions: ["ssm:PutParameter"],
+            resources: [
+              `arn:aws:ssm:${region}:${account}:parameter${bedrockModelIdParameterName(config)}`,
+            ],
           }),
           new iam.PolicyStatement({
             // Documents + reference buckets (Storage stack). `s3:DeleteObjects`
@@ -835,15 +901,31 @@ export class CicdStack extends Stack {
       ownedRolePrefix,
       deployRoleArn,
       boundaryArn,
-      invokableFunctionArn,
+      ownedFunctionArns,
       auditSecretArn,
       notificationParameterArn,
       storageKeyArnPattern,
+      computeStackArnPattern,
     } = this.computeDeployScopes;
 
     return new iam.Role(this, "ComputeDeployRole", {
       roleName: `${stackPrefix}-compute-cfn-deploy`,
-      assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
+      // Confused-deputy guard. A bare `cloudformation.amazonaws.com` principal
+      // lets any caller in any account that can reach CloudFormation ask it to
+      // assume this role; the two conditions bind use of the role to
+      // CloudFormation acting (a) within THIS account (`aws:SourceAccount`) and
+      // (b) on behalf of the `${prefix}-Compute` stack specifically
+      // (`aws:SourceArn`). CloudFormation populates both keys when it assumes an
+      // execution role. If a legitimate Compute deploy is ever denied by the
+      // ArnLike check (e.g. a stack rename), relax to the `aws:SourceAccount`
+      // condition alone before widening any further — never drop both.
+      assumedBy: new iam.PrincipalWithConditions(
+        new iam.ServicePrincipal("cloudformation.amazonaws.com"),
+        {
+          StringEquals: { "aws:SourceAccount": this.account },
+          ArnLike: { "aws:SourceArn": computeStackArnPattern },
+        },
+      ),
       description: "Scoped CFN execution role for the Compute stack (not account admin).",
       inlinePolicies: {
         ComputeDeploy: new iam.PolicyDocument({
@@ -873,22 +955,40 @@ export class CicdStack extends Stack {
                 "lambda:UpdateFunctionCode",
                 "lambda:UpdateFunctionConfiguration",
               ],
-              resources: ["*"],
+              // Scoped to the enumerated Compute-owned functions
+              // (`ownedFunctionArns`), NOT `"*"`. On `"*"` these mutation
+              // actions reached every Lambda in the account, including the
+              // Database stack's `${prefix}-migrate` and
+              // `${prefix}-sync-db-passwords` — a Compute deploy could then
+              // `UpdateFunctionCode` on them and exfiltrate the RDS admin / per-
+              // role Postgres secrets they are granted, or
+              // `UpdateFunctionConfiguration` on `${prefix}-authorizer` to arm
+              // `TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT` with an attacker's Cognito
+              // sub. Those two Database-stack functions share the `${prefix}-`
+              // prefix, so only an enumerated list excludes them. A new Compute
+              // function must be added to `COMPUTE_FUNCTION_SUFFIXES` or its
+              // deploy surfaces the missing permission in the CFN events — add
+              // the suffix, never restore `"*"`.
+              resources: ownedFunctionArns,
             }),
             new iam.PolicyStatement({
-              // Requirement 5 criteria 1, 4, 6. `function:${prefix}-*` covers
-              // both invocation targets a Compute deploy needs: the nine
-              // explicitly named `${prefix}-<service>` functions, and the
+              // Requirement 5 criteria 1, 4, 6. `ownedFunctionArns` covers both
+              // invocation targets a Compute deploy needs: the ten explicitly
+              // named `${prefix}-<service>` functions and the
               // CloudFormation-auto-named `${prefix}-Compute-LogRetention*`
               // provider that backs the `Custom::LogRetention` resources.
               //
-              // Do NOT narrow this to `function:${prefix}-Compute-*`. That
-              // pattern matches the LogRetention provider but none of the nine
-              // service functions, so it would break the deploy — exactly the
-              // over-narrow scope Requirement 5 criterion 6 forbids.
+              // Do NOT narrow this to `function:${prefix}-Compute-*` alone:
+              // that matches the LogRetention provider but none of the named
+              // service functions, so it would break the deploy. Equally, do
+              // NOT widen it back to `function:${prefix}-*` — that also matches
+              // the Database stack's `${prefix}-migrate` /
+              // `${prefix}-sync-db-passwords`, letting a Compute deploy invoke
+              // credential-bearing functions outside its scope. The enumerated
+              // list is the exact set that satisfies both constraints.
               sid: "LambdaInvokeOwnedFunctions",
               actions: ["lambda:InvokeFunction"],
-              resources: [invokableFunctionArn],
+              resources: ownedFunctionArns,
             }),
             // -----------------------------------------------------------
             // IAM: the former `IamForLambdaRoles` statement, split by
