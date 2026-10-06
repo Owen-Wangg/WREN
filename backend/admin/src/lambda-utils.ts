@@ -14,6 +14,7 @@ import { PromptGuardrailError } from './promptGuardrail';
 /** CORS headers required on aws_proxy Lambda responses (API Gateway does not add them). */
 export const withCors = withCorsHeaders;
 export { bindCorsOrigin };
+export { rejectIfForgedAuthContext } from '@wren/auth';
 
 function parseJsonArray(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;

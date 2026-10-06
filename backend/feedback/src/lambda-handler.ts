@@ -7,7 +7,7 @@ import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
 import { publishNotificationEvent } from '@wren/notification';
-import { bindCorsOrigin, withCorsHeaders } from '@wren/auth';
+import { bindCorsOrigin, withCorsHeaders, rejectIfForgedAuthContext } from '@wren/auth';
 
 import {
   appendAskWrenTurn,
@@ -163,6 +163,10 @@ export const handler: APIGatewayProxyHandler = async (event, context): Promise<A
   freezeEventLoopOnReturn(context);
   bindCorsOrigin(event);
   try {
+    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    const forged = await rejectIfForgedAuthContext(event);
+    if (forged) return withCors(forged);
+
     const { httpMethod, resource } = event;
     const accessFailure = studentAccessFailure(event);
     if (accessFailure) return accessFailure;

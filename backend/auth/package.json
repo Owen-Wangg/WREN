@@ -14,9 +14,11 @@
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1089.0",
+    "@aws-sdk/client-secrets-manager": "^3.717.0",
     "@wren/db-node": "*",
     "@wren/types": "*",
     "aws-jwt-verify": "^4.0.1",
+    "graphql": "^16.14.2",
     "jsonwebtoken": "^9.0.0",
     "node-fetch": "^2.7.0"
   },

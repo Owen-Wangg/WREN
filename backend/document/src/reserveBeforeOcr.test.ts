@@ -44,6 +44,8 @@ jest.mock('@wren/auth', () => ({
   resolveAccess: jest.fn(async () => 'OPEN'),
   bindCorsOrigin: jest.fn(),
   withCorsHeaders: (res: unknown) => res,
+  // Signed-context guard (finding f-140e2506): allow through in this unit test.
+  rejectIfForgedAuthContext: jest.fn(async () => null),
 }));
 
 // --- S3 seam: capture commands so we can assert no GetObject and a re-tag PUT.

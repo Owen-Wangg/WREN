@@ -53,6 +53,11 @@ import {
 } from './cognitoProfile';
 import { mapSubjectToAuthContext } from './identityMapping';
 import {
+  getAuthContextSigningSecret,
+  isAuthContextSigningConfigured,
+  signSerializedAuthContext,
+} from './authContextSigning';
+import {
   ensureAppUser,
   ensureTechnicalAdminForArmedSubject,
   IdentityProvisioningRefusedError,
@@ -272,10 +277,20 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         context = (await mapSubjectToAuthContext(subject, db)) ?? context;
       }
 
+      // Sign the context so downstream service Lambdas can prove it was
+      // minted here and not forged on a direct invoke (finding f-140e2506).
+      // Only when a signing secret is configured (always true in deployed
+      // environments via CDK); unconfigured local/test runs emit the context
+      // unsigned, which the service verifiers accept only in permissive mode.
+      let authorizerContext = serializeAuthContext(context);
+      if (isAuthContextSigningConfigured()) {
+        const signingSecret = await getAuthContextSigningSecret();
+        authorizerContext = signSerializedAuthContext(authorizerContext, signingSecret);
+      }
       return {
         principalId: context.userId,
         policyDocument: policy('Allow', stageWildcardResource(event.methodArn)),
-        context: serializeAuthContext(context),
+        context: authorizerContext,
       };
     } catch (error) {
       if (error instanceof Error && error.message === UNAUTHORIZED) {
