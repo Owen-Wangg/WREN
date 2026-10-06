@@ -887,6 +887,13 @@ async function handleCreateDepartment(event: any): Promise<APIGatewayProxyResult
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const department = await createDepartment(actor, body, db);
+  // Creating a Department is a privileged tenant-lifecycle mutation; record it
+  // so the audit trail can attribute who provisioned the tenant.
+  await auditConfigEdit(
+    actor,
+    { field: 'department', action: 'created', departmentId: department.id, objectType: 'Department' },
+    db,
+  );
   return {
     statusCode: 201,
     body: JSON.stringify(department),
@@ -898,6 +905,19 @@ async function handleCreateDocumentType(event: any): Promise<APIGatewayProxyResu
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const documentType = await createDocumentType(actor, body, db);
+  // Adding a Document Type to the catalog is a privileged tenant-lifecycle
+  // mutation; record it against the owning Department for attribution.
+  await auditConfigEdit(
+    actor,
+    {
+      field: 'documentType',
+      action: 'created',
+      documentTypeId: documentType.id,
+      departmentId: documentType.departmentId,
+      objectType: 'DocumentType',
+    },
+    db,
+  );
   return {
     statusCode: 201,
     body: JSON.stringify(documentType),
@@ -912,6 +932,13 @@ async function handleDeleteDocumentType(event: any): Promise<APIGatewayProxyResu
   if (!deleted) {
     throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
   }
+  // Removing a Document Type from the catalog is a privileged tenant-lifecycle
+  // mutation; record it only once the deletion actually succeeded.
+  await auditConfigEdit(
+    actor,
+    { field: 'documentType', action: 'deleted', documentTypeId, objectType: 'DocumentType' },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify({ documentTypeId }),
@@ -923,6 +950,13 @@ async function handleDeleteDepartment(event: any): Promise<APIGatewayProxyResult
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
   const department = await archiveDepartment(actor, departmentId, db);
+  // Archiving a Department is a privileged tenant-lifecycle mutation; record it
+  // once the archive succeeded (archiveDepartment throws when absent).
+  await auditConfigEdit(
+    actor,
+    { field: 'department', action: 'deleted', departmentId, objectType: 'Department' },
+    db,
+  );
   return withCors({ statusCode: 200, body: JSON.stringify(department) });
 }
 
@@ -1078,6 +1112,13 @@ async function handleCreateErrorCategory(event: any): Promise<APIGatewayProxyRes
   const { documentTypeId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
   const category = await createErrorCategory(actor, { ...body, documentTypeId }, db);
+  // The taxonomy's internal guidance feeds the Feedback Engine prompt, so a
+  // taxonomy write is as prompt-relevant as a prompt edit and must be audited.
+  await auditConfigEdit(
+    actor,
+    { field: 'errorCategory', action: 'created', documentTypeId, objectType: 'ErrorCategory' },
+    db,
+  );
   return {
     statusCode: 201,
     body: JSON.stringify(category),
@@ -1091,6 +1132,13 @@ async function handleUpdateErrorCategory(event: any): Promise<APIGatewayProxyRes
   await assertErrorCategoryParent(categoryId, documentTypeId, db);
   const body = event.body ? JSON.parse(event.body) : {};
   const category = await updateErrorCategory(actor, categoryId, body, db);
+  // The taxonomy's internal guidance feeds the Feedback Engine prompt, so a
+  // taxonomy write is as prompt-relevant as a prompt edit and must be audited.
+  await auditConfigEdit(
+    actor,
+    { field: 'errorCategory', action: 'updated', documentTypeId, objectType: 'ErrorCategory' },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify(category),
@@ -1103,6 +1151,13 @@ async function handleDeleteErrorCategory(event: any): Promise<APIGatewayProxyRes
   const { documentTypeId, categoryId } = event.pathParameters || {};
   await assertErrorCategoryParent(categoryId, documentTypeId, db);
   await deleteErrorCategory(actor, categoryId, db);
+  // The taxonomy's internal guidance feeds the Feedback Engine prompt, so a
+  // taxonomy write is as prompt-relevant as a prompt edit and must be audited.
+  await auditConfigEdit(
+    actor,
+    { field: 'errorCategory', action: 'deleted', documentTypeId, objectType: 'ErrorCategory' },
+    db,
+  );
   return {
     statusCode: 204,
     body: '',

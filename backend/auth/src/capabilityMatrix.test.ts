@@ -75,6 +75,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: Capability[] = [
   'department.manageAskWrenPrompt',
   'department.managePrompt',
   'analytics.view',
+  'notificationType.manageCatalog',
 ];
 
 const DEPARTMENT_ADMIN_CAPABILITIES: Capability[] = [
