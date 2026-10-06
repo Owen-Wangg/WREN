@@ -2,6 +2,7 @@ import {
   stripAiMarksFromTipTapContent,
   tipTapContentToSegments,
   wordCountFromTipTapContent,
+  charCountFromTipTapContent,
   findDisallowedTipTapNodeType,
   type TipTapNode,
 } from './tiptapContent';
@@ -145,6 +146,67 @@ describe('tipTapContentToSegments', () => {
       ],
     };
     expect(wordCountFromTipTapContent(doc)).toBe(9);
+  });
+});
+
+describe('footnote-aware word and character counting (finding f-ca2d70a5)', () => {
+  /**
+   * A footnote whose body carries `bodyText`, inside a paragraph with a
+   * leading marker. The segment substrate must still emit only `[N]` for the
+   * footnote, but the authoritative word/char count must include the body.
+   */
+  const docWithFootnoteBody = (bodyText: string): TipTapNode => ({
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Visible paragraph text' },
+          {
+            type: 'footnote',
+            attrs: {
+              footnoteNumber: 1,
+              content: {
+                type: 'paragraph',
+                content: [{ type: 'text', text: bodyText }],
+              },
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  it('keeps the segment substrate as marker-only "[N]" (segmentation unchanged)', () => {
+    const doc = docWithFootnoteBody('alpha beta gamma delta');
+    // The paragraph flattens to its visible text plus the "[1]" marker — the
+    // footnote body never leaks into the segment substrate.
+    expect(tipTapContentToSegments(doc)).toEqual([
+      { index: 0, text: 'Visible paragraph text[1]' },
+    ]);
+  });
+
+  it('counts footnote body words on top of the segment words', () => {
+    const doc = docWithFootnoteBody('alpha beta gamma delta');
+    // Segment "Visible paragraph text[1]" => 3 words; body => 4 words.
+    expect(wordCountFromTipTapContent(doc)).toBe(7);
+  });
+
+  it('counts footnote body characters so a whitespace-free blob is measured', () => {
+    const blob = 'x'.repeat(5000); // one "word", but 5000 chars
+    const doc = docWithFootnoteBody(blob);
+    // Word count under-measures the blob (1 word) ...
+    expect(wordCountFromTipTapContent(doc)).toBe(3 + 1);
+    // ... but the char count reflects the full body length.
+    const chars = charCountFromTipTapContent(doc);
+    expect(chars).toBeGreaterThanOrEqual(5000);
+    // Segment chars ("Visible paragraph text[1]" = 25) + 5000 body chars.
+    expect(chars).toBe('Visible paragraph text[1]'.length + 5000);
+  });
+
+  it('returns 0 words and 0 chars for empty / non-doc content', () => {
+    expect(wordCountFromTipTapContent(null)).toBe(0);
+    expect(charCountFromTipTapContent(undefined)).toBe(0);
   });
 });
 

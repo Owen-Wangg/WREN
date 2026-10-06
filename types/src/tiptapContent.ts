@@ -105,12 +105,52 @@ export function tipTapContentToSegments(content: TipTapNode | null | undefined):
   return out;
 }
 
-/** Word count from TipTap JSON via flatten. */
+/** Count whitespace-delimited words in a plain string. */
+function wordsInText(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Authoritative word count from TipTap JSON.
+ *
+ * The paragraph/heading/list/table segment substrate contributes only the
+ * footnote *marker* `[N]` (see {@link collectPlainText}), so footnote bodies —
+ * which the Feedback Engine ships into the Bedrock prompt — would otherwise go
+ * uncounted and let a draft bypass the size gate (finding f-ca2d70a5). We add
+ * the footnote body words on top of the segment words so the authoritative
+ * count reflects all content that reaches the model. The segment substrate
+ * itself is intentionally left unchanged so diffing/anchoring/per-paragraph
+ * feedback keep seeing only `[N]`.
+ */
 export function wordCountFromTipTapContent(content: TipTapNode | null | undefined): number {
-  return tipTapContentToSegments(content).reduce(
-    (total, seg) => total + seg.text.split(/\s+/).filter(Boolean).length,
+  const segmentWords = tipTapContentToSegments(content).reduce(
+    (total, seg) => total + wordsInText(seg.text),
     0,
   );
+  const footnoteWords = extractFootnotes(content).reduce(
+    (total, fn) => total + wordsInText(fn.content),
+    0,
+  );
+  return segmentWords + footnoteWords;
+}
+
+/**
+ * Authoritative character count from TipTap JSON, mirroring
+ * {@link wordCountFromTipTapContent}: the sum of segment-text lengths plus
+ * footnote body lengths. Used as a defense-in-depth ceiling alongside the word
+ * count so a whitespace-free blob (which measures as one word) is still bounded
+ * (finding f-ca2d70a5).
+ */
+export function charCountFromTipTapContent(content: TipTapNode | null | undefined): number {
+  const segmentChars = tipTapContentToSegments(content).reduce(
+    (total, seg) => total + seg.text.length,
+    0,
+  );
+  const footnoteChars = extractFootnotes(content).reduce(
+    (total, fn) => total + fn.content.length,
+    0,
+  );
+  return segmentChars + footnoteChars;
 }
 
 /**
