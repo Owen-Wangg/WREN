@@ -322,6 +322,34 @@ export class ObservabilityStack extends Stack {
     queueDepthAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
 
     // -------------------------------------------------------------------
+    // Feedback job binding rejections (security signal)
+    // The Feedback Engine emits JobBindingRejected (EMF, WREN/FeedbackEngine)
+    // when a queue message's ids fail the DB ownership / draft↔document check.
+    // The REST producer always sends server-derived ids, so any rejection
+    // means a bug or a principal writing forged messages to the queue / DLQ.
+    // -------------------------------------------------------------------
+    const jobBindingRejectedMetric = new cloudwatch.Metric({
+      namespace: "WREN/FeedbackEngine",
+      metricName: "JobBindingRejected",
+      dimensionsMap: { workload: "feedback_primary" },
+      statistic: "Sum",
+      period: Duration.minutes(5),
+    });
+
+    const jobBindingRejectedAlarm = new cloudwatch.Alarm(this, "FeedbackJobBindingRejectedAlarm", {
+      alarmName: `${config.stackPrefix}-feedback-job-binding-rejected`,
+      metric: jobBindingRejectedMetric,
+      threshold: 0,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription:
+        "Feedback Engine rejected a queue message whose ids failed ownership/binding checks — possible forged SQS message",
+    });
+    jobBindingRejectedAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
+
+    // -------------------------------------------------------------------
     // DLQ alarms (poison messages — needs investigation). Feedback has always
     // been wired; notification and document-ingest were silent until now.
     // -------------------------------------------------------------------

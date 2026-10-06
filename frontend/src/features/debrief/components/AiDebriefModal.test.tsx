@@ -78,7 +78,7 @@ describe('AiDebriefModal', () => {
         return feedbackDebrief;
       },
     );
-    vi.spyOn(debriefApi, 'regenerateDebrief').mockResolvedValue();
+    vi.spyOn(debriefApi, 'regenerateDebrief').mockResolvedValue({ draftId: null });
   });
   it('renders feedback grouped by category in distinct sections (Requirement 14.2)', async () => {
     renderWithQueryClient(
