@@ -18,6 +18,7 @@
  * assignments. Route guards use database roles; RoleContext uses `activeRole`.
  */
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { authService } from './defaultAuthService';
 import type { AuthSession } from './authService';
@@ -97,6 +98,11 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [roleOverride, setRoleOverride] = useState<Role | null>(() => readStoredRoleOverride());
+  // AuthProvider renders inside QueryClientProvider (see AppProviders.tsx), so
+  // this is the shared app-lifetime client. Clearing it at every identity
+  // boundary prevents one user's cached drafts/debriefs/metadata from being
+  // served to the next user on a shared browser tab.
+  const queryClient = useQueryClient();
 
   // Restore session and fetch user from DATABASE on mount
   useEffect(() => {
@@ -113,6 +119,7 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
             setIsAuthenticated(true);
           } else {
             authService.signOut();
+            queryClient.clear();
           }
         } else {
           setSession(null);
@@ -120,15 +127,21 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
       } catch (error) {
         console.error('Session restore failed:', error);
         authService.signOut();
+        queryClient.clear();
       } finally {
         setIsLoading(false);
       }
     };
 
     restoreSession();
-  }, [apiBaseUrl]);
+  }, [apiBaseUrl, queryClient]);
 
   const signIn = async (email: string, password: string) => {
+    // Drop any cached data from a prior identity before establishing a new one,
+    // so a sign-in without a preceding explicit sign-out never surfaces the
+    // previous user's cached drafts/debriefs/metadata.
+    queryClient.clear();
+
     // Step 1: Cognito authenticates
     const session = await authService.signIn({ email, password });
     setSession(session);
@@ -167,6 +180,9 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
     } catch {
       // ignore
     }
+    // Purge all cached server state so the departing user's drafts/debriefs/
+    // metadata cannot be served to the next user on a shared tab.
+    queryClient.clear();
   };
 
   const getAccessToken = async (): Promise<string | null> => {
