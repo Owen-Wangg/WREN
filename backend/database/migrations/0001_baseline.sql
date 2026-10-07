@@ -1889,10 +1889,26 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   TO wren_admin;
 GRANT SELECT, INSERT ON TABLE public.activity_event
   TO wren_admin;
-GRANT SELECT ON TABLE
-  public.document, public.draft, public.feedback_item, public.anchor,
-  public.resolution_status_history, public.feedback_helpfulness_rating,
-  public.debrief_section_applicability
+-- Student-work tables: column-level SELECT only. The Admin Lambda needs
+-- counts/joins/aggregates over these tables but never the student prose
+-- (draft.segments/content/header/footer), the generated feedback text
+-- (feedback_item.question_text/quoted_text/positive_note), or document titles
+-- (document.name). With no RLS, these grants are the only DB-side backstop.
+-- anchor is deliberately not granted (no live admin reader).
+-- COUNT(*) only needs SELECT on one column, so counts still work.
+GRANT SELECT (id, owner_user_id, document_type_id, content_type_id, metadata,
+              status, created_at, debrief_generation_count, draft_create_count)
+  ON public.document TO wren_admin;
+GRANT SELECT (id, document_id, version_number, word_count, created_at)
+  ON public.draft TO wren_admin;
+GRANT SELECT (id, document_id, error_category_id, kind, source_draft_id, created_at)
+  ON public.feedback_item TO wren_admin;
+GRANT SELECT (id, feedback_item_id, draft_id, status, evaluated_at)
+  ON public.resolution_status_history TO wren_admin;
+GRANT SELECT (id, document_id, draft_id, error_category_id, applicable,
+              created_at, updated_at)
+  ON public.debrief_section_applicability TO wren_admin;
+GRANT SELECT ON TABLE public.feedback_helpfulness_rating
   TO wren_admin;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.department_visibility_grant
   TO wren_admin;

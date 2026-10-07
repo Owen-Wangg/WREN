@@ -314,6 +314,8 @@ Each service has its own PostgreSQL role and a corresponding Secrets Manager cre
 
 Least-privilege PostgreSQL roles (examples): `wren_authorizer`, `wren_document`, `wren_admin`, `wren_feedback_orch`, `wren_feedback_engine`, `wren_notification`, `wren_appsync_auth`. Passwords are never committed to git or migration SQL.
 
+The schema has no row-level security, so these grants are the only database-side tenant control. `wren_admin` (Admin and sync-cognito-admins Lambdas) holds only **column-level** `SELECT` on student-work tables (`document`, `draft`, `feedback_item`, `resolution_status_history`, `debrief_section_applicability`): enough for counts, joins and analytics, but never student prose (`draft.segments`/`content`/`header`/`footer`), generated feedback text, or document titles. It has no access to `anchor`.
+
 ### 6.5 S3 Security
 
 | Control | Detail |
