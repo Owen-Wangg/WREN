@@ -27,8 +27,10 @@ export {
 
 // Utilities
 export {
+  sanitizeOptionsForDraft,
   sanitizeTipTapContent,
   tipTapContentNeedsSanitization,
+  type SanitizeOptions,
 } from './sanitizeLoadedContent';
 export {
   segmentText,

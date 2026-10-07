@@ -16,7 +16,6 @@ import {
   wordCount,
 } from './pdfHeadingHeuristics';
 import { filterWatermarkPages } from './pdfWatermarks';
-import { stitchWrappedParagraphs } from './stitchWrappedParagraphs';
 
 export interface SpatialTextItem {
   text: string;
@@ -35,6 +34,13 @@ export interface SpatialTextItem {
 
 export interface SpatialPage {
   textItems: SpatialTextItem[];
+  /** Non-whitespace text-layer characters (excluding stamps / rotated margin text). */
+  textChars?: number;
+  /**
+   * Fraction of the page area painted by images (0–1). Undefined when the
+   * operator list was unavailable; callers then classify by text alone.
+   */
+  imageCoverage?: number;
 }
 
 type LineRun = {
@@ -898,7 +904,8 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
     blocks.push(...spatialItemsToBlocks(page.textItems ?? []));
   }
 
-  const merged = stitchWrappedParagraphs(mergeAdjacentLists(blocks));
+  // Wrap stitching runs in polishPdfTipTapNodes, after heading promotion.
+  const merged = mergeAdjacentLists(blocks);
   return {
     type: 'doc',
     content: merged.length > 0 ? merged : [{ type: 'paragraph' }],

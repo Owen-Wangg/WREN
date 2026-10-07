@@ -42,15 +42,27 @@ export function needsSpaceBetween(prev: string, next: string): boolean {
   return true;
 }
 
+/** Surname prefixes that are legitimately followed by a capital (`MacEwan`, `VanDyke`). */
+const NAME_PREFIX_RE = /^(?:Mac|Mc|Van|Von|Vander|De|Del|Della|Di|Da|Du|Le|La|St|Fitz|O)$/;
+
+function splitGlued(text: string, pattern: RegExp): string {
+  return text.replace(pattern, (match: string, head: string, tail: string, offset: number) => {
+    // Letters of the same word that precede `head` (e.g. the "M" of "MacEwan").
+    const lead = /[A-Za-z]*$/.exec(text.slice(0, offset))?.[0] ?? '';
+    return NAME_PREFIX_RE.test(lead + head) ? match : `${head} ${tail}`;
+  });
+}
+
 /**
  * Split glued OCR tokens (`TheNegligence`, `wordWord`) inside a text span.
+ * Surname prefixes (`MacEwan`, `McDonald`, `VanDyke`) are left intact.
  */
 export function fixGluedWordsInText(text: string): string {
-  let out = text.replace(/([a-z]{2,})([A-Z][a-z]{2,})/g, '$1 $2');
+  let out = splitGlued(text, /([a-z]{2,})([A-Z][a-z]{2,})/g);
   let prev = '';
   while (out !== prev) {
     prev = out;
-    out = out.replace(/([A-Z][a-z]{2,})([A-Z][a-z]{2,})/g, '$1 $2');
+    out = splitGlued(out, /([A-Z][a-z]{2,})([A-Z][a-z]{2,})/g);
   }
   return out;
 }

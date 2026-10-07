@@ -2,22 +2,23 @@
  * Repair PDF-ingest artifacts in persisted TipTap JSON when a draft loads.
  *
  * Fixes already-uploaded documents without requiring re-upload:
- * - Oversized letterhead fontSize marks
- * - False center/right alignment on body paragraphs
- * - Mid-sentence wrap fragments split into separate paragraphs
- * - OCR glued words, missing spaces, and scattered bold/italic marks
+ * - Oversized letterhead fontSize marks (all drafts)
+ * - OCR drafts only: false center/right alignment on body paragraphs,
+ *   mid-sentence wrap fragments, glued words, missing spaces, and
+ *   scattered bold/italic marks
  */
 import type { JSONContent } from '@tiptap/react';
 import {
   cleanOcrInlineContent,
-  isWrapContinuation,
   PAGE_NUMBER_RE,
+  shouldStitchParagraphs,
   type TipTapNode,
 } from '@wren/types';
 
 import { capInlineFontSize } from './tiptapFontSize';
 
 export { isWrapContinuation } from '@wren/types';
+
 
 /** Body paragraphs wider than this were wrongly tagged centered by ingest. */
 const MIN_WORDS_FOR_LEFT_ALIGN = 6;
@@ -64,11 +65,16 @@ function joinParagraphs(prev: JSONContent, next: JSONContent): JSONContent {
   const prevContent = [...(prev.content ?? [])];
   const nextContent = [...(next.content ?? [])];
 
+  // Keep the first paragraph's layout attrs (mirrors backend ingest).
+  const base: JSONContent = prev.attrs
+    ? { type: 'paragraph', attrs: prev.attrs }
+    : { type: 'paragraph' };
+
   const hyphenated =
     /[A-Za-z]-$/.test(prevText.trimEnd()) && /^\w/.test(nextText.trimStart());
   if (hyphenated) {
     stripTrailingHyphen(prevContent);
-    return { type: 'paragraph', content: [...prevContent, ...nextContent] };
+    return { ...base, content: [...prevContent, ...nextContent] };
   }
 
   const needSpace =
@@ -77,22 +83,40 @@ function joinParagraphs(prev: JSONContent, next: JSONContent): JSONContent {
     !/\s$/.test(prevText) &&
     !/^\s/.test(nextText);
   const spacer: JSONContent[] = needSpace ? [{ type: 'text', text: ' ' }] : [];
-  return { type: 'paragraph', content: [...prevContent, ...spacer, ...nextContent] };
+  return { ...base, content: [...prevContent, ...spacer, ...nextContent] };
 }
 
+function canStitch(prev: JSONContent, prevLastLine: string, next: JSONContent): boolean {
+  return shouldStitchParagraphs({
+    prevText: plainText(prev),
+    prevLastLine,
+    prevAttrs: prev.attrs ?? null,
+    nextText: plainText(next),
+    nextAttrs: next.attrs ?? null,
+  });
+}
+
+function sameLayoutAttrs(a: JSONContent, b: JSONContent): boolean {
+  const align = (n: JSONContent) => (n.attrs?.textAlign as string | undefined) ?? 'left';
+  const indent = (n: JSONContent) => Number(n.attrs?.indent ?? 0);
+  return align(a) === align(b) && indent(a) === indent(b);
+}
+
+/** Layout-aware wrap stitching; mirrors backend `stitchWrappedParagraphs`. */
 function stitchWrappedParagraphs(nodes: JSONContent[]): JSONContent[] {
   const out: JSONContent[] = [];
+  // Last original line of each output paragraph (parallel to `out`).
+  const lastLines: string[] = [];
+  const push = (node: JSONContent) => {
+    out.push(node);
+    lastLines.push(plainText(node));
+  };
 
   for (const node of nodes) {
     if (isPageNumberParagraph(node)) continue;
 
-    if (isEmptyParagraph(node)) {
-      out.push(node);
-      continue;
-    }
-
-    if (!isParagraph(node)) {
-      out.push(node);
+    if (isEmptyParagraph(node) || !isParagraph(node)) {
+      push(node);
       continue;
     }
 
@@ -100,10 +124,13 @@ function stitchWrappedParagraphs(nodes: JSONContent[]): JSONContent[] {
       const beforeEmpty = out[out.length - 2]!;
       if (
         isParagraph(beforeEmpty) &&
-        isWrapContinuation(plainText(beforeEmpty), plainText(node))
+        sameLayoutAttrs(beforeEmpty, node) &&
+        canStitch(beforeEmpty, lastLines[out.length - 2]!, node)
       ) {
         out.pop();
+        lastLines.pop();
         out[out.length - 1] = joinParagraphs(beforeEmpty, node);
+        lastLines[out.length - 1] = plainText(node);
         continue;
       }
     }
@@ -113,13 +140,14 @@ function stitchWrappedParagraphs(nodes: JSONContent[]): JSONContent[] {
       prev &&
       isParagraph(prev) &&
       !isEmptyParagraph(prev) &&
-      isWrapContinuation(plainText(prev), plainText(node))
+      canStitch(prev, lastLines[out.length - 1]!, node)
     ) {
       out[out.length - 1] = joinParagraphs(prev, node);
+      lastLines[out.length - 1] = plainText(node);
       continue;
     }
 
-    out.push(node);
+    push(node);
   }
 
   return out;
@@ -179,26 +207,59 @@ function cleanOcrMarks(node: JSONContent): JSONContent {
   return cleaned === node ? node : (cleaned as JSONContent);
 }
 
-function sanitizeTopLevelBlocks(nodes: JSONContent[]): JSONContent[] {
-  const capped = nodes.map((n) =>
-    cleanOcrMarks(stripMisInferredParagraphAlign(capMarks(n))),
-  );
-  return stitchWrappedParagraphs(capped);
+export interface SanitizeOptions {
+  /**
+   * True for drafts that came through OCR (`draft.ocrConfidence` set). Only
+   * those get the text-altering OCR repairs; digital imports and typed drafts
+   * already have exact text and layout.
+   */
+  readonly isOcr?: boolean;
+}
+
+function ocrRepairNode(node: JSONContent): JSONContent {
+  return cleanOcrMarks(stripMisInferredParagraphAlign(node));
+}
+
+function sanitizeNode(node: JSONContent, isOcr: boolean): JSONContent {
+  const capped = capMarks(node);
+  return isOcr ? ocrRepairNode(capped) : capped;
+}
+
+function sanitizeTopLevelBlocks(nodes: JSONContent[], isOcr: boolean): JSONContent[] {
+  const capped = nodes.map(capMarks);
+  if (!isOcr) return capped;
+  // Stitch on the ingest layout attrs first: stripping alignment beforehand
+  // would make genuinely centered title lines look like left-aligned wraps.
+  return stitchWrappedParagraphs(capped).map(ocrRepairNode);
 }
 
 /**
  * Sanitize a TipTap document for display (and optional one-shot persist).
- * No-op for non-doc roots.
+ *
+ * All drafts: cap oversized inline font sizes.
+ * OCR drafts only: glued-word / scattered-mark repair, mis-inferred
+ * alignment stripping, page-number removal, and wrap stitching.
  */
-export function sanitizeTipTapContent(doc: JSONContent): JSONContent {
+export function sanitizeTipTapContent(
+  doc: JSONContent,
+  options: SanitizeOptions = {},
+): JSONContent {
+  const isOcr = options.isOcr === true;
   if (doc.type !== 'doc' || !Array.isArray(doc.content)) {
-    return cleanOcrMarks(stripMisInferredParagraphAlign(capMarks(doc)));
+    return sanitizeNode(doc, isOcr);
   }
 
   return {
     ...doc,
-    content: sanitizeTopLevelBlocks(doc.content),
+    content: sanitizeTopLevelBlocks(doc.content, isOcr),
   };
+}
+
+/** Sanitize options for a loaded draft: OCR repairs only when it was OCR'd. */
+export function sanitizeOptionsForDraft(
+  draft: { readonly ocrConfidence?: number | null } | null | undefined,
+): SanitizeOptions {
+  return { isOcr: typeof draft?.ocrConfidence === 'number' };
 }
 
 /** True when sanitization would change persisted JSON. */

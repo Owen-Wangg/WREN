@@ -7,7 +7,7 @@ import {
   headingLevelFromPlainText,
   isWatermarkPlainText,
 } from './pdfHeadingHeuristics.js';
-import { tipTapPlainText } from './stitchWrappedParagraphs.js';
+import { stitchWrappedParagraphs, tipTapPlainText } from './stitchWrappedParagraphs.js';
 
 function promoteNode(node: TipTapNode): TipTapNode {
   if (node.type !== 'paragraph') return node;
@@ -32,6 +32,12 @@ export function stripWatermarkNodes(nodes: TipTapNode[]): TipTapNode[] {
   });
 }
 
+/**
+ * Final PDF clean-up shared by the digital and OCR paths:
+ * 1. drop overlay stamps (so they can't be stitched into body text),
+ * 2. promote judgment / TOC / section titles while they are still standalone,
+ * 3. layout-aware wrap stitching (headings are never stitched).
+ */
 export function polishPdfTipTapNodes(nodes: TipTapNode[]): TipTapNode[] {
-  return promotePdfHeadings(stripWatermarkNodes(nodes));
+  return stitchWrappedParagraphs(promotePdfHeadings(stripWatermarkNodes(nodes)));
 }

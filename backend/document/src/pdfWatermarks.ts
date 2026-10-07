@@ -81,6 +81,7 @@ export function filterWatermarkItems(
 export function filterWatermarkPages(pages: SpatialPage[]): SpatialPage[] {
   const repeating = repeatingOverlayTexts(pages);
   return pages.map((page) => ({
+    ...page,
     textItems: filterWatermarkItems(page.textItems, repeating),
   }));
 }
