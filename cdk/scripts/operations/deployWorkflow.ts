@@ -1212,7 +1212,6 @@ export class DeployWorkflow {
       `${this.config.stackPrefix}-authorizer`,
       `${this.config.stackPrefix}-document`,
       `${this.config.stackPrefix}-admin`,
-      `${this.config.stackPrefix}-audit`,
       `${this.config.stackPrefix}-feedback-orchestrator`,
       `${this.config.stackPrefix}-feedback-engine`,
       `${this.config.stackPrefix}-diff-anchor-progress`,

@@ -1,5 +1,5 @@
 import * as path from "path";
-import { Stack, type StackProps, Duration, CfnOutput, RemovalPolicy } from "aws-cdk-lib";
+import { Stack, type StackProps, Duration, CfnOutput, RemovalPolicy, Token } from "aws-cdk-lib";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as ecr from "aws-cdk-lib/aws-ecr";
@@ -17,7 +17,7 @@ import { AppSyncRealtimeConstruct } from "../constructs/AppSyncRealtimeConstruct
 import { NotificationInfraConstruct } from "../constructs/NotificationInfraConstruct";
 
 import type { AppDbRole } from "../appDbRoles.js";
-import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, type AppConfig } from "../config";
+import { bedrockModelIdParameterName, cacheEnabledWorkloadsEnv, resolveLogRetention, ssmParameterNames, type AppConfig } from "../config";
 import { corsLambdaEnvironment } from "../corsOrigins";
 
 /** IAM resources for us.anthropic.* / us.meta.* cross-region inference profiles. */
@@ -92,7 +92,6 @@ export class ComputeStack extends Stack {
   public readonly adminFunction: lambda.Function;
   /** Operator-only TechnicalAdmin sync; never wired to API Gateway. */
   public readonly syncCognitoAdminsFunction: lambda.Function;
-  public readonly auditFunction: lambda.Function;
   public readonly feedbackOrchestratorFunction: lambda.Function;
   public readonly feedbackEngineFunction: lambda.Function;
   public readonly diffAnchorProgressFunction: lambda.Function;
@@ -148,8 +147,8 @@ export class ComputeStack extends Stack {
     // One-way salt for activity-log actor pseudonyms. Generated into Secrets
     // Manager (never a guessable path). Only the secret's NAME is passed to
     // Lambda; the shared @wren/db-node activity-log writer fetches the value
-    // with GetSecretValue at runtime. Injecting the value itself (secretValue /
-    // dynamic reference)
+    // with GetSecretValue at runtime (outside the handler, cached per
+    // container). Injecting the value itself (secretValue / dynamic reference)
     // would expose it to anyone with lambda:GetFunctionConfiguration.
     //
     // The name, not `secretArn`, is passed because in "external" mode
@@ -176,6 +175,46 @@ export class ComputeStack extends Stack {
       WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID: activityPseudonymSaltName,
     };
 
+    // HMAC key binding the API Gateway authorizer context to this deployment
+    // (finding f-140e2506). The authorizer signs the context it mints; the
+    // service Lambdas verify the signature and reject forged contexts from a
+    // direct `lambda:InvokeFunction`. Like the pseudonym salt, only the secret
+    // NAME is passed to the functions — the value is fetched with
+    // GetSecretValue at runtime (cached per container), never exposed via
+    // lambda:GetFunctionConfiguration.
+    //
+    // Co-located under `${prefix}/audit/*` ON PURPOSE: that path is already the
+    // only Secrets Manager scope the Compute permissions boundary allows roles
+    // to read and the only one the scoped Compute CFN deploy role may create
+    // (CicdStack). Reusing it keeps this change from widening either hardened
+    // scope. Ownership tracks the audit salt so protected teardown retains it.
+    const authContextSigningSecretName = `${config.stackPrefix}/audit/auth-context-signing-key`;
+    const authContextSigningSecret = config.auditPseudonymSaltOwnership === "external"
+      ? secretsmanager.Secret.fromSecretNameV2(
+        this,
+        "AuthContextSigningKey",
+        authContextSigningSecretName,
+      )
+      : new secretsmanager.Secret(this, "AuthContextSigningKey", {
+        secretName: authContextSigningSecretName,
+        description: "HMAC key for signing the API Gateway authorizer context",
+        generateSecretString: {
+          passwordLength: 64,
+          excludePunctuation: true,
+        },
+      });
+    if (config.auditPseudonymSaltOwnership === "managed") {
+      authContextSigningSecret.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    }
+    // Signer (authorizer) and verifiers (service Lambdas) both need the name.
+    const authContextSigningEnv = {
+      AUTH_CONTEXT_SIGNING_SECRET_ID: authContextSigningSecretName,
+    };
+    // Enforcement mode is set on the VERIFIERS only; the authorizer always signs.
+    const authContextVerifyEnv = {
+      AUTH_CONTEXT_VERIFY_MODE: config.authContextVerifyMode,
+    };
+
     // -----------------------------------------------------------------------
     // Lambda Authorizer (Node 22)
     // -----------------------------------------------------------------------
@@ -197,6 +236,11 @@ export class ComputeStack extends Stack {
       depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
       environment: {
         ...dbEnv(secrets.wren_authorizer),
+        // First-login identity relinks write a pseudonymized `identity.relinked`
+        // activity_event (finding f-4531f8e7). Secret NAME only (grant below).
+        ...activitySaltEnv,
+        // Signs the authorizer context it mints (finding f-140e2506).
+        ...authContextSigningEnv,
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
         ...(config.technicalAdminBootstrapSubject
@@ -217,7 +261,7 @@ export class ComputeStack extends Stack {
       // Textract OCR needs headroom for multi-page PDF analysis.
       // PDF ingest is async via SQS so API Gateway's ~29s sync cap does not
       // abort large OCR jobs — the worker uses this full timeout.
-      memorySize: 2048,
+      memorySize: 384,
       timeout: Duration.minutes(3),
       // Reserved CAP so a burst of long-running OCR jobs cannot consume the
       // whole account pool and starve the authorizer. Aligns with the ingest
@@ -230,6 +274,9 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_document),
         ...corsEnv,
+        // Verifies the authorizer-context signature (finding f-140e2506).
+        ...authContextSigningEnv,
+        ...authContextVerifyEnv,
         // Document deletion records an activity_event (Issue #187); the shared
         // writer needs the same pseudonym salt as Admin/Audit so an actor's
         // pseudonym is correlatable across services. Only the secret's name
@@ -248,13 +295,18 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Document ingest queue (async PDF OCR via Textract)
     // -----------------------------------------------------------------------
+    // Messages reference user documents: SSE-SQS at rest + TLS-only queue policy.
     this.documentIngestDlq = new sqs.Queue(this, "DocumentIngestDlq", {
       queueName: `${config.stackPrefix}-document-ingest-dlq`,
       retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
     });
 
     this.documentIngestQueue = new sqs.Queue(this, "DocumentIngestQueue", {
       queueName: `${config.stackPrefix}-document-ingest-queue`,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
       // Must exceed DocumentFn timeout so in-flight OCR is not redelivered early.
       visibilityTimeout: Duration.minutes(4),
       deadLetterQueue: {
@@ -278,12 +330,22 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Admin / Config / Auth / Usage Service Lambda (Node 22)
     // -----------------------------------------------------------------------
+    // The admin prompt-injection scan fails closed without a guardrail id
+    // (Issue #181). Catch a literally-empty id at synth; the normal value is an
+    // unresolved SSM token. CDK must NEVER set PROMPT_GUARDRAIL_SKIP (dev/test
+    // bypass only).
+    if (!Token.isUnresolved(props.promptGuardrailId) && props.promptGuardrailId.trim() === "") {
+      throw new Error(
+        "ComputeStack: promptGuardrailId must be a non-empty Bedrock Guardrail id " +
+          "(admin prompt-injection screening fails closed without it).",
+      );
+    }
     this.adminFunction = new lambdaNodejs.NodejsFunction(this, "AdminFn", {
       functionName: `${config.stackPrefix}-admin`,
       entry: path.join(monorepoRoot, "backend/admin/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 512,
+      memorySize: 256,
       timeout: Duration.seconds(30),
       vpc,
       vpcSubnets: privateSubnets,
@@ -293,6 +355,9 @@ export class ComputeStack extends Stack {
         ...dbEnv(secrets.wren_admin),
         ...corsEnv,
         ...activitySaltEnv,
+        // Verifies the authorizer-context signature (finding f-140e2506).
+        ...authContextSigningEnv,
+        ...authContextVerifyEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
         COGNITO_USER_POOL_ID: props.userPoolId,
@@ -334,37 +399,20 @@ export class ComputeStack extends Stack {
     });
 
     // -----------------------------------------------------------------------
-    // Audit / Activity-Log / Analytics Service Lambda (Node 22)
-    // -----------------------------------------------------------------------
-    this.auditFunction = new lambdaNodejs.NodejsFunction(this, "AuditFn", {
-      functionName: `${config.stackPrefix}-audit`,
-      entry: path.join(monorepoRoot, "backend/admin/src/lambda-audit.ts"),
-      handler: "handler",
-      runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 256,
-      timeout: Duration.seconds(15),
-      vpc,
-      vpcSubnets: privateSubnets,
-      projectRoot: monorepoRoot,
-      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
-      environment: {
-        ...dbEnv(secrets.wren_audit),
-        ...corsEnv,
-        ...activitySaltEnv,
-      },
-      bundling: sharedBundling,
-    });
-
-    // -----------------------------------------------------------------------
     // Feedback DLQ + Queue (SQS — async job execution, REQ-NFR-SCALE-01)
     // -----------------------------------------------------------------------
+    // Feedback jobs reference user drafts: SSE-SQS at rest + TLS-only queue policy.
     this.feedbackDlq = new sqs.Queue(this, "FeedbackDlq", {
       queueName: `${config.stackPrefix}-feedback-dlq`,
       retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
     });
 
     this.feedbackQueue = new sqs.Queue(this, "FeedbackQueue", {
       queueName: `${config.stackPrefix}-feedback-queue`,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
       visibilityTimeout: Duration.minutes(16), // Must exceed engine timeout
       deadLetterQueue: {
         queue: this.feedbackDlq,
@@ -380,7 +428,7 @@ export class ComputeStack extends Stack {
       entry: path.join(monorepoRoot, "backend/feedback/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 512,
+      memorySize: 256,
       // Ask WREN invokes Bedrock synchronously on this Lambda.
       timeout: Duration.seconds(60),
       vpc,
@@ -390,6 +438,9 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_feedback_orch),
         ...corsEnv,
+        // Verifies the authorizer-context signature (finding f-140e2506).
+        ...authContextSigningEnv,
+        ...authContextVerifyEnv,
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
         CONVERSATION_TABLE_NAME: props.conversationTableName,
         BEDROCK_MODEL_ID: config.bedrockModelId,
@@ -414,7 +465,7 @@ export class ComputeStack extends Stack {
         tagOrDigest: config.feedbackEngineImageTag,
       }),
       handler: lambda.Handler.FROM_IMAGE,
-      memorySize: 1024,
+      memorySize: 512,
       timeout: Duration.minutes(15), // long documents can exceed 5m on Bedrock
       // Reserved CAP so the longest-running function (15-min timeout, holds a
       // slot for minutes) cannot exhaust the shared account pool and starve the
@@ -479,7 +530,7 @@ export class ComputeStack extends Stack {
       entry: path.join(monorepoRoot, "backend/notification/src/lambda-handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 512,
+      memorySize: 256,
       timeout: Duration.seconds(30),
       vpc,
       vpcSubnets: privateSubnets,
@@ -488,6 +539,7 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_notification),
         ...corsEnv,
+        ...activitySaltEnv,
         NOTIFICATION_TOPIC_ARN: notificationInfra.topic.topicArn,
         OVERRIDE_EXPIRY_WARNING_HOURS: "24",
       },
@@ -573,6 +625,7 @@ export class ComputeStack extends Stack {
       feedbackEngineRole: this.feedbackEngineFunction.role!,
       notificationLambdaRole: this.notificationFunction.role!,
       stackPrefix: config.stackPrefix,
+      logRetention: resolveLogRetention(config),
     });
     this.appSyncGraphqlUrl = appSyncRealtime.graphqlUrl;
 
@@ -592,25 +645,42 @@ export class ComputeStack extends Stack {
     this.grantDatabaseAccess(this.documentFunction, secrets.wren_document);
     this.grantDatabaseAccess(this.adminFunction, secrets.wren_admin);
     this.grantDatabaseAccess(this.syncCognitoAdminsFunction, secrets.wren_admin);
-    this.grantDatabaseAccess(this.auditFunction, secrets.wren_audit);
     this.grantDatabaseAccess(this.feedbackOrchestratorFunction, secrets.wren_feedback_orch);
     this.grantDatabaseAccess(this.feedbackEngineFunction, secrets.wren_feedback_engine);
     this.grantDatabaseAccess(this.notificationFunction, secrets.wren_notification);
 
     // Activity-log pseudonym salt: read at runtime by the shared
     // @wren/db-node activity-log writer in every function that receives
-    // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins; Document
-    // records its deletion events through the same writer, Issue #187). Every
-    // such function MUST be granted here — the CDK test enforces it. grantRead scopes GetSecretValue/DescribeSecret to this one secret
-    // and, for fromSecretNameV2 ("external" mode), appends the `-??????` suffix
+    // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins, Authorizer,
+    // Notification; Document records its deletion events through the same
+    // writer). Every
+    // such function MUST be granted here — the CDK test enforces it. grantRead
+    // scopes GetSecretValue/DescribeSecret to this one secret and, for
+    // fromSecretNameV2 ("external" mode), appends the `-??????` suffix
     // wildcard that a hand-written statement on `secretArn` would miss.
     activityPseudonymSalt.grantRead(this.adminFunction);
-    activityPseudonymSalt.grantRead(this.auditFunction);
     activityPseudonymSalt.grantRead(this.documentFunction);
     // sync-cognito-admins writes a pseudonymized activity_event per grant.
     activityPseudonymSalt.grantRead(this.syncCognitoAdminsFunction);
+    // Authorizer audits first-login identity relinks (finding f-4531f8e7).
+    activityPseudonymSalt.grantRead(this.authorizerFunction);
+    // Notification records a pseudonymized activity_event per Notification_Type
+    // catalog create/update.
+    activityPseudonymSalt.grantRead(this.notificationFunction);
 
-    // Authorizer: look up Cognito email/name when auto-provisioning app_user on first login.
+    // Auth-context signing key (finding f-140e2506): the authorizer signs; the
+    // three API Gateway service Lambdas verify. grantRead scopes
+    // GetSecretValue/DescribeSecret to this one secret (and, in "external"
+    // mode, appends the `-??????` suffix wildcard). All four reads fall under
+    // the `${prefix}/audit/*` scope the permissions boundary already permits.
+    authContextSigningSecret.grantRead(this.authorizerFunction);
+    authContextSigningSecret.grantRead(this.adminFunction);
+    authContextSigningSecret.grantRead(this.documentFunction);
+    authContextSigningSecret.grantRead(this.feedbackOrchestratorFunction);
+
+    // Authorizer: look up Cognito email/name/email_verified when auto-provisioning
+    // app_user on first login, and check whether a previously linked subject
+    // still exists before an email relink (both via AdminGetUser).
     this.authorizerFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["cognito-idp:AdminGetUser"],
       resources: [
@@ -658,9 +728,54 @@ export class ComputeStack extends Stack {
       ],
     }));
 
-    // Admin Lambda: S3 read/write for reference material uploads.
+    // -----------------------------------------------------------------------
+    // Orphan-upload reconciliation sweep (Node 22, daily EventBridge schedule)
+    // -----------------------------------------------------------------------
+    // The documents-bucket lifecycle rule only expires objects tagged
+    // `orphan-upload=true`. This sweep re-tags presigned uploads older than a
+    // day that are untagged and referenced by no draft / ingest-job row, so a
+    // failed attach can never strand an object permanently. Own role, scoped
+    // to list + tag on the documents bucket; it never reads or deletes bytes.
+    const orphanUploadSweepFunction = new lambdaNodejs.NodejsFunction(this, "OrphanUploadSweepFn", {
+      functionName: `${config.stackPrefix}-orphan-upload-sweep`,
+      entry: path.join(monorepoRoot, "backend/document/src/orphanUploadSweepHandler.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: Duration.minutes(10),
+      vpc,
+      vpcSubnets: privateSubnets,
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
+      environment: {
+        ...dbEnv(secrets.wren_document),
+        DOCUMENTS_BUCKET_NAME: props.documentsBucketName,
+      },
+      bundling: sharedBundling,
+    });
+    this.grantDatabaseAccess(orphanUploadSweepFunction, secrets.wren_document);
+    orphanUploadSweepFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:ListBucket"],
+      resources: [`arn:aws:s3:::${props.documentsBucketName}`],
+      conditions: { StringLike: { "s3:prefix": ["documents/*"] } },
+    }));
+    orphanUploadSweepFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:GetObjectTagging", "s3:PutObjectTagging"],
+      resources: [`arn:aws:s3:::${props.documentsBucketName}/documents/*`],
+    }));
+    const orphanUploadSweepRule = new events.Rule(this, "OrphanUploadSweepRule", {
+      ruleName: `${config.stackPrefix}-orphan-upload-sweep`,
+      schedule: events.Schedule.rate(Duration.days(1)),
+      description: "Re-tags stranded, unreferenced document uploads for lifecycle expiry",
+    });
+    orphanUploadSweepRule.addTarget(new targets.LambdaFunction(orphanUploadSweepFunction));
+
+    // Admin Lambda: S3 read/delete on reference material. PutObject is
+    // intentionally omitted (finding S-3): no code in the admin backend uploads
+    // reference bytes, so the write grant was unused. Restore it only alongside
+    // an in-repo, shape-validated upload path.
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      actions: ["s3:GetObject", "s3:DeleteObject"],
       resources: [`arn:aws:s3:::${props.referenceBucketName}/*`],
     }));
     props.storageEncryptionKey.grantEncryptDecrypt(this.adminFunction);
@@ -731,6 +846,14 @@ export class ComputeStack extends Stack {
       actions: ["ssm:PutParameter"],
       resources: [bedrockModelParamArn],
     }));
+    // Read-only: the first admin's Cognito sub, so revokeRole can refuse to
+    // demote them. Written by the deploy workflow, not this stack.
+    this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ssm:GetParameter"],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter${ssmParameterNames.technicalAdminBootstrapSubject(config)}`,
+      ],
+    }));
 
     // ConversationHistory is SSE-KMS with the storage CMK — DynamoDB calls need decrypt/encrypt.
     props.storageEncryptionKey.grantEncryptDecrypt(this.feedbackOrchestratorFunction);
@@ -771,9 +894,6 @@ export class ComputeStack extends Stack {
     new CfnOutput(this, "SyncCognitoAdminsFunctionName", {
       value: this.syncCognitoAdminsFunction.functionName,
       description: "Operator-only: aws lambda invoke --payload '{\"_script\":\"sync-cognito-admins\"}'",
-    });
-    new CfnOutput(this, "AuditFunctionArn", {
-      value: this.auditFunction.functionArn,
     });
     new CfnOutput(this, "FeedbackOrchestratorFunctionArn", {
       value: this.feedbackOrchestratorFunction.functionArn,

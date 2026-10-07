@@ -191,7 +191,7 @@ Local UI uses `VITE_USE_LIVE_API=false` (the default), which runs an in-memory m
 
 ### Signup email-domain allowlist
 
-Self-signup is open to any valid email unless you set `WREN_ALLOWED_EMAIL_DOMAINS` at deploy time (for example `ubc.ca`). Matching is exact: list every hostname you want to allow. The Cognito PreSignUp Lambda on `CognitoStack` is the real gate; Amplify injects the same list as `VITE_ALLOWED_EMAIL_DOMAINS` so the sign-up form can fail clearly. Clearing the variable and redeploying restores open signup. Existing users are not signed out or blocked from login.
+Self-signup is limited to the exact hostnames in `WREN_ALLOWED_EMAIL_DOMAINS` (for example `ubc.ca,student.ubc.ca`), which `npm run deploy` requires. Matching is exact with no wildcards: list every hostname you want to allow. The Cognito PreSignUp Lambda on `CognitoStack` is the real gate and fails closed: an empty list denies every new sign-up (`isSignupEmailDomainAllowed` in `types/src/signupEmailDomains.ts`, with a CDK copy in `cdk/lib/signupEmailDomains.ts`). Amplify injects the same list as `VITE_ALLOWED_EMAIL_DOMAINS` so the sign-up form can fail clearly. When running `cdk deploy` on the Cognito stack directly, pass `-c allowedEmailDomains=...` (or set it once in `~/.cdk.json`) or new sign-ups are blocked; `npm run deploy` without the variable refuses to run rather than clearing the list. Existing users are not signed out or blocked from login.
 
 See the [deployment guide](./deployment-guide.md#restricting-signup-to-email-domains).
 
@@ -300,7 +300,6 @@ Entry points Compute already bundles:
 | Authorizer | `backend/auth/src/authorizer.ts` |
 | Document | `backend/document/src/lambda-handler.ts` |
 | Admin | `backend/admin/src/lambda-handler.ts` |
-| Audit | `backend/admin/src/lambda-audit.ts` |
 | Feedback orchestrator | `backend/feedback/src/lambda-handler.ts` |
 | Notification | `backend/notification/src/lambda-handler.ts` |
 | Feedback Engine | Python container from ECR `{prefix}-feedback-engine:bootstrap` |

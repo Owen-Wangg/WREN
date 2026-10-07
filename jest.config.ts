@@ -35,6 +35,8 @@ const config: Config = {
       },
     ],
   },
+  // Explicit test-only env (e.g. PROMPT_GUARDRAIL_SKIP for the admin guardrail).
+  setupFiles: ['<rootDir>/testing/typescript/jest.setup.ts'],
   testMatch: ['<rootDir>/**/*.test.ts'],
   testPathIgnorePatterns: [
     '/node_modules/',

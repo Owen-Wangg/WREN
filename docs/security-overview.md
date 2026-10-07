@@ -110,7 +110,7 @@ The trust boundary worth remembering: **network reachability and CloudFront/WAF 
 
 All users authenticate with Amazon Cognito (email alias, SRP). All application REST requests require authentication. CORS `OPTIONS` preflight requests are unauthenticated because they are handled as browser preflight requests, not application calls.
 
-Self-signup is enabled; email verification uses a one-time code. Account recovery is email only. MFA is optional. New sign-ups may optionally be limited to exact email hostnames configured at deploy time (`WREN_ALLOWED_EMAIL_DOMAINS`); the default is unrestricted. The Cognito PreSignUp trigger is the authoritative gate. Existing accounts can still sign in regardless of domain.
+Self-signup is enabled; email verification uses a one-time code. A changed email does not take effect until the new address is verified (`keepOriginal`), and the SPA client may write only `email`, `given_name` and `family_name`. Account recovery is email only. MFA is optional. New sign-ups are limited to exact email hostnames configured at deploy time (`WREN_ALLOWED_EMAIL_DOMAINS`, required by `npm run deploy`); an empty list denies every sign-up. The Cognito PreSignUp trigger is the authoritative gate. Existing accounts can still sign in regardless of domain.
 
 Cognito tokens: access and ID tokens are valid for 1 hour; refresh tokens for 30 days. The React web app sends `Authorization: Bearer {accessToken}` on REST calls. AppSync realtime subscriptions use the ID token.
 
@@ -125,6 +125,8 @@ flowchart TB
 ```
 
 The IdP proves identity only. After first login, PostgreSQL is the authorization source of truth. Membership in the Cognito `SystemAdmin` group seeds a `TechnicalAdmin` role on first provision; groups are not re-read on later requests. **Cognito groups are therefore a provisioning mechanism, not an ongoing authorization mechanism** — changing a user's Cognito group after provisioning does not change their in-app authorization.
+
+Application identity is keyed on the Cognito `sub`, never on email. First-login provisioning requires Cognito to report the email as verified. An email that matches an existing `app_user` row may reclaim it only as a one-time claim by a recreated Cognito user: the row's previous subject must be a `seed:` placeholder or no longer exist in the pool, and the row must hold nothing beyond the default Student role (no admin or scoped role, no active access or department-visibility grant). Otherwise the authorizer denies with `auth_failure` / `provisioning_refused` and an operator must reassign the identity explicitly. Every successful relink writes an `identity.relinked` activity event (user id, previous and new subject, roles at relink) in the same transaction; the authorizer's database role can append to the activity log but not read it.
 
 ### 3.2 Authorization
 
@@ -308,9 +310,9 @@ Each service has its own PostgreSQL role and a corresponding Secrets Manager cre
 | Per-service DB roles | Secrets Manager (generated), fronted by RDS Proxy | Generated secrets synced to PostgreSQL roles via a custom resource; no CDK rotation schedule today |
 | Cognito pool / client IDs | SSM Parameter Store | Static identifiers |
 | Bedrock model id, guardrail id | SSM | Updated by Technical Admin / deploy |
-| Activity-log pseudonym salt | Secrets Manager (`{prefix}/audit/pseudonym-salt`, generated). Admin, Audit, Document and sync-cognito-admins Lambdas receive only the secret name (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`); the shared `@wren/db-node` activity-log writer fetches the value at runtime under a grant scoped to that secret | Treat as a secret; changing it breaks historical grouping (pseudonyms are one-way, so past events cannot be re-keyed). Warm containers cache the value, so force new containers after any rotation |
+| Activity-log pseudonym salt | Secrets Manager (`{prefix}/audit/pseudonym-salt`, generated). Admin, Document and sync-cognito-admins Lambdas receive only the secret name (`WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID`); the shared `@wren/db-node` activity-log writer fetches the value at runtime under a grant scoped to that secret | Treat as a secret; changing it breaks historical grouping (pseudonyms are one-way, so past events cannot be re-keyed). Warm containers cache the value, so force new containers after any rotation |
 
-Least-privilege PostgreSQL roles (examples): `wren_authorizer`, `wren_document`, `wren_admin`, `wren_audit`, `wren_feedback_orch`, `wren_feedback_engine`, `wren_notification`, `wren_appsync_auth`. Passwords are never committed to git or migration SQL.
+Least-privilege PostgreSQL roles (examples): `wren_authorizer`, `wren_document`, `wren_admin`, `wren_feedback_orch`, `wren_feedback_engine`, `wren_notification`, `wren_appsync_auth`. Passwords are never committed to git or migration SQL.
 
 ### 6.5 S3 Security
 
@@ -360,7 +362,7 @@ Ask WREN follows the same coaching posture (Socratic replies, a draft-anchored s
 |---------|-------------|
 | **Untrusted-data delimiters** | Student-controlled content is placed inside a delimited untrusted-data block using a generated boundary token, reducing the chance that submitted content can reproduce the delimiter |
 | **Save-time prompt scan** | Department Type prompts that instruct rewrites are rejected before the DB write (`PromptGuardrailError`) |
-| **Bedrock prompt attack** | Admin-submitted prompt fields are scanned with a dedicated Guardrail (`PROMPT_ATTACK`, input MEDIUM) |
+| **Bedrock prompt attack** | Admin-submitted prompt fields are scanned with a dedicated Guardrail (`PROMPT_ATTACK`, input MEDIUM). Fails closed: if `PROMPT_GUARDRAIL_ID` is unset, prompt saves are rejected (HTTP 503 `PROMPT_GUARDRAIL_UNCONFIGURED`) and the `prompt-guardrail-skipped` alarm fires. Only `PROMPT_GUARDRAIL_SKIP=true` (local dev/tests) bypasses the scan |
 | **Injection audit** | Guardrail outcomes are recorded (`guardrail.passed`, `guardrail.violation_rejected`, `guardrail.injection_mitigated`) |
 
 This Guardrail is prompt-attack detection on admin configuration. It is not a general PII redaction filter on student essays.

@@ -21,7 +21,7 @@ import {
   docxBytesToTiptapContent,
 } from '@/features/editor/docxContentMapper';
 import { apiClient, ApiError } from '@/services';
-import { stripAiMarksFromTipTapContent, asTipTapDoc } from '@wren/types';
+import { stripAiMarksFromTipTapContent, stripUnsafeTipTapAttrs, asTipTapDoc } from '@wren/types';
 import type { JSONContent } from '@tiptap/react';
 
 const DOCX_PARSE_FALLBACK_MESSAGE =
@@ -147,7 +147,7 @@ export function NewDocumentPage() {
       }
 
       const cleaned = initialContent
-        ? asTipTapDoc(stripAiMarksFromTipTapContent(initialContent))
+        ? asTipTapDoc(stripUnsafeTipTapAttrs(stripAiMarksFromTipTapContent(initialContent)))
         : undefined;
 
       const doc = await createDocument(apiClient, {

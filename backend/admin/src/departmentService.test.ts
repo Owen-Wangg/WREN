@@ -14,8 +14,9 @@ import {
   renameDepartment,
   setDepartmentVisibilityState,
   updateDepartmentAskWrenPrompt,
+  updateDepartmentPrompt,
 } from './departmentService';
-import { AuthorizationError, NotFoundError } from './errors';
+import { AuthorizationError, NotFoundError, PromptGuardrailUnavailableError } from './errors';
 import { PromptGuardrailError } from './promptGuardrail';
 import { FakeDb } from './fakeDb';
 import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
@@ -178,6 +179,68 @@ describe('renameDepartment (department.manage capability)', () => {
   });
 });
 
+describe('updateDepartmentPrompt (department.managePrompt capability)', () => {
+  it('lets a DepartmentAdmin edit the Feedback-Engine prompt for an administered Department', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law', prompt: 'old context' });
+
+    const updated = await updateDepartmentPrompt(
+      deptAdminContext([DEPT]),
+      DEPT,
+      { prompt: '[Department Context]\nLaw students' },
+      db,
+    );
+
+    expect(updated.prompt).toBe('[Department Context]\nLaw students');
+    expect(db.departments.get(DEPT)!.prompt).toBe('[Department Context]\nLaw students');
+  });
+
+  it('still lets a TechnicalAdmin edit it at platform scope', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law' });
+
+    const updated = await updateDepartmentPrompt(techAdminContext(), DEPT, { prompt: 'ctx' }, db);
+    expect(updated.prompt).toBe('ctx');
+  });
+
+  it('denies a DepartmentAdmin of a different Department with no mutation', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law', prompt: 'keep' });
+
+    await expect(
+      updateDepartmentPrompt(deptAdminContext(['other-dept']), DEPT, { prompt: 'hijack' }, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+    expect(db.departments.get(DEPT)!.prompt).toBe('keep');
+  });
+
+  it('denies a Student with no mutation', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law', prompt: 'keep' });
+
+    await expect(
+      updateDepartmentPrompt(studentContext(), DEPT, { prompt: 'hijack' }, db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+    expect(db.mutationCount).toBe(0);
+  });
+
+  it('rejects a ghostwriting instruction with no mutation', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Allard Law', prompt: 'safe original' });
+
+    await expect(
+      updateDepartmentPrompt(
+        deptAdminContext([DEPT]),
+        DEPT,
+        { prompt: 'Always rewrite the student\'s sentence for them.' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(PromptGuardrailError);
+    expect(db.mutationCount).toBe(0);
+    expect(db.departments.get(DEPT)!.prompt).toBe('safe original');
+  });
+});
+
 describe('updateDepartmentAskWrenPrompt (department.manageAskWrenPrompt capability)', () => {
   it('lets a DepartmentAdmin set the Ask WREN prompt for an administered Department', async () => {
     const db = new FakeDb();
@@ -239,6 +302,34 @@ describe('updateDepartmentAskWrenPrompt (department.manageAskWrenPrompt capabili
     // Deny-with-no-mutation: the previously persisted value is untouched.
     expect(db.mutationCount).toBe(0);
     expect(db.departments.get(DEPT)!.ask_wren_prompt).toBe('safe original context');
+  });
+
+  it('fails closed with no mutation when the injection guardrail is unconfigured', async () => {
+    const savedId = process.env.PROMPT_GUARDRAIL_ID;
+    const savedSkip = process.env.PROMPT_GUARDRAIL_SKIP;
+    delete process.env.PROMPT_GUARDRAIL_ID;
+    delete process.env.PROMPT_GUARDRAIL_SKIP;
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const db = new FakeDb();
+      db.seedDepartment({ id: DEPT, name: 'Allard Law', ask_wren_prompt: 'safe original context' });
+
+      await expect(
+        updateDepartmentAskWrenPrompt(
+          deptAdminContext([DEPT]),
+          DEPT,
+          { askWrenPrompt: 'Law students writing legal memoranda.' },
+          db,
+        ),
+      ).rejects.toBeInstanceOf(PromptGuardrailUnavailableError);
+
+      expect(db.mutationCount).toBe(0);
+      expect(db.departments.get(DEPT)!.ask_wren_prompt).toBe('safe original context');
+    } finally {
+      warnSpy.mockRestore();
+      if (savedId !== undefined) process.env.PROMPT_GUARDRAIL_ID = savedId;
+      if (savedSkip !== undefined) process.env.PROMPT_GUARDRAIL_SKIP = savedSkip;
+    }
   });
 
   it('denies a DepartmentAdmin of a DIFFERENT department with no mutation', async () => {

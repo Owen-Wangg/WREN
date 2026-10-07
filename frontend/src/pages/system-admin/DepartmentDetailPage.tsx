@@ -38,6 +38,7 @@ import {
 } from 'recharts';
 
 import { systemAdminApi } from '@/features/system-admin/systemAdminApi';
+import { DepartmentPromptEditor } from '@/features/department-admin/DepartmentPromptEditor';
 
 interface EditingUser {
   id: string;
@@ -93,60 +94,6 @@ function automaticVisibilityLabel(
     return 'Automatic access — Department Admin for this department';
   }
   return null;
-}
-
-interface DepartmentPromptFields {
-  context: string;
-  standards: string;
-  restricted: string;
-}
-
-const SECTION_MARKERS = {
-  context: '[Department Context]',
-  standards: '[Writing Standards]',
-  restricted: '[Restricted Topics]',
-} as const;
-
-function parseDepartmentPrompt(raw: string): DepartmentPromptFields {
-  const fields: DepartmentPromptFields = { context: '', standards: '', restricted: '' };
-  if (!raw) return fields;
-
-  const hasMarkers = Object.values(SECTION_MARKERS).some((m) => raw.includes(m));
-  if (!hasMarkers) {
-    fields.context = raw.trim();
-    return fields;
-  }
-
-  function extractSection(marker: string): string {
-    const idx = raw.indexOf(marker);
-    if (idx === -1) return '';
-    const start = idx + marker.length;
-    const nextMarkerPositions = Object.values(SECTION_MARKERS)
-      .filter((m) => m !== marker)
-      .map((m) => raw.indexOf(m, start))
-      .filter((i) => i !== -1);
-    const end = nextMarkerPositions.length > 0 ? Math.min(...nextMarkerPositions) : raw.length;
-    return raw.slice(start, end).trim();
-  }
-
-  fields.context = extractSection(SECTION_MARKERS.context);
-  fields.standards = extractSection(SECTION_MARKERS.standards);
-  fields.restricted = extractSection(SECTION_MARKERS.restricted);
-  return fields;
-}
-
-function serializeDepartmentPrompt(fields: DepartmentPromptFields): string {
-  const parts: string[] = [];
-  if (fields.context.trim()) {
-    parts.push(`${SECTION_MARKERS.context}\n${fields.context.trim()}`);
-  }
-  if (fields.standards.trim()) {
-    parts.push(`${SECTION_MARKERS.standards}\n${fields.standards.trim()}`);
-  }
-  if (fields.restricted.trim()) {
-    parts.push(`${SECTION_MARKERS.restricted}\n${fields.restricted.trim()}`);
-  }
-  return parts.join('\n\n');
 }
 
 export function DepartmentDetailPage() {
@@ -283,30 +230,14 @@ export function DepartmentDetailPage() {
       setRolesAtOpen([]);
       setRoleSaveError(null);
     },
-    onError: () => {
-      setRoleSaveError('Failed to update roles. Please try again.');
-    },
-  });
-
-  const [promptFields, setPromptFields] = useState({
-    context: '',
-    standards: '',
-    restricted: '',
-  });
-  const [promptInitialized, setPromptInitialized] = useState(false);
-
-  useEffect(() => {
-    if (promptInitialized) return;
-    if (departmentPrompt === undefined) return;
-    setPromptFields(parseDepartmentPrompt(departmentPrompt ?? ''));
-    setPromptInitialized(true);
-  }, [departmentPrompt, promptInitialized]);
-
-  const promptMutation = useMutation({
-    mutationFn: (text: string) =>
-      updateDepartmentPrompt(departmentId!, text || null),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+    onError: (error) => {
+      // Surface the server's reason (e.g. the first System Admin cannot be
+      // demoted) and refresh, since earlier assign/revoke calls may have applied.
+      setRoleSaveError(
+        getServerErrorMessage(error, 'Failed to update roles. Please try again.'),
+      );
+      void queryClient.invalidateQueries({ queryKey: ['department-users', departmentId] });
+      void queryClient.invalidateQueries({ queryKey: ['system-users'] });
     },
   });
 
@@ -1015,82 +946,17 @@ export function DepartmentDetailPage() {
             <div>
               <h2 className="mb-6 text-3xl font-bold text-gray-900">Department Prompt</h2>
 
-              <div className="rounded-lg border border-gray-200 bg-white p-8 max-w-4xl space-y-6">
-                <p className="text-sm text-gray-600">
-                  Provide department-specific context that applies across all document types.
-                </p>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-900 mb-1">
-                    Department Context
-                  </label>
-                  <p className="text-xs text-gray-500 mb-2">
-                    Who are the writers? What discipline or program does this department serve?
-                  </p>
-                  <textarea
-                    value={promptFields.context}
-                    onChange={(e) => setPromptFields((f) => ({ ...f, context: e.target.value }))}
-                    placeholder="e.g. Law students in the Faculty of Law writing legal memoranda and case briefs"
-                    className="w-full h-24 p-3 border border-gray-300 rounded-lg focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 text-sm"
+              <div className="rounded-lg border border-gray-200 bg-white p-8 max-w-4xl">
+                {departmentId && (
+                  <DepartmentPromptEditor
+                    departmentId={departmentId}
+                    prompt={departmentPrompt}
+                    save={updateDepartmentPrompt}
+                    onSaved={() => {
+                      void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+                    }}
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-900 mb-1">
-                    Writing Standards
-                  </label>
-                  <p className="text-xs text-gray-500 mb-2">
-                    Department-specific writing expectations (citation style, register, formatting rules).
-                  </p>
-                  <textarea
-                    value={promptFields.standards}
-                    onChange={(e) => setPromptFields((f) => ({ ...f, standards: e.target.value }))}
-                    placeholder="e.g. Canadian Guide to Uniform Legal Citation (McGill Guide). Formal register. IRAC structure for legal analysis."
-                    className="w-full h-24 p-3 border border-gray-300 rounded-lg focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-900 mb-1">
-                    Restricted Topics
-                  </label>
-                  <p className="text-xs text-gray-500 mb-2">
-                    What should feedback NOT address? Topics that are out of scope for this department.
-                  </p>
-                  <textarea
-                    value={promptFields.restricted}
-                    onChange={(e) => setPromptFields((f) => ({ ...f, restricted: e.target.value }))}
-                    placeholder="e.g. Do not comment on the merits of legal arguments or provide case law recommendations"
-                    className="w-full h-24 p-3 border border-gray-300 rounded-lg focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 text-sm"
-                  />
-                </div>
-
-                <div className="flex items-center gap-3 pt-2">
-                  <button
-                    onClick={() => promptMutation.mutate(serializeDepartmentPrompt(promptFields))}
-                    disabled={promptMutation.isPending}
-                    className="rounded-lg bg-gray-900 px-6 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {promptMutation.isPending ? 'Saving...' : 'Save Prompt'}
-                  </button>
-                  <button
-                    onClick={() => setPromptFields({ context: '', standards: '', restricted: '' })}
-                    className="rounded-lg border border-gray-300 px-6 py-2 font-semibold text-gray-900 hover:bg-gray-50"
-                  >
-                    Clear All
-                  </button>
-                  {promptMutation.isSuccess && (
-                    <span className="text-green-600 font-semibold text-sm">Saved successfully!</span>
-                  )}
-                  {promptMutation.isError && (
-                    <p role="alert" className="text-sm font-medium text-red-600">
-                      {getServerErrorMessage(
-                        promptMutation.error,
-                        'Error saving prompt — please try again.',
-                      )}
-                    </p>
-                  )}
-                </div>
+                )}
               </div>
             </div>
           )}
@@ -1362,7 +1228,7 @@ export function DepartmentDetailPage() {
               </div>
 
               {(assignMutation.isError || roleSaveError) && (
-                <p className="mt-3 text-sm text-red-600">
+                <p role="alert" className="mt-3 text-sm text-red-600">
                   {roleSaveError ?? 'Failed to update roles. Please try again.'}
                 </p>
               )}

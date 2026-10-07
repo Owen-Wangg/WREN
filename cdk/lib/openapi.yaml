@@ -85,7 +85,7 @@ components:
         prompt:
           type: string
           nullable: true
-          description: TechnicalAdmin-authored prompt; omitted for other callers
+          description: Feedback-Engine department prompt; returned to TechnicalAdmins and to DepartmentAdmins of this department, omitted for other callers
         accessState:
           type: string
           enum: [OPEN, LOCKED]
@@ -1436,6 +1436,9 @@ paths:
                     type: string
                   status:
                     type: string
+                  draftId:
+                    type: string
+                    description: Draft the job was queued for; debriefReady events for other drafts should be ignored
         "400":
           description: Validation error
           content:
@@ -1627,6 +1630,9 @@ paths:
                 text:
                   type: string
                   minLength: 1
+                  # Must stay in sync with MAX_ASK_WREN_MESSAGE_LENGTH in
+                  # backend/feedback/src/askWren.ts
+                  maxLength: 4000
       responses:
         "200":
           description: Socratic reply from Ask WREN
@@ -2919,12 +2925,15 @@ paths:
           required: false
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
             default: 50
         - name: offset
           in: query
           required: false
           schema:
             type: integer
+            minimum: 0
             default: 0
       responses:
         "200":
@@ -3142,7 +3151,11 @@ paths:
 
   /v1/departments/{departmentId}/prompt:
     put:
-      summary: Update department-level prompt
+      summary: Update department-level Feedback-Engine prompt
+      description: >-
+        Allowed for a TechnicalAdmin, or a DepartmentAdmin for an administered
+        Department (capability department.managePrompt). Rejected with 400 when
+        the text fails the no-ghostwriting or prompt-injection guardrails.
       tags: [Departments]
       operationId: updateDepartmentPrompt
       parameters:
@@ -3170,6 +3183,8 @@ paths:
             application/json:
               schema:
                 type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

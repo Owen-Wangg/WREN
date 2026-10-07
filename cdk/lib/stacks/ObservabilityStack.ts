@@ -138,12 +138,43 @@ export class ObservabilityStack extends Stack {
     // -------------------------------------------------------------------
     // SNS Topic for alarm notifications
     // -------------------------------------------------------------------
+    // SSE-SNS at rest with a dedicated CMK. The AWS-managed SNS key
+    // (alias/aws/sns) cannot be used here: its key policy is not editable, so
+    // CloudWatch alarms cannot generate data keys for it and alarm publishes
+    // fail silently. The CMK grants cloudwatch.amazonaws.com the two KMS
+    // actions it needs (per the CloudWatch alarm + encrypted SNS docs:
+    // https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html).
+    // The key only protects in-flight alarm messages, so it is destroyed on
+    // teardown (7-day pending window) rather than retained.
+    const alarmTopicKey = new kms.Key(this, "AlarmTopicKey", {
+      description: `${config.stackPrefix} alarm SNS topic key (CloudWatch alarms)`,
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.DESTROY,
+      pendingWindow: Duration.days(7),
+    });
+    alarmTopicKey.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowCloudWatchAlarmsToUseKey",
+      principals: [new iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+      actions: ["kms:Decrypt", "kms:GenerateDataKey*"],
+      resources: ["*"],
+    }));
+
     this.alarmTopic = new sns.Topic(this, "AlarmTopic", {
       topicName: `${config.stackPrefix}-alarms`,
       displayName: `${config.stackPrefix} Alarms`,
-      // SSE-SNS at rest using the AWS-managed key for SNS (alias/aws/sns).
-      masterKey: kms.Alias.fromAliasName(this, "AlarmTopicKey", "alias/aws/sns"),
+      masterKey: alarmTopicKey,
+      // Adds a topic policy denying aws:SecureTransport=false (TLS-only).
+      enforceSSL: true,
     });
+    // An explicit topic policy replaces SNS's default policy, so CloudWatch
+    // needs an explicit publish allow, scoped to alarms in this account.
+    this.alarmTopic.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowCloudWatchAlarmsPublish",
+      principals: [new iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+      actions: ["sns:Publish"],
+      resources: [this.alarmTopic.topicArn],
+      conditions: { StringEquals: { "aws:SourceAccount": this.account } },
+    }));
     if (config.alarmEmail !== undefined) {
       // SNS sends a confirmation email; alarms reach a human only after the
       // recipient accepts that subscription.
@@ -289,6 +320,34 @@ export class ObservabilityStack extends Stack {
       alarmDescription: "Feedback queue depth > 50 — possible degradation",
     });
     queueDepthAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
+
+    // -------------------------------------------------------------------
+    // Feedback job binding rejections (security signal)
+    // The Feedback Engine emits JobBindingRejected (EMF, WREN/FeedbackEngine)
+    // when a queue message's ids fail the DB ownership / draft↔document check.
+    // The REST producer always sends server-derived ids, so any rejection
+    // means a bug or a principal writing forged messages to the queue / DLQ.
+    // -------------------------------------------------------------------
+    const jobBindingRejectedMetric = new cloudwatch.Metric({
+      namespace: "WREN/FeedbackEngine",
+      metricName: "JobBindingRejected",
+      dimensionsMap: { workload: "feedback_primary" },
+      statistic: "Sum",
+      period: Duration.minutes(5),
+    });
+
+    const jobBindingRejectedAlarm = new cloudwatch.Alarm(this, "FeedbackJobBindingRejectedAlarm", {
+      alarmName: `${config.stackPrefix}-feedback-job-binding-rejected`,
+      metric: jobBindingRejectedMetric,
+      threshold: 0,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription:
+        "Feedback Engine rejected a queue message whose ids failed ownership/binding checks — possible forged SQS message",
+    });
+    jobBindingRejectedAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
 
     // -------------------------------------------------------------------
     // DLQ alarms (poison messages — needs investigation). Feedback has always
@@ -699,6 +758,25 @@ export class ObservabilityStack extends Stack {
           "check the wren_document/wren_admin GRANT on activity_event.",
       });
     }
+
+    // ---- Prompt-injection guardrail skipped (admin log) --------------------
+    // The admin prompt-injection scan fails closed when PROMPT_GUARDRAIL_ID is
+    // unset and logs `prompt_guardrail_skipped` (Issue #181). Deployed
+    // environments always have the id and never set the dev bypass, so ANY
+    // occurrence alarms.
+    addLogSignal({
+      id: "PromptGuardrailSkipped",
+      logGroupName: `/aws/lambda/${adminName}`,
+      dependency: logRetentions.get(adminName),
+      metricName: "PromptGuardrailSkipped",
+      pattern: logs.FilterPattern.literal('{ $.event = "prompt_guardrail_skipped" }'),
+      alarmSuffix: "prompt-guardrail-skipped",
+      threshold: 0,
+      description:
+        "Admin prompt-injection guardrail scan was skipped (guardrail unconfigured " +
+        "or dev bypass). Any occurrence in a deployed environment indicates " +
+        "misconfiguration — check PROMPT_GUARDRAIL_ID on the Admin Lambda.",
+    });
 
     // ---- API Gateway access-log signals ------------------------------------
     // Only when the access log group name is wired in (skipped in unit tests

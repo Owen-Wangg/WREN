@@ -7,12 +7,13 @@ import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
 import { publishNotificationEvent } from '@wren/notification';
-import { bindCorsOrigin, withCorsHeaders } from '@wren/auth';
+import { bindCorsOrigin, withCorsHeaders, rejectIfForgedAuthContext } from '@wren/auth';
 
 import {
   appendAskWrenTurn,
   buildSessionId,
   loadDocumentConversation,
+  MAX_ASK_WREN_MESSAGE_LENGTH,
   type DocumentTypeContext,
 } from './askWren.js';
 import {
@@ -163,6 +164,10 @@ export const handler: APIGatewayProxyHandler = async (event, context): Promise<A
   freezeEventLoopOnReturn(context);
   bindCorsOrigin(event);
   try {
+    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    const forged = await rejectIfForgedAuthContext(event);
+    if (forged) return withCors(forged);
+
     const { httpMethod, resource } = event;
     const accessFailure = studentAccessFailure(event);
     if (accessFailure) return accessFailure;
@@ -579,9 +584,11 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
     console.warn('Failed to publish ai-debrief-ready notification:', err);
   });
 
+  // draftId is the owner's own (server-selected) draft. The SPA uses it to
+  // ignore debriefReady events that are not for the job it just queued.
   return {
     statusCode: 202,
-    body: JSON.stringify({ jobId, status: 'queued' }),
+    body: JSON.stringify({ jobId, status: 'queued', draftId: String(draft.id) }),
   };
 }
 
@@ -906,6 +913,16 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
       body: JSON.stringify({
         code: 'BAD_REQUEST',
         message: 'documentId, draftId, and text are required',
+      }),
+    };
+  }
+
+  if (text.length > MAX_ASK_WREN_MESSAGE_LENGTH) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'text exceeds the maximum allowed length',
       }),
     };
   }

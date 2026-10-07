@@ -8,7 +8,7 @@
  * with no mutation), and that mutations touch `document_type_config.updatedAt`
  * (carry-forward invalidation, Requirement 27.3).
  */
-import { AuthorizationError, NotFoundError } from './errors';
+import { AuthorizationError, NotFoundError, PromptGuardrailUnavailableError } from './errors';
 import { FakeDb } from './fakeDb';
 import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
 import {
@@ -195,6 +195,107 @@ describe('updateErrorCategory — rename preserves linkage (Requirement 15.3)', 
       updateErrorCategory(deptAdminContext(['other-dept']), cat.id, { name: 'X' }, db),
     ).rejects.toBeInstanceOf(AuthorizationError);
     expect(db.mutationCount).toBe(mutationsBefore);
+  });
+});
+
+describe('internalGuidance — save-time prompt-injection guardrail coverage', () => {
+  // internalGuidance is folded into the Feedback Engine's trusted,
+  // undelimited Document-Type configuration block, so it must be screened by
+  // assertPromptInjectionFree before persistence. The global jest setup sets
+  // PROMPT_GUARDRAIL_SKIP=true (scan is a no-op); unsetting both the id and
+  // the skip flag drives the control's fail-closed branch, which proves the
+  // field is routed through the guardrail (throws with NO mutation) rather
+  // than persisted unscreened.
+  let savedId: string | undefined;
+  let savedSkip: string | undefined;
+  let warnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    savedId = process.env.PROMPT_GUARDRAIL_ID;
+    savedSkip = process.env.PROMPT_GUARDRAIL_SKIP;
+    delete process.env.PROMPT_GUARDRAIL_ID;
+    delete process.env.PROMPT_GUARDRAIL_SKIP;
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+    if (savedId !== undefined) process.env.PROMPT_GUARDRAIL_ID = savedId;
+    if (savedSkip !== undefined) process.env.PROMPT_GUARDRAIL_SKIP = savedSkip;
+  });
+
+  it('createErrorCategory screens internalGuidance — fails closed with no mutation', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      createErrorCategory(
+        deptAdminContext([DEPT]),
+        { documentTypeId: DT, name: 'Weak Thesis', internalGuidance: 'Look for hedging language.' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(PromptGuardrailUnavailableError);
+    expect(db.mutationCount).toBe(0);
+    expect(db.errorCategories.size).toBe(0);
+  });
+
+  it('createErrorCategory with no internalGuidance is not scanned (no fail-closed throw)', async () => {
+    process.env.PROMPT_GUARDRAIL_SKIP = 'true';
+    const db = new FakeDb();
+    seed(db);
+
+    // Even without the skip flag this would succeed (nothing to screen), but
+    // we keep the scan enabled here to assert the happy path explicitly.
+    const cat = await createErrorCategory(
+      deptAdminContext([DEPT]),
+      { documentTypeId: DT, name: 'No Guidance' },
+      db,
+    );
+    expect(cat.internalGuidance).toBeNull();
+  });
+
+  it('updateErrorCategory screens internalGuidance — fails closed with no mutation', async () => {
+    process.env.PROMPT_GUARDRAIL_SKIP = 'true';
+    const db = new FakeDb();
+    seed(db);
+    const cat = await createErrorCategory(
+      deptAdminContext([DEPT]),
+      { documentTypeId: DT, name: 'A' },
+      db,
+    );
+    const mutationsBefore = db.mutationCount;
+
+    // Now disable the skip flag so the update's guardrail call fails closed.
+    delete process.env.PROMPT_GUARDRAIL_SKIP;
+
+    await expect(
+      updateErrorCategory(
+        deptAdminContext([DEPT]),
+        cat.id,
+        { internalGuidance: 'Detect unsupported claims.' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(PromptGuardrailUnavailableError);
+    expect(db.mutationCount).toBe(mutationsBefore);
+    expect(db.errorCategories.get(cat.id)!.internal_guidance).toBeNull();
+  });
+
+  it('updateErrorCategory renaming without internalGuidance is not blocked by the guardrail', async () => {
+    process.env.PROMPT_GUARDRAIL_SKIP = 'true';
+    const db = new FakeDb();
+    seed(db);
+    const cat = await createErrorCategory(
+      deptAdminContext([DEPT]),
+      { documentTypeId: DT, name: 'Old' },
+      db,
+    );
+
+    // name-only update: the guardrail must not run, so unsetting the config
+    // (fail-closed branch) must NOT cause a throw.
+    delete process.env.PROMPT_GUARDRAIL_SKIP;
+    const renamed = await updateErrorCategory(deptAdminContext([DEPT]), cat.id, { name: 'New' }, db);
+
+    expect(renamed.name).toBe('New');
   });
 });
 

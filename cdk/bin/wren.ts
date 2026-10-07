@@ -165,7 +165,6 @@ const apiStack = new ApiStack(app, stackName(config, "Api"), {
   documentFunctionArn: computeStack.documentFunction.functionArn,
   feedbackFunctionArn: computeStack.feedbackOrchestratorFunction.functionArn,
   adminFunctionArn: computeStack.adminFunction.functionArn,
-  auditFunctionArn: computeStack.auditFunction.functionArn,
   notificationFunctionArn: computeStack.notificationFunction.functionArn,
 });
 
@@ -179,12 +178,11 @@ const observabilityStack = new ObservabilityStack(app, stackName(config, "Observ
     computeStack.feedbackOrchestratorFunction.functionName,
     computeStack.feedbackEngineFunction.functionName,
     computeStack.adminFunction.functionName,
-    computeStack.auditFunction.functionName,
     computeStack.diffAnchorProgressFunction.functionName,
     computeStack.notificationFunction.functionName,
-    // Keep at index 8: the deployed Observability stack already imports this
-    // name (LogRetention8 / ErrorAlarm8 / ThrottleAlarm8). Removing or
-    // reordering it would make Compute try to drop an export still in use.
+    // Construct IDs are index-based (LogRetention{i} / ErrorAlarm{i} /
+    // ThrottleAlarm{i}): append new functions at the end; don't reorder or
+    // remove entries in a deployed environment.
     computeStack.syncCognitoAdminsFunction.functionName,
   ],
   feedbackQueueName: computeStack.feedbackQueue.queueName,

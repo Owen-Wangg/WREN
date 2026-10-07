@@ -30,29 +30,44 @@ import type { QueryExecutor } from './db';
 import type { AuthContext } from '@wren/types';
 
 /**
- * Record an audit event for a configuration edit (taxonomy, prompt, convention
- * change). Requirement 23.3: "record Department Admin configuration changes
- * with the actor, Document Type, and timestamp."
+ * Record an audit event for a configuration or tenant-lifecycle edit (taxonomy
+ * change, Document-Type catalog change, Department lifecycle). Requirement
+ * 23.3: "record Department Admin configuration changes with the actor,
+ * Document Type, and timestamp."
+ *
+ * `documentTypeId` is optional so this also covers Department-scoped lifecycle
+ * mutations (create/archive), which have no owning Document Type. `objectType`
+ * defaults to `Config` for taxonomy/convention edits; callers acting on a
+ * concrete tenant object (a Department or Document Type) pass the matching
+ * type so the event's object is self-describing. `objectRef` is derived from
+ * the most specific identifier available: the Document Type, else the
+ * Department, else the field name itself.
  */
 export async function auditConfigEdit(
   actor: AuthContext,
   detail: {
-    documentTypeId: string;
+    documentTypeId?: string;
     departmentId?: string;
     field: string;
     action: 'created' | 'updated' | 'deleted';
+    objectType?: string;
     description?: string;
   },
   db: QueryExecutor,
 ): Promise<void> {
+  const objectRef = detail.documentTypeId
+    ? `${detail.field}:${detail.documentTypeId}`
+    : detail.departmentId
+      ? `${detail.field}:${detail.departmentId}`
+      : detail.field;
   await recordActivityEvent(
     {
       actorUserId: actor.userId,
       verb: `config.${detail.action}`,
-      objectType: 'Config',
-      objectRef: `${detail.field}:${detail.documentTypeId}`,
-      documentTypeId: detail.documentTypeId,
-      departmentId: detail.departmentId,
+      objectType: detail.objectType ?? 'Config',
+      objectRef,
+      ...(detail.documentTypeId ? { documentTypeId: detail.documentTypeId } : {}),
+      ...(detail.departmentId ? { departmentId: detail.departmentId } : {}),
       context: {
         role: actor.roles[0],
         field: detail.field,
@@ -77,7 +92,8 @@ export async function auditPromptEdit(
     /**
      * Which prompt surface was edited:
      *  - `documentType` — Document-Type prompt config (`type_prompt_text`).
-     *  - `system`       — TechnicalAdmin-owned Feedback-Engine `department.prompt`.
+     *  - `system`       — Feedback-Engine `department.prompt` (TechnicalAdmin, or
+     *                     DepartmentAdmin for an administered Department).
      *  - `department`   — DepartmentAdmin-owned department Ask WREN prompt
      *                     (`department.ask_wren_prompt`).
      */

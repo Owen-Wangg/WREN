@@ -50,21 +50,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Type": "AWS::SecretsManager::Secret",
       "UpdateReplacePolicy": "Delete",
     },
-    "DatabaseAppUserSecretWrenAudit745C8337": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "Description": "RDS Proxy credentials for Postgres role wren_audit",
-        "GenerateSecretString": {
-          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
-          "GenerateStringKey": "password",
-          "PasswordLength": 32,
-          "SecretStringTemplate": "{"username":"wren_audit","port":5432,"dbname":"appdb","engine":"postgres"}",
-        },
-        "Name": "wren-test/database/wren_audit",
-      },
-      "Type": "AWS::SecretsManager::Secret",
-      "UpdateReplacePolicy": "Delete",
-    },
     "DatabaseAppUserSecretWrenAuthorizer51C496C1": {
       "DeletionPolicy": "Delete",
       "Properties": {
@@ -155,6 +140,10 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
           "Ref": "DatabaseInstanceSubnetGroupDE121BB6",
         },
         "DeletionProtection": true,
+        "EnableCloudwatchLogsExports": [
+          "postgresql",
+          "upgrade",
+        ],
         "Engine": "postgres",
         "EngineVersion": "16.13",
         "MasterUserPassword": {
@@ -193,6 +182,54 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Type": "AWS::RDS::DBInstance",
       "UpdateReplacePolicy": "Retain",
     },
+    "DatabaseInstanceLogRetentionpostgresql29317FEA": {
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/rds/instance/",
+              {
+                "Ref": "DatabaseInstanceAA8A5FDE",
+              },
+              "/postgresql",
+            ],
+          ],
+        },
+        "RetentionInDays": 30,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "Custom::LogRetention",
+    },
+    "DatabaseInstanceLogRetentionupgradeA7F7F13E": {
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/rds/instance/",
+              {
+                "Ref": "DatabaseInstanceAA8A5FDE",
+              },
+              "/upgrade",
+            ],
+          ],
+        },
+        "RetentionInDays": 30,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "Custom::LogRetention",
+    },
     "DatabaseInstanceProxyA71C974C": {
       "Properties": {
         "Auth": [
@@ -229,13 +266,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
             "IAMAuth": "DISABLED",
             "SecretArn": {
               "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
-            },
-          },
-          {
-            "AuthScheme": "SECRETS",
-            "IAMAuth": "DISABLED",
-            "SecretArn": {
-              "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
             },
           },
           {
@@ -357,16 +387,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
               "Effect": "Allow",
               "Resource": {
                 "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
-              },
-            },
-            {
-              "Action": [
-                "secretsmanager:GetSecretValue",
-                "secretsmanager:DescribeSecret",
-              ],
-              "Effect": "Allow",
-              "Resource": {
-                "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
               },
             },
             {
@@ -618,9 +638,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
             "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
           },
           {
-            "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
-          },
-          {
             "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
           },
           {
@@ -652,7 +669,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "793253fc92abbff90356c9319515aaf5cce4f3a64466c85114ee89cd23b75ffc.zip",
+          "S3Key": "984f90212d131b8ea8f58142a11a4e7b4e206551e76592e9a911993f982c1da0.zip",
         },
         "Environment": {
           "Variables": {
@@ -671,9 +688,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
                   },
                   {
                     "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
-                  },
-                  {
-                    "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
                   },
                   {
                     "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
@@ -769,9 +783,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
                 },
                 {
                   "Ref": "DatabaseAppUserSecretWrenAdmin3EB30148",
-                },
-                {
-                  "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
                 },
                 {
                   "Ref": "DatabaseAppUserSecretWrenFeedbackOrch323A062C",
@@ -959,6 +970,83 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       },
       "Type": "AWS::IAM::Policy",
     },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A": {
+      "DependsOn": [
+        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
+        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
+          "S3Key": "2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d.zip",
+        },
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs24.x",
+        "Timeout": 900,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:PutRetentionPolicy",
+                "logs:DeleteRetentionPolicy",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
+        "Roles": [
+          {
+            "Ref": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
     "Migrations": {
       "DeletionPolicy": "Delete",
       "DependsOn": [
@@ -980,7 +1068,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "databaseSecretArn": {
           "Ref": "DatabaseInstanceSecretAttachmentFCA06D38",
         },
-        "migrationsFingerprint": "ec1625691c691300",
+        "migrationsFingerprint": "afebd7725450fb0c",
       },
       "Type": "AWS::CloudFormation::CustomResource",
       "UpdateReplacePolicy": "Delete",
@@ -993,7 +1081,7 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
       "Properties": {
         "Code": {
           "S3Bucket": "cdk-hnb659fds-assets-123456789012-ca-central-1",
-          "S3Key": "44c332c3b68e3c9ba347cd7fe1cc5f352a6f10d9fe9f213d7222f9635ac0c6b8.zip",
+          "S3Key": "f66f8dab12b4922f14303400d98b9e8de6f402e0314104cc7ff6e47ce8ceadcf.zip",
         },
         "Environment": {
           "Variables": {
@@ -1287,17 +1375,6 @@ exports[`DatabaseStack matches the synthesized template snapshot 1`] = `
         "Type": "String",
         "Value": {
           "Ref": "DatabaseAppUserSecretWrenAppsyncAuth50B90F32",
-        },
-      },
-      "Type": "AWS::SSM::Parameter",
-    },
-    "SecretArnParameterWrenAuditA593D4FF": {
-      "Properties": {
-        "Description": "ARN of the Secrets Manager secret for Postgres role wren_audit.",
-        "Name": "/wren-test/database/wren_audit/secret-arn",
-        "Type": "String",
-        "Value": {
-          "Ref": "DatabaseAppUserSecretWrenAudit745C8337",
         },
       },
       "Type": "AWS::SSM::Parameter",

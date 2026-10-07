@@ -32,6 +32,16 @@ import { UsageLimitReachedError } from '@wren/admin/lifetimeUsagePolicy';
 
 export type ChatRole = 'user' | 'wren';
 
+/**
+ * Maximum length (in characters) of a single student Ask WREN message.
+ *
+ * A single turn is concatenated untruncated into the Bedrock user message and
+ * replayed as history on subsequent turns, so bounding it limits per-message
+ * Bedrock cost. Keep this value in sync with the `maxLength` on the `text`
+ * property of the postAskWrenMessage request body in cdk/lib/openapi.yaml.
+ */
+export const MAX_ASK_WREN_MESSAGE_LENGTH = 4000;
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -158,11 +168,64 @@ export async function loadSession(
   return result.Item as ConversationSession;
 }
 
-export async function saveSession(session: ConversationSession): Promise<void> {
+/**
+ * Create a session ONLY if one does not already exist for this `sessionId`.
+ *
+ * Returns `true` when this call created the item, `false` when a session was
+ * already present (ConditionalCheckFailedException). Used by the legacy-session
+ * migration so it can SEED a brand-new document session without ever clobbering
+ * a session that `reserveAskMessageSlot` (or a racing migration) already created
+ * — writing the whole item unconditionally there would reset the authoritative
+ * `messageCount` and re-open the quota bypass.
+ */
+export async function saveSessionIfAbsent(
+  session: ConversationSession,
+): Promise<boolean> {
+  try {
+    await getDynamo().send(
+      new PutCommand({
+        TableName: tableName(),
+        Item: session,
+        ConditionExpression: 'attribute_not_exists(sessionId)',
+      }),
+    );
+    return true;
+  } catch (err) {
+    const name =
+      err && typeof err === 'object' && 'name' in err
+        ? String((err as { name: unknown }).name)
+        : '';
+    if (name === 'ConditionalCheckFailedException') return false;
+    throw err;
+  }
+}
+
+/**
+ * Atomically append messages to a session WITHOUT touching `messageCount`.
+ */
+export async function appendMessagesToSession(input: {
+  sessionId: string;
+  userId: string;
+  documentId: string;
+  draftId: string;
+  messages: ChatMessage[];
+  ttl: number;
+}): Promise<void> {
   await getDynamo().send(
-    new PutCommand({
+    new UpdateCommand({
       TableName: tableName(),
-      Item: session,
+      Key: { sessionId: input.sessionId },
+      UpdateExpression:
+        'SET messages = list_append(if_not_exists(messages, :empty), :new), #ttl = :ttl, draftId = :draftId, userId = if_not_exists(userId, :uid), documentId = if_not_exists(documentId, :did)',
+      ExpressionAttributeNames: { '#ttl': 'ttl' },
+      ExpressionAttributeValues: {
+        ':new': input.messages,
+        ':empty': [],
+        ':ttl': input.ttl,
+        ':draftId': input.draftId,
+        ':uid': input.userId,
+        ':did': input.documentId,
+      },
     }),
   );
 }
@@ -219,8 +282,25 @@ export async function loadDocumentConversation(input: {
     ttl: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
     messageCount: merged.filter((m) => m.role === 'user').length,
   };
-  await saveSession(migrated);
-  return migrated;
+
+  // Seed the document session ONLY if it does not already exist. A plain
+  // full-item Put here would clobber `messageCount` the same way the old final
+  // persist did: if `reserveAskMessageSlot` (or another concurrent migration)
+  // has already created the session, this unconditional write would reset the
+  // authoritative counter and drop concurrently appended turns, re-opening the
+  // per-document quota bypass. The conditional create prevents that.
+  const created = await saveSessionIfAbsent(migrated);
+  if (created) return migrated;
+
+  // Lost the create race: a reservation or a concurrent migration already owns
+  // the session. NEVER overwrite it — reload and return the authoritative item.
+  // If that item has no messages yet (a bare reservation), surface the merged
+  // legacy history in-memory for context/display only; we do not persist it,
+  // because any write that set `messageCount` could lower the live counter.
+  const current = await loadSession(sessionId);
+  if (!current) return migrated;
+  if (current.messages?.length) return current;
+  return { ...current, messages: merged };
 }
 
 function locationHint(index: number, total: number): string {
@@ -693,16 +773,18 @@ export async function appendAskWrenTurn(input: {
     createdAt: new Date().toISOString(),
   };
 
-  const session: ConversationSession = {
+  // Persist the turn by ATOMICALLY appending the two new messages. We must not
+  // write the whole item (nor messageCount) here: `reserveAskMessageSlot` already
+  // committed the authoritative count via a conditional increment, and `prior`
+  // was read before the reservation, so a full-item Put would discard both the
+  // increment and any turn a concurrent request committed in the interim.
+  await appendMessagesToSession({
     sessionId,
     userId: input.userId,
     documentId: input.documentId,
     draftId: input.draftId,
-    messages: [...prior, userMessage, reply],
+    messages: [userMessage, reply],
     ttl,
-    messageCount: currentUserMessageCount + 1,
-  };
-
-  await saveSession(session);
+  });
   return { sessionId, userMessage, reply };
 }

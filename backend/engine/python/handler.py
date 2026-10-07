@@ -10,7 +10,7 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 import uuid
 import hashlib
 
@@ -26,9 +26,11 @@ from wren_engine.prompt_assembly import (
     SystemScaffolding,
     DocumentTypePromptConfig,
     UntrustedContent,
+    render_untrusted_data_block,
 )
 from wren_engine.footnote_metadata import (
     FootnoteMetadata,
+    MAX_FOOTNOTE_NUMBER,
     build_footnotes_untrusted_content,
 )
 from wren_engine.diff_engine import DiffEngine
@@ -61,8 +63,10 @@ from wren_engine.progress_tracker import (
     ResolutionStatus,
 )
 from wren_engine.feedback_job_result import (
+    JobBindingRejectedError,
     NonRetryableFeedbackError,
     coerce_draft_segments,
+    emit_job_binding_rejected_metric,
     require_complete_feedback_output,
 )
 from wren_engine.feedback_classifier import (
@@ -315,11 +319,14 @@ def _extract_footnotes_from_content(content: Any) -> list[FootnoteMetadata]:
             attrs = node.get("attrs") or {}
             fn_num = attrs.get("footnoteNumber")
             fn_content = attrs.get("content")
-            # Validate: must have positive int footnoteNumber and a content field
+            # Validate: must have a content field and a footnoteNumber that is a
+            # positive integer within the sane magnitude bound. Bounding the
+            # magnitude keeps a rendered number from expanding to hundreds of
+            # digits (finding f-b4f8ddb1); real footnote numbers are small.
             if (
                 fn_num is not None
                 and isinstance(fn_num, (int, float))
-                and int(fn_num) > 0
+                and 0 < int(fn_num) <= MAX_FOOTNOTE_NUMBER
                 and fn_content is not None
             ):
                 body_text = _collect_plain_text(fn_content)
@@ -1469,7 +1476,8 @@ def _build_quote_fallback_prompt(
         f"positive_note, anchor ({{paragraphIndex: int, quotedText: string}} — REQUIRED, "
         f"copy text verbatim from the paragraph).\n\n"
         f"Categories:\n{cat_lines}\n\n"
-        f"Document:\n{document_text}\n\n"
+        + render_untrusted_data_block(document_text, label="SUBMITTED DOCUMENT")
+        + "\n\n"
         f"Output only a valid JSON array. No markdown fences."
     )
 
@@ -1547,6 +1555,16 @@ def _run_quote_safety_net(
         fill_items = [i for i in fill_items if i.get('kind') in needed_kinds]
         if not fill_items:
             logger.warning("Quote safety net: no fill-in items matched needed sections")
+            return 0
+
+        # No-ghostwriting output guardrail: this fill-in output is fresh model
+        # output that never passed through the primary Step 8 guardrail, so
+        # guard it here before it is persisted.
+        fill_items = apply_output_guardrail(
+            fill_items, document_id=document_id, draft_id=draft_id,
+        )
+        if not fill_items:
+            logger.warning("Quote safety net: all fill-in items dropped by output guardrail")
             return 0
 
         inserted = insert_feedback_items(
@@ -2742,8 +2760,10 @@ def validate_job_binding(
     on any mismatch. It MUST run before load_draft_segments and before any of
     the DELETE sinks in insert_feedback_items / _persist_carried_forward_items.
 
-    Raises NonRetryableFeedbackError on any binding violation (retrying an
-    ill-formed message never succeeds, so it is intentionally non-retryable).
+    Raises JobBindingRejectedError (a NonRetryableFeedbackError) on any binding
+    violation (retrying an ill-formed message never succeeds, so it is
+    intentionally non-retryable). The rejected ids are unverified and must not
+    be echoed to any sink, including the debriefReady AppSync publish.
     """
     with conn.cursor() as cur:
         # 1) Document must exist, be owned by the claimed user, and carry the
@@ -2755,17 +2775,17 @@ def validate_job_binding(
         )
         doc_row = cur.fetchone()
         if doc_row is None:
-            raise NonRetryableFeedbackError(
+            raise JobBindingRejectedError(
                 f"Job rejected: document {document_id} not found"
             )
 
         owner_user_id, document_type_id = str(doc_row[0]), str(doc_row[1])
         if owner_user_id != str(user_id):
-            raise NonRetryableFeedbackError(
+            raise JobBindingRejectedError(
                 "Job rejected: userId does not own the target document"
             )
         if document_type_id != str(writing_type_id):
-            raise NonRetryableFeedbackError(
+            raise JobBindingRejectedError(
                 "Job rejected: writingTypeId does not match the document type"
             )
 
@@ -2778,11 +2798,11 @@ def validate_job_binding(
         )
         draft_row = cur.fetchone()
         if draft_row is None:
-            raise NonRetryableFeedbackError(
+            raise JobBindingRejectedError(
                 f"Job rejected: draft {draft_id} not found"
             )
         if str(draft_row[0]) != str(document_id):
-            raise NonRetryableFeedbackError(
+            raise JobBindingRejectedError(
                 "Job rejected: draftId does not belong to the target document"
             )
 
@@ -2792,9 +2812,16 @@ def process_feedback_request(
     document_id: str,
     draft_id: str,
     user_id: str,
-    writing_type_id: str
+    writing_type_id: str,
+    *,
+    on_binding_verified: Callable[[], None] | None = None,
 ) -> None:
-    """Process a single feedback request."""
+    """Process a single feedback request.
+
+    ``on_binding_verified`` is invoked once validate_job_binding has passed, so
+    the caller knows the message ids are DB-verified before it echoes them to
+    any sink (e.g. the itemCount=0 debriefReady publish on a later failure).
+    """
     conn = None
     resolution_thread: threading.Thread | None = None
     has_persisted_cf_items: bool = False  # True when _persist_carried_forward_items committed rows
@@ -2808,6 +2835,8 @@ def process_feedback_request(
         # Re-derives ownership + draft↔document binding from the DB so a forged
         # SQS message cannot read another user's draft or wipe unrelated rows.
         validate_job_binding(document_id, draft_id, user_id, writing_type_id, conn)
+        if on_binding_verified is not None:
+            on_binding_verified()
 
         # Step 2: Load prompt config (includes category_priority filter)
         logger.info("Loading prompt config...")
@@ -2921,6 +2950,12 @@ def process_feedback_request(
                             config=config,
                         )
                         new_strengths = cf_as_items[before_fill:]
+                        # No-ghostwriting output guardrail: the strength fill-in
+                        # is fresh model output that bypasses the primary Step 8
+                        # guardrail, so guard it before persisting.
+                        new_strengths = apply_output_guardrail(
+                            new_strengths, document_id=document_id, draft_id=draft_id,
+                        )
                         filled = 0
                         if new_strengths:
                             filled = insert_feedback_items(
@@ -3273,14 +3308,41 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             user_id = message['userId']
             writing_type_id = message['writingTypeId']
 
+            # Flipped only after validate_job_binding passes. Until then the ids
+            # are message-supplied and unverified, so nothing may be published
+            # with them.
+            binding_verified = False
+
+            def _mark_binding_verified() -> None:
+                nonlocal binding_verified
+                binding_verified = True
+
             try:
                 logger.info(f"Processing feedback job {job_id} for document {document_id}")
 
                 # Process the feedback request
-                process_feedback_request(job_id, document_id, draft_id, user_id, writing_type_id)
+                process_feedback_request(
+                    job_id,
+                    document_id,
+                    draft_id,
+                    user_id,
+                    writing_type_id,
+                    on_binding_verified=_mark_binding_verified,
+                )
 
                 success_count += 1
 
+            except JobBindingRejectedError as job_error:
+                # Forged or stale message: the ids failed the ownership /
+                # draft↔document check, so they must NOT be echoed to AppSync
+                # (that would let a queue writer spoof a "no feedback"
+                # completion into another user's session). Consume the message
+                # (non-retryable) and surface it as a security signal.
+                logger.error(
+                    "Rejected feedback job %s: %s", job_id, job_error
+                )
+                emit_job_binding_rejected_metric()
+                failure_count += 1
             except NonRetryableFeedbackError as job_error:
                 # Truncation / missing segments: retrying the same prompt will not help.
                 # Publish itemCount=0 so the UI can stop waiting instead of polling until timeout.
@@ -3288,10 +3350,18 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     f"Non-retryable feedback job failure: {str(job_error)}",
                     exc_info=True,
                 )
-                try:
-                    publish_debrief_ready(document_id, draft_id, 0)
-                except Exception as appsync_err:
-                    logger.warning("AppSync publish failed after non-retryable error: %s", appsync_err)
+                if binding_verified:
+                    try:
+                        publish_debrief_ready(document_id, draft_id, 0)
+                    except Exception as appsync_err:
+                        logger.warning("AppSync publish failed after non-retryable error: %s", appsync_err)
+                else:
+                    # Defense in depth: a non-retryable error raised before the
+                    # binding check means the ids are still unverified.
+                    logger.warning(
+                        "Skipping debriefReady publish for job %s: ids not yet verified",
+                        job_id,
+                    )
                 failure_count += 1
             except Exception as job_error:
                 logger.error(f"Error processing job: {str(job_error)}", exc_info=True)

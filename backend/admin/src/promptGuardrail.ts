@@ -31,7 +31,7 @@
  */
 import { BedrockRuntimeClient, ApplyGuardrailCommand } from '@aws-sdk/client-bedrock-runtime';
 import { promptGuardrailViolationSchema, type PromptGuardrailViolation } from '@wren/types';
-import { PromptInjectionError } from './errors';
+import { PromptGuardrailUnavailableError, PromptInjectionError } from './errors';
 
 /**
  * Case-insensitive phrase patterns that identify an instruction to produce
@@ -151,14 +151,29 @@ function getBedrockRuntime(): BedrockRuntimeClient {
  * Run admin-submitted prompt text through AWS Bedrock Guardrails to detect
  * prompt injection attempts (MEDIUM sensitivity).
  *
- * Skips gracefully when `PROMPT_GUARDRAIL_ID` is not configured (local dev,
- * unit tests) — no network call is made. Throws {@link PromptInjectionError}
- * when the guardrail intervenes; lets Bedrock service errors propagate so the
- * caller maps them to 500 (no mutation occurs either way).
+ * Fails closed when `PROMPT_GUARDRAIL_ID` is not configured: throws
+ * {@link PromptGuardrailUnavailableError} (mapped to 503) so no unscreened
+ * prompt is persisted. The scan is skipped only when the explicit dev/test
+ * flag `PROMPT_GUARDRAIL_SKIP=true` is set (never set by CDK). Both cases emit
+ * a `prompt_guardrail_skipped` warning (alarmed in ObservabilityStack).
+ * Throws {@link PromptInjectionError} when the guardrail intervenes; lets
+ * Bedrock service errors propagate so the caller maps them to 500 (no mutation
+ * occurs either way).
  */
 export async function assertPromptInjectionFree(text: string): Promise<void> {
+  if (!text.trim()) return;
+
   const guardrailId = process.env.PROMPT_GUARDRAIL_ID;
-  if (!guardrailId || !text.trim()) return;
+  if (!guardrailId) {
+    if (process.env.PROMPT_GUARDRAIL_SKIP === 'true') {
+      console.warn(JSON.stringify({ event: 'prompt_guardrail_skipped', reason: 'dev_flag' }));
+      return;
+    }
+    console.warn(JSON.stringify({ event: 'prompt_guardrail_skipped', reason: 'unconfigured' }));
+    throw new PromptGuardrailUnavailableError(
+      'Prompt injection guardrail is not configured (PROMPT_GUARDRAIL_ID unset).',
+    );
+  }
 
   const guardrailVersion = process.env.PROMPT_GUARDRAIL_VERSION ?? 'DRAFT';
   const result = await getBedrockRuntime().send(

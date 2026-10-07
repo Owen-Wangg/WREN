@@ -28,10 +28,16 @@ function signupEvent(
 }
 
 describe('evaluatePreSignUp', () => {
-  it('returns the event unchanged when the allowlist is empty', () => {
+  it('fails closed: denies every signup when the allowlist is empty or unset', () => {
     const event = signupEvent('ada@example.com');
-    expect(evaluatePreSignUp(event, '')).toBe(event);
-    expect(evaluatePreSignUp(event, undefined)).toBe(event);
+    expect(() => evaluatePreSignUp(event, '')).toThrow(SIGNUP_EMAIL_DOMAIN_DENIED);
+    expect(() => evaluatePreSignUp(event, undefined)).toThrow(SIGNUP_EMAIL_DOMAIN_DENIED);
+  });
+
+  it('rejects a wildcard entry instead of matching subdomains', () => {
+    expect(() => evaluatePreSignUp(signupEvent('user@law.ubc.ca'), '*.ubc.ca')).toThrow(
+      'ALLOWED_EMAIL_DOMAINS',
+    );
   });
 
   it('allows an exact hostname match', () => {

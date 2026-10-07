@@ -16,8 +16,8 @@ import { synthStacks, testConfig, TEST_ACCOUNT, TEST_REGION } from "./helpers";
  * value into a Lambda environment (e.g. `secret.secretValue.unsafeUnwrap()`,
  * which CloudFormation resolves as a `{{resolve:secretsmanager:…}}` dynamic
  * reference) exposes it in plaintext to anyone with
- * `lambda:GetFunctionConfiguration`. Admin, Audit, Document and
- * sync-cognito-admins instead receive the
+ * `lambda:GetFunctionConfiguration`. Admin, Audit, Document,
+ * sync-cognito-admins and the authorizer instead receive the
  * secret's NAME and fetch the value at runtime, with a grant scoped to that
  * one secret — in both "managed" and "external" ownership modes.
  */
@@ -28,9 +28,12 @@ const SALT_ENV = "WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID";
 // writer (Document records deletion events through it, Issue #187).
 const SALT_CONSUMERS = [
   "wren-test-admin",
-  "wren-test-audit",
   "wren-test-document",
   "wren-test-sync-cognito-admins",
+  // The authorizer audits first-login identity relinks (finding f-4531f8e7).
+  "wren-test-authorizer",
+  // Notification records an event per Notification_Type catalog create/update.
+  "wren-test-notification",
 ] as const;
 
 type CfnFunction = {

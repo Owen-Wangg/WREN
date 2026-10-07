@@ -64,7 +64,13 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   // so a TechnicalAdmin may edit it at platform scope (distinct from
   // `department.manage`, which stays DepartmentAdmin-only for rename/removal).
   'department.manageAskWrenPrompt',
+  // Feedback-Engine department prompt: TechnicalAdmin at platform scope, and
+  // DepartmentAdmin for administered Departments (see below).
+  'department.managePrompt',
   'analytics.view',
+  // The Notification_Type catalog is platform-wide authorship over every
+  // user's inbox, so it is TechnicalAdmin-only at platform scope.
+  'notificationType.manageCatalog',
 ]);
 
 /**
@@ -79,6 +85,7 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'topic.manage',
   'department.manage',
   'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageOverride.grant',

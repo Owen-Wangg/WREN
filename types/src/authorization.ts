@@ -50,6 +50,9 @@ import { idSchema } from './common';
  *   context. Shared educational-content operation: a `DepartmentAdmin` for
  *   administered Departments, and a `TechnicalAdmin` at platform scope (the
  *   Ask WREN prompt is surfaced within the Technical Admin domain).
+ * - `department.managePrompt` — edit a Department's Feedback-Engine
+ *   department prompt (`department.prompt`). A `DepartmentAdmin` for
+ *   administered Departments, and a `TechnicalAdmin` at platform scope.
  * - `departmentVisibility.manage` — change student-catalog visibility and
  *   manage explicit Department visibility grants (TechnicalAdmin only).
  * - `accessGrant.create` / `accessGrant.revoke` — create/revoke Access Grants
@@ -66,6 +69,10 @@ import { idSchema } from './common';
  *   A `DepartmentAdmin` sees totals scoped to Document Types within
  *   administered Departments; a `TechnicalAdmin` sees platform-wide totals,
  *   filterable by Document Type (Requirements 40, 41, 42, 19).
+ * - `notificationType.manageCatalog` — manage the platform Notification_Type
+ *   catalog (slugs, labels, display/action templates, target roles, dedup
+ *   strategy). This is authorship over the content of every user's inbox, so
+ *   it is a platform-level privileged mutation (TechnicalAdmin only).
  */
 export const capabilitySchema = z.enum([
   'documentType.readConfig',
@@ -75,6 +82,7 @@ export const capabilitySchema = z.enum([
   'topic.manage',
   'department.manage',
   'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'departmentVisibility.manage',
   'accessGrant.create',
   'accessGrant.revoke',
@@ -83,6 +91,7 @@ export const capabilitySchema = z.enum([
   'user.search',
   'user.searchScoped',
   'analytics.view',
+  'notificationType.manageCatalog',
 ]);
 export type Capability = z.infer<typeof capabilitySchema>;
 

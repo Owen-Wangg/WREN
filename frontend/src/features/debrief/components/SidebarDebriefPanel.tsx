@@ -183,6 +183,9 @@ export function SidebarDebriefPanel({
   const [isSavingThenRegen, setIsSavingThenRegen] = useState(false);
   // True from when the 202 lands until the AppSync onDebriefReady event fires.
   const [isAwaitingDebrief, setIsAwaitingDebrief] = useState(false);
+  // Draft the pending job was queued for (from the 202); events for other
+  // drafts are ignored by useDebriefSubscription.
+  const [awaitingDraftId, setAwaitingDraftId] = useState<string | null>(null);
 
   // Use history's most recent draftId as the source of truth when no explicit
   // selection has been made. This bypasses the backend's "latest by
@@ -206,6 +209,7 @@ export function SidebarDebriefPanel({
         onGenerationFailedRef.current?.();
       }
     },
+    awaitingDraftId,
   );
 
   const didAutoRegenerate = useRef(false);
@@ -225,10 +229,12 @@ export function SidebarDebriefPanel({
     setHistoryOpen(false);
     try {
       await onBeforeRegenerateRef.current?.();
-      await regenerateRef.current.mutateAsync();
+      const queued = await regenerateRef.current.mutateAsync();
+      const queuedDraftId = queued?.draftId ?? null;
       // POST returned 202 — poll status (and AppSync) until the job finishes.
       onFeedbackQueuedRef.current?.();
       setSelectedDraftId(null);
+      setAwaitingDraftId(queuedDraftId);
       setIsAwaitingDebrief(true);
     } catch {
       // Error surfaces via regenerate.isError; keep panel usable.

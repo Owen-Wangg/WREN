@@ -204,6 +204,7 @@ interface AppUserRow {
   email: string;
   first_name: string;
   last_name: string;
+  idp_subject?: string | null;
 }
 
 /** `access_grant` row. Flat shape: `{document_type_id}`. */
@@ -456,6 +457,7 @@ export class FakeDb implements QueryExecutor {
       email: row.email ?? `${row.id}@example.com`,
       first_name: row.first_name ?? 'Seed',
       last_name: row.last_name ?? 'User',
+      idp_subject: row.idp_subject ?? null,
     };
     this.appUsers.set(full.id, full);
     return full;
@@ -1222,6 +1224,11 @@ export class FakeDb implements QueryExecutor {
     }
 
     /* --------------------- department_visibility_grant --------------------- */
+
+    if (sql.startsWith('SELECT idp_subject FROM app_user WHERE id = $1')) {
+      const user = this.appUsers.get(params[0] as string);
+      return (user ? [{ idp_subject: user.idp_subject ?? null }] : []) as unknown as Row[];
+    }
 
     if (sql.startsWith('SELECT id FROM app_user WHERE id = $1')) {
       const user = this.appUsers.get(params[0] as string);

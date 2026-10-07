@@ -50,7 +50,8 @@ export interface DeploymentConfig {
   readonly customDomain?: string;
   /**
    * Exact email hostnames allowed for new Cognito self-signups (e.g. `ubc.ca`).
-   * Empty by default (unrestricted). Subdomains are not implied.
+   * Required for `deploy` (an empty list would deny every signup). Subdomains
+   * are not implied.
    */
   readonly allowedEmailDomains: readonly string[];
   readonly adminEmail?: string;
@@ -266,6 +267,13 @@ export function parseDeploymentConfig(
       "WREN_GITHUB_OWNER and WREN_GITHUB_REPO are required when Amplify or CI/CD is enabled.",
     );
   }
+  // Secure by default: the PreSignUp Lambda denies every signup when the list
+  // is empty, so a deploy without one would lock out all new users.
+  if (operation === "deploy" && allowedEmailDomains.length === 0) {
+    throw new Error(
+      "WREN_ALLOWED_EMAIL_DOMAINS is required: list the exact email domains allowed to sign up (for example 'ubc.ca,student.ubc.ca').",
+    );
+  }
   if ((nonInteractive || environmentName === "prod") && !expectedAccountId) {
     throw new Error(
       "WREN_EXPECTED_ACCOUNT_ID is required in CI/non-interactive and production deployments.",
@@ -345,7 +353,7 @@ export function publicDeploymentConfig(
     // config change that should force reconfirmation.
     customDomain: config.customDomain ?? "(amplify default)",
     allowedEmailDomains:
-      config.allowedEmailDomains.join(",") || "(unrestricted)",
+      config.allowedEmailDomains.join(",") || "(none: signup denied)",
     adminConfiguredOverride: config.adminAlreadyConfigured,
     dryRun: config.dryRun,
     nonInteractive: config.nonInteractive,

@@ -8,6 +8,9 @@
  *      scopes + Access Grants by querying Postgres (the authz source of truth).
  *   3. If no app_user exists yet, provision one (default Student role) using
  *      Cognito profile attributes for email/name — still never using IdP groups.
+ *      Provisioning requires a Cognito-verified email, and an email match may
+ *      only reclaim an unclaimed, unprivileged row (see provisionUser.ts);
+ *      refusals return Deny with `reason: "provisioning_refused"`.
  *   4. Emit a stage-wide IAM Allow plus authorization context (roles,
  *      administered Departments, grants) that downstream services consume and
  *      RE-CHECK against the specific operation (dual enforcement).
@@ -44,18 +47,35 @@ import type { AuthContext } from '@wren/types';
 import { resolveCognitoVerifierConfig } from './config';
 import {
   createCognitoProfileLookup,
+  createCognitoSubjectLivenessCheck,
   type CognitoProfileLookup,
+  type CognitoSubjectLivenessCheck,
 } from './cognitoProfile';
-import { mapSubjectToAuthContext, type QueryExecutor } from './identityMapping';
-import { ensureAppUser, ensureTechnicalAdminForArmedSubject } from './provisionUser';
+import { mapSubjectToAuthContext } from './identityMapping';
+import {
+  getAuthContextSigningSecret,
+  isAuthContextSigningConfigured,
+  signSerializedAuthContext,
+} from './authContextSigning';
+import {
+  ensureAppUser,
+  ensureTechnicalAdminForArmedSubject,
+  IdentityProvisioningRefusedError,
+  type ProvisioningDb,
+  type ProvisionUserDeps,
+} from './provisionUser';
 import type { TokenVerifier } from './tokenVerifier';
 
 /** Collaborators the authorizer needs; injectable for testing. */
 export interface AuthorizerDeps {
   readonly verifier: TokenVerifier;
-  readonly db: QueryExecutor;
-  /** Resolves email/name from Cognito for first-login provisioning. */
+  readonly db: ProvisioningDb;
+  /** Resolves email/name/email_verified from Cognito for first-login provisioning. */
   readonly lookupProfile: CognitoProfileLookup;
+  /** Whether a previously linked subject still exists (guards email relinks). */
+  readonly isSubjectLive: CognitoSubjectLivenessCheck;
+  /** Durable, INSERT-only audit writer for identity relinks (`appendActivityEventRow`). */
+  readonly recordActivityEvent: ProvisionUserDeps['recordActivityEvent'];
 }
 
 /** Async provider so real deps can be built lazily (and cached) at runtime. */
@@ -74,9 +94,11 @@ export const UNAUTHORIZED = 'Unauthorized';
  * `event: "auth_failure"` key so a CloudWatch metric filter can count it.
  */
 function logAuthFailure(detail: {
-  reason: 'missing_token' | 'token_verification_failed' | 'provisioning_failed';
+  reason: 'missing_token' | 'token_verification_failed' | 'provisioning_failed' | 'provisioning_refused';
   methodArn?: string;
   subject?: string;
+  /** Machine-readable sub-reason, e.g. the provisioning refusal reason. */
+  detail?: string;
 }): void {
   console.warn(
     JSON.stringify({
@@ -84,6 +106,7 @@ function logAuthFailure(detail: {
       reason: detail.reason,
       ...(detail.methodArn ? { methodArn: detail.methodArn } : {}),
       ...(detail.subject ? { subject: detail.subject } : {}),
+      ...(detail.detail ? { detail: detail.detail } : {}),
     }),
   );
 }
@@ -172,7 +195,8 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
     }
 
     try {
-      const { verifier, db, lookupProfile } = await depsProvider();
+      const { verifier, db, lookupProfile, isSubjectLive, recordActivityEvent } =
+        await depsProvider();
 
       let subject: string;
       let groups: readonly string[];
@@ -198,14 +222,36 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
       let context = await mapSubjectToAuthContext(subject, db);
       if (!context) {
         const profile = await lookupProfile(subject, username);
-        await ensureAppUser(db, {
-          idpSubject: subject,
-          email: profile.email,
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-          groups,
-          technicalAdminBootstrapSubject: armedSubject,
-        });
+        try {
+          await ensureAppUser(
+            db,
+            {
+              idpSubject: subject,
+              email: profile.email,
+              emailVerified: profile.emailVerified,
+              firstName: profile.firstName,
+              lastName: profile.lastName,
+              groups,
+              technicalAdminBootstrapSubject: armedSubject,
+            },
+            { isSubjectLive, recordActivityEvent },
+          );
+        } catch (error) {
+          if (!(error instanceof IdentityProvisioningRefusedError)) throw error;
+          // Deliberate fail-closed refusal (unverified email, or an email match
+          // against a live / privileged identity). Nothing was written; deny
+          // rather than 5xx so the client does not retry indefinitely.
+          logAuthFailure({
+            reason: 'provisioning_refused',
+            methodArn: event.methodArn,
+            subject,
+            detail: error.reason,
+          });
+          return {
+            principalId: subject,
+            policyDocument: policy('Deny', stageWildcardResource(event.methodArn)),
+          };
+        }
         context = await mapSubjectToAuthContext(subject, db);
         if (!context) {
           // Provisioning failed unexpectedly — deny rather than allow without identity.
@@ -231,10 +277,20 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         context = (await mapSubjectToAuthContext(subject, db)) ?? context;
       }
 
+      // Sign the context so downstream service Lambdas can prove it was
+      // minted here and not forged on a direct invoke (finding f-140e2506).
+      // Only when a signing secret is configured (always true in deployed
+      // environments via CDK); unconfigured local/test runs emit the context
+      // unsigned, which the service verifiers accept only in permissive mode.
+      let authorizerContext = serializeAuthContext(context);
+      if (isAuthContextSigningConfigured()) {
+        const signingSecret = await getAuthContextSigningSecret();
+        authorizerContext = signSerializedAuthContext(authorizerContext, signingSecret);
+      }
       return {
         principalId: context.userId,
         policyDocument: policy('Allow', stageWildcardResource(event.methodArn)),
-        context: serializeAuthContext(context),
+        context: authorizerContext,
       };
     } catch (error) {
       if (error instanceof Error && error.message === UNAUTHORIZED) {
@@ -259,7 +315,7 @@ let cachedDeps: AuthorizerDeps | undefined;
  */
 async function defaultDepsProvider(): Promise<AuthorizerDeps> {
   if (cachedDeps) return cachedDeps;
-  const [{ getDataAccess }, { CognitoTokenVerifier }] = await Promise.all([
+  const [{ getDataAccess, appendActivityEventRow }, { CognitoTokenVerifier }] = await Promise.all([
     import('@wren/db-node'),
     import('./tokenVerifier.js'),
   ]);
@@ -267,7 +323,15 @@ async function defaultDepsProvider(): Promise<AuthorizerDeps> {
   const cognitoConfig = resolveCognitoVerifierConfig();
   const verifier = new CognitoTokenVerifier(cognitoConfig);
   const lookupProfile = createCognitoProfileLookup(cognitoConfig.userPoolId);
-  cachedDeps = { verifier, db, lookupProfile };
+  const isSubjectLive = createCognitoSubjectLivenessCheck(cognitoConfig.userPoolId);
+  cachedDeps = {
+    verifier,
+    db,
+    lookupProfile,
+    isSubjectLive,
+    // INSERT-only writer: wren_authorizer cannot read the activity log.
+    recordActivityEvent: appendActivityEventRow,
+  };
   return cachedDeps;
 }
 

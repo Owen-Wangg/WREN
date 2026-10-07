@@ -1137,11 +1137,16 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 "ssm:GetParameter",
                 "ssm:GetParameters",
                 "ssm:GetParametersByPath",
-                "ssm:PutParameter",
               ],
               "Effect": "Allow",
               "Resource": "arn:aws:ssm:ca-central-1:123456789012:parameter/wren-test/*",
-              "Sid": "Parameters",
+              "Sid": "ParametersRead",
+            },
+            {
+              "Action": "ssm:PutParameter",
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:ca-central-1:123456789012:parameter/wren-test/config/bedrock-model-id",
+              "Sid": "ParametersWriteBedrockModelOnly",
             },
             {
               "Action": [
@@ -1285,6 +1290,14 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
           "Statement": [
             {
               "Action": "sts:AssumeRole",
+              "Condition": {
+                "ArnLike": {
+                  "aws:SourceArn": "arn:aws:cloudformation:ca-central-1:123456789012:stack/wren-test-Compute/*",
+                },
+                "StringEquals": {
+                  "aws:SourceAccount": "123456789012",
+                },
+              },
               "Effect": "Allow",
               "Principal": {
                 "Service": "cloudformation.amazonaws.com",
@@ -1323,13 +1336,35 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                     "lambda:UpdateFunctionConfiguration",
                   ],
                   "Effect": "Allow",
-                  "Resource": "*",
+                  "Resource": [
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-authorizer",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-document",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-admin",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-sync-cognito-admins",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-orchestrator",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-engine",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-diff-anchor-progress",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-notification",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-appsync-authorizer",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-Compute-*",
+                  ],
                   "Sid": "LambdaCompute",
                 },
                 {
                   "Action": "lambda:InvokeFunction",
                   "Effect": "Allow",
-                  "Resource": "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-*",
+                  "Resource": [
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-authorizer",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-document",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-admin",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-sync-cognito-admins",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-orchestrator",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-engine",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-diff-anchor-progress",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-notification",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-appsync-authorizer",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-Compute-*",
+                  ],
                   "Sid": "LambdaInvokeOwnedFunctions",
                 },
                 {

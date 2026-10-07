@@ -18,7 +18,7 @@ export const loginSchema = z.object({
 export type LoginFormValues = z.infer<typeof loginSchema>;
 
 export const PASSWORD_REQUIREMENTS = {
-  minLength: 8,
+  minLength: 10,
   requireUppercase: true,
   requireLowercase: true,
   requireNumbers: true,
@@ -42,9 +42,15 @@ export function createSignupSchema(allowedEmailDomains: readonly string[] = []) 
         .string()
         .min(1, 'Email is required.')
         .email('Enter a valid email address.')
-        .refine((email) => isSignupEmailDomainAllowed(email, allowedEmailDomains), {
-          message: signupEmailDomainRestrictionMessage(allowedEmailDomains),
-        }),
+        // UX hint only; Cognito's PreSignUp trigger is the real gate. With no
+        // list configured (e.g. local mock mode) skip the check and let the
+        // server decide.
+        .refine(
+          (email) =>
+            allowedEmailDomains.length === 0 ||
+            isSignupEmailDomainAllowed(email, allowedEmailDomains),
+          { message: signupEmailDomainRestrictionMessage(allowedEmailDomains) },
+        ),
       password: passwordSchema,
       confirmPassword: z.string().min(1, 'Confirm your password.'),
     })
