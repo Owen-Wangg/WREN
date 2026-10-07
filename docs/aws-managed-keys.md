@@ -61,7 +61,7 @@ AWS: Secrets Manager therefore encrypts them with the `aws/secretsmanager` AWS-m
 | Per-role DB passwords (×7) | `DatabaseResources.ts` | `{prefix}/database/{role}` for each `APP_DB_ROLES` entry |
 | Activity-log pseudonym salt | `ComputeStack.ts` | `ActivityPseudonymSalt` → `{prefix}/audit/pseudonym-salt` |
 
-`APP_DB_ROLES` (`cdk/lib/appDbRoles.ts`): `wren_authorizer`, `wren_appsync_auth`, `wren_document`, `wren_admin`, `wren_feedback_orch`, `wren_feedback_engine`, `wren_notification`. (`wren_audit` was retired and is dropped by migration 0008.)
+`APP_DB_ROLES` (`cdk/lib/appDbRoles.ts`): `wren_authorizer`, `wren_appsync_auth`, `wren_document`, `wren_admin`, `wren_feedback_orch`, `wren_feedback_engine`, `wren_notification`.
 
 GitHub tokens are created by operators, not CDK. If those operator-created secrets do not specify a customer-managed KMS key, Secrets Manager uses `aws/secretsmanager`:
 

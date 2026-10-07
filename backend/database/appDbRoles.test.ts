@@ -20,7 +20,6 @@ const ROLES = [
   "wren_appsync_auth",
   "wren_document",
   "wren_admin",
-  "wren_audit",
   "wren_feedback_orch",
   "wren_feedback_engine",
   "wren_notification",
@@ -33,6 +32,8 @@ describe("app database roles (baseline)", () => {
         new RegExp(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`),
       );
     }
+    // The unrouted audit Lambda's role was removed (finding f-71876844).
+    expect(SQL).not.toMatch(/\bwren_audit\b/);
     expect(SQL).not.toMatch(/PASSWORD\s+'/i);
     expect(SQL).not.toMatch(/PASSWORD\s+"/i);
   });

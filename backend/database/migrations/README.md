@@ -16,7 +16,6 @@ DDL. They are applied in lexical filename order. Summary:
 | `0005_document_activity_event_grant.sql` | Document-deletion audit remediation: grants `wren_document` SELECT/INSERT on `activity_event` (plus CONNECT/USAGE) so destructive document deletions can be recorded in the independent activity log. |
 | `0006_activity_event_append_only_repair.sql` | Activity-log tamper-resistance remediation: makes `activity_event` append-only via the `reject_activity_event_mutation()` trigger and strips the excess UPDATE/DELETE from `wren_admin` (re-asserting SELECT/INSERT only). Forward-only fix for environments provisioned before these protections were folded into the baseline. |
 | `0007_authorizer_identity_relink_audit_grants.sql` | First-login relink hardening: grants `wren_authorizer` SELECT on `departmentSELECT on `department_visibility_grant` (privilege check before an email relink) and INSERT only on `activity_event` (append-only `identity.relinked` audit record, written without `RETURNING` so the authorizer cannot read the log). |
-| `0008_drop_wren_audit_role.sql` | Retires the orphaned `wren_audit` LOGIN role (its only consumer, the unrouted audit Lambda, was removed): sets NOLOGIN, revokes every baseline privilege, then drops the role (no `DROP OWNED BY`, which the non-superuser RDS admin may not run). Refuses to run if the role owns any objects; a no-op if the role is already gone. |
 
 Filenames are applied in **lexical order**. Do not edit an already-applied file — add a new numbered migration instead.
 
@@ -32,6 +31,11 @@ Filenames are applied in **lexical order**. Do not edit an already-applied file 
 > `0001_baseline.sql` in `schema_migrations` will not re-run the rewritten file,
 > so consolidation must be paired with rebuilding such environments (or applying
 > the folded statements out of band).
+>
+> The `wren_audit` role (used only by the removed, unrouted audit Lambda) was
+> deleted from the baseline in the same way. Fresh databases never create it;
+> a database provisioned earlier keeps the role until it is rebuilt or the role
+> is dropped out of band.
 
 ## Naming
 
