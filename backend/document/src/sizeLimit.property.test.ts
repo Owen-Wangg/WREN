@@ -23,46 +23,44 @@
  *   3. Strict-exceeds boundary (Req 7.2): for any effective limit `L`, exactly
  *      `L` is accepted and `L + 1` is rejected.
  *   4. Segment/count consistency: `enforceSizeLimit(segments, ...)` agrees with
- *      `enforceSizeLimitForWordCount(countWords(segments), ...)`, and
- *      `countWords` equals the independently re-derived sum of whitespace-
+ *      `enforceSizeLimitForWordCount(countWords(segments), ..., countChars(segments))`,
+ *      and `countWords` equals the independently re-derived sum of whitespace-
  *      delimited word counts across segments.
+ *
+ * The final describe block adds the defense-in-depth character ceiling
+ * introduced for finding f-ca2d70a5 (a whitespace-free blob measures as a
+ * single word, so the word count alone is bypassable).
  *
  * fast-check docs: https://fast-check.dev/
  */
 import fc from 'fast-check';
-
 import type { Segment } from '@wren/types';
-
 import {
   DEFAULT_SIZE_LIMIT_WORDS,
+  MAX_CHARS_PER_WORD,
+  countChars,
   countWords,
+  effectiveCharLimit,
   enforceSizeLimit,
   enforceSizeLimitForWordCount,
   resolveEffectiveSizeLimitWords,
   type SizeLimitOverrides,
 } from './sizeLimit';
-
 import { wrenProperty } from '../../../testing/typescript/property';
-
 /** A configured override: a positive int, or `null` to use platform default. */
 const overrideArb = fc.option(fc.integer({ min: 1, max: 20_000 }), { nil: null });
-
 /** Arbitrary Document Type override (may be `null`). */
 const overridesArb: fc.Arbitrary<SizeLimitOverrides> = fc.record({
   documentTypeSizeLimitWords: overrideArb,
 });
-
 /** An arbitrary already-measured word count, including 0. */
 const measuredWordsArb = fc.nat({ max: 25_000 });
-
 /** A single non-whitespace word token (guaranteed to contain no whitespace). */
 const tokenArb = fc
   .array(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), { minLength: 1, maxLength: 6 })
   .map((chars) => chars.join(''));
-
 /** Whitespace separators of varied kinds, to exercise run-collapsing. */
 const whitespaceArb = fc.constantFrom(' ', '\t', '\n', '\n\n', '   ', ' \t ');
-
 /**
  * A paragraph carrying its independently-known word count: `words` non-blank
  * tokens joined by whitespace, optionally padded with leading/trailing
@@ -81,7 +79,6 @@ const paragraphArb = fc
     if (padRight) text = `${text} \t`;
     return { text, words: tokens.length };
   });
-
 /** An arbitrary document (ordered segments) with its known total word count. */
 const documentArb = fc.array(paragraphArb, { maxLength: 6 }).map((paragraphs) => {
   const segments: Segment[] = paragraphs.map((paragraph, index) => ({
@@ -91,7 +88,6 @@ const documentArb = fc.array(paragraphArb, { maxLength: 6 }).map((paragraphs) =>
   const totalWords = paragraphs.reduce((sum, paragraph) => sum + paragraph.words, 0);
   return { segments, totalWords };
 });
-
 /**
  * Independent re-derivation of the effective limit (Req 7.4 precedence): the
  * Document Type override when set, else the platform default. Uses a different
@@ -101,7 +97,6 @@ const documentArb = fc.array(paragraphArb, { maxLength: 6 }).map((paragraphs) =>
 function expectedEffectiveLimit(overrides: SizeLimitOverrides): number {
   return overrides.documentTypeSizeLimitWords ?? 10_000;
 }
-
 /**
  * Independent re-derivation of a single text's word count: the number of
  * non-empty whitespace-delimited tokens. Different expression than the
@@ -110,12 +105,10 @@ function expectedEffectiveLimit(overrides: SizeLimitOverrides): number {
 function independentWordCount(text: string): number {
   return text.split(/\s+/).filter((token) => token.length > 0).length;
 }
-
 describe('Property 4: Size-limit enforcement using the effective limit', () => {
   it('resolves the effective limit and enforces the strict-exceeds boundary consistently', () => {
     // Guards the literal used in the independent re-derivation above.
     expect(DEFAULT_SIZE_LIMIT_WORDS).toBe(10_000);
-
     const tag = wrenProperty(
       { number: 4, text: 'Size-limit enforcement using the effective limit' },
       fc.property(
@@ -126,13 +119,11 @@ describe('Property 4: Size-limit enforcement using the effective limit', () => {
           // --- Sub-property 1: effective-limit precedence (Req 7.4) ---
           const effectiveLimit = resolveEffectiveSizeLimitWords(overrides);
           expect(effectiveLimit).toBe(expectedEffectiveLimit(overrides));
-
           // --- Sub-property 2: enforcement decision (Req 7.2 / 7.3) ---
           const result = enforceSizeLimitForWordCount(measuredWords, overrides);
           // Both numbers are always carried through (Req 7.2 returns both).
           expect(result.effectiveLimitWords).toBe(effectiveLimit);
           expect(result.measuredWords).toBe(measuredWords);
-
           if (measuredWords > effectiveLimit) {
             expect(result.status).toBe('over-limit');
             if (result.status === 'over-limit') {
@@ -143,7 +134,6 @@ describe('Property 4: Size-limit enforcement using the effective limit', () => {
           } else {
             expect(result.status).toBe('within-limit');
           }
-
           // --- Sub-property 3: strict-exceeds boundary (Req 7.2) ---
           // Exactly at the limit is accepted; one over is rejected.
           expect(enforceSizeLimitForWordCount(effectiveLimit, overrides).status).toBe(
@@ -152,7 +142,6 @@ describe('Property 4: Size-limit enforcement using the effective limit', () => {
           expect(enforceSizeLimitForWordCount(effectiveLimit + 1, overrides).status).toBe(
             'over-limit',
           );
-
           // --- Sub-property 4: segment/count consistency ---
           const independentTotal = document.segments.reduce(
             (sum, segment) => sum + independentWordCount(segment.text),
@@ -160,19 +149,82 @@ describe('Property 4: Size-limit enforcement using the effective limit', () => {
           );
           expect(independentTotal).toBe(document.totalWords);
           expect(countWords(document.segments)).toBe(document.totalWords);
-
           const viaSegments = enforceSizeLimit(document.segments, overrides);
+          // `enforceSizeLimit` applies the char ceiling (f-ca2d70a5), so the
+          // word-count entry point must receive the same measured chars to
+          // stay equivalent.
           const viaCount = enforceSizeLimitForWordCount(
             countWords(document.segments),
             overrides,
+            countChars(document.segments),
           );
           expect(viaSegments).toEqual(viaCount);
         },
       ),
     );
-
     expect(tag).toBe(
       'Feature: wren-writing-coach, Property 4: Size-limit enforcement using the effective limit',
+    );
+  });
+});
+
+describe('character ceiling — property-based (finding f-ca2d70a5)', () => {
+  it('rejects a whitespace-free blob iff its length exceeds the char ceiling', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 500 }), // effective word limit L
+        fc.integer({ min: 0, max: 20_000 }), // blob length n
+        (limitWords, n) => {
+          const overrides: SizeLimitOverrides = {
+            documentTypeSizeLimitWords: limitWords,
+          };
+          // A single run of non-whitespace chars: exactly one word (or zero
+          // when empty), of length n.
+          const segments: Segment[] = [{ index: 0, text: 'x'.repeat(n) }];
+          const result = enforceSizeLimit(segments, overrides);
+          const charLimit = effectiveCharLimit(limitWords);
+
+          if (n > charLimit) {
+            expect(result.status).toBe('over-limit');
+            if (result.status === 'over-limit') {
+              expect(result.exceeded).toBe('chars');
+              expect(result.measuredChars).toBe(n);
+              expect(result.effectiveLimitChars).toBe(charLimit);
+            }
+          } else {
+            expect(result.status).toBe('within-limit');
+          }
+        },
+      ),
+    );
+  });
+
+  it('accepts iff both bounds hold; word overage is reported before char overage', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.string({ maxLength: 40 }), { maxLength: 25 }),
+        fc.option(fc.integer({ min: 1, max: 300 }), { nil: null }),
+        (texts, documentTypeSizeLimitWords) => {
+          const overrides: SizeLimitOverrides = { documentTypeSizeLimitWords };
+          const segments: Segment[] = texts.map((text, index) => ({ index, text }));
+          const result = enforceSizeLimit(segments, overrides);
+
+          const limitWords = resolveEffectiveSizeLimitWords(overrides);
+          const words = countWords(segments);
+          const chars = countChars(segments);
+          const wordsOver = words > limitWords;
+          const charsOver = chars > limitWords * MAX_CHARS_PER_WORD;
+
+          if (!wordsOver && !charsOver) {
+            expect(result.status).toBe('within-limit');
+          } else {
+            expect(result.status).toBe('over-limit');
+            if (result.status === 'over-limit') {
+              expect(result.exceeded).toBe(wordsOver ? 'words' : 'chars');
+            }
+          }
+        },
+      ),
     );
   });
 });

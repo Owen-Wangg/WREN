@@ -10,7 +10,11 @@ import {
   redactDepartmentPrompt,
 } from './departmentScope';
 import { NotFoundError } from './errors';
-import { listDepartments } from './departmentService';
+import {
+  listDepartments,
+  updateDepartmentAskWrenPrompt,
+  updateDepartmentPrompt,
+} from './departmentService';
 import { listAllDocumentTypes, listDocumentTypes } from './documentTypeService';
 import { FakeDb } from './fakeDb';
 import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
@@ -148,5 +152,59 @@ describe('redactDepartmentPrompt (Feedback-Engine prompt read access)', () => {
     const listed = (await listDepartments(actor, db)).map((d) => redactDepartmentPrompt(actor, d));
     expect(listed.find((d) => d.id === LAW)?.prompt).toBe('Law context');
     expect(listed.find((d) => d.id === TEST)?.prompt).toBeUndefined();
+  });
+});
+
+/**
+ * Write-path redaction: the PUT prompt / PUT ask-wren-prompt
+ * handlers (handleUpdateDepartmentPrompt / handleUpdateDepartmentAskWrenPrompt)
+ * now route their returned DTO through {@link redactDepartmentPrompt}, mirroring
+ * the two read paths. The DTO these handlers return carries the confidential
+ * Feedback-Engine `prompt` column (via RETURNING / RETURNING_WITH_ASK_WREN), so
+ * the response must strip `prompt` for a caller who may not read it while
+ * leaving the edited field intact.
+ */
+describe('update responses redact the Feedback-Engine prompt (write-path parity)', () => {
+  it('PUT ask-wren-prompt: keeps prompt for the authorized editor, strips it for a non-reader', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: LAW, name: 'Law', prompt: 'Law Feedback-Engine context' });
+    const editor = deptAdminContext([LAW]);
+
+    // The service DTO carries the confidential `prompt` and the edited field.
+    const dto = await updateDepartmentAskWrenPrompt(
+      editor,
+      LAW,
+      { askWrenPrompt: 'Formal register; legal memoranda.' },
+      db,
+    );
+    expect(dto.prompt).toBe('Law Feedback-Engine context');
+    expect(dto.askWrenPrompt).toBe('Formal register; legal memoranda.');
+
+    // What the handler returns to the editor (own department): prompt retained.
+    const authorized = redactDepartmentPrompt(editor, dto);
+    expect(authorized.prompt).toBe('Law Feedback-Engine context');
+    expect(authorized.askWrenPrompt).toBe('Formal register; legal memoranda.');
+
+    // Same helper, non-reader actor: the confidential prompt is stripped while
+    // the edited Ask WREN prompt is preserved.
+    for (const nonReader of [studentContext(), deptAdminContext([TEST])]) {
+      const redacted = redactDepartmentPrompt(nonReader, dto);
+      expect(redacted.prompt).toBeUndefined();
+      expect(redacted.askWrenPrompt).toBe('Formal register; legal memoranda.');
+    }
+  });
+
+  it('PUT prompt: keeps prompt for the authorized editor, strips it for a non-reader', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: LAW, name: 'Law', prompt: 'old context' });
+    const editor = deptAdminContext([LAW]);
+
+    const dto = await updateDepartmentPrompt(editor, LAW, { prompt: 'new context' }, db);
+    expect(dto.prompt).toBe('new context');
+
+    expect(redactDepartmentPrompt(editor, dto).prompt).toBe('new context');
+    expect(redactDepartmentPrompt(techAdminContext(), dto).prompt).toBe('new context');
+    expect(redactDepartmentPrompt(studentContext(), dto).prompt).toBeUndefined();
+    expect(redactDepartmentPrompt(deptAdminContext([TEST]), dto).prompt).toBeUndefined();
   });
 });
