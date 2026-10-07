@@ -16,6 +16,7 @@ DDL. They are applied in lexical filename order. Summary:
 | `0005_document_activity_event_grant.sql` | Document-deletion audit remediation: grants `wren_document` SELECT/INSERT on `activity_event` (plus CONNECT/USAGE) so destructive document deletions can be recorded in the independent activity log. |
 | `0006_activity_event_append_only_repair.sql` | Activity-log tamper-resistance remediation: makes `activity_event` append-only via the `reject_activity_event_mutation()` trigger and strips the excess UPDATE/DELETE from `wren_admin` (re-asserting SELECT/INSERT only). Forward-only fix for environments provisioned before these protections were folded into the baseline. |
 | `0007_authorizer_identity_relink_audit_grants.sql` | First-login relink hardening: grants `wren_authorizer` SELECT on `departmentSELECT on `department_visibility_grant` (privilege check before an email relink) and INSERT only on `activity_event` (append-only `identity.relinked` audit record, written without `RETURNING` so the authorizer cannot read the log). |
+| `0008_notification_activity_event_grant.sql` | Notification_Type catalog audit remediation: grants `wren_notification` INSERT only on `activity_event` (plus CONNECT/USAGE) so a TechnicalAdmin create/update of a Notification_Type records an append-only `notification_type.created` / `notification_type.updated` event, written without `RETURNING` so the service cannot read the log. |
 
 Filenames are applied in **lexical order**. Do not edit an already-applied file — add a new numbered migration instead.
 

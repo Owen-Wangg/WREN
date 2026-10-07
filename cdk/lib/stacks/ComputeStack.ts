@@ -562,6 +562,7 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_notification),
         ...corsEnv,
+        ...activitySaltEnv,
         NOTIFICATION_TOPIC_ARN: notificationInfra.topic.topicArn,
         OVERRIDE_EXPIRY_WARNING_HOURS: "24",
       },
@@ -674,8 +675,9 @@ export class ComputeStack extends Stack {
 
     // Activity-log pseudonym salt: read at runtime by the shared
     // @wren/db-node activity-log writer in every function that receives
-    // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins, Authorizer; Document
-    // records its deletion events through the same writer, Issue #187). Every
+    // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins, Authorizer,
+    // Notification; Document records its deletion events through the same
+    // writer). Every
     // such function MUST be granted here — the CDK test enforces it. grantRead
     // scopes GetSecretValue/DescribeSecret to this one secret and, for
     // fromSecretNameV2 ("external" mode), appends the `-??????` suffix
@@ -687,6 +689,9 @@ export class ComputeStack extends Stack {
     activityPseudonymSalt.grantRead(this.syncCognitoAdminsFunction);
     // Authorizer audits first-login identity relinks (finding f-4531f8e7).
     activityPseudonymSalt.grantRead(this.authorizerFunction);
+    // Notification records a pseudonymized activity_event per Notification_Type
+    // catalog create/update.
+    activityPseudonymSalt.grantRead(this.notificationFunction);
 
     // Auth-context signing key (finding f-140e2506): the authorizer signs; the
     // three API Gateway service Lambdas verify. grantRead scopes

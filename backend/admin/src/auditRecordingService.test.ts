@@ -56,6 +56,53 @@ describe('auditConfigEdit (Requirement 23.3)', () => {
     expect(db.activityEvents[0]!.verb).toBe('config.updated');
     expect(db.activityEvents[1]!.verb).toBe('config.deleted');
   });
+
+  it('records a Department-scoped lifecycle edit with no Document Type', async () => {
+    const db = new FakeDb();
+    const actor = techAdminContext();
+
+    await auditConfigEdit(
+      actor,
+      { field: 'department', action: 'created', departmentId: 'dept-9', objectType: 'Department' },
+      db,
+    );
+
+    const event = db.activityEvents[0]!;
+    expect(event.verb).toBe('config.created');
+    // objectType override is honored, and object_ref falls back to the
+    // department id when there is no owning Document Type.
+    expect(event.object_type).toBe('Department');
+    expect(event.object_ref).toBe('department:dept-9');
+    expect(event.document_type_id).toBeNull();
+    expect(event.department_id).toBe('dept-9');
+    expect(event.context).toMatchObject({
+      role: 'TechnicalAdmin',
+      field: 'department',
+      action: 'created',
+    });
+  });
+
+  it('prefers the Document Type in object_ref and honors the objectType override', async () => {
+    const db = new FakeDb();
+    const actor = techAdminContext();
+
+    await auditConfigEdit(
+      actor,
+      {
+        field: 'documentType',
+        action: 'deleted',
+        documentTypeId: 'dt-7',
+        objectType: 'DocumentType',
+      },
+      db,
+    );
+
+    const event = db.activityEvents[0]!;
+    expect(event.object_type).toBe('DocumentType');
+    expect(event.object_ref).toBe('documentType:dt-7');
+    expect(event.document_type_id).toBe('dt-7');
+    expect(event.department_id).toBeNull();
+  });
 });
 
 describe('auditPromptEdit (Requirement 32.6)', () => {
