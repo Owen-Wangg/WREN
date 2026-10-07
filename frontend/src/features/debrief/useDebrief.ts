@@ -18,7 +18,7 @@ import {
   regenerateDebrief,
 } from './debriefApi';
 
-import type { DebriefHistoryVersion } from './debriefApi';
+import type { DebriefHistoryVersion, RegenerateDebriefResult } from './debriefApi';
 import type {
   FeedbackHelpfulnessInput,
   HelpfulnessAck,
@@ -72,7 +72,7 @@ export function useDebriefHistory(
  */
 export function useRegenerateDebrief(
   environmentId: string,
-): UseMutationResult<void, unknown, void> {
+): UseMutationResult<RegenerateDebriefResult, unknown, void> {
   return useMutation({
     mutationFn: () => regenerateDebrief(apiClient, environmentId),
   });

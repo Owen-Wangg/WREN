@@ -583,9 +583,11 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
     console.warn('Failed to publish ai-debrief-ready notification:', err);
   });
 
+  // draftId is the owner's own (server-selected) draft. The SPA uses it to
+  // ignore debriefReady events that are not for the job it just queued.
   return {
     statusCode: 202,
-    body: JSON.stringify({ jobId, status: 'queued' }),
+    body: JSON.stringify({ jobId, status: 'queued', draftId: String(draft.id) }),
   };
 }
 

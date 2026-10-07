@@ -1436,6 +1436,9 @@ paths:
                     type: string
                   status:
                     type: string
+                  draftId:
+                    type: string
+                    description: Draft the job was queued for; debriefReady events for other drafts should be ignored
         "400":
           description: Validation error
           content:
