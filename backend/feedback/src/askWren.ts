@@ -32,6 +32,16 @@ import { UsageLimitReachedError } from '@wren/admin/lifetimeUsagePolicy';
 
 export type ChatRole = 'user' | 'wren';
 
+/**
+ * Maximum length (in characters) of a single student Ask WREN message.
+ *
+ * A single turn is concatenated untruncated into the Bedrock user message and
+ * replayed as history on subsequent turns, so bounding it limits per-message
+ * Bedrock cost. Keep this value in sync with the `maxLength` on the `text`
+ * property of the postAskWrenMessage request body in cdk/lib/openapi.yaml.
+ */
+export const MAX_ASK_WREN_MESSAGE_LENGTH = 4000;
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
