@@ -100,7 +100,12 @@ def test_judge_body_baseline_fields(monkeypatch):
     assert body["messages"][0]["role"] == "user"
     user_text = body["messages"][0]["content"]
     assert '"feedback_question"' in user_text
-    assert '"revised_text": "revised a"' in user_text
+    # revised_text is now wrapped in a randomized-boundary UNTRUSTED DATA block
+    # (REQ-SEC-PROMPTINJECT-01) rather than embedded as a bare string. The
+    # student's text still appears, but inside the delimited data region.
+    assert "BEGIN UNTRUSTED DATA" in user_text
+    assert "label=REVISED DRAFT SECTION" in user_text
+    assert "revised a" in user_text
 
 
 def test_verdict_mapping_covers_resolved_partial_and_fallback(monkeypatch):
