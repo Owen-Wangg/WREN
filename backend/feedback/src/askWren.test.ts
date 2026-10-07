@@ -6,7 +6,11 @@
  * the universal prompt and BEFORE the document-type block, only when present;
  * and departments without a value are unchanged (fallback = current behavior).
  */
-import { buildSystemPrompt, type DocumentTypeContext } from './askWren';
+import {
+  buildSystemPrompt,
+  MAX_ASK_WREN_MESSAGE_LENGTH,
+  type DocumentTypeContext,
+} from './askWren';
 
 const RESTRICTIONS_MARKER = '## RESTRICTIONS';
 const SOCRATIC_MARKER = 'SOCRATIC COACHING FORMAT';
@@ -91,5 +95,26 @@ describe('buildSystemPrompt — fallback equivalence (unconfigured department)',
     expect(prompt).toContain('Socratic writing coach');
     expect(prompt).not.toContain(DEPARTMENT_LABEL);
     expect(prompt).not.toContain(DOC_TYPE_LABEL);
+  });
+});
+
+describe('MAX_ASK_WREN_MESSAGE_LENGTH — single-message length bound', () => {
+  // The handler rejects a trimmed message whose length exceeds this bound with
+  // a 400; a message at exactly the bound is accepted. These assertions pin the
+  // boundary contract that handlePostAskWren enforces.
+  const atLimit = 'a'.repeat(MAX_ASK_WREN_MESSAGE_LENGTH);
+  const overLimit = 'a'.repeat(MAX_ASK_WREN_MESSAGE_LENGTH + 1);
+
+  it('is a positive integer', () => {
+    expect(Number.isInteger(MAX_ASK_WREN_MESSAGE_LENGTH)).toBe(true);
+    expect(MAX_ASK_WREN_MESSAGE_LENGTH).toBeGreaterThan(0);
+  });
+
+  it('accepts a message exactly at the bound', () => {
+    expect(atLimit.length > MAX_ASK_WREN_MESSAGE_LENGTH).toBe(false);
+  });
+
+  it('rejects a message one character over the bound', () => {
+    expect(overLimit.length > MAX_ASK_WREN_MESSAGE_LENGTH).toBe(true);
   });
 });

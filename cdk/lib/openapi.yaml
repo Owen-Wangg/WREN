@@ -1627,6 +1627,9 @@ paths:
                 text:
                   type: string
                   minLength: 1
+                  # Must stay in sync with MAX_ASK_WREN_MESSAGE_LENGTH in
+                  # backend/feedback/src/askWren.ts
+                  maxLength: 4000
       responses:
         "200":
           description: Socratic reply from Ask WREN

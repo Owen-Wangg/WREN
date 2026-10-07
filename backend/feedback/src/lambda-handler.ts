@@ -13,6 +13,7 @@ import {
   appendAskWrenTurn,
   buildSessionId,
   loadDocumentConversation,
+  MAX_ASK_WREN_MESSAGE_LENGTH,
   type DocumentTypeContext,
 } from './askWren.js';
 import {
@@ -910,6 +911,16 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
       body: JSON.stringify({
         code: 'BAD_REQUEST',
         message: 'documentId, draftId, and text are required',
+      }),
+    };
+  }
+
+  if (text.length > MAX_ASK_WREN_MESSAGE_LENGTH) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'text exceeds the maximum allowed length',
       }),
     };
   }
