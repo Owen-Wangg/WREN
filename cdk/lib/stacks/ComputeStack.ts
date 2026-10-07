@@ -689,8 +689,10 @@ export class ComputeStack extends Stack {
     }));
 
     // Document Lambda: S3 read/write for document uploads + presigned URLs.
-    // The batch delete API (DeleteObjects) authorizes as s3:DeleteObject, so
-    // there is no separate "s3:DeleteObjects" IAM action (IAM_review F-9).
+    // Batch deletes (DeleteObjectsCommand) authorize per key as s3:DeleteObject;
+    // there is no s3:DeleteObjects IAM action. Keys are deleted without a
+    // VersionId, so s3:DeleteObjectVersion is not needed either.
+    // https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObjects.html
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: [
         "s3:GetObject",

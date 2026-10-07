@@ -719,6 +719,10 @@ export class CicdStack extends Stack {
             resources: [`arn:aws:ssm:${region}:${account}:parameter/${prefix}/*`],
           }),
           new iam.PolicyStatement({
+            // Documents + reference buckets (Storage stack). The batch
+            // DeleteObjects API authorizes per key as `s3:DeleteObject`; there
+            // is no `s3:DeleteObjects` IAM action, so none is listed here or in
+            // the document function's grant.
             // `ssm:PutParameter` is scoped to the ONLY parameter a runtime role
             // writes: `/${prefix}/config/bedrock-model-id` (admin function,
             // `putBedrockModelIdToSsm`). On the former `/${prefix}/*` scope a
@@ -747,7 +751,6 @@ export class CicdStack extends Stack {
               "s3:PutObject",
               "s3:PutObjectTagging",
               "s3:DeleteObject",
-              "s3:DeleteObjects",
               "s3:DeleteObjectTagging",
               "s3:ListBucket",
             ],
