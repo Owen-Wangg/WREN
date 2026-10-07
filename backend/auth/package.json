@@ -18,13 +18,9 @@
     "@wren/db-node": "*",
     "@wren/types": "*",
     "aws-jwt-verify": "^4.0.1",
-    "graphql": "^16.14.2",
-    "jsonwebtoken": "^9.0.0",
-    "node-fetch": "^2.7.0"
+    "graphql": "^16.14.2"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.145",
-    "@types/jsonwebtoken": "^9.0.7",
-    "@types/node-fetch": "^2.6.9"
+    "@types/aws-lambda": "^8.10.145"
   }
 }
