@@ -195,6 +195,10 @@ export function cdkContextArgs(
     ...(config.allowedEmailDomains.length > 0
       ? ["-c", `allowedEmailDomains=${config.allowedEmailDomains.join(",")}`]
       : []),
+    ...(config.alarmEmail ? ["-c", `alarmEmail=${config.alarmEmail}`] : []),
+    ...(config.corsAllowedOrigins.length > 0
+      ? ["-c", `corsAllowedOrigins=${config.corsAllowedOrigins.join(",")}`]
+      : []),
     ...(technicalAdminBootstrapSubject
       ? ["-c", `technicalAdminBootstrapSubject=${technicalAdminBootstrapSubject}`]
       : []),

@@ -206,6 +206,59 @@ describe("deployment configuration", () => {
     expect(config.adminEmail).toBe("admin@ubc.ca");
   });
 
+  it("parses an optional alarm email and omits it when absent", () => {
+    expect(parseDeploymentConfig(github).alarmEmail).toBeUndefined();
+    const config = parseDeploymentConfig({ ...github, WREN_ALARM_EMAIL: "ops@example.com" });
+    expect(config.alarmEmail).toBe("ops@example.com");
+  });
+
+  it("accepts an alarm email outside the signup allowlist (ops recipient, not a signup)", () => {
+    const config = parseDeploymentConfig({
+      ...github,
+      WREN_ALLOWED_EMAIL_DOMAINS: "ubc.ca",
+      WREN_ALARM_EMAIL: "alerts@pagerduty.example",
+    });
+    expect(config.alarmEmail).toBe("alerts@pagerduty.example");
+  });
+
+  it("rejects a malformed alarm email", () => {
+    expect(() =>
+      parseDeploymentConfig({ ...github, WREN_ALARM_EMAIL: "not-an-email" }),
+    ).toThrow("WREN_ALARM_EMAIL");
+  });
+
+  it("echoes the alarm email in public configuration, defaulting when unset", () => {
+    expect(publicDeploymentConfig(parseDeploymentConfig(github)).alarmEmail).toBe(
+      "(none: alarms have no subscriber)",
+    );
+    const withEmail = parseDeploymentConfig({ ...github, WREN_ALARM_EMAIL: "ops@example.com" });
+    expect(publicDeploymentConfig(withEmail).alarmEmail).toBe("ops@example.com");
+  });
+
+  it("parses extra CORS origins and defaults to none", () => {
+    expect(parseDeploymentConfig(github).corsAllowedOrigins).toEqual([]);
+    const config = parseDeploymentConfig({
+      ...github,
+      WREN_CORS_ALLOWED_ORIGINS: "https://a.example, https://b.example",
+    });
+    expect(config.corsAllowedOrigins).toEqual(["https://a.example", "https://b.example"]);
+  });
+
+  it("rejects a wildcard CORS origin", () => {
+    expect(() =>
+      parseDeploymentConfig({ ...github, WREN_CORS_ALLOWED_ORIGINS: "https://*.amplifyapp.com" }),
+    ).toThrow("invalid origin");
+  });
+
+  it("echoes extra CORS origins in public configuration, defaulting when unset", () => {
+    expect(publicDeploymentConfig(parseDeploymentConfig(github)).corsAllowedOrigins).toBe("(none)");
+    const withOrigins = parseDeploymentConfig({
+      ...github,
+      WREN_CORS_ALLOWED_ORIGINS: "https://a.example",
+    });
+    expect(publicDeploymentConfig(withOrigins).corsAllowedOrigins).toBe("https://a.example");
+  });
+
   it("never includes tokens in public configuration", () => {
     const config = parseDeploymentConfig({
       ...github,

@@ -85,6 +85,27 @@ describe("deployment workflow command construction", () => {
     expect(cdkContextArgs(domainConfig, "sha-abc123", false)).toContain("customDomain=cloud-inov.com");
   });
 
+  it("adds alarm-email and extra CORS context only when configured", () => {
+    const without = cdkContextArgs(config, "sha-abc123", false);
+    expect(without.some((value) => value.startsWith("alarmEmail="))).toBe(false);
+    expect(without.some((value) => value.startsWith("corsAllowedOrigins="))).toBe(false);
+
+    const hardened = parseDeploymentConfig({
+      WREN_GITHUB_OWNER: "owner",
+      WREN_GITHUB_REPO: "repo",
+      WREN_GITHUB_BRANCH: "release",
+      WREN_EXPECTED_ACCOUNT_ID: "123456789012",
+      WREN_NON_INTERACTIVE: "true",
+      WREN_ECR_OWNERSHIP: "external",
+      WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
+      WREN_ALARM_EMAIL: "ops@example.com",
+      WREN_CORS_ALLOWED_ORIGINS: "https://main.d123.amplifyapp.com",
+    });
+    const args = cdkContextArgs(hardened, "sha-abc123", false);
+    expect(args).toContain("alarmEmail=ops@example.com");
+    expect(args).toContain("corsAllowedOrigins=https://main.d123.amplifyapp.com");
+  });
+
   it("passes the required allowed-email-domains context to CDK", () => {
     const domainConfig = parseDeploymentConfig({
       WREN_GITHUB_OWNER: "owner",
