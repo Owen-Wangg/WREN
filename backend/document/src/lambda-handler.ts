@@ -796,7 +796,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     // every success path clears again after commit.
     await clearOrphanUploadTag(key);
     // PDF OCR can exceed API Gateway ~29s — enqueue and return immediately.
-    if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
+    if (shouldIngestPdfAsync(fileName)) {
       asyncPdf = { key, fileName };
     } else {
       // Reserve the lifetime upload slot BEFORE fetching bytes or running paid
@@ -1495,7 +1495,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       // and every success path clears again after commit.
       await clearOrphanUploadTag(key);
 
-      if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
+      if (shouldIngestPdfAsync(fileName)) {
         // Any throw out of the transaction (ownership 404, reservation 429,
         // insert or commit failure) means it rolled back and this request
         // references nothing, so re-tag the upload.
