@@ -29,7 +29,6 @@ const COMPUTE_FUNCTION_SUFFIXES = [
   "document",
   "admin",
   "sync-cognito-admins",
-  "audit",
   "feedback-orchestrator",
   "feedback-engine",
   "diff-anchor-progress",
@@ -77,7 +76,7 @@ export interface ComputeDeployScopes {
   readonly boundaryArn: string;
   /**
    * The exact Lambda ARNs the Compute deploy role may mutate and invoke: the
-   * ten `${prefix}-<service>` functions from {@link COMPUTE_FUNCTION_SUFFIXES}
+   * nine `${prefix}-<service>` functions from {@link COMPUTE_FUNCTION_SUFFIXES}
    * plus `function:${prefix}-Compute-*` for the CFN-auto-named LogRetention
    * provider. Enumerated rather than `function:${prefix}-*` so the Database
    * stack's `${prefix}-migrate` / `${prefix}-sync-db-passwords` (which hold DB
@@ -552,7 +551,7 @@ export class CicdStack extends Stack {
       boundaryArn: CicdStack.boundaryPolicyArnFor(account, prefix),
       // Enumerated owned functions, deliberately NOT `function:${prefix}-*`:
       // that wildcard also matches the Database stack's `${prefix}-migrate` and
-      // `${prefix}-sync-db-passwords`, which hold DB credentials. The ten named
+      // `${prefix}-sync-db-passwords`, which hold DB credentials. The nine named
       // service functions are listed explicitly; `${prefix}-Compute-*` covers
       // the CFN-auto-named LogRetention provider.
       ownedFunctionArns: [
@@ -973,7 +972,7 @@ export class CicdStack extends Stack {
             }),
             new iam.PolicyStatement({
               // Requirement 5 criteria 1, 4, 6. `ownedFunctionArns` covers both
-              // invocation targets a Compute deploy needs: the ten explicitly
+              // invocation targets a Compute deploy needs: the nine explicitly
               // named `${prefix}-<service>` functions and the
               // CloudFormation-auto-named `${prefix}-Compute-LogRetention*`
               // provider that backs the `Custom::LogRetention` resources.

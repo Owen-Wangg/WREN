@@ -92,7 +92,6 @@ export class ComputeStack extends Stack {
   public readonly adminFunction: lambda.Function;
   /** Operator-only TechnicalAdmin sync; never wired to API Gateway. */
   public readonly syncCognitoAdminsFunction: lambda.Function;
-  public readonly auditFunction: lambda.Function;
   public readonly feedbackOrchestratorFunction: lambda.Function;
   public readonly feedbackEngineFunction: lambda.Function;
   public readonly diffAnchorProgressFunction: lambda.Function;
@@ -400,28 +399,6 @@ export class ComputeStack extends Stack {
     });
 
     // -----------------------------------------------------------------------
-    // Audit / Activity-Log / Analytics Service Lambda (Node 22)
-    // -----------------------------------------------------------------------
-    this.auditFunction = new lambdaNodejs.NodejsFunction(this, "AuditFn", {
-      functionName: `${config.stackPrefix}-audit`,
-      entry: path.join(monorepoRoot, "backend/admin/src/lambda-audit.ts"),
-      handler: "handler",
-      runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 256,
-      timeout: Duration.seconds(15),
-      vpc,
-      vpcSubnets: privateSubnets,
-      projectRoot: monorepoRoot,
-      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
-      environment: {
-        ...dbEnv(secrets.wren_audit),
-        ...corsEnv,
-        ...activitySaltEnv,
-      },
-      bundling: sharedBundling,
-    });
-
-    // -----------------------------------------------------------------------
     // Feedback DLQ + Queue (SQS — async job execution, REQ-NFR-SCALE-01)
     // -----------------------------------------------------------------------
     // Feedback jobs reference user drafts: SSE-SQS at rest + TLS-only queue policy.
@@ -668,7 +645,6 @@ export class ComputeStack extends Stack {
     this.grantDatabaseAccess(this.documentFunction, secrets.wren_document);
     this.grantDatabaseAccess(this.adminFunction, secrets.wren_admin);
     this.grantDatabaseAccess(this.syncCognitoAdminsFunction, secrets.wren_admin);
-    this.grantDatabaseAccess(this.auditFunction, secrets.wren_audit);
     this.grantDatabaseAccess(this.feedbackOrchestratorFunction, secrets.wren_feedback_orch);
     this.grantDatabaseAccess(this.feedbackEngineFunction, secrets.wren_feedback_engine);
     this.grantDatabaseAccess(this.notificationFunction, secrets.wren_notification);
@@ -683,7 +659,6 @@ export class ComputeStack extends Stack {
     // fromSecretNameV2 ("external" mode), appends the `-??????` suffix
     // wildcard that a hand-written statement on `secretArn` would miss.
     activityPseudonymSalt.grantRead(this.adminFunction);
-    activityPseudonymSalt.grantRead(this.auditFunction);
     activityPseudonymSalt.grantRead(this.documentFunction);
     // sync-cognito-admins writes a pseudonymized activity_event per grant.
     activityPseudonymSalt.grantRead(this.syncCognitoAdminsFunction);
@@ -917,9 +892,6 @@ export class ComputeStack extends Stack {
     new CfnOutput(this, "SyncCognitoAdminsFunctionName", {
       value: this.syncCognitoAdminsFunction.functionName,
       description: "Operator-only: aws lambda invoke --payload '{\"_script\":\"sync-cognito-admins\"}'",
-    });
-    new CfnOutput(this, "AuditFunctionArn", {
-      value: this.auditFunction.functionArn,
     });
     new CfnOutput(this, "FeedbackOrchestratorFunctionArn", {
       value: this.feedbackOrchestratorFunction.functionArn,

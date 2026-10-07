@@ -17,7 +17,6 @@ function synthApi(overrides: Parameters<typeof testConfig>[0] = {}) {
     documentFunctionArn: lambdaArn("document"),
     feedbackFunctionArn: lambdaArn("feedback-orchestrator"),
     adminFunctionArn: lambdaArn("admin"),
-    auditFunctionArn: lambdaArn("audit"),
     notificationFunctionArn: lambdaArn("notification"),
   });
   return { config, template: Template.fromStack(stack) };

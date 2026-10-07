@@ -10,7 +10,6 @@ export const APP_DB_ROLES = [
   "wren_appsync_auth",
   "wren_document",
   "wren_admin",
-  "wren_audit",
   "wren_feedback_orch",
   "wren_feedback_engine",
   "wren_notification",

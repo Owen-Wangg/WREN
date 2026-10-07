@@ -32,6 +32,11 @@ Filenames are applied in **lexical order**. Do not edit an already-applied file 
 > `0001_baseline.sql` in `schema_migrations` will not re-run the rewritten file,
 > so consolidation must be paired with rebuilding such environments (or applying
 > the folded statements out of band).
+>
+> The `wren_audit` role (used only by the removed, unrouted audit Lambda) was
+> deleted from the baseline in the same way. Fresh databases never create it;
+> a database provisioned earlier keeps the role until it is rebuilt or the role
+> is dropped out of band.
 
 ## Naming
 

@@ -1828,11 +1828,6 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  CREATE ROLE wren_audit LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
-
-DO $$ BEGIN
   CREATE ROLE wren_feedback_orch LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
@@ -1849,15 +1844,15 @@ END $$;
 
 GRANT CONNECT ON DATABASE appdb TO
   wren_authorizer, wren_appsync_auth, wren_document, wren_admin,
-  wren_audit, wren_feedback_orch, wren_feedback_engine, wren_notification;
+  wren_feedback_orch, wren_feedback_engine, wren_notification;
 
 GRANT USAGE ON SCHEMA public TO
   wren_authorizer, wren_appsync_auth, wren_document, wren_admin,
-  wren_audit, wren_feedback_orch, wren_feedback_engine, wren_notification;
+  wren_feedback_orch, wren_feedback_engine, wren_notification;
 
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO
   wren_authorizer, wren_appsync_auth, wren_document, wren_admin,
-  wren_audit, wren_feedback_orch, wren_feedback_engine, wren_notification;
+  wren_feedback_orch, wren_feedback_engine, wren_notification;
 
 -- wren_authorizer
 -- UPDATE on app_user is required for first-login provisioning: ensureAppUser
@@ -1901,13 +1896,6 @@ GRANT SELECT ON TABLE
   TO wren_admin;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.department_visibility_grant
   TO wren_admin;
-
--- wren_audit
-GRANT SELECT ON TABLE
-  public.aggregate_counter, public.document_type, public.department,
-  public.resolution_status_history, public.feedback_item, public.error_category,
-  public.feedback_helpfulness_rating, public.debrief_section_applicability
-  TO wren_audit;
 
 -- wren_feedback_orch
 GRANT SELECT ON TABLE

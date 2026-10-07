@@ -300,7 +300,6 @@ Entry points Compute already bundles:
 | Authorizer | `backend/auth/src/authorizer.ts` |
 | Document | `backend/document/src/lambda-handler.ts` |
 | Admin | `backend/admin/src/lambda-handler.ts` |
-| Audit | `backend/admin/src/lambda-audit.ts` |
 | Feedback orchestrator | `backend/feedback/src/lambda-handler.ts` |
 | Notification | `backend/notification/src/lambda-handler.ts` |
 | Feedback Engine | Python container from ECR `{prefix}-feedback-engine:bootstrap` |

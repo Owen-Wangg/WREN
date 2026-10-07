@@ -103,7 +103,6 @@ describe("ComputeStack — reserved concurrency", () => {
 
     // Unmanaged functions keep the unreserved pool; no explicit reservation.
     expect(reserved.get(`${p}-admin`)).toBeUndefined();
-    expect(reserved.get(`${p}-audit`)).toBeUndefined();
     expect(reserved.get(`${p}-notification`)).toBeUndefined();
   });
 });

@@ -54,6 +54,8 @@ jest.mock('@wren/auth', () => ({
   resolveAccess: jest.fn(async () => 'OPEN'),
   bindCorsOrigin: jest.fn(),
   withCorsHeaders: (res: unknown) => res,
+  // Signed-context guard: allow through in this unit test.
+  rejectIfForgedAuthContext: jest.fn(async () => null),
 }));
 
 // Ordered log of S3 commands and transaction boundaries.
