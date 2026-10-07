@@ -54,6 +54,7 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'department.manageAskWrenPrompt',
   'department.managePrompt',
   'analytics.view',
+  'notificationType.manageCatalog',
 ]);
 
 const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
@@ -120,6 +121,7 @@ const ALL_CAPABILITIES: Capability[] = [
   'user.search',
   'user.searchScoped',
   'analytics.view',
+  'notificationType.manageCatalog',
 ];
 
 const actorArb: fc.Arbitrary<AuthContext> = fc.record({

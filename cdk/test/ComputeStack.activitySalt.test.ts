@@ -32,6 +32,8 @@ const SALT_CONSUMERS = [
   "wren-test-sync-cognito-admins",
   // The authorizer audits first-login identity relinks (finding f-4531f8e7).
   "wren-test-authorizer",
+  // Notification records an event per Notification_Type catalog create/update.
+  "wren-test-notification",
 ] as const;
 
 type CfnFunction = {

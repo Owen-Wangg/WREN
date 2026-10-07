@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { patchCurrentDraft } from '@/features/dashboard/dashboardApi';
 import { parseOverSizeLimitError, type OverSizeLimitDetails } from '@/features/editor/wordLimit';
 import { apiClient } from '@/services';
-import { asTipTapDoc, stripAiMarksFromTipTapContent } from '@wren/types';
+import { asTipTapDoc, stripAiMarksFromTipTapContent, stripUnsafeTipTapAttrs } from '@wren/types';
 
 import type { JSONContent } from '@tiptap/react';
 import type { Draft, TipTapDoc } from '@wren/types';
@@ -100,7 +100,11 @@ export function useDraftAutosave({
   const persist = useCallback(
     async (opts?: { keepalive?: boolean }): Promise<boolean> => {
       if (!enabled || !documentId || savingRef.current) return false;
-      const cleaned = asTipTapDoc(stripAiMarksFromTipTapContent(contentRef.current));
+      // Drop attr values the document API rejects (e.g. pasted styles) so a
+      // single bad span cannot block every subsequent autosave.
+      const cleaned = asTipTapDoc(
+        stripUnsafeTipTapAttrs(stripAiMarksFromTipTapContent(contentRef.current)),
+      );
       if (!cleaned) return false;
 
       const serialized = JSON.stringify(cleaned);
@@ -116,8 +120,14 @@ export function useDraftAutosave({
       try {
         const draft = await patchCurrentDraft(apiClient, documentId, cleaned as TipTapDoc, {
           keepalive: opts?.keepalive,
-          header: headerRef.current != null ? (headerRef.current as TipTapDoc) : null,
-          footer: footerRef.current != null ? (footerRef.current as TipTapDoc) : null,
+          header:
+            headerRef.current != null
+              ? stripUnsafeTipTapAttrs(headerRef.current as TipTapDoc)
+              : null,
+          footer:
+            footerRef.current != null
+              ? stripUnsafeTipTapAttrs(footerRef.current as TipTapDoc)
+              : null,
         });
         lastSavedJsonRef.current = serialized;
         dirtyRef.current = false;
@@ -172,7 +182,7 @@ export function useDraftAutosave({
     if (skipNextDirtyRef.current) {
       skipNextDirtyRef.current = false;
       lastSavedJsonRef.current = JSON.stringify(
-        asTipTapDoc(stripAiMarksFromTipTapContent(content)) ?? content,
+        asTipTapDoc(stripUnsafeTipTapAttrs(stripAiMarksFromTipTapContent(content))) ?? content,
       );
       return;
     }

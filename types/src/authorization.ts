@@ -69,6 +69,10 @@ import { idSchema } from './common';
  *   A `DepartmentAdmin` sees totals scoped to Document Types within
  *   administered Departments; a `TechnicalAdmin` sees platform-wide totals,
  *   filterable by Document Type (Requirements 40, 41, 42, 19).
+ * - `notificationType.manageCatalog` — manage the platform Notification_Type
+ *   catalog (slugs, labels, display/action templates, target roles, dedup
+ *   strategy). This is authorship over the content of every user's inbox, so
+ *   it is a platform-level privileged mutation (TechnicalAdmin only).
  */
 export const capabilitySchema = z.enum([
   'documentType.readConfig',
@@ -87,6 +91,7 @@ export const capabilitySchema = z.enum([
   'user.search',
   'user.searchScoped',
   'analytics.view',
+  'notificationType.manageCatalog',
 ]);
 export type Capability = z.infer<typeof capabilitySchema>;
 

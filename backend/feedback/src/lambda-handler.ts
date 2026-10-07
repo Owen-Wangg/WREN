@@ -13,6 +13,7 @@ import {
   appendAskWrenTurn,
   buildSessionId,
   loadDocumentConversation,
+  MAX_ASK_WREN_MESSAGE_LENGTH,
   type DocumentTypeContext,
 } from './askWren.js';
 import {
@@ -583,9 +584,11 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
     console.warn('Failed to publish ai-debrief-ready notification:', err);
   });
 
+  // draftId is the owner's own (server-selected) draft. The SPA uses it to
+  // ignore debriefReady events that are not for the job it just queued.
   return {
     statusCode: 202,
-    body: JSON.stringify({ jobId, status: 'queued' }),
+    body: JSON.stringify({ jobId, status: 'queued', draftId: String(draft.id) }),
   };
 }
 
@@ -910,6 +913,16 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
       body: JSON.stringify({
         code: 'BAD_REQUEST',
         message: 'documentId, draftId, and text are required',
+      }),
+    };
+  }
+
+  if (text.length > MAX_ASK_WREN_MESSAGE_LENGTH) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'text exceeds the maximum allowed length',
       }),
     };
   }

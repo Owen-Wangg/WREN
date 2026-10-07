@@ -41,10 +41,17 @@ const debriefReadyPayloadSchema = z.object({
   }),
 });
 
+/**
+ * @param expectedDraftId Draft the caller queued a job for (from the 202
+ *   response). When set, events for any other draft are ignored, so a stray or
+ *   spoofed debriefReady cannot end the wait state. `null` disables the filter
+ *   (older backend that does not return draftId).
+ */
 export function useDebriefSubscription(
   documentId: string,
   enabled: boolean,
   onComplete: (itemCount: number) => void,
+  expectedDraftId: string | null = null,
 ): void {
   const queryClient = useQueryClient();
   const onCompleteRef = useRef(onComplete);
@@ -64,7 +71,12 @@ export function useDebriefSubscription(
           const parsed = debriefReadyPayloadSchema.safeParse(payload);
           if (!parsed.success) return;
 
-          const { draftId, itemCount } = parsed.data.data.onDebriefReady;
+          const { documentId: eventDocumentId, draftId, itemCount } =
+            parsed.data.data.onDebriefReady;
+
+          // Only act on events for the job this hook is waiting on.
+          if (eventDocumentId !== documentId) return;
+          if (expectedDraftId !== null && draftId !== expectedDraftId) return;
 
           if (itemCount === 0) {
             onCompleteRef.current(0);
@@ -116,5 +128,5 @@ export function useDebriefSubscription(
       cancelled = true;
       unsubscribe?.();
     };
-  }, [documentId, enabled, queryClient]);
+  }, [documentId, enabled, expectedDraftId, queryClient]);
 }
