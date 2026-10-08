@@ -3,6 +3,7 @@ import * as amplify_cfn from "aws-cdk-lib/aws-amplify";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import type { Construct } from "constructs";
 
+import { buildAmplifyCustomHeadersYaml } from "../amplifySecurityHeaders";
 import type { AppConfig } from "../config";
 
 /**
@@ -33,6 +34,8 @@ export interface AmplifyStackProps extends StackProps {
   readonly cognitoClientId: string;
   /** AppSync GraphQL endpoint for real-time debrief subscriptions. */
   readonly appSyncGraphqlUrl: string;
+  /** Documents bucket the SPA uploads to via presigned POST (CSP connect-src). */
+  readonly documentsBucketName: string;
 }
 
 /**
@@ -57,6 +60,7 @@ export class AmplifyStack extends Stack {
     super(scope, id, props);
 
     const { config } = props;
+    const region = config.env.region || "ca-central-1";
 
     // -------------------------------------------------------------------
     // Amplify App — L1 construct.
@@ -104,7 +108,7 @@ export class AmplifyStack extends Stack {
         { name: "VITE_USE_LIVE_API",           value: "true" },
         { name: "VITE_COGNITO_USER_POOL_ID",   value: props.cognitoUserPoolId },
         { name: "VITE_COGNITO_CLIENT_ID",      value: props.cognitoClientId },
-        { name: "VITE_AWS_REGION",             value: config.env.region || "ca-central-1" },
+        { name: "VITE_AWS_REGION",             value: region },
         { name: "VITE_APPSYNC_URL",            value: props.appSyncGraphqlUrl },
         { name: "VITE_ALLOWED_EMAIL_DOMAINS",  value: config.allowedEmailDomains.join(",") },
         { name: "NODE_VERSION",                value: "22" },
@@ -113,6 +117,13 @@ export class AmplifyStack extends Stack {
       customRules: [
         { source: "/<*>", target: "/index.html", status: "404-200" },
       ],
+      // HSTS, CSP, X-Frame-Options, nosniff, and Referrer-Policy on every path.
+      customHeaders: buildAmplifyCustomHeadersYaml({
+        apiEndpoint: props.apiEndpoint,
+        appSyncGraphqlUrl: props.appSyncGraphqlUrl,
+        documentsBucketName: props.documentsBucketName,
+        region,
+      }),
     });
 
     // Pin the logical IDs to what CloudFormation already has deployed (from
