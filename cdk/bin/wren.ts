@@ -235,6 +235,7 @@ if (github.owner && github.repo) {
     cognitoUserPoolId: cognitoStack.userPoolId,
     cognitoClientId: cognitoStack.userPoolClientId,
     appSyncGraphqlUrl: computeStack.appSyncGraphqlUrl,
+    documentsBucketName: storageStack.documentsBucketName,
   });
 } else {
   // eslint-disable-next-line no-console

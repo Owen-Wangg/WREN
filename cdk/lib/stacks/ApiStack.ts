@@ -9,6 +9,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
 
 import { resolveLogRetention, type AppConfig } from "../config";
+import { RegionalApiWafConstruct } from "../constructs/RegionalApiWafConstruct";
 import {
   CORS_ALLOW_HEADERS,
   CORS_ALLOW_METHODS,
@@ -38,7 +39,8 @@ export interface ApiStackProps extends StackProps {
 /**
  * `${StackPrefix}-Api` — REST API Gateway (SpecRestApi from OpenAPI spec).
  *
- * - Regional endpoint (fronted by CloudFront in a later stack).
+ * - Regional endpoint with a REGIONAL WAF WebACL (managed rules + per-IP
+ *   rate limit) associated with the stage.
  * - Lambda authorizer (Cognito JWT → app-DB identity + role + scope).
  * - Throttling: 100 req/s sustained, 200 burst.
  * - Logging: ERROR level (raised to INFO for debugging).
@@ -53,6 +55,8 @@ export class ApiStack extends Stack {
   public readonly apiEndpoint: string;
   /** Name of the API Gateway access-log group (Issue #187) — consumed by the ObservabilityStack security alarms. */
   public readonly accessLogGroupName: string;
+  /** REGIONAL WAF WebACL associated with the API stage. */
+  public readonly webAcl: RegionalApiWafConstruct;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -292,6 +296,15 @@ export class ApiStack extends Stack {
       cloudWatchRole: true,
     });
 
+    // WAF managed rules and the per-IP rate limit on the stage clients call
+    // directly (the execute-api hostname). The stage ARN follows stage
+    // replacement on OpenAPI changes, so the association is re-pointed with it.
+    this.webAcl = new RegionalApiWafConstruct(this, "ApiWaf", {
+      stackPrefix: config.stackPrefix,
+      resourceArn: this.api.deploymentStage.stageArn,
+      logRetention: resolveLogRetention(config),
+    });
+
     // Bound the API-Gateway-managed *execution* log group (gap 2.2). API Gateway
     // creates `API-Gateway-Execution-Logs_{apiId}/{stage}` itself with no expiry
     // when loggingLevel is set. A LogRetention custom resource upserts a
@@ -388,6 +401,11 @@ export class ApiStack extends Stack {
     new CfnOutput(this, "ApiId", {
       value: this.api.restApiId,
       description: "API Gateway REST API ID",
+    });
+
+    new CfnOutput(this, "ApiWebAclArn", {
+      value: this.webAcl.webAcl.attrArn,
+      description: "REGIONAL WAF WebACL ARN associated with the API stage",
     });
   }
 }

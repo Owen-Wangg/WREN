@@ -56,9 +56,9 @@ flowchart TB
 
     subgraph Edge["Edge Security Layer"]
         direction LR
-        CF["CloudFront<br/>CDN + TLS"]
-        WAF["AWS WAF<br/>(on CloudFront)"]
-        Shield["Shield Standard<br/>(with CloudFront)"]
+        WAF["AWS WAF (REGIONAL)<br/>on the API Gateway stage"]
+        Amplify["Amplify Hosting<br/>CSP · HSTS · X-Frame-Options"]
+        CF["CloudFront + WAF<br/>(alternate API hostname)"]
     end
     EdgeNote["Amplify hosts the React web app (Cognito sign-in)"]
 
@@ -95,12 +95,11 @@ flowchart TB
 
 ### 2.2 Request and Trust Boundaries
 
-There are two ways a request reaches the application, and they receive different edge protection.
+- **Web app — Amplify Hosting.** The SPA is served from the Amplify domain (or the configured custom domain). Amplify adds the security response headers in [4.3](#43-waf-rate-limiting-and-security-headers) to every response.
+- **API — API Gateway `execute-api` hostname.** The SPA calls the regional stage URL (`VITE_API_BASE_URL`). A REGIONAL WAF WebACL is associated with the stage, so managed rules and the per-IP rate limit apply before the Lambda authorizer runs. API Gateway then invokes the Lambda authorizer and the service Lambda.
+- **Alternate API hostname — CloudFront.** The `CloudFrontWaf` stack's distribution fronts the same API with its own CLOUDFRONT-scoped WebACL and response-headers policy. The web app does not use it by default.
 
-- **Preferred path — CloudFront → API Gateway.** Browser traffic to the application origin goes through CloudFront, where WAF managed rules, per-IP rate limiting, TLS, and security-header injection apply. API Gateway then invokes the Lambda authorizer and the service Lambda.
-- **Direct path — API Gateway `execute-api` hostname.** This hostname remains reachable directly unless separately restricted. Requests on this path still receive authentication (the Lambda authorizer) and application-level authorization (capability, department, and ownership checks in the service Lambda), but they do not receive CloudFront or WAF protection.
-
-The trust boundary worth remembering: **network reachability and CloudFront/WAF are edge concerns; the authoritative allow/deny decision is made inside the service Lambda against PostgreSQL, on both paths.**
+The trust boundary worth remembering: **WAF and response headers are edge concerns; the authoritative allow/deny decision is made inside the service Lambda against PostgreSQL, on every path.**
 
 ---
 
@@ -158,14 +157,14 @@ Configured on the Cognito user pool:
 
 ### 4.1 Request Path
 
-The preferred path traverses these stages in order (see [2.2](#22-request-and-trust-boundaries) for the two paths):
+An API request traverses these stages in order (see [2.2](#22-request-and-trust-boundaries)):
 
-1. **CloudFront + WAF** — TLS termination, managed WAF rules, per-IP rate limit, security-header injection.
+1. **WAF** — managed rules and per-IP rate limit (REGIONAL WebACL on the stage; the CloudFront hostname has its own WebACL).
 2. **API Gateway** — request validation (OpenAPI validators) and stage throttling.
 3. **Lambda authorizer** — JWT verification and app-user mapping.
 4. **Service Lambda** — capability, department, and ownership checks, then the operation.
 
-A request to the `execute-api` hostname skips stage 1 but still passes through stages 2–4. There is no Lambda@Edge.
+There is no Lambda@Edge.
 
 ### 4.2 Request Validation
 
@@ -178,20 +177,34 @@ A request to the `execute-api` hostname skips stage 1 but still passes through s
 | **Uploads** | Presigned POST: `.docx` / `.pdf` only, content-type and size conditions, 15-minute expiry |
 | **API Gateway cache** | Method caching off (an encrypted cache cluster is present for Control Tower). Feedback `GET` still performs ownership checks. |
 
-### 4.3 WAF and Rate Limiting
+### 4.3 WAF, Rate Limiting, and Security Headers
 
-WAF is associated with the CloudFront distribution.
+A REGIONAL WebACL (`{prefix}-api-web-acl`, `cdk/lib/constructs/RegionalApiWafConstruct.ts`) is associated with the API Gateway stage. The CloudFront distribution carries a CLOUDFRONT-scoped WebACL with the same rules. Both use:
 
 | Rule | Protection |
 |------|------------|
-| **AWSManagedRulesCommonRuleSet** | Common web exploits, including SQLi and XSS classes |
+| **AWSManagedRulesCommonRuleSet** | Common web exploits (XSS, LFI/RFI, SSRF, bad bots, size limits) |
 | **AWSManagedRulesKnownBadInputsRuleSet** | Known malicious payloads |
 | **AWSManagedRulesAmazonIpReputationList** | Amazon IP reputation |
 | **RateLimitPerIP** | Block at 2000 requests / 5 minutes / IP |
 
-CloudFront also applies a response-headers policy: HSTS (1 year, `includeSubDomains`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, XSS filter, and `Referrer-Policy: strict-origin-when-cross-origin`. The Content-Security-Policy is `default-src 'self'` with `object-src 'none'`, `frame-ancestors 'none'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data: blob:`, `font-src 'self' data:`, and `connect-src 'self' https: wss:`.
+On the API WebACL, `SizeRestrictions_BODY` (Common rule set, 8 KB body limit) is set to **count**, because draft saves send TipTap JSON well above 8 KB. Body size is bounded by API Gateway and the TipTap field limit instead. Counted matches still show in WAF metrics and logs. Full request logs go to `aws-waf-logs-{prefix}-api`.
 
-API Gateway stage throttling (see [4.2](#42-request-validation)) applies on both request paths; the WAF per-IP rate limit applies only to the CloudFront path.
+Amplify Hosting adds these headers to every SPA response (`cdk/lib/amplifySecurityHeaders.ts`):
+
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+- `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`
+- `Content-Security-Policy`: `default-src 'self'`, `base-uri 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `form-action 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data: blob: https:`, `font-src 'self' data:`, `worker-src 'self' blob:`, and a `connect-src` limited to:
+  - the REST API host (from `VITE_API_BASE_URL`)
+  - `https://cognito-idp.{region}.amazonaws.com`
+  - the AppSync GraphQL host and its `wss://…appsync-realtime-api…` realtime host
+  - the documents bucket host `https://{bucket}.s3.{region}.amazonaws.com` (presigned POST uploads)
+
+If the SPA starts calling a new host, add it to `buildContentSecurityPolicy` in `cdk/lib/amplifySecurityHeaders.ts`. Otherwise the browser blocks the request and logs a CSP violation in the console.
+
+The CloudFront distribution applies its own response-headers policy to responses it serves.
+
+API Gateway stage throttling (see [4.2](#42-request-validation)) and the WAF per-IP rate limit both apply to the `execute-api` hostname.
 
 ### 4.4 CORS
 
@@ -415,7 +428,7 @@ flowchart TB
 | **Lambda logs** | Execution and errors (do not log JWTs or raw student PII in new code) | 30 days (non-prod) / 90 days (`prod` environment) |
 | **API Gateway** | ERROR-level execution logs; structured JSON access log (no `Authorization` header/token); stage metrics; X-Ray tracing enabled | 30 days (non-prod) / 90 days (`prod`) for the access log |
 | **VPC Flow Logs** | Network metadata (all traffic) | 1 month |
-| **WAF** | CloudWatch metrics and sampled requests on the WebACL | Retention follows the deployed CloudWatch configuration |
+| **WAF** | CloudWatch metrics, sampled requests, and full request logs (`aws-waf-logs-{prefix}-api` for the API stage, `aws-waf-logs-{prefix}-cloudfront` for CloudFront) | 30 days (non-prod) / 90 days (`prod`) |
 | **Activity log (app DB)** | Privileged actions (model/usage-cap changes, access-state flips, document deletion, role grants), prompt edits with their actual guardrail outcome, guardrail outcomes; pseudonymous actor | Application retention (independent of document delete) |
 | **RDS** | Enhanced Monitoring (60s interval) | RDS monitoring retention |
 
@@ -459,8 +472,9 @@ These controls are implemented for development and should be hardened before pro
 | GenAI ghostwriting prevention | Implemented | Delimited untrusted input, save-time and output guardrails, DTO contract |
 | Prompt injection (admin) | Implemented | Bedrock `PROMPT_ATTACK` on admin prompt fields |
 | Application-managed persistent data residency | Implemented | RDS, S3, and DynamoDB data remains in the deploy-selected Region, this does not cover Bedrock/Textract processing, edge transit, or service-managed retention |
-| Rate limiting | Partial | API Gateway throttling on both paths; WAF per-IP limit only on the CloudFront path |
-| API edge protection | Partial | WAF protects CloudFront, not the `execute-api` hostname |
+| Rate limiting | Implemented | API Gateway stage throttling plus WAF per-IP limit on the `execute-api` stage and on CloudFront |
+| API edge protection | Implemented | REGIONAL WAF WebACL on the API stage; CLOUDFRONT WebACL on the distribution |
+| Web app security headers | Implemented | Amplify `customHeaders`: CSP (scoped `connect-src`), HSTS, `X-Frame-Options`, nosniff, Referrer-Policy |
 | CORS restriction | Development configuration | Currently `*`; restrict to the application origin before production |
 | Secret rotation | Not automated | Credentials are generated into Secrets Manager; add a rotation schedule if required |
 | MFA | Optional | Cognito MFA is not required |

@@ -46,11 +46,11 @@ The architecture is **region-portable**: persistent data (RDS, S3, DynamoDB) sta
 
 ### Edge and Security
 
-Optional API traffic passes through **Amazon CloudFront** (global CDN), where a **CloudFront-scoped AWS WAF** WebACL (AWS managed rule groups — Common, Known Bad Inputs, IP Reputation — plus a rate-based rule of 2000 requests per 5-minute window per IP) applies, and **AWS Shield Standard** is automatically in effect. CloudFront redirects HTTP to HTTPS and attaches security headers (CSP, HSTS, X-Frame-Options DENY, and others). Callers may also use the regional API Gateway stage URL directly; that path is authenticated but is **not** behind this WAF (the WebACL is CloudFront-scoped only).
+The web app calls the regional API Gateway stage URL. A **REGIONAL AWS WAF** WebACL on that stage applies the AWS managed rule groups (Common, Known Bad Inputs, IP Reputation) and a rate-based rule of 2000 requests per 5-minute window per IP. **AWS Shield Standard** is automatically in effect. An **Amazon CloudFront** distribution offers an alternate API hostname with its own CloudFront-scoped WebACL (same rules) and a security-headers policy.
 
 ### Frontend Hosting
 
-The **React web app** is hosted on **AWS Amplify**, which auto-builds on push. The app uses a TipTap editor for drafting and communicates with the backend via REST and AWS AppSync subscriptions.
+The **React web app** is hosted on **AWS Amplify**, which auto-builds on push. Amplify serves security headers on every response: CSP with `connect-src` limited to the API, Cognito, AppSync, and documents-bucket hosts, plus HSTS, `X-Frame-Options: DENY`, nosniff, and Referrer-Policy. The app uses a TipTap editor for drafting and communicates with the backend via REST and AWS AppSync subscriptions.
 
 ### Authentication
 
