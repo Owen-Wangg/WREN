@@ -59,6 +59,14 @@ export {
   type DocumentTypeAccessInput,
 } from './accessResolution';
 export {
+  checkSubmissionAccess,
+  submissionAccessDeniedResponse,
+  type SubmissionAccessResult,
+  type SubmissionAccessPermitted,
+  type SubmissionAccessDenied,
+  type SubmissionAccessDeniedCode,
+} from './submissionAccess';
+export {
   authorizeCapability,
   isCapabilityAllowed,
 } from './capabilityMatrix';
