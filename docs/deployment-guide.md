@@ -17,6 +17,7 @@ This guide deploys the WREN writing coach into an AWS account.
     - [Step 2 — Start the deploy (run #1)](#step-2--start-the-deploy-run-1)
     - [Step 3 — Create the admin account, then rerun (run #2)](#step-3--create-the-admin-account-then-rerun-run-2)
     - [Step 4 — Sign in to become Technical Admin](#step-4--sign-in-to-become-technical-admin)
+    - [Step 5 — Disarm the bootstrap](#step-5--disarm-the-bootstrap)
     - [Deployment workflow implementation](#deployment-workflow-implementation)
     - [Variables for the standard deployment](#variables-for-the-standard-deployment)
     - [Advanced deployment configuration](#advanced-deployment-configuration)
@@ -209,6 +210,18 @@ No further `npm run deploy` is required. The account is not `TechnicalAdmin` yet
 1. Open the hosted application URL the deploy printed (Amplify default, or your custom domain if it is already live).
 2. Sign in as `WREN_ADMIN_EMAIL` with the password you set at sign-up.
 3. That authenticated request grants `TechnicalAdmin`. You can then assign roles to other users from within the app.
+
+The grant happens **once per armed subject**: the authorizer records it in the `technical_admin_bootstrap` marker table and writes a `role.assigned` entry to the append-only `activity_event` audit log, in the same transaction as the role insert. Because the marker is independent of the role itself, a later `DELETE /v1/roles` on this account sticks — the bootstrap does not re-grant on the next request.
+
+### Step 5 — Disarm the bootstrap
+
+Once the admin account holds `TechnicalAdmin`, remove the arming so the one-time setup input does not remain standing privilege:
+
+```bash
+npm run disarm
+```
+
+This deletes the armed-subject SSM parameter (`/${stackPrefix}/auth/technical-admin-bootstrap-subject`) and redeploys the Compute stack without it, so the authorizer environment no longer carries `TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT` and the CI/CD pipeline cannot re-arm the gate on a later synth. The command is idempotent and keeps the Feedback Engine pinned to its current image. After disarm, further `TechnicalAdmin` grants go through the normal in-app role assignment (`POST /v1/roles`).
 
 If a deploy run stops with exit code 3 or an error, read the printed instruction, complete that one action, and rerun `npm run deploy`. See [Troubleshooting](#troubleshooting) for specific messages.
 

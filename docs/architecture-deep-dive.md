@@ -56,6 +56,8 @@ The **React web app** is hosted on **AWS Amplify**, which auto-builds on push. A
 
 Users sign in with **Amazon Cognito** (email and password; optional MFA). Access and ID tokens expire after a configured lifetime. First login provisions an `app_user` (default **Student**). The Cognito **`SystemAdmin`** group seeds **TechnicalAdmin** on first login only; afterward **PostgreSQL** (`role_assignment`) is the authorization. A **Lambda authorizer** verifies the JWT and attaches roles, department scopes, and access grants; each service Lambda **re-checks** capabilities and document ownership.
 
+The first-admin bootstrap is **one-shot and audited**. An operator-armed Cognito subject receives TechnicalAdmin at most once: the authorizer records the grant in the `technical_admin_bootstrap` marker table and writes a `role.assigned` entry to the append-only `activity_event` log, in the same transaction as the role insert. The marker is independent of `role_assignment`, so revoking the role is permanent — the grant is not re-applied on the next request. After the admin account holds the role, the operator runs `npm run disarm` to delete the armed-subject SSM parameter and strip `TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT` from the authorizer environment, so the one-time input does not persist as standing privilege.
+
 ### API Layer
 
 The React app talks to **API Gateway** (a regional OpenAPI `SpecRestApi`) for CRUD and coaching APIs. Stage **throttling** is set on the API Gateway stage (rate limit 100, burst 200). REST routes integrate to the per-service Lambdas listed under [Service Lambdas](#service-lambdas).
