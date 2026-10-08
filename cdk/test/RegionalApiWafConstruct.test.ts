@@ -126,4 +126,14 @@ describe("RegionalApiWafConstruct", () => {
     expect(destinations).toContain(`{"Ref":"${logGroupId}"}`);
     expect(destinations).not.toContain(":*");
   });
+
+  it("redacts the Authorization and Cookie headers from WAF request logs", () => {
+    const template = synth();
+    template.hasResourceProperties("AWS::WAFv2::LoggingConfiguration", {
+      RedactedFields: [
+        { SingleHeader: { Name: "authorization" } },
+        { SingleHeader: { Name: "cookie" } },
+      ],
+    });
+  });
 });

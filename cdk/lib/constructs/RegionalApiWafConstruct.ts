@@ -141,6 +141,17 @@ export class RegionalApiWafConstruct extends Construct {
     const logging = new wafv2.CfnLoggingConfiguration(this, "Logging", {
       resourceArn: webAcl.attrArn,
       logDestinationConfigs: [logGroupArn],
+      // Mask credential-bearing headers so live Cognito bearer tokens and
+      // session cookies are never written to the retained log group. WAF
+      // replaces each matched field with `REDACTED` while still logging the
+      // rest of the request for rule visibility.
+      // CDK maps the outer `singleHeader` key to `SingleHeader` but passes the
+      // inner object through verbatim, so the header name must use the
+      // CloudFormation casing `Name` (lowercase `name` renders invalid WAF).
+      redactedFields: [
+        { singleHeader: { Name: "authorization" } },
+        { singleHeader: { Name: "cookie" } },
+      ] as unknown as wafv2.CfnLoggingConfiguration.FieldToMatchProperty[],
     });
     logging.node.addDependency(logGroup);
 
