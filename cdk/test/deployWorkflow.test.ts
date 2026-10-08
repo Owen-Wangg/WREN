@@ -90,7 +90,10 @@ describe("first-admin bootstrap disarm", () => {
     ).toBe(false);
   });
 
-  it("deletes the SSM parameter, redeploys, and verifies the env var is gone", async () => {
+  const BOOTSTRAP_PARAM = "/wren-dev/auth/technical-admin-bootstrap-subject";
+  const PROTECTED_PARAM = "/wren-dev/auth/protected-admin-subject";
+
+  it("preserves the protected subject, deletes the arming param, redeploys, and verifies the env var is gone", async () => {
     const calls: string[][] = [];
     let redeployed = false;
     const aws = {
@@ -111,23 +114,29 @@ describe("first-admin bootstrap disarm", () => {
 
     await disarmTechnicalAdminBootstrap({
       aws,
-      bootstrapParameter: "/wren-dev/auth/technical-admin-bootstrap-subject",
+      bootstrapParameter: BOOTSTRAP_PARAM,
+      protectedParameter: PROTECTED_PARAM,
       authorizerName: "wren-dev-authorizer",
       redeployComputeWithoutSubject: async () => {
         redeployed = true;
       },
     });
 
-    expect(calls).toContainEqual([
-      "ssm", "get-parameter", "--name", "/wren-dev/auth/technical-admin-bootstrap-subject",
-    ]);
-    expect(calls).toContainEqual([
-      "ssm", "delete-parameter", "--name", "/wren-dev/auth/technical-admin-bootstrap-subject",
-    ]);
+    // The demotion-guard value is written to the permanent parameter BEFORE the
+    // arming parameter is deleted, so protection is never dropped.
+    const protectedWriteIdx = calls.findIndex(
+      (c) => c[0] === "ssm" && c[1] === "put-parameter" && c.includes(PROTECTED_PARAM),
+    );
+    const deleteIdx = calls.findIndex(
+      (c) => c[0] === "ssm" && c[1] === "delete-parameter" && c.includes(BOOTSTRAP_PARAM),
+    );
+    expect(protectedWriteIdx).toBeGreaterThanOrEqual(0);
+    expect(deleteIdx).toBeGreaterThan(protectedWriteIdx);
+    expect(calls[protectedWriteIdx]).toContain("subject-123");
     expect(redeployed).toBe(true);
   });
 
-  it("tolerates an already-absent SSM parameter (idempotent)", async () => {
+  it("tolerates an already-absent arming parameter and leaves the protected param untouched", async () => {
     const calls: string[][] = [];
     const aws = {
       tryJson: async () => undefined,
@@ -140,13 +149,15 @@ describe("first-admin bootstrap disarm", () => {
 
     await disarmTechnicalAdminBootstrap({
       aws,
-      bootstrapParameter: "/wren-dev/auth/technical-admin-bootstrap-subject",
+      bootstrapParameter: BOOTSTRAP_PARAM,
+      protectedParameter: PROTECTED_PARAM,
       authorizerName: "wren-dev-authorizer",
       redeployComputeWithoutSubject: async () => undefined,
     });
 
-    // No delete-parameter when the parameter was already gone.
+    // Nothing to migrate or delete when the arming parameter is already gone.
     expect(calls.some((c) => c[1] === "delete-parameter")).toBe(false);
+    expect(calls.some((c) => c[1] === "put-parameter")).toBe(false);
   });
 
   it("fails if the authorizer still carries the armed subject after redeploy", async () => {
@@ -160,7 +171,8 @@ describe("first-admin bootstrap disarm", () => {
     await expect(
       disarmTechnicalAdminBootstrap({
         aws,
-        bootstrapParameter: "/wren-dev/auth/technical-admin-bootstrap-subject",
+        bootstrapParameter: BOOTSTRAP_PARAM,
+        protectedParameter: PROTECTED_PARAM,
         authorizerName: "wren-dev-authorizer",
         redeployComputeWithoutSubject: async () => undefined,
       }),

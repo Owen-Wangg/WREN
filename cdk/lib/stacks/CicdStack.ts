@@ -726,12 +726,12 @@ export class CicdStack extends Stack {
             // `ssm:PutParameter` is scoped to the ONLY parameter a runtime role
             // writes: `/${prefix}/config/bedrock-model-id` (admin function,
             // `putBedrockModelIdToSsm`). On the former `/${prefix}/*` scope a
-            // tampered runtime role could overwrite
-            // `/${prefix}/auth/technical-admin-bootstrap-subject` — the
-            // operator-armed first-admin gate the admin function treats as the
-            // source of truth for protected subjects — and the rest of the
-            // subtree. Those are deploy-time-only parameters and are
-            // intentionally non-writable at runtime.
+            // tampered runtime role could overwrite the operator-written
+            // first-admin parameters (`/${prefix}/auth/protected-admin-subject`,
+            // the demotion-guard source of truth, and
+            // `/${prefix}/auth/technical-admin-bootstrap-subject`, the arming
+            // gate) and the rest of the subtree. Those are deploy-time-only
+            // parameters and are intentionally non-writable at runtime.
             sid: "ParametersWriteBedrockModelOnly",
             actions: ["ssm:PutParameter"],
             resources: [

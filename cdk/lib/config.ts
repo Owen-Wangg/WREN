@@ -491,6 +491,16 @@ export const ssmParameterNames = {
   technicalAdminBootstrapSubject: (config: {
     readonly stackPrefix: string;
   }): string => `/${config.stackPrefix}/auth/technical-admin-bootstrap-subject`,
+  /**
+   * Exact Cognito `sub` of the first (bootstrap) TechnicalAdmin, retained as the
+   * permanent source of truth for the first-admin demotion guard. Unlike
+   * {@link technicalAdminBootstrapSubject}, this parameter is NOT removed when
+   * the bootstrap arming is disarmed, so demotion protection outlives the
+   * transient elevation gate.
+   */
+  protectedAdminSubject: (config: {
+    readonly stackPrefix: string;
+  }): string => `/${config.stackPrefix}/auth/protected-admin-subject`,
 } as const;
 
 /**

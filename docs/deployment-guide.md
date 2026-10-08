@@ -221,7 +221,7 @@ Once the admin account holds `TechnicalAdmin`, remove the arming so the one-time
 npm run disarm
 ```
 
-This deletes the armed-subject SSM parameter (`/${stackPrefix}/auth/technical-admin-bootstrap-subject`) and redeploys the Compute stack without it, so the authorizer environment no longer carries `TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT` and the CI/CD pipeline cannot re-arm the gate on a later synth. The command is idempotent and keeps the Feedback Engine pinned to its current image. After disarm, further `TechnicalAdmin` grants go through the normal in-app role assignment (`POST /v1/roles`).
+This removes the armed-subject SSM parameter (`/${stackPrefix}/auth/technical-admin-bootstrap-subject`) and redeploys the Compute stack without it, so the authorizer environment no longer carries `TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT` and the CI/CD pipeline cannot re-arm the gate on a later synth. Before removing it, disarm copies the first admin's subject to a permanent parameter (`/${stackPrefix}/auth/protected-admin-subject`) that the admin service reads as the source of truth for the first-admin demotion guard — so disarming the bootstrap never makes the founding `TechnicalAdmin` demotable. The command is idempotent and keeps the Feedback Engine pinned to its current image. After disarm, further `TechnicalAdmin` grants go through the normal in-app role assignment (`POST /v1/roles`).
 
 If a deploy run stops with exit code 3 or an error, read the printed instruction, complete that one action, and rerun `npm run deploy`. See [Troubleshooting](#troubleshooting) for specific messages.
 

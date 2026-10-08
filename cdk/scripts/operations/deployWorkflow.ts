@@ -667,8 +667,10 @@ export function imageRefFromUri(imageUri: string): string | undefined {
 /** Collaborators for {@link disarmTechnicalAdminBootstrap}. */
 export interface DisarmBootstrapDeps {
   readonly aws: Pick<AwsCli, "tryJson" | "command" | "json">;
-  /** SSM parameter holding the armed subject. */
+  /** SSM parameter holding the armed subject (removed by disarm). */
   readonly bootstrapParameter: string;
+  /** Permanent parameter recording the first admin for the demotion guard. */
+  readonly protectedParameter: string;
   /** Authorizer Lambda whose environment is re-checked after the redeploy. */
   readonly authorizerName: string;
   /** Redeploy the Compute stack WITHOUT an armed subject. */
@@ -676,11 +678,16 @@ export interface DisarmBootstrapDeps {
 }
 
 /**
- * Remove the first-admin bootstrap arming. Deletes the persisted subject from
- * SSM (so a later pipeline synth resolves an empty subject and does not re-arm),
- * redeploys Compute without the armed subject so the authorizer environment no
- * longer carries TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT, then confirms the variable
- * is gone. Idempotent: an already-absent SSM parameter is tolerated.
+ * Remove the first-admin bootstrap arming while preserving the demotion guard.
+ *
+ * The arming parameter is also the legacy source of truth for the first-admin
+ * demotion protection, so before deleting it the armed subject is copied to the
+ * permanent protected-admin parameter. Only then is the arming parameter
+ * removed (so a later pipeline synth resolves an empty subject and does not
+ * re-arm), Compute redeployed without the armed subject (dropping
+ * TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT from the authorizer), and the variable's
+ * absence confirmed. Idempotent: an already-absent arming parameter is
+ * tolerated and leaves the protected parameter untouched.
  */
 export async function disarmTechnicalAdminBootstrap(
   deps: DisarmBootstrapDeps,
@@ -688,6 +695,18 @@ export async function disarmTechnicalAdminBootstrap(
   const existing = await deps.aws.tryJson<{ readonly Parameter?: { readonly Value?: string } }>([
     "ssm", "get-parameter", "--name", deps.bootstrapParameter,
   ]);
+  const armedSubject = existing?.Parameter?.Value?.trim();
+  if (armedSubject && armedSubject.toLowerCase() !== "none") {
+    // Persist the demotion guard on the permanent parameter BEFORE removing the
+    // arming parameter, so first-admin protection is never dropped by disarm.
+    await deps.aws.command([
+      "ssm", "put-parameter",
+      "--name", deps.protectedParameter,
+      "--type", "String",
+      "--value", armedSubject,
+      "--overwrite",
+    ]);
+  }
   if (existing?.Parameter?.Value !== undefined) {
     await deps.aws.command(["ssm", "delete-parameter", "--name", deps.bootstrapParameter]);
   }
@@ -1222,13 +1241,16 @@ export class DeployWorkflow {
     await disarmTechnicalAdminBootstrap({
       aws: this.aws,
       bootstrapParameter: ssmParameterNames.technicalAdminBootstrapSubject(this.config),
+      protectedParameter: ssmParameterNames.protectedAdminSubject(this.config),
       authorizerName: `${this.config.stackPrefix}-authorizer`,
       redeployComputeWithoutSubject: () =>
         this.deployStacks([`${this.config.stackPrefix}-Compute`], tag, false),
     });
     console.log(
       `[wren] First-admin bootstrap disarmed for ${this.config.stackPrefix}: ` +
-      "the armed subject was removed from SSM and the authorizer environment.",
+      "the armed subject was removed from the arming parameter and the authorizer " +
+      "environment, and preserved on the permanent protected-admin parameter so " +
+      "the first admin still cannot be demoted.",
     );
   }
 

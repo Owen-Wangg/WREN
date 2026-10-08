@@ -847,10 +847,13 @@ export class ComputeStack extends Stack {
       resources: [bedrockModelParamArn],
     }));
     // Read-only: the first admin's Cognito sub, so revokeRole can refuse to
-    // demote them. Written by the deploy workflow, not this stack.
+    // demote them. Written by the deploy workflow, not this stack. The admin
+    // function reads the permanent protected-admin parameter and falls back to
+    // the legacy bootstrap-arming parameter, so it needs read on both.
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["ssm:GetParameter"],
       resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter${ssmParameterNames.protectedAdminSubject(config)}`,
         `arn:aws:ssm:${this.region}:${this.account}:parameter${ssmParameterNames.technicalAdminBootstrapSubject(config)}`,
       ],
     }));
