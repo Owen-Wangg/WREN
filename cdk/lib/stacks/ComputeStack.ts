@@ -540,6 +540,9 @@ export class ComputeStack extends Stack {
         ...dbEnv(secrets.wren_notification),
         ...corsEnv,
         ...activitySaltEnv,
+        // Verifies the authorizer-context signature (findings f-140e2506 / f-bd8143e2).
+        ...authContextSigningEnv,
+        ...authContextVerifyEnv,
         NOTIFICATION_TOPIC_ARN: notificationInfra.topic.topicArn,
         OVERRIDE_EXPIRY_WARNING_HOURS: "24",
       },
@@ -669,14 +672,15 @@ export class ComputeStack extends Stack {
     activityPseudonymSalt.grantRead(this.notificationFunction);
 
     // Auth-context signing key (finding f-140e2506): the authorizer signs; the
-    // three API Gateway service Lambdas verify. grantRead scopes
-    // GetSecretValue/DescribeSecret to this one secret (and, in "external"
-    // mode, appends the `-??????` suffix wildcard). All four reads fall under
+    // four API Gateway service Lambdas (admin, document, feedback, notification)
+    // verify. grantRead scopes GetSecretValue/DescribeSecret to this one secret
+    // (and, in "external" mode, appends the `-??????` suffix wildcard). All five reads fall under
     // the `${prefix}/audit/*` scope the permissions boundary already permits.
     authContextSigningSecret.grantRead(this.authorizerFunction);
     authContextSigningSecret.grantRead(this.adminFunction);
     authContextSigningSecret.grantRead(this.documentFunction);
     authContextSigningSecret.grantRead(this.feedbackOrchestratorFunction);
+    authContextSigningSecret.grantRead(this.notificationFunction);
 
     // Authorizer: look up Cognito email/name/email_verified when auto-provisioning
     // app_user on first login, and check whether a previously linked subject
