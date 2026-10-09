@@ -54,14 +54,17 @@ export function canReadDepartmentPrompt(actor: AuthContext, departmentId: string
   return isDepartmentAdmin(actor) && actor.administeredDepartmentIds.includes(departmentId);
 }
 
-/** Strip `prompt` from a Department DTO when the actor may not read it. */
+/**
+ * Strip privileged prompt fields (`prompt` and `askWrenPrompt`) from a
+ * Department DTO when the actor may not read them.
+ */
 export function redactDepartmentPrompt<T extends { id: string }>(
   actor: AuthContext,
   department: T,
 ): T {
   return canReadDepartmentPrompt(actor, department.id)
     ? department
-    : { ...department, prompt: undefined };
+    : { ...department, prompt: undefined, askWrenPrompt: undefined };
 }
 
 export function filterDepartmentsForActor<T extends { id: string }>(
