@@ -7,7 +7,13 @@ import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
 import { publishNotificationEvent } from '@wren/notification';
-import { bindCorsOrigin, withCorsHeaders, rejectIfForgedAuthContext } from '@wren/auth';
+import {
+  bindCorsOrigin,
+  checkSubmissionAccess,
+  rejectIfForgedAuthContext,
+  submissionAccessDeniedResponse,
+  withCorsHeaders,
+} from '@wren/auth';
 
 import {
   appendAskWrenTurn,
@@ -548,6 +554,16 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
     };
   }
 
+  // Submission access gate: a debrief is a paid submission, so LOCK / grant
+  // revocation / archive must stop it even for an existing Document. Runs
+  // before the reservation so a denied request consumes no debrief slot.
+  const access = await checkSubmissionAccess(
+    db,
+    actor.userId,
+    String(docRows[0].document_type_id),
+  );
+  if (!access.ok) return submissionAccessDeniedResponse(access);
+
   const draft = draftRows[0];
   const jobId = uuid();
 
@@ -929,6 +945,23 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
 
   const draft = await loadDraftSegments(documentId, draftId, actor.userId);
   if (!draft.ok) return draft.response;
+
+  // Submission access gate: each Ask WREN turn is a paid Bedrock call, so it
+  // must stop once the department is LOCKED / archived or the grant revoked.
+  // Reading past conversation history (GET) stays ungated.
+  const gateDb = await getDataAccess();
+  const typeRows = await gateDb.query<{ document_type_id: string }>(
+    'SELECT document_type_id FROM document WHERE id = $1 AND owner_user_id = $2',
+    [documentId, actor.userId],
+  );
+  if (!typeRows[0]) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+  const access = await checkSubmissionAccess(gateDb, actor.userId, typeRows[0].document_type_id);
+  if (!access.ok) return submissionAccessDeniedResponse(access);
 
   // Ensure prior turns from older draft-scoped sessions are migrated before append.
   const legacyDraftIds = await listDraftIdsForDocument(documentId);

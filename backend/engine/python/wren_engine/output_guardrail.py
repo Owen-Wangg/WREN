@@ -15,11 +15,14 @@ The guardrail enforces:
    ``replacement``, ``rewrite``, ``correct_version``, ``suggestion``,
    ``revised_text``, etc.) are stripped.
 
-2. **Content**: the ``question`` field itself is scanned for replacement
-   prose patterns — e.g. "Here's a revised version:", "Consider changing
-   to:", or a direct rewrite that reads as substitute text. Items that
-   fail content validation are rejected entirely (not salvageable by
-   stripping, since the question *is* the violation).
+2. **Content**: every user-visible free-text field (``question`` and
+   ``positive_note``; see ``_SCANNED_TEXT_FIELDS``) is scanned for
+   replacement prose patterns — e.g. "Here's a revised version:",
+   "Consider changing to:", or a direct rewrite that reads as substitute
+   text. Items that fail content validation are rejected entirely (not
+   salvageable by stripping, since the displayed text *is* the violation).
+   Any field later added to ``_ALLOWED_FIELDS`` is scanned by default
+   unless it is explicitly declared structural.
 
 3. **Audit**: every stripping/rejection event emits an audit record
    (``GuardrailViolation``) so the Technical Admin can monitor compliance
@@ -62,6 +65,7 @@ class ViolationType(str, Enum):
 
     DISALLOWED_FIELD = "disallowed_field"
     REPLACEMENT_PROSE_IN_QUESTION = "replacement_prose_in_question"
+    REPLACEMENT_PROSE_IN_POSITIVE_NOTE = "replacement_prose_in_positive_note"
     MALFORMED_ITEM = "malformed_item"
     MISSING_REQUIRED_FIELD = "missing_required_field"
 
@@ -212,6 +216,29 @@ def _contains_replacement_prose(text: str) -> bool:
 _ALLOWED_FIELDS: frozenset[str] = frozenset({"category", "question", "anchor", "citation", "positive_note"})
 _REQUIRED_FIELDS: frozenset[str] = frozenset({"category", "question"})
 
+# Allowed fields that carry structured data (identifiers, offsets, citation
+# metadata) rather than model-authored prose shown to the writer. Everything
+# else in _ALLOWED_FIELDS is treated as user-visible free text and scanned.
+# Fail-closed: a new allowed field is scanned unless it is added here.
+_STRUCTURAL_FIELDS: frozenset[str] = frozenset({"category", "anchor", "citation"})
+_SCANNED_TEXT_FIELDS: frozenset[str] = _ALLOWED_FIELDS - _STRUCTURAL_FIELDS
+
+# Violation type recorded per scanned field. Fields without a dedicated type
+# fall back to the question type so a new field never escapes auditing.
+_PROSE_VIOLATION_BY_FIELD: dict[str, ViolationType] = {
+    "question": ViolationType.REPLACEMENT_PROSE_IN_QUESTION,
+    "positive_note": ViolationType.REPLACEMENT_PROSE_IN_POSITIVE_NOTE,
+}
+
+
+def _find_prose_field(item: dict[str, Any]) -> Optional[str]:
+    """Return the first scanned text field containing replacement prose, if any."""
+    for field_name in sorted(_SCANNED_TEXT_FIELDS):
+        value = item.get(field_name)
+        if isinstance(value, str) and _contains_replacement_prose(value):
+            return field_name
+    return None
+
 
 # ─── OutputGuardrail ──────────────────────────────────────────────────────────
 
@@ -297,11 +324,15 @@ class OutputGuardrail:
                 rejected_count += 1
                 continue
 
-            if _contains_replacement_prose(question):
+            # Scan every user-visible text field (question, positive_note, …).
+            prose_field = _find_prose_field(raw_item)
+            if prose_field is not None:
                 violations.append(
                     GuardrailViolation(
-                        violation_type=ViolationType.REPLACEMENT_PROSE_IN_QUESTION,
-                        detail="Question contains replacement prose pattern",
+                        violation_type=_PROSE_VIOLATION_BY_FIELD.get(
+                            prose_field, ViolationType.REPLACEMENT_PROSE_IN_QUESTION
+                        ),
+                        detail=f"{prose_field} contains replacement prose pattern",
                         raw_item=_safe_copy(raw_item),
                     )
                 )
@@ -420,9 +451,21 @@ def apply_output_guardrail(
         rejected_count += result.rejected_count
         stripped_count += result.stripped_count
         if result.accepted:
-            kept.append(
-                {k: v for k, v in item.items() if k not in _DISALLOWED_FIELDS}
-            )
+            validated = result.accepted[0]
+            # Drop the camelCase alias: strength_coverage has already folded it
+            # into positive_note upstream (or cleared it deliberately), and only
+            # the validated snake_case value may reach persistence.
+            persisted = {
+                k: v
+                for k, v in item.items()
+                if k not in _DISALLOWED_FIELDS and k != "positiveNote"
+            }
+            # Persist what the guardrail validated, not the raw model values,
+            # so any normalization in validate() is what reaches the DB/UI.
+            question_key = "question_text" if "question_text" in item else "question"
+            persisted[question_key] = validated.question
+            persisted["positive_note"] = validated.positive_note
+            kept.append(persisted)
 
     if rejected_count or stripped_count:
         logger.warning(

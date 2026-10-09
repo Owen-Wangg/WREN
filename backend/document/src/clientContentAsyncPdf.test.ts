@@ -58,6 +58,8 @@ jest.mock('@wren/auth', () => ({
   bindCorsOrigin: jest.fn(),
   withCorsHeaders: (res: unknown) => res,
   rejectIfForgedAuthContext: jest.fn(async () => null),
+  // Real submission gate so it runs against the DB seam below.
+  ...jest.requireActual<object>('../../auth/src/submissionAccess'),
 }));
 
 // Capture S3 commands so we can assert no GetObject (no byte fetch) happens.
@@ -156,7 +158,9 @@ describe('create-draft: PDF with client content is still ingested async', () => 
       if (sql.includes('SELECT owner_user_id, document_type_id FROM document')) {
         return [{ owner_user_id: 'user-1', document_type_id: 'dt-1' }];
       }
-      if (sql.includes('size_limit_words FROM document_type')) return [{ size_limit_words: null }];
+      if (sql.includes('FROM document_type dt')) {
+        return [{ id: 'dt-1', access_state: 'OPEN', size_limit_words: null, archived_at: null }];
+      }
       return [];
     });
     transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
