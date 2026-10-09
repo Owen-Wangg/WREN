@@ -165,6 +165,22 @@ export async function getDebriefGenerationCount(
 }
 
 /**
+ * Read the document's lifetime Ask WREN message counter. This is the same
+ * counter {@link reserveAskMessage} increments; it lives on `document` (not the
+ * TTL'd DynamoDB session item) so the lifetime cap survives session expiry.
+ */
+export async function getAskMessageCount(
+  documentId: string,
+  db: QueryExecutor,
+): Promise<number> {
+  const rows = await db.query<{ ask_message_count: number }>(
+    'SELECT ask_message_count FROM document WHERE id = $1',
+    [documentId],
+  );
+  return rows[0]?.ask_message_count ?? 0;
+}
+
+/**
  * Atomically reserve one debrief generation if under the lifetime cap.
  * Returns the new count, or throws {@link UsageLimitReachedError}.
  */
@@ -186,6 +202,37 @@ export async function reserveDebriefGeneration(
     );
   }
   return rows[0].debrief_generation_count;
+}
+
+/**
+ * Atomically reserve one lifetime Ask WREN message slot for this document if
+ * under the lifetime cap. Returns the new count, or throws
+ * {@link UsageLimitReachedError}.
+ *
+ * The counter lives in Postgres (`document.ask_message_count`) rather than on
+ * the 30-day-TTL'd DynamoDB session item, so the "lifetime" cap cannot be reset
+ * by letting the session item expire. The conditional
+ * `WHERE ask_message_count < $limit` makes concurrent reservations serialize
+ * safely, exactly like {@link reserveDebriefGeneration}.
+ */
+export async function reserveAskMessage(
+  documentId: string,
+  db: QueryExecutor,
+): Promise<number> {
+  const policy = await getPlatformUsagePolicy(db);
+  const rows = await db.query<{ ask_message_count: number }>(
+    `UPDATE document
+     SET ask_message_count = ask_message_count + 1
+     WHERE id = $1 AND ask_message_count < $2
+     RETURNING ask_message_count`,
+    [documentId, policy.messageLimit],
+  );
+  if (!rows[0]) {
+    throw new UsageLimitReachedError(
+      `Ask message limit of ${policy.messageLimit} reached for this document.`,
+    );
+  }
+  return rows[0].ask_message_count;
 }
 
 /**

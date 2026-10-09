@@ -29,7 +29,6 @@ import {
 import { parseUuidParam } from './uuidParam.js';
 import { resolveQuotedTextForItem } from './quoteResolution.js';
 import {
-  getPlatformUsagePolicy,
   reserveDebriefGeneration,
   UsageLimitReachedError,
 } from '@wren/admin/lifetimeUsagePolicy';
@@ -191,7 +190,7 @@ export const handler: APIGatewayProxyHandler = async (event, context): Promise<A
   freezeEventLoopOnReturn(context);
   bindCorsOrigin(event);
   try {
-    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    // Reject forged/unsigned authorizer contexts
     const forged = await rejectIfForgedAuthContext(event);
     if (forged) return withCors(forged);
 
@@ -644,7 +643,10 @@ async function handleRecordFeedbackHelpfulness(event: any): Promise<APIGatewayPr
   }
 
   const body = event.body ? JSON.parse(event.body) : {};
-  const { environmentId, draftId, helpful, comment } = body;
+  // Reject non-UUID environmentId before it reaches the uuid column document.id
+  // (avoids a 22P02 cast error that wrapHandler would surface as a generic 500).
+  const environmentId = parseUuidParam(body.environmentId);
+  const { draftId, helpful, comment } = body;
 
   if (!environmentId || typeof helpful !== 'boolean') {
     return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'environmentId and helpful are required' }) });
@@ -1003,7 +1005,6 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
 
   const db = await getDataAccess();
   const userMessageCount = (conversation?.messages ?? []).filter((m) => m.role === 'user').length;
-  const policy = await getPlatformUsagePolicy(db);
 
   const [documentTypeContext, departmentAskWrenContext] = await Promise.all([
     loadDocumentTypeContext(documentId),
@@ -1025,7 +1026,7 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
     documentTypeContext,
     departmentAskWrenContext,
     modelId,
-    messageLimit: policy.messageLimit,
+    db,
   });
 
   // Transition status to 'Polishing' on the student's first Ask WREN message.

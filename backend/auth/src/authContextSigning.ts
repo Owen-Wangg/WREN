@@ -151,11 +151,26 @@ export async function loadAuthContextSigningSecret(
   return response.SecretString;
 }
 
-/** Container-cached accessor for the signing secret. */
+/**
+ * Container-cached accessor for the signing secret. A rejected fetch is evicted
+ * from the cache so a transient Secrets Manager failure on cold start does not
+ * poison the container for its lifetime; the next call retries the fetch.
+ */
 export function getAuthContextSigningSecret(
   client?: Pick<SecretsManagerClient, 'send'>,
 ): Promise<string> {
-  return (secretPromise ??= loadAuthContextSigningSecret(client));
+  if (secretPromise === undefined) {
+    const pending = loadAuthContextSigningSecret(client);
+    pending.catch(() => {
+      // Evict the rejected promise so a later invocation can retry, but only if
+      // it is still the cached one (avoid clobbering a newer successful fetch).
+      if (secretPromise === pending) {
+        secretPromise = undefined;
+      }
+    });
+    secretPromise = pending;
+  }
+  return secretPromise;
 }
 
 /** Test seam: drop the cached secret so the next call re-fetches. */

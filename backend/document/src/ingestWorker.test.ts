@@ -140,6 +140,31 @@ describe('processIngestQueueMessage uses the job row, not the message', () => {
     expect(markIngestJobCompleted).not.toHaveBeenCalled();
   });
 
+  it('rejects a header/footer blob that evades the word count but exceeds the char ceiling', async () => {
+    loadIngestJob.mockResolvedValue(ROW);
+    // Document Type cap of 3 words → char ceiling of 3 * 16 = 48.
+    query.mockResolvedValue([{ size_limit_words: 3 }]);
+    // Body is small (2 words / 11 chars). The header carries a 200-char
+    // whitespace-free blob: it counts as ONE word (total 3 ≤ 3, so the word
+    // gate passes) but its characters push the total over the 48-char ceiling.
+    const blob = 'a'.repeat(200);
+    ingestUpload.mockResolvedValue({
+      status: 'success',
+      segments: [{ index: 0, text: 'hello world' }],
+      header: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: blob }] }],
+      },
+    });
+
+    await processIngestQueueMessage({ jobId: JOB_ID }, readS3);
+
+    expect(createDraftRevision).not.toHaveBeenCalled();
+    expect(markIngestJobCompleted).not.toHaveBeenCalled();
+    expect(markIngestJobFailed).toHaveBeenCalledTimes(1);
+    expect(markIngestJobFailed.mock.calls[0]![2]).toMatch(/character limit/);
+  });
+
   it('fails closed when the target document no longer exists', async () => {
     loadIngestJob.mockResolvedValue(ROW);
     query.mockResolvedValue([]);
