@@ -1,7 +1,7 @@
 -- ===========================================================================
 -- 0010_document_ask_message_count.sql
 --
--- Ask WREN lifetime message-cap durability remediation (finding f-4cd612e7):
+-- Ask WREN lifetime message-cap durability remediation:
 -- move the per-document Ask WREN message counter off the TTL'd DynamoDB session
 -- item into a durable Postgres column so the "lifetime" cap cannot reset.
 --

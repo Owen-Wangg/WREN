@@ -89,7 +89,7 @@ describe('findUnsafeTipTapAttr', () => {
     expect(findUnsafeTipTapAttr(doc)).toBeNull();
   });
 
-  it('flags image src breakouts (finding f-6b67e136)', () => {
+  it('flags image src breakouts', () => {
     const doc: TipTapNode = { type: 'doc', content: [{ type: 'image', attrs: { src: BREAKOUT } }] };
     expect(findUnsafeTipTapAttr(doc)).toBe('image.src');
   });

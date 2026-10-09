@@ -323,7 +323,7 @@ describe("CicdStack policy properties", () => {
       const logRetentionArn = `arn:aws:lambda:${region}:${account}:function:${prefix}-Compute-LogRetentionABC`;
       expect(evaluate(deployPolicy, { action: "lambda:InvokeFunction", resource: logRetentionArn })).toBe("allowed");
       // The retired `${prefix}-audit` name is outside the deploy role's scope
-      // (finding f-499abf7c): it can't be re-created, granted, or invoked.
+      // it can't be re-created, granted, or invoked.
       const retiredAuditArn = `arn:aws:lambda:${region}:${account}:function:${prefix}-audit`;
       for (const retiredAction of ["lambda:CreateFunction", "lambda:AddPermission", "lambda:InvokeFunction"]) {
         expect(evaluate(deployPolicy, { action: retiredAction, resource: retiredAuditArn })).not.toBe("allowed");

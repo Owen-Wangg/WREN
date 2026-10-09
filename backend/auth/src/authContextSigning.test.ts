@@ -17,7 +17,7 @@ const forgedAdminContext = {
   grants: '[]',
 };
 
-describe('resolveAuthContextVerifyMode (fail closed, finding f-b24eb0a1)', () => {
+describe('resolveAuthContextVerifyMode (fail closed)', () => {
   it('enforces when the env var is unset', () => {
     expect(resolveAuthContextVerifyMode({})).toBe('enforce');
   });

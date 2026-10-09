@@ -284,7 +284,7 @@ describe('appendAskWrenTurn — lifetime cap is enforced before any paid call', 
     expect(db.count()).toBe(2);
   });
 
-  it('finding f-4cd612e7: the cap holds even when the session item has expired (is absent)', async () => {
+  it('the cap holds even when the session item has expired (is absent)', async () => {
     // Durable Postgres count is at the cap, but the DynamoDB session item is GONE
     // (30-day TTL fired). Pre-fix, the DynamoDB-only counter restarted at 0 and
     // handed out a fresh allowance; now the Postgres counter still blocks.

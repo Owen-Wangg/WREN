@@ -49,7 +49,7 @@ export class CognitoStack extends Stack {
       // A changed email does not take effect (and `email_verified` stays true
       // for the original) until the user verifies the new address. Without
       // this, UpdateUserAttributes immediately stores an unverified email,
-      // including one already used by another app identity (finding f-4531f8e7).
+      // including one already used by another app identity.
       keepOriginal: { email: true },
       passwordPolicy: {
         minLength: 10,

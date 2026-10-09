@@ -1,7 +1,7 @@
 -- ===========================================================================
 -- 0005_document_activity_event_grant.sql
 --
--- Document-deletion audit remediation (Issue #187): grant the wren_document
+-- Document-deletion audit remediation: grant the wren_document
 -- role the privileges it needs on public.activity_event so destructive
 -- document deletions can be recorded in the activity log.
 --

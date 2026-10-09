@@ -149,7 +149,7 @@ describe('tipTapContentToSegments', () => {
   });
 });
 
-describe('footnote-aware word and character counting (finding f-ca2d70a5)', () => {
+describe('footnote-aware word and character counting', () => {
   /**
    * A footnote whose body carries `bodyText`, inside a paragraph with a
    * leading marker. The segment substrate must still emit only `[N]` for the
@@ -209,7 +209,7 @@ describe('footnote-aware word and character counting (finding f-ca2d70a5)', () =
     expect(charCountFromTipTapContent(undefined)).toBe(0);
   });
 
-  it('counts footnote citation metadata (author/title/source/pinpoint/year) (finding f-4d906a98)', () => {
+  it('counts footnote citation metadata (author/title/source/pinpoint/year)', () => {
     const doc: TipTapNode = {
       type: 'doc',
       content: [
@@ -245,7 +245,7 @@ describe('footnote-aware word and character counting (finding f-ca2d70a5)', () =
     expect(chars).toBe('[1]'.length + 'body'.length + metaChars);
   });
 
-  it('counts footnotes nested outside paragraph/heading, e.g. in a table cell (finding f-208621e4)', () => {
+  it('counts footnotes nested outside paragraph/heading, e.g. in a table cell', () => {
     const bodyText = 'alpha beta gamma';
     const doc: TipTapNode = {
       type: 'doc',

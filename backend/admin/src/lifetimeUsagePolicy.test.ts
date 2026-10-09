@@ -156,7 +156,7 @@ describe('platform lifetime usage policy', () => {
     );
   });
 
-  it('reserves Ask WREN messages atomically until the lifetime cap (finding f-4cd612e7)', async () => {
+  it('reserves Ask WREN messages atomically until the lifetime cap', async () => {
     const db = new FakeDb();
     db.seedPlatformUsagePolicy({ message_limit: 2 });
     db.seedDocument({

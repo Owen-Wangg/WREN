@@ -73,7 +73,7 @@ describe('tiptapContentToHtml', () => {
     expect(html).toContain('First');
   });
 
-  // Security finding f-6b67e136: persisted attrs must not break out of
+  // Persisted attrs must not break out of
   // src="…" / style="…" in the innerHTML-rendered export host.
   describe('attribute injection', () => {
     const BREAKOUT = 'x" onerror="alert(1)';

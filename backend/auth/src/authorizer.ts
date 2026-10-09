@@ -86,7 +86,7 @@ export const UNAUTHORIZED = 'Unauthorized';
 
 /**
  * Emit a single structured, machine-queryable log line for an authentication
- * failure or deny decision (Issue #187). Previously the authorizer threw/denied
+ * failure or deny decision. Previously the authorizer threw/denied
  * with no log line, so 401/403s at the request layer were invisible to
  * operators and unalarmable. Deliberately logs NO secrets: never the token or
  * Authorization header — only the reason, the route (methodArn), and the
@@ -287,7 +287,7 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
       }
 
       // Sign the context so downstream service Lambdas can prove it was
-      // minted here and not forged on a direct invoke (finding f-140e2506).
+      // minted here and not forged on a direct invoke.
       // Only when a signing secret is configured (always true in deployed
       // environments via CDK); unconfigured local/test runs emit the context
       // unsigned, which the service verifiers accept only in permissive mode.

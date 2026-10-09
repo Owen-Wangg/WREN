@@ -9,7 +9,7 @@ import { ComputeStack } from "../lib/stacks/ComputeStack.js";
 import { testConfig, TEST_ACCOUNT, TEST_REGION } from "./helpers";
 
 /**
- * Admin prompt-injection guardrail wiring (Issue #181).
+ * Admin prompt-injection guardrail wiring.
  *
  * The admin scan fails closed without PROMPT_GUARDRAIL_ID, so the Admin Lambda
  * must always receive it, a literally-empty id must fail at synth, and no

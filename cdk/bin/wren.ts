@@ -190,7 +190,7 @@ const observabilityStack = new ObservabilityStack(app, stackName(config, "Observ
   notificationDlqName: computeStack.notificationDlq.queueName,
   documentIngestDlqName: computeStack.documentIngestDlq.queueName,
   authorizerFunctionName: computeStack.authorizerFunction.functionName,
-  // API Gateway access-log group for the security metric filters (Issue #187).
+  // API Gateway access-log group for the security metric filters.
   apiAccessLogGroupName: apiStack.accessLogGroupName,
   // CloudTrail caller attribution for the operator-only TechnicalAdmin sync.
   // Reuses the existing Compute export for this name (no new cross-stack ref).

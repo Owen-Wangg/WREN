@@ -35,7 +35,7 @@ export interface ObservabilityStackProps extends StackProps {
    */
   readonly authorizerFunctionName?: string;
   /**
-   * Name of the API Gateway access-log group (Issue #187). When provided, the
+   * Name of the API Gateway access-log group. When provided, the
    * security observability adds metric filters/alarms over the structured
    * access log (unauthorized responses, privileged deletes). Omitted in unit
    * tests that synth the stack in isolation.
@@ -285,7 +285,7 @@ export class ObservabilityStack extends Stack {
     );
 
     // -------------------------------------------------------------------
-    // Security observability (Issue #187): surface authentication failures,
+    // Security observability: surface authentication failures,
     // authorization denials, privileged mutations, and audit-write failures as
     // CloudWatch metrics + alarms so security-critical events are no longer
     // invisible at the request/auth layer.
@@ -636,7 +636,7 @@ export class ObservabilityStack extends Stack {
   }
 
   /**
-   * Security metric filters + alarms (Issue #187). Turns the structured log
+   * Security metric filters + alarms. Turns the structured log
    * lines the application now emits into countable metrics and alarms:
    *
    *   - Authentication failures  — authorizer `event: "auth_failure"`.
@@ -761,7 +761,7 @@ export class ObservabilityStack extends Stack {
 
     // ---- Prompt-injection guardrail skipped (admin log) --------------------
     // The admin prompt-injection scan fails closed when PROMPT_GUARDRAIL_ID is
-    // unset and logs `prompt_guardrail_skipped` (Issue #181). Deployed
+    // unset and logs `prompt_guardrail_skipped`. Deployed
     // environments always have the id and never set the dev bypass, so ANY
     // occurrence alarms.
     addLogSignal({
