@@ -146,6 +146,7 @@ interface DocumentRow {
   metadata?: Record<string, string>;
   debrief_generation_count?: number;
   draft_create_count?: number;
+  ask_message_count?: number;
 }
 
 interface PlatformUsagePolicyRow {
@@ -371,12 +372,14 @@ export class FakeDb implements QueryExecutor {
     metadata?: Record<string, string>;
     debrief_generation_count?: number;
     draft_create_count?: number;
+    ask_message_count?: number;
   }): DocumentRow {
     const full: DocumentRow = {
       ...row,
       owner_user_id: row.owner_user_id ?? 'seed-user',
       debrief_generation_count: row.debrief_generation_count ?? 0,
       draft_create_count: row.draft_create_count ?? 0,
+      ask_message_count: row.ask_message_count ?? 0,
     };
     this.documents.set(full.id, full);
     return full;
@@ -2029,6 +2032,27 @@ export class FakeDb implements QueryExecutor {
       if (current >= limit) return [] as unknown as Row[];
       row.debrief_generation_count = current + 1;
       return [{ debrief_generation_count: row.debrief_generation_count }] as unknown as Row[];
+    }
+
+    if (sql.startsWith('SELECT ask_message_count FROM document WHERE id = $1')) {
+      const row = this.documents.get(params[0] as string);
+      return (row
+        ? [{ ask_message_count: row.ask_message_count ?? 0 }]
+        : []) as unknown as Row[];
+    }
+
+    if (
+      sql.startsWith('UPDATE document') &&
+      sql.includes('SET ask_message_count = ask_message_count + 1')
+    ) {
+      this.mutationCount += 1;
+      const row = this.documents.get(params[0] as string);
+      const limit = params[1] as number;
+      if (!row) return [] as unknown as Row[];
+      const current = row.ask_message_count ?? 0;
+      if (current >= limit) return [] as unknown as Row[];
+      row.ask_message_count = current + 1;
+      return [{ ask_message_count: row.ask_message_count }] as unknown as Row[];
     }
 
     throw new Error(`FakeDb: unhandled SQL: ${sql}`);

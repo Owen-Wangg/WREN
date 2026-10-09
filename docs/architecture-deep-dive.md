@@ -444,6 +444,7 @@ Owned by a student; scoped to a document type.
 | `status` | text | e.g. `Still Drafting`, `Polishing` |
 | `debrief_generation_count` | integer | Lifetime debrief jobs (survives item replace) |
 | `draft_create_count` | integer | Lifetime draft creates (survives draft delete) |
+| `ask_message_count` | integer | Lifetime Ask WREN messages (survives DynamoDB session-item TTL expiry) |
 | `created_at` | timestamptz | Creation time |
 
 #### `draft` table

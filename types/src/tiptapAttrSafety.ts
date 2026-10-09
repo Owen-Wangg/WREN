@@ -20,6 +20,7 @@ import type { TipTapNode } from './tiptapContent';
 const MAX_COLOR_LENGTH = 100;
 const MAX_FONT_FAMILY_LENGTH = 200;
 const MAX_FONT_SIZE_LENGTH = 32;
+const MAX_LINE_HEIGHT_LENGTH = 16;
 const MAX_RELATIVE_SRC_LENGTH = 1024;
 
 const HEX_COLOR = /^#[0-9a-f]{3,8}$/i;
@@ -37,6 +38,9 @@ const FONT_SIZE_LENGTH = /^\d{1,4}(?:\.\d{1,4})?(?:pt|px|em|rem|%|ex|ch)?$/i;
 const FONT_SIZE_KEYWORD = /^[a-z-]{3,20}$/i;
 
 const TEXT_ALIGN_VALUES = new Set(['left', 'center', 'right', 'justify', 'start', 'end']);
+
+/** Unitless multiplier or a single length/percentage, e.g. `1`, `1.5`, `120%`, `1.2em`. */
+const LINE_HEIGHT = /^\d{1,4}(?:\.\d{1,4})?(?:px|em|rem|%)?$/;
 
 const DATA_IMAGE_SRC = /^data:image\/[a-z0-9.+-]{1,40};base64,[A-Za-z0-9+/]+={0,2}$/i;
 /**
@@ -88,6 +92,13 @@ export function isSafeTextAlign(value: string): boolean {
   return TEXT_ALIGN_VALUES.has(value);
 }
 
+/** True for a bare line-height multiplier or a single length/percentage (`1`, `1.5`, `120%`). */
+export function isSafeCssLineHeight(value: string): boolean {
+  const v = value.trim();
+  if (v.length === 0 || v.length > MAX_LINE_HEIGHT_LENGTH) return false;
+  return LINE_HEIGHT.test(v);
+}
+
 /**
  * True for image sources the editor and ingest pipeline produce:
  * base64 `data:image/*`, absolute http(s) URLs, or scheme-less storage keys.
@@ -112,6 +123,7 @@ const ATTR_VALIDATORS: ReadonlyMap<string, (value: string) => boolean> = new Map
   ['fontFamily', isSafeCssFontFamily],
   ['fontSize', isSafeCssFontSize],
   ['textAlign', isSafeTextAlign],
+  ['lineHeight', isSafeCssLineHeight],
 ]);
 
 /**

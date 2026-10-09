@@ -128,8 +128,20 @@ async function retagKey(
   // Race with an attach that committed between the reference check and the
   // tag write: if the key is referenced now, put the original tag set back.
   // An attach that commits after this re-check is covered by the attach
-  // path's own post-commit tag clear.
-  const stillUnreferenced = await findUnreferencedUploadKeys(db, [key]);
+  // path's own post-commit tag clear. If the re-check itself fails we cannot
+  // prove the key is still unreferenced, so we restore the original tags
+  // (fail-safe), matching tagOrphanUploadForExpiry in lambda-handler.ts —
+  // never leave a lifecycle-delete tag on a key we could not verify.
+  let stillUnreferenced: string[];
+  try {
+    stillUnreferenced = await findUnreferencedUploadKeys(db, [key]);
+  } catch (err) {
+    console.warn('orphanUploadSweep: post-tag reference check failed; restoring tags', {
+      key,
+      error: err,
+    });
+    stillUnreferenced = [];
+  }
   if (stillUnreferenced.length === 0) {
     // PutObjectTagging with the original (possibly empty) set, so the sweep
     // role needs no s3:DeleteObjectTagging grant.
