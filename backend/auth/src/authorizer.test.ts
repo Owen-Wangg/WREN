@@ -267,7 +267,7 @@ describe('Lambda authorizer', () => {
     );
   });
 
-  describe('email relink on first login (finding f-4531f8e7)', () => {
+  describe('email relink on first login', () => {
     const existing: AppUserRow = {
       id: '44444444-4444-4444-4444-444444444444',
       email: 'writer@example.com',

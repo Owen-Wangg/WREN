@@ -160,8 +160,8 @@ export async function processIngestQueueMessage(
     // and fed to AI prompts just like body content. Gate on BOTH the word
     // count and the defense-in-depth character ceiling: a whitespace-free blob
     // in the header/footer measures as a few words but can be arbitrarily
-    // large, so the word-only check would let oversized content through
-    // (f-c5f5a972). Mirrors the body char ceiling in enforceSizeLimit and the
+    // large, so the word-only check would let oversized content through.
+    // Mirrors the body char ceiling in enforceSizeLimit and the
     // header/footer char gate in lambda-handler.ts.
     const headerFooterWords =
       (ingestResult.header ? wordCountFromTipTapContent(ingestResult.header as TipTapDoc) : 0) +

@@ -32,7 +32,7 @@ describe("app database roles (baseline)", () => {
         new RegExp(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`),
       );
     }
-    // The unrouted audit Lambda's role was removed (finding f-71876844).
+    // The unrouted audit Lambda's role was removed.
     expect(SQL).not.toMatch(/\bwren_audit\b/);
     expect(SQL).not.toMatch(/PASSWORD\s+'/i);
     expect(SQL).not.toMatch(/PASSWORD\s+"/i);
@@ -45,7 +45,7 @@ describe("app database roles (baseline)", () => {
     expect(SQL).not.toMatch(/GRANT\s+CREATE\s+ON\s+SCHEMA/i);
   });
 
-  // Finding f-6169ea44: with no RLS, grants are the only DB-side tenant
+  // With no RLS, grants are the only DB-side tenant
   // control. wren_admin may count/join student-work tables but must never be
   // able to read student prose, generated feedback text, or document titles.
   describe("wren_admin student-work grants are column-scoped", () => {

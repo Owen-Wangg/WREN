@@ -1,5 +1,5 @@
 /**
- * Shared Actor–Verb–Object activity-log writer (Requirement 44; Issue #187).
+ * Shared Actor–Verb–Object activity-log writer (Requirement 44).
  *
  * The activity log is the platform's edtech-style (xAPI-shaped) record of
  * "who did what" — {actor, verb, object, timestamp, context}. It lives here in

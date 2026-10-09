@@ -39,7 +39,7 @@ export const DEFAULT_SIZE_LIMIT_WORDS = 10_000;
 
 /**
  * Character ceiling per allowed word, used as a defense-in-depth bound
- * alongside the word count (finding f-ca2d70a5). The word count alone is
+ * alongside the word count. The word count alone is
  * bypassable: `countWordsInText` counts whitespace-delimited runs, so a blob
  * with no whitespace of any length measures as a single word. Bounding total
  * characters at `effectiveLimitWords * MAX_CHARS_PER_WORD` closes that gap
@@ -92,7 +92,7 @@ export interface OverSizeLimit {
   readonly message: string;
   /**
    * Which bound was exceeded. `'words'` is the historical word-count overage;
-   * `'chars'` is the defense-in-depth character ceiling (finding f-ca2d70a5).
+   * `'chars'` is the defense-in-depth character ceiling.
    */
   readonly exceeded: 'words' | 'chars';
   /** Present when `exceeded === 'chars'`: the measured character count. */
@@ -126,7 +126,7 @@ export function countWords(segments: readonly Segment[]): number {
 /**
  * Measure the total character count of an ingested document as the sum of its
  * segment text lengths. Pure. Used alongside {@link countWords} to apply the
- * character ceiling (finding f-ca2d70a5).
+ * character ceiling.
  */
 export function countChars(segments: readonly Segment[]): number {
   return segments.reduce((total, segment) => total + segment.text.length, 0);
@@ -189,7 +189,7 @@ export function enforceSizeLimitForWordCount(
       message: overLimitMessage(measuredWords, effectiveLimitWords),
     };
   }
-  // Defense-in-depth character ceiling (finding f-ca2d70a5): a whitespace-free
+  // Defense-in-depth character ceiling: a whitespace-free
   // blob measures as one word but can be arbitrarily large, so bound total
   // characters when the caller supplies a measured count.
   if (measuredChars !== undefined) {

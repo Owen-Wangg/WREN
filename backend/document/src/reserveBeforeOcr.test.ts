@@ -44,7 +44,7 @@ jest.mock('@wren/auth', () => ({
   resolveAccess: jest.fn(async () => 'OPEN'),
   bindCorsOrigin: jest.fn(),
   withCorsHeaders: (res: unknown) => res,
-  // Signed-context guard (finding f-140e2506): allow through in this unit test.
+  // Signed-context guard: allow through in this unit test.
   rejectIfForgedAuthContext: jest.fn(async () => null),
   // Real submission gate so it runs against the DB seam below.
   ...jest.requireActual<object>('../../auth/src/submissionAccess'),

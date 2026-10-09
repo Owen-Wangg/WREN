@@ -1,5 +1,5 @@
 /**
- * wrapHandler error mapping for the fail-closed prompt guardrail (Issue #181).
+ * wrapHandler error mapping for the fail-closed prompt guardrail.
  */
 import { PromptGuardrailUnavailableError } from './errors';
 import { wrapHandler } from './lambda-utils';

@@ -175,8 +175,8 @@ export class ComputeStack extends Stack {
       WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID: activityPseudonymSaltName,
     };
 
-    // HMAC key binding the API Gateway authorizer context to this deployment
-    // (finding f-140e2506). The authorizer signs the context it mints; the
+    // HMAC key binding the API Gateway authorizer context to this deployment.
+    // The authorizer signs the context it mints; the
     // service Lambdas verify the signature and reject forged contexts from a
     // direct `lambda:InvokeFunction`. Like the pseudonym salt, only the secret
     // NAME is passed to the functions — the value is fetched with
@@ -237,9 +237,9 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_authorizer),
         // First-login identity relinks write a pseudonymized `identity.relinked`
-        // activity_event (finding f-4531f8e7). Secret NAME only (grant below).
+        // activity_event. Secret NAME only (grant below).
         ...activitySaltEnv,
-        // Signs the authorizer context it mints (finding f-140e2506).
+        // Signs the authorizer context it mints.
         ...authContextSigningEnv,
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
@@ -274,10 +274,10 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_document),
         ...corsEnv,
-        // Verifies the authorizer-context signature (finding f-140e2506).
+        // Verifies the authorizer-context signature.
         ...authContextSigningEnv,
         ...authContextVerifyEnv,
-        // Document deletion records an activity_event (Issue #187); the shared
+        // Document deletion records an activity_event; the shared
         // writer needs the same pseudonym salt as Admin/Audit so an actor's
         // pseudonym is correlatable across services. Only the secret's name
         // is passed; the value is fetched at runtime (grant below).
@@ -330,8 +330,8 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Admin / Config / Auth / Usage Service Lambda (Node 22)
     // -----------------------------------------------------------------------
-    // The admin prompt-injection scan fails closed without a guardrail id
-    // (Issue #181). Catch a literally-empty id at synth; the normal value is an
+    // The admin prompt-injection scan fails closed without a guardrail id.
+    // Catch a literally-empty id at synth; the normal value is an
     // unresolved SSM token. CDK must NEVER set PROMPT_GUARDRAIL_SKIP (dev/test
     // bypass only).
     if (!Token.isUnresolved(props.promptGuardrailId) && props.promptGuardrailId.trim() === "") {
@@ -355,7 +355,7 @@ export class ComputeStack extends Stack {
         ...dbEnv(secrets.wren_admin),
         ...corsEnv,
         ...activitySaltEnv,
-        // Verifies the authorizer-context signature (finding f-140e2506).
+        // Verifies the authorizer-context signature.
         ...authContextSigningEnv,
         ...authContextVerifyEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
@@ -438,7 +438,7 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_feedback_orch),
         ...corsEnv,
-        // Verifies the authorizer-context signature (finding f-140e2506).
+        // Verifies the authorizer-context signature.
         ...authContextSigningEnv,
         ...authContextVerifyEnv,
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
@@ -662,13 +662,13 @@ export class ComputeStack extends Stack {
     activityPseudonymSalt.grantRead(this.documentFunction);
     // sync-cognito-admins writes a pseudonymized activity_event per grant.
     activityPseudonymSalt.grantRead(this.syncCognitoAdminsFunction);
-    // Authorizer audits first-login identity relinks (finding f-4531f8e7).
+    // Authorizer audits first-login identity relinks.
     activityPseudonymSalt.grantRead(this.authorizerFunction);
     // Notification records a pseudonymized activity_event per Notification_Type
     // catalog create/update.
     activityPseudonymSalt.grantRead(this.notificationFunction);
 
-    // Auth-context signing key (finding f-140e2506): the authorizer signs; the
+    // Auth-context signing key: the authorizer signs; the
     // three API Gateway service Lambdas verify. grantRead scopes
     // GetSecretValue/DescribeSecret to this one secret (and, in "external"
     // mode, appends the `-??????` suffix wildcard). All four reads fall under

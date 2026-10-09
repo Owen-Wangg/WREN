@@ -28,7 +28,7 @@
  *      delimited word counts across segments.
  *
  * The final describe block adds the defense-in-depth character ceiling
- * introduced for finding f-ca2d70a5 (a whitespace-free blob measures as a
+ * (a whitespace-free blob measures as a
  * single word, so the word count alone is bypassable).
  *
  * fast-check docs: https://fast-check.dev/
@@ -150,7 +150,7 @@ describe('Property 4: Size-limit enforcement using the effective limit', () => {
           expect(independentTotal).toBe(document.totalWords);
           expect(countWords(document.segments)).toBe(document.totalWords);
           const viaSegments = enforceSizeLimit(document.segments, overrides);
-          // `enforceSizeLimit` applies the char ceiling (f-ca2d70a5), so the
+          // `enforceSizeLimit` applies the char ceiling, so the
           // word-count entry point must receive the same measured chars to
           // stay equivalent.
           const viaCount = enforceSizeLimitForWordCount(
@@ -168,7 +168,7 @@ describe('Property 4: Size-limit enforcement using the effective limit', () => {
   });
 });
 
-describe('character ceiling — property-based (finding f-ca2d70a5)', () => {
+describe('character ceiling — property-based', () => {
   it('rejects a whitespace-free blob iff its length exceeds the char ceiling', () => {
     fc.assert(
       fc.property(

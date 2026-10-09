@@ -1,4 +1,4 @@
-"""Tests for the defense-in-depth footnote-body caps (finding f-ca2d70a5).
+"""Tests for the defense-in-depth footnote-body caps.
 
 The Node write gate now counts footnote bodies, but the Feedback Engine must
 not assume the gate ran — a stored draft could predate the fix. These tests
@@ -107,7 +107,7 @@ class TestMetadataCap:
     def test_metadata_is_charged_against_aggregate_budget(self):
         # Many footnotes each carrying max-length metadata in every field: the
         # per-field cap alone would allow ~count*5*500 chars, but the aggregate
-        # budget must bound the total attacker-controlled text (f-de6a04f5).
+        # budget must bound the total attacker-controlled text.
         field = "m" * MAX_FOOTNOTE_METADATA_FIELD_CHARS
         count = (MAX_FOOTNOTES_TOTAL_CHARS // MAX_FOOTNOTE_METADATA_FIELD_CHARS) + 50
         footnotes = [
@@ -174,7 +174,7 @@ class TestFootnoteCountCap:
 class TestFootnoteNumberBound:
     def test_absurd_footnote_number_is_dropped(self):
         # A ~309-digit number (as from a float round-trip) must not be rendered
-        # as hundreds of digits (finding f-b4f8ddb1).
+        # as hundreds of digits.
         huge = int("9" * 309)
         lines, sink = _collect_sink()
         result = build_footnotes_untrusted_content(

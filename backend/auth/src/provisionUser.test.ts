@@ -335,7 +335,7 @@ describe('grantTechnicalAdminBootstrapOnce', () => {
   });
 });
 
-describe('ensureAppUser — email relink hardening (finding f-4531f8e7)', () => {
+describe('ensureAppUser — email relink hardening', () => {
   it('refuses to provision or match anything when the email is unverified', async () => {
     const { db, calls, roles } = makeDb({ emailMatches: [staleMatch] });
     const { deps, audits, logs } = makeDeps();

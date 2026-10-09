@@ -53,7 +53,7 @@ export interface ApiStackProps extends StackProps {
 export class ApiStack extends Stack {
   public readonly api: apigateway.SpecRestApi;
   public readonly apiEndpoint: string;
-  /** Name of the API Gateway access-log group (Issue #187) — consumed by the ObservabilityStack security alarms. */
+  /** Name of the API Gateway access-log group — consumed by the ObservabilityStack security alarms. */
   public readonly accessLogGroupName: string;
   /** REGIONAL WAF WebACL associated with the API stage. */
   public readonly webAcl: RegionalApiWafConstruct;
@@ -213,7 +213,7 @@ export class ApiStack extends Stack {
     }
 
     // -----------------------------------------------------------------------
-    // API Gateway access logging (Issue #187, logging review gap 3.1).
+    // API Gateway access logging (logging review gap 3.1).
     //
     // The stage previously had loggingLevel: ERROR and NO access log, so there
     // was no request-layer audit trail — every request (including 401/403s and
@@ -269,7 +269,7 @@ export class ApiStack extends Stack {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.ERROR,
-        // Per-request structured access logging (Issue #187, gap 3.1): request
+        // Per-request structured access logging (gap 3.1): request
         // id, source IP, caller principal, method, resource path, status, and
         // latency — the security/audit trail (format defined above).
         accessLogDestination: new apigateway.LogGroupLogDestination(accessLogGroup),

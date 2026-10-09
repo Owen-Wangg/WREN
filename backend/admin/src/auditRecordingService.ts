@@ -129,8 +129,8 @@ export async function auditPromptEdit(
 }
 
 /**
- * Record an audit event for a platform-policy change made by a TechnicalAdmin
- * (Issue #187): the active Bedrock model id (`handleUpdateModelConfig`) or the
+ * Record an audit event for a platform-policy change made by a TechnicalAdmin:
+ * the active Bedrock model id (`handleUpdateModelConfig`) or the
  * platform usage caps (`handleUpdateUsageLimits`). These are platform-scoped
  * privileged mutations with no Department/Document-Type scope, so they carry
  * neither. `newValue`/`previousValue` hold only structured policy fields —
@@ -165,7 +165,7 @@ export async function auditPlatformPolicyChange(
 /**
  * Record an audit event for an OPEN/LOCKED access-state change on a Document
  * Type (`handleSetDocumentTypeAccessState`) or a Department
- * (`handleSetDepartmentAccessState`) (Issue #187). Access state gates whether
+ * (`handleSetDepartmentAccessState`). Access state gates whether
  * Students may submit work, so a flip is a security-relevant configuration
  * change that must be attributable to the acting TechnicalAdmin.
  */

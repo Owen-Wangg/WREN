@@ -136,7 +136,7 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
   // (`lambda-sync-cognito-admins.ts`) so no unauthenticated branch exists here.
   bindCorsOrigin(event);
   try {
-    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    // Reject forged/unsigned authorizer contexts (direct-invoke).
     const forged = await rejectIfForgedAuthContext(event);
     if (forged) return withCors(forged);
 
@@ -407,7 +407,7 @@ async function handleUpdateDocumentTypeConfig(event: any): Promise<APIGatewayPro
   try {
     config = await upsertDocumentTypeConfig(actor, documentTypeId, body, db);
   } catch (err) {
-    // Requirement 32.6 (Issue #187): record the prompt-edit attempt with its
+    // Requirement 32.6: record the prompt-edit attempt with its
     // ACTUAL guardrail outcome even when the content is rejected — previously
     // this path recorded nothing. The error is rethrown so wrapHandler maps it
     // to the appropriate 400 (GHOSTWRITING_DETECTED / prompt-injection).
@@ -467,7 +467,7 @@ async function handleSetDocumentTypeAccessState(event: any): Promise<APIGatewayP
     };
   }
   const updated = await setDocumentTypeAccessState(actor, documentTypeId, accessState, db);
-  // Audit the access-state flip (Issue #187): gating whether Students may
+  // Audit the access-state flip: gating whether Students may
   // submit work is a security-relevant configuration change.
   await auditAccessStateChange(
     actor,
@@ -501,7 +501,7 @@ async function handleSetDepartmentAccessState(event: any): Promise<APIGatewayPro
     };
   }
   const updated = await setDepartmentAccessState(actor, departmentId, accessState, db);
-  // Audit the access-state flip (Issue #187): gating whether Students may
+  // Audit the access-state flip: gating whether Students may
   // submit work is a security-relevant configuration change.
   await auditAccessStateChange(
     actor,
@@ -1010,7 +1010,7 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
       body: JSON.stringify(redactDepartmentPrompt(actor, department)),
     };
   } catch (err) {
-    // Requirement 32.6 (Issue #187): record the rejected prompt edit with its
+    // Requirement 32.6: record the rejected prompt edit with its
     // guardrail outcome even when the content is rejected (previously this path
     // recorded nothing and only ever reported 'passed'). Rethrow so wrapHandler
     // maps it to the appropriate 400.
@@ -1308,7 +1308,7 @@ async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResul
     [modelId],
   );
 
-  // Audit the model change (Issue #187): a TechnicalAdmin swapping the active
+  // Audit the model change: a TechnicalAdmin swapping the active
   // Bedrock model is a privileged platform mutation.
   await auditPlatformPolicyChange(
     actor,
@@ -1345,7 +1345,7 @@ async function handleUpdateUsageLimits(event: any): Promise<APIGatewayProxyResul
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const policy = await updatePlatformUsagePolicy(actor, body, db);
-  // Audit the usage-cap change (Issue #187): a TechnicalAdmin altering the
+  // Audit the usage-cap change: a TechnicalAdmin altering the
   // platform lifetime/usage limits is a privileged platform mutation.
   await auditPlatformPolicyChange(
     actor,

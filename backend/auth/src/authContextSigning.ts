@@ -1,7 +1,7 @@
 /**
  * HMAC signing/verification for the API Gateway authorizer context.
  *
- * Why this exists (finding f-140e2506): service Lambdas take their caller
+ * Why this exists: service Lambdas take their caller
  * identity entirely from `event.requestContext.authorizer`, which only API
  * Gateway populates on the authenticated path. A principal able to invoke a
  * service function directly (`lambda:InvokeFunction`) can hand-build an event
@@ -61,8 +61,8 @@ export type AuthContextVerifyMode = 'enforce' | 'permissive';
  * `AUTH_CONTEXT_VERIFY_MODE=permissive` relaxes verification; an unset, empty,
  * or unrecognized value enforces. This way a service Lambda that is missing the
  * env var (e.g. a new function that forgot the CDK spread) rejects unsigned
- * contexts instead of silently trusting a caller-built identity (finding
- * f-b24eb0a1). Local runs and unit tests that need the relaxed behavior must
+ * contexts instead of silently trusting a caller-built identity. Local runs
+ * and unit tests that need the relaxed behavior must
  * opt in via the env var or `VerifyAuthContextOptions.mode`.
  */
 export function resolveAuthContextVerifyMode(

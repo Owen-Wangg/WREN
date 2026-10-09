@@ -437,7 +437,7 @@ export const handler = async (
 
   bindCorsOrigin(event);
   try {
-    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    // Reject forged/unsigned authorizer contexts (direct-invoke).
     const forged = await rejectIfForgedAuthContext(event);
     if (forged) return withCors(forged);
 
@@ -516,7 +516,7 @@ async function handleListDocuments(event: any): Promise<APIGatewayProxyResult> {
  * department's archived/OPEN-LOCKED state and the caller's active grants from
  * the database on every request — never from the authorizer context or UI —
  * so LOCKED, revoked grants and archived departments bind existing Documents
- * too (finding f-bb0e73c3). The decision is routed through `gateSubmission`
+ * too. The decision is routed through `gateSubmission`
  * per the submissionGating contract: callers MUST NOT proceed unless `ok`.
  */
 async function enforceSubmissionAccess(
@@ -890,7 +890,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   // them in the total word/char counts and enforce the same size cap.
   // Body counts are footnote-aware when a TipTap doc is the source so footnote
   // bodies (which reach the Bedrock prompt) cannot bypass the gate; when the
-  // source is raw ingest segments, measure the segments directly (f-ca2d70a5).
+  // source is raw ingest segments, measure the segments directly.
   const bodyWords = storedContent
     ? wordCountFromTipTapContent(storedContent)
     : countWords(segments);
@@ -1146,7 +1146,7 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
     }
   }
 
-  // Audit the destructive deletion (Issue #187 / Requirement 44). The
+  // Audit the destructive deletion (Requirement 44). The
   // activity_event table holds NO foreign key to document/draft/feedback_item,
   // so this record survives the deletion it describes. Best-effort and
   // non-fatal: an audit-write failure must never turn a successful deletion
@@ -1386,7 +1386,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   let normalizedSegments: Array<{ index: number; text: string }>;
   let wordCount: number;
   // Authoritative character count (footnote-aware for TipTap sources), used for
-  // the defense-in-depth character ceiling alongside wordCount (f-ca2d70a5).
+  // the defense-in-depth character ceiling alongside wordCount.
   let charCount: number;
   let storedContent: TipTapDoc | undefined = tipTapContent;
   let storedHeader: TipTapDoc | undefined;
@@ -1615,7 +1615,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     // Segments write branch: body.segments is taken directly and is NOT passed
     // through rejectUnsafeTipTap, so the 8MB-per-field TipTap bound does not
     // apply here. Enforce a serialized-bytes cap on the raw payload plus the
-    // word/char ceiling BEFORE reserving a draft slot (f-ca2d70a5).
+    // word/char ceiling BEFORE reserving a draft slot.
     const segmentBytes = serializedTipTapBytes(segments);
     if (segmentBytes > TIPTAP_FIELD_MAX_BYTES) {
       return {

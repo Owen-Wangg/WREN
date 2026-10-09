@@ -7,8 +7,7 @@
  * AI Debrief, or sending an Ask WREN turn — MUST run this check server-side on
  * every request. Checking only at document creation lets a Student who created
  * a Document while access was open keep submitting after the department is
- * LOCKED, their Access Grant is revoked, or the department is archived
- * (finding f-bb0e73c3).
+ * LOCKED, their Access Grant is revoked, or the department is archived.
  *
  * The check loads current facts from the database on each call (never from the
  * authorizer context or UI state) and fails closed:

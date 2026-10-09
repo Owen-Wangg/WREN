@@ -36,7 +36,7 @@ const GROUP_NAME = 'SystemAdmin';
 
 /**
  * Synthetic actor id for role grants performed by this out-of-band script
- * rather than an interactive administrator (Issue #187). It has no real
+ * rather than an interactive administrator. It has no real
  * `AuthContext` — a script is not a logged-in user — so we attribute the audit
  * event to a stable synthetic id, mirroring the `__system__` actor the audit
  * service already uses for engine-driven guardrail events. The shared writer
@@ -111,7 +111,7 @@ export async function syncCognitoAdmins(): Promise<{
     );
     console.log(`  userId=${userId} — granted TechnicalAdmin`);
 
-    // Audit the privileged role grant (Issue #187 / Requirement 45.2): granting
+    // Audit the privileged role grant (Requirement 45.2): granting
     // TechnicalAdmin is a security event and must leave an audit record, even
     // when performed by this script rather than an interactive admin. Shape
     // mirrors auditRoleOrGrantChange's 'role.assigned' event. Best-effort and
