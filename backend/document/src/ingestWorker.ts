@@ -3,7 +3,11 @@
  */
 import { getDataAccess } from '@wren/db-node';
 import type { TipTapDoc } from '@wren/types';
-import { tipTapContentToSegments, wordCountFromTipTapContent } from '@wren/types';
+import {
+  charCountFromTipTapContent,
+  tipTapContentToSegments,
+  wordCountFromTipTapContent,
+} from '@wren/types';
 import { getPlatformUsagePolicy } from '@wren/admin/lifetimeUsagePolicy';
 import { validate as isUuid } from 'uuid';
 
@@ -19,7 +23,7 @@ import {
 } from './ingestJob.js';
 import { MammothDocxExtractor } from './docxExtractor.js';
 import { createPdfExtractor } from './ocrFactory.js';
-import { enforceSizeLimit } from './sizeLimit.js';
+import { countChars, effectiveCharLimit, enforceSizeLimit } from './sizeLimit.js';
 
 const docxExtractor = new MammothDocxExtractor();
 
@@ -153,20 +157,42 @@ export async function processIngestQueueMessage(
     }
 
     // Include header and footer in the total — they are stored in the draft
-    // and fed to AI prompts just like body content.
+    // and fed to AI prompts just like body content. Gate on BOTH the word
+    // count and the defense-in-depth character ceiling: a whitespace-free blob
+    // in the header/footer measures as a few words but can be arbitrarily
+    // large, so the word-only check would let oversized content through
+    // (f-c5f5a972). Mirrors the body char ceiling in enforceSizeLimit and the
+    // header/footer char gate in lambda-handler.ts.
     const headerFooterWords =
       (ingestResult.header ? wordCountFromTipTapContent(ingestResult.header as TipTapDoc) : 0) +
       (ingestResult.footer ? wordCountFromTipTapContent(ingestResult.footer as TipTapDoc) : 0);
-    if (headerFooterWords > 0) {
+    const headerFooterChars =
+      (ingestResult.header ? charCountFromTipTapContent(ingestResult.header as TipTapDoc) : 0) +
+      (ingestResult.footer ? charCountFromTipTapContent(ingestResult.footer as TipTapDoc) : 0);
+    if (headerFooterWords > 0 || headerFooterChars > 0) {
       const effectiveLimit = sizeResult.effectiveLimitWords;
+      const effectiveLimitChars = effectiveCharLimit(effectiveLimit);
       const bodyWords = storedContent
         ? wordCountFromTipTapContent(storedContent)
         : sizeResult.measuredWords;
-      if (bodyWords + headerFooterWords > effectiveLimit) {
+      const bodyChars = storedContent
+        ? charCountFromTipTapContent(storedContent)
+        : countChars(segments);
+      const totalWords = bodyWords + headerFooterWords;
+      const totalChars = bodyChars + headerFooterChars;
+      if (totalWords > effectiveLimit) {
         await markIngestJobFailed(
           db,
           message.jobId,
-          `Document exceeds the ${effectiveLimit}-word limit (${bodyWords + headerFooterWords} words including header and footer).`,
+          `Document exceeds the ${effectiveLimit}-word limit (${totalWords} words including header and footer).`,
+        );
+        return;
+      }
+      if (totalChars > effectiveLimitChars) {
+        await markIngestJobFailed(
+          db,
+          message.jobId,
+          `Document exceeds the ${effectiveLimitChars}-character limit (${totalChars} characters including header and footer).`,
         );
         return;
       }
