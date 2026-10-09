@@ -4,9 +4,11 @@
 import { getDataAccess } from '@wren/db-node';
 import type { TipTapDoc } from '@wren/types';
 import { tipTapContentToSegments, wordCountFromTipTapContent } from '@wren/types';
+import { getPlatformUsagePolicy } from '@wren/admin/lifetimeUsagePolicy';
+import { validate as isUuid } from 'uuid';
 
 import { createDraftRevision } from './draftVersioning.js';
-import { DbDraftRepository } from './draftRepository.js';
+import { DbDraftRepository, type QueryExecutor } from './draftRepository.js';
 import { UnsupportedFileFormatError } from './errors.js';
 import { ingestUpload } from './ingestion.js';
 import {
@@ -21,6 +23,12 @@ import { enforceSizeLimit } from './sizeLimit.js';
 
 const docxExtractor = new MammothDocxExtractor();
 
+/**
+ * The producer's SQS payload. The consumer trusts ONLY `jobId` from this
+ * message — every other value is re-derived from the persisted job row and the
+ * database, so the remaining fields are retained purely for the producer-side
+ * contract and are never read on the consumer path.
+ */
 export interface IngestQueueMessage {
   readonly jobId: string;
   readonly documentId: string;
@@ -32,10 +40,61 @@ export interface IngestQueueMessage {
   readonly ocrEngine?: string;
 }
 
+/** The only field the consumer treats as authoritative from the queue. */
+export interface IngestQueueTrigger {
+  readonly jobId: string;
+}
+
 export type ReadS3Bytes = (key: string) => Promise<Buffer>;
 
+/**
+ * Parse and validate an SQS record body. The body is attacker-controllable by
+ * any principal able to send to the ingest queue (or redrive its DLQ), so it is
+ * reduced to the single value used as a database lookup key: a well-formed
+ * `jobId`. Returns `null` for any malformed body so the caller can drop the
+ * record instead of acting on unvalidated input.
+ */
+export function parseIngestQueueMessage(rawBody: string): IngestQueueTrigger | null {
+  let body: unknown;
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== 'object') return null;
+  const jobId = (body as { jobId?: unknown }).jobId;
+  if (typeof jobId !== 'string' || jobId.trim() === '' || !isUuid(jobId)) {
+    return null;
+  }
+  return { jobId };
+}
+
+/**
+ * Re-derive the effective word caps for a document from the database, keyed off
+ * the authoritative document id on the job row. Mirrors the producer: the
+ * Document Type's `size_limit_words` (null → platform default) plus the
+ * platform policy ceiling. Returns `null` when the document no longer exists.
+ */
+async function loadSizeLimitsForDocument(
+  db: QueryExecutor,
+  documentId: string,
+): Promise<{ sizeLimitWords: number | null; platformSizeLimitWords: number | null } | null> {
+  const rows = await db.query<{ size_limit_words: number | null }>(
+    `SELECT dt.size_limit_words
+     FROM document d
+     JOIN document_type dt ON dt.id = d.document_type_id
+     WHERE d.id = $1`,
+    [documentId],
+  );
+  if (rows.length === 0) return null;
+  const sizeLimitWords =
+    typeof rows[0]!.size_limit_words === 'number' ? rows[0]!.size_limit_words : null;
+  const policy = await getPlatformUsagePolicy(db);
+  return { sizeLimitWords, platformSizeLimitWords: policy.maxWordCount };
+}
+
 export async function processIngestQueueMessage(
-  message: IngestQueueMessage,
+  message: IngestQueueTrigger,
   readS3ObjectBytes: ReadS3Bytes,
 ): Promise<void> {
   const db = await getDataAccess();
@@ -57,15 +116,21 @@ export async function processIngestQueueMessage(
   const bucket = process.env.DOCUMENTS_BUCKET_NAME;
 
   try {
-    const bytes = await readS3ObjectBytes(message.s3Key);
+    const limits = await loadSizeLimitsForDocument(db, job.documentId);
+    if (!limits) {
+      await markIngestJobFailed(db, message.jobId, 'Target document no longer exists');
+      return;
+    }
+
+    const bytes = await readS3ObjectBytes(job.s3Key);
 
     const { extractor } = createPdfExtractor({
       s3Bucket: bucket,
-      s3Key: message.s3Key,
+      s3Key: job.s3Key,
     });
 
     const ingestResult = await ingestUpload(
-      { kind: 'file', fileName: message.fileName, bytes },
+      { kind: 'file', fileName: job.fileName, bytes },
       { docxExtractor, pdfExtractor: extractor },
     );
 
@@ -79,8 +144,8 @@ export async function processIngestQueueMessage(
       ? tipTapContentToSegments(storedContent)
       : ingestResult.segments;
     const sizeResult = enforceSizeLimit(segments, {
-      documentTypeSizeLimitWords: message.sizeLimitWords,
-      platformSizeLimitWords: message.platformSizeLimitWords,
+      documentTypeSizeLimitWords: limits.sizeLimitWords,
+      platformSizeLimitWords: limits.platformSizeLimitWords,
     });
     if (sizeResult.status === 'over-limit') {
       await markIngestJobFailed(db, message.jobId, sizeResult.message);
@@ -110,13 +175,13 @@ export async function processIngestQueueMessage(
     const draftRepo = new DbDraftRepository(db);
     const { draft } = await createDraftRevision(
       {
-        documentId: message.documentId,
+        documentId: job.documentId,
         segments,
         wordCount:
           (storedContent
             ? wordCountFromTipTapContent(storedContent)
             : sizeResult.measuredWords) + headerFooterWords,
-        s3Key: message.s3Key,
+        s3Key: job.s3Key,
         ...(storedContent ? { content: storedContent } : {}),
         ...(ingestResult.header ? { header: ingestResult.header } : {}),
         ...(ingestResult.footer ? { footer: ingestResult.footer } : {}),

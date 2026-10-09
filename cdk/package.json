@@ -16,6 +16,7 @@
     "cdk": "cdk",
     "deploy:orchestrator": "tsx scripts/deploy.ts",
     "undeploy:orchestrator": "tsx scripts/undeploy.ts",
+    "disarm:orchestrator": "tsx scripts/disarm.ts",
     "redrive:dlq": "tsx scripts/redrive-dlq.ts"
   },
   "devDependencies": {

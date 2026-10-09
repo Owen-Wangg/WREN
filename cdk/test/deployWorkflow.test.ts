@@ -10,9 +10,11 @@ import {
   cdkContextArgs,
   commitImageTag,
   deploymentConfigDigest,
+  disarmTechnicalAdminBootstrap,
   evaluateCacheSmoke,
   hasLambdaPullPolicy,
   imageDeployRef,
+  imageRefFromUri,
   isCompletedDeployCheckpoint,
   parseCacheSmokeUsage,
   primaryFrontendHost,
@@ -66,6 +68,115 @@ describe("deployment workflow command construction", () => {
     const armed = cdkContextArgs(config, "sha-abc123", false, "subject-123");
     expect(safe.some((value) => value.includes("technicalAdminBootstrapSubject"))).toBe(false);
     expect(armed).toContain("technicalAdminBootstrapSubject=subject-123");
+  });
+});
+
+describe("first-admin bootstrap disarm", () => {
+  it("extracts the digest or tag from a deployed image uri", () => {
+    expect(imageRefFromUri("123.dkr.ecr.ca-central-1.amazonaws.com/repo@sha256:abcd"))
+      .toBe("sha256:abcd");
+    expect(imageRefFromUri("123.dkr.ecr.ca-central-1.amazonaws.com/repo:src-abc"))
+      .toBe("src-abc");
+    expect(imageRefFromUri("123.dkr.ecr.ca-central-1.amazonaws.com/repo")).toBeUndefined();
+  });
+
+  it("redeploys Compute without an armed subject", () => {
+    // The disarm wiring redeploys Compute via deployStacks(.., false) with no
+    // subject, so the synth context never carries the armed subject.
+    expect(
+      cdkContextArgs(config, "src-abc", false).some((value) =>
+        value.includes("technicalAdminBootstrapSubject"),
+      ),
+    ).toBe(false);
+  });
+
+  const BOOTSTRAP_PARAM = "/wren-dev/auth/technical-admin-bootstrap-subject";
+  const PROTECTED_PARAM = "/wren-dev/auth/protected-admin-subject";
+
+  it("preserves the protected subject, deletes the arming param, redeploys, and verifies the env var is gone", async () => {
+    const calls: string[][] = [];
+    let redeployed = false;
+    const aws = {
+      tryJson: async (args: readonly string[]) => {
+        calls.push([...args]);
+        return { Parameter: { Value: "subject-123" } } as never;
+      },
+      command: async (args: readonly string[]) => {
+        calls.push([...args]);
+        return { exitCode: 0, stdout: "", stderr: "", durationMs: 1 };
+      },
+      json: async (args: readonly string[]) => {
+        calls.push([...args]);
+        // Authorizer environment no longer carries the armed subject.
+        return { Environment: { Variables: {} } } as never;
+      },
+    };
+
+    await disarmTechnicalAdminBootstrap({
+      aws,
+      bootstrapParameter: BOOTSTRAP_PARAM,
+      protectedParameter: PROTECTED_PARAM,
+      authorizerName: "wren-dev-authorizer",
+      redeployComputeWithoutSubject: async () => {
+        redeployed = true;
+      },
+    });
+
+    // The demotion-guard value is written to the permanent parameter BEFORE the
+    // arming parameter is deleted, so protection is never dropped.
+    const protectedWriteIdx = calls.findIndex(
+      (c) => c[0] === "ssm" && c[1] === "put-parameter" && c.includes(PROTECTED_PARAM),
+    );
+    const deleteIdx = calls.findIndex(
+      (c) => c[0] === "ssm" && c[1] === "delete-parameter" && c.includes(BOOTSTRAP_PARAM),
+    );
+    expect(protectedWriteIdx).toBeGreaterThanOrEqual(0);
+    expect(deleteIdx).toBeGreaterThan(protectedWriteIdx);
+    expect(calls[protectedWriteIdx]).toContain("subject-123");
+    expect(redeployed).toBe(true);
+  });
+
+  it("tolerates an already-absent arming parameter and leaves the protected param untouched", async () => {
+    const calls: string[][] = [];
+    const aws = {
+      tryJson: async () => undefined,
+      command: async (args: readonly string[]) => {
+        calls.push([...args]);
+        return { exitCode: 0, stdout: "", stderr: "", durationMs: 1 };
+      },
+      json: async () => ({ Environment: { Variables: {} } }) as never,
+    };
+
+    await disarmTechnicalAdminBootstrap({
+      aws,
+      bootstrapParameter: BOOTSTRAP_PARAM,
+      protectedParameter: PROTECTED_PARAM,
+      authorizerName: "wren-dev-authorizer",
+      redeployComputeWithoutSubject: async () => undefined,
+    });
+
+    // Nothing to migrate or delete when the arming parameter is already gone.
+    expect(calls.some((c) => c[1] === "delete-parameter")).toBe(false);
+    expect(calls.some((c) => c[1] === "put-parameter")).toBe(false);
+  });
+
+  it("fails if the authorizer still carries the armed subject after redeploy", async () => {
+    const aws = {
+      tryJson: async () => ({ Parameter: { Value: "subject-123" } }) as never,
+      command: async () => ({ exitCode: 0, stdout: "", stderr: "", durationMs: 1 }),
+      json: async () =>
+        ({ Environment: { Variables: { TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT: "subject-123" } } }) as never,
+    };
+
+    await expect(
+      disarmTechnicalAdminBootstrap({
+        aws,
+        bootstrapParameter: BOOTSTRAP_PARAM,
+        protectedParameter: PROTECTED_PARAM,
+        authorizerName: "wren-dev-authorizer",
+        redeployComputeWithoutSubject: async () => undefined,
+      }),
+    ).rejects.toThrow(/still present/);
   });
 
   it("adds the custom-domain context only when a domain is configured", () => {

@@ -647,6 +647,82 @@ function secretFileUri(filePath: string): string {
   return `file://${filePath.replace(/\\/g, "/")}`;
 }
 
+/**
+ * Extract the `tagOrDigest` from a deployed Lambda container `ImageUri`.
+ * `repo@sha256:...` yields the digest; `repo:tag` yields the tag.
+ */
+export function imageRefFromUri(imageUri: string): string | undefined {
+  const atIndex = imageUri.indexOf("@");
+  if (atIndex >= 0) {
+    return imageUri.slice(atIndex + 1) || undefined;
+  }
+  const lastColon = imageUri.lastIndexOf(":");
+  const lastSlash = imageUri.lastIndexOf("/");
+  if (lastColon > lastSlash) {
+    return imageUri.slice(lastColon + 1) || undefined;
+  }
+  return undefined;
+}
+
+/** Collaborators for {@link disarmTechnicalAdminBootstrap}. */
+export interface DisarmBootstrapDeps {
+  readonly aws: Pick<AwsCli, "tryJson" | "command" | "json">;
+  /** SSM parameter holding the armed subject (removed by disarm). */
+  readonly bootstrapParameter: string;
+  /** Permanent parameter recording the first admin for the demotion guard. */
+  readonly protectedParameter: string;
+  /** Authorizer Lambda whose environment is re-checked after the redeploy. */
+  readonly authorizerName: string;
+  /** Redeploy the Compute stack WITHOUT an armed subject. */
+  readonly redeployComputeWithoutSubject: () => Promise<void>;
+}
+
+/**
+ * Remove the first-admin bootstrap arming while preserving the demotion guard.
+ *
+ * The arming parameter is also the legacy source of truth for the first-admin
+ * demotion protection, so before deleting it the armed subject is copied to the
+ * permanent protected-admin parameter. Only then is the arming parameter
+ * removed (so a later pipeline synth resolves an empty subject and does not
+ * re-arm), Compute redeployed without the armed subject (dropping
+ * TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT from the authorizer), and the variable's
+ * absence confirmed. Idempotent: an already-absent arming parameter is
+ * tolerated and leaves the protected parameter untouched.
+ */
+export async function disarmTechnicalAdminBootstrap(
+  deps: DisarmBootstrapDeps,
+): Promise<void> {
+  const existing = await deps.aws.tryJson<{ readonly Parameter?: { readonly Value?: string } }>([
+    "ssm", "get-parameter", "--name", deps.bootstrapParameter,
+  ]);
+  const armedSubject = existing?.Parameter?.Value?.trim();
+  if (armedSubject && armedSubject.toLowerCase() !== "none") {
+    // Persist the demotion guard on the permanent parameter BEFORE removing the
+    // arming parameter, so first-admin protection is never dropped by disarm.
+    await deps.aws.command([
+      "ssm", "put-parameter",
+      "--name", deps.protectedParameter,
+      "--type", "String",
+      "--value", armedSubject,
+      "--overwrite",
+    ]);
+  }
+  if (existing?.Parameter?.Value !== undefined) {
+    await deps.aws.command(["ssm", "delete-parameter", "--name", deps.bootstrapParameter]);
+  }
+  await deps.redeployComputeWithoutSubject();
+  const authorizer = await deps.aws.json<{
+    readonly Environment?: { readonly Variables?: Readonly<Record<string, string>> };
+  }>([
+    "lambda", "get-function-configuration", "--function-name", deps.authorizerName,
+  ]);
+  if (authorizer.Environment?.Variables?.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT) {
+    throw new Error(
+      "Compute redeployed but TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT is still present on the authorizer.",
+    );
+  }
+}
+
 export class DeployWorkflow {
   private readonly aws: AwsCli;
   private readonly discovery: DeploymentDiscovery;
@@ -1149,15 +1225,60 @@ export class DeployWorkflow {
     const signInHint = signupDomain ? ` at https://${signupDomain}` : "";
     console.log(
       `[wren] First-admin bootstrap is armed for ${this.config.adminEmail}. ` +
-      `Sign in to the application${signInHint} as that user to receive TechnicalAdmin.`,
+      `Sign in to the application${signInHint} as that user to receive TechnicalAdmin. ` +
+      `Once that account holds TechnicalAdmin, run \`npm run disarm\` to remove the arming.`,
     );
+  }
+
+  /**
+   * Remove the first-admin bootstrap arming after the operator account holds
+   * TechnicalAdmin. Keeps the Feedback Engine pinned to the image the stack is
+   * already running while the authorizer environment is stripped.
+   */
+  public async disarmAdministratorBootstrap(): Promise<void> {
+    await this.resolveAuditPseudonymSaltOwnership();
+    const tag = await this.deployedFeedbackEngineImageRef();
+    await disarmTechnicalAdminBootstrap({
+      aws: this.aws,
+      bootstrapParameter: ssmParameterNames.technicalAdminBootstrapSubject(this.config),
+      protectedParameter: ssmParameterNames.protectedAdminSubject(this.config),
+      authorizerName: `${this.config.stackPrefix}-authorizer`,
+      redeployComputeWithoutSubject: () =>
+        this.deployStacks([`${this.config.stackPrefix}-Compute`], tag, false),
+    });
+    console.log(
+      `[wren] First-admin bootstrap disarmed for ${this.config.stackPrefix}: ` +
+      "the armed subject was removed from the arming parameter and the authorizer " +
+      "environment, and preserved on the permanent protected-admin parameter so " +
+      "the first admin still cannot be demoted.",
+    );
+  }
+
+  /**
+   * Resolve the image reference the deployed Feedback Engine Lambda is pinned to
+   * so a Compute redeploy preserves it. Prefers an explicitly configured tag,
+   * else reads the deployed function's ImageUri.
+   */
+  private async deployedFeedbackEngineImageRef(): Promise<string> {
+    if (this.config.engineImageTag) return this.config.engineImageTag;
+    const fn = await this.aws.json<{ readonly Code?: { readonly ImageUri?: string } }>([
+      "lambda", "get-function", "--function-name", `${this.config.stackPrefix}-feedback-engine`,
+    ]);
+    const ref = fn.Code?.ImageUri ? imageRefFromUri(fn.Code.ImageUri) : undefined;
+    if (!ref) {
+      throw new Error(
+        "Could not resolve the deployed Feedback Engine image reference; " +
+        "set WREN_ENGINE_IMAGE_TAG and rerun the disarm step.",
+      );
+    }
+    return ref;
   }
 
   private async runSmokeTests(): Promise<void> {
     // Authenticated post-deploy verification was removed: the workflow no
     // longer mints a Cognito access token or calls /v1/auth/me, admin config,
     // or /v1/departments. TechnicalAdmin is granted on the candidate's real
-    // application login (ensureAppUser / ensureTechnicalAdminForArmedSubject).
+    // application login (ensureAppUser / grantTechnicalAdminBootstrapOnce).
     // Re-add a scoped-down unauthenticated health check here if needed.
     const amplify = await this.discovery.stack(`${this.config.stackPrefix}-Amplify`);
     let smokeOrigin = "http://localhost:5173";

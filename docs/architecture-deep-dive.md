@@ -46,15 +46,17 @@ The architecture is **region-portable**: persistent data (RDS, S3, DynamoDB) sta
 
 ### Edge and Security
 
-Optional API traffic passes through **Amazon CloudFront** (global CDN), where a **CloudFront-scoped AWS WAF** WebACL (AWS managed rule groups — Common, Known Bad Inputs, IP Reputation — plus a rate-based rule of 2000 requests per 5-minute window per IP) applies, and **AWS Shield Standard** is automatically in effect. CloudFront redirects HTTP to HTTPS and attaches security headers (CSP, HSTS, X-Frame-Options DENY, and others). Callers may also use the regional API Gateway stage URL directly; that path is authenticated but is **not** behind this WAF (the WebACL is CloudFront-scoped only).
+The web app calls the regional API Gateway stage URL. A **REGIONAL AWS WAF** WebACL on that stage applies the AWS managed rule groups (Common, Known Bad Inputs, IP Reputation) and a rate-based rule of 2000 requests per 5-minute window per IP. **AWS Shield Standard** is automatically in effect. An **Amazon CloudFront** distribution offers an alternate API hostname with its own CloudFront-scoped WebACL (same rules) and a security-headers policy.
 
 ### Frontend Hosting
 
-The **React web app** is hosted on **AWS Amplify**, which auto-builds on push. The app uses a TipTap editor for drafting and communicates with the backend via REST and AWS AppSync subscriptions.
+The **React web app** is hosted on **AWS Amplify**, which auto-builds on push. Amplify serves security headers on every response: CSP with `connect-src` limited to the API, Cognito, AppSync, and documents-bucket hosts, plus HSTS, `X-Frame-Options: DENY`, nosniff, and Referrer-Policy. The app uses a TipTap editor for drafting and communicates with the backend via REST and AWS AppSync subscriptions.
 
 ### Authentication
 
 Users sign in with **Amazon Cognito** (email and password; optional MFA). Access and ID tokens expire after a configured lifetime. First login provisions an `app_user` (default **Student**). The Cognito **`SystemAdmin`** group seeds **TechnicalAdmin** on first login only; afterward **PostgreSQL** (`role_assignment`) is the authorization. A **Lambda authorizer** verifies the JWT and attaches roles, department scopes, and access grants; each service Lambda **re-checks** capabilities and document ownership.
+
+The first-admin bootstrap is **one-shot and audited**. An operator-armed Cognito subject receives TechnicalAdmin at most once: the authorizer records the grant in the `technical_admin_bootstrap` marker table and writes a `role.assigned` entry to the append-only `activity_event` log, in the same transaction as the role insert. The marker is independent of `role_assignment`, so revoking the role is permanent — the grant is not re-applied on the next request. After the admin account holds the role, the operator runs `npm run disarm` to delete the armed-subject SSM parameter and strip `TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT` from the authorizer environment, so the one-time input does not persist as standing privilege.
 
 ### API Layer
 

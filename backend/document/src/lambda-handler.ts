@@ -51,8 +51,8 @@ import {
   shouldIngestPdfAsync,
 } from './ingestJob.js';
 import {
+  parseIngestQueueMessage,
   processIngestQueueMessage,
-  type IngestQueueMessage,
 } from './ingestWorker.js';
 import {
   assertDocumentUploadAllowed,
@@ -425,8 +425,12 @@ export const handler = async (
   // SQS async PDF ingest (Textract OCR) — not an API Gateway event.
   if (Array.isArray(event?.Records) && event.Records[0]?.eventSource === 'aws:sqs') {
     for (const record of event.Records) {
-      const body = JSON.parse(record.body) as IngestQueueMessage;
-      await processIngestQueueMessage(body, readS3ObjectBytes);
+      const trigger = parseIngestQueueMessage(record.body);
+      if (!trigger) {
+        console.warn('Dropping ingest queue message with invalid body');
+        continue;
+      }
+      await processIngestQueueMessage(trigger, readS3ObjectBytes);
     }
     return;
   }

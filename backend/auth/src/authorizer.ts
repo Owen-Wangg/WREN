@@ -59,7 +59,7 @@ import {
 } from './authContextSigning';
 import {
   ensureAppUser,
-  ensureTechnicalAdminForArmedSubject,
+  grantTechnicalAdminBootstrapOnce,
   IdentityProvisioningRefusedError,
   type ProvisioningDb,
   type ProvisionUserDeps,
@@ -271,10 +271,19 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         // First-admin bootstrap on the candidate's authenticated application
         // request. Access tokens do not reliably carry `cognito:groups`, so
         // ensureAppUser's group check may not elevate; this path is gated
-        // solely on the operator-armed exact-subject match. Re-read context
-        // so this same request is authorized with the freshly granted role.
-        await ensureTechnicalAdminForArmedSubject(db, context.userId);
-        context = (await mapSubjectToAuthContext(subject, db)) ?? context;
+        // solely on the operator-armed exact-subject match. The grant runs at
+        // most once per subject (a one-shot marker records it) and emits a
+        // role.assigned event; a role revoked afterwards is not re-granted.
+        // Re-read context only when a grant was actually made so this request
+        // reflects it.
+        const { granted } = await grantTechnicalAdminBootstrapOnce(
+          db,
+          { userId: context.userId, idpSubject: subject },
+          { recordActivityEvent },
+        );
+        if (granted) {
+          context = (await mapSubjectToAuthContext(subject, db)) ?? context;
+        }
       }
 
       // Sign the context so downstream service Lambdas can prove it was

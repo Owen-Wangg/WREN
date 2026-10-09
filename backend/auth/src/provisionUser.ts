@@ -180,6 +180,18 @@ WHERE NOT EXISTS (
 )
 `;
 
+const SELECT_BOOTSTRAP_MARKER_SQL =
+  'SELECT 1 FROM technical_admin_bootstrap WHERE idp_subject = $1';
+
+const INSERT_BOOTSTRAP_MARKER_SQL = `
+INSERT INTO technical_admin_bootstrap (idp_subject, user_id)
+VALUES ($1, $2)
+ON CONFLICT (idp_subject) DO NOTHING
+`;
+
+/** Synthetic audit actor for TechnicalAdmin grants performed by the bootstrap path. */
+export const BOOTSTRAP_AUDIT_ACTOR = '__system:technical-admin-bootstrap__';
+
 interface RelinkPrivilegeRow {
   readonly has_elevated_role: boolean;
   readonly has_access_grant: boolean;
@@ -191,32 +203,69 @@ function defaultLog(line: Record<string, unknown>): void {
   console.warn(JSON.stringify(line));
 }
 
+/** Collaborators for the one-shot TechnicalAdmin bootstrap grant. */
+export interface BootstrapGrantDeps {
+  /** Durable audit writer (the shared INSERT-only `@wren/db-node` writer). */
+  readonly recordActivityEvent: ProvisionUserDeps['recordActivityEvent'];
+}
+
 /**
- * Grant TechnicalAdmin to an ALREADY-PROVISIONED user during first-admin
- * bootstrap (REQ-SEC-ROLE-01).
+ * Grant TechnicalAdmin to the operator-armed first-admin candidate exactly once
+ * (REQ-SEC-ROLE-01).
  *
- * The authorizer only calls {@link ensureAppUser} when a subject has no
- * app_user row yet, so its group-seeded elevation is unreachable for a
- * candidate who already signed in (which the app forces immediately after
- * signup by auto-loading the dashboard). This function closes that gap: it is
- * called on any authenticated request while the deploy has armed the exact
- * candidate subject, and adds the TechnicalAdmin role in place.
+ * The grant is gated upstream by the operator-armed exact-subject match, which
+ * the caller MUST verify before calling. Elevation happens on the candidate's
+ * authenticated application request; this path never derives the subject from
+ * the token.
  *
- * Safety: the SOLE gate is the operator-armed exact-subject match, which the
- * caller MUST verify before calling (`armedSubject === idpSubject`). That is an
- * operator-controlled signal set by the guided deploy; elevation happens on
- * the candidate's authenticated application request. Unlike {@link ensureAppUser},
- * this path does NOT consult `cognito:groups`: the REST authorizer verifies
- * access tokens, which do not reliably carry `cognito:groups`, so a group claim
- * cannot be relied on here. The armed subject is sufficient and is never derived
- * from the token. Idempotent: the insert is a no-op if the role already exists,
- * and this is only invoked when the caller has confirmed the role is absent.
+ * The grant, a one-shot marker, and a `role.assigned` audit record are written
+ * in a single transaction so they commit together. The marker
+ * (`technical_admin_bootstrap`) is keyed by IdP subject and is independent of
+ * `role_assignment`:
+ *   - if a marker already exists, nothing is written and `granted` is false, so
+ *     a role that was later revoked is never re-granted;
+ *   - otherwise the role is added (no-op if already present), the marker is
+ *     inserted, the event is recorded, and `granted` is true.
+ *
+ * Requires a transactional data-access handle; fails closed without one so a
+ * grant can never commit without its marker and audit record.
  */
-export async function ensureTechnicalAdminForArmedSubject(
-  db: QueryExecutor,
-  userId: string,
-): Promise<void> {
-  await db.query(ENSURE_TECHNICAL_ADMIN_ROLE_SQL, [userId]);
+export async function grantTechnicalAdminBootstrapOnce(
+  db: ProvisioningDb,
+  grant: { readonly userId: string; readonly idpSubject: string },
+  deps: BootstrapGrantDeps,
+): Promise<{ readonly granted: boolean }> {
+  if (typeof db.transaction !== 'function') {
+    throw new Error(
+      'TechnicalAdmin bootstrap requires a transactional data-access handle',
+    );
+  }
+  return db.transaction(async (tx) => {
+    const existingMarker = await tx.query(SELECT_BOOTSTRAP_MARKER_SQL, [
+      grant.idpSubject,
+    ]);
+    if (existingMarker.length > 0) {
+      return { granted: false };
+    }
+    await tx.query(ENSURE_TECHNICAL_ADMIN_ROLE_SQL, [grant.userId]);
+    await tx.query(INSERT_BOOTSTRAP_MARKER_SQL, [grant.idpSubject, grant.userId]);
+    await deps.recordActivityEvent(
+      {
+        actorUserId: BOOTSTRAP_AUDIT_ACTOR,
+        verb: 'role.assigned',
+        objectType: 'RoleAssignment',
+        objectRef: grant.userId,
+        context: {
+          action: 'role.assigned',
+          targetUserId: grant.userId,
+          targetRole: 'TechnicalAdmin',
+          source: 'authorizer-bootstrap',
+        },
+      },
+      tx,
+    );
+    return { granted: true };
+  });
 }
 
 /**
@@ -401,28 +450,26 @@ export async function ensureAppUser(
   // the guided deploy adds the candidate to SystemAdmin and arms their exact
   // Cognito sub, but the candidate may have already signed in once (creating a
   // Student row) before the gate was armed. Requiring `createdNewUser` would
-  // permanently lock those deployments out of first-admin setup. Safety is
-  // preserved by the two operator-controlled conditions that remain: the exact
-  // armed subject must match, and the verified token must carry SystemAdmin.
-  // A normal user can satisfy neither. The candidate keeps Student and also
-  // gains TechnicalAdmin.
-  // NOTE: the `groups.includes('SystemAdmin')` half of this gate is NOT a hard
-  // second factor. It only constrains this first-login provisioning path. The
-  // authorizer additionally re-evaluates elevation for an already-provisioned
-  // user via ensureTechnicalAdminForArmedSubject, gated ONLY on the armed
-  // exact-subject match (no group check, because access tokens do not reliably
-  // carry cognito:groups). So an armed subject that fails this group check on
-  // first login is elevated on their very next request regardless. The real
-  // security boundary for both paths is the operator-armed
-  // TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT, set by the guided deploy. Elevation
-  // happens on the candidate's authenticated application request. Do not treat
-  // this group check as an independent constraint.
+  // permanently lock those deployments out of first-admin setup. The candidate
+  // keeps Student and also gains TechnicalAdmin.
+  // The operator-armed TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT is the security
+  // boundary for the elevation; it is set by the guided deploy and is never
+  // derived from the token. The `groups.includes('SystemAdmin')` check only
+  // constrains this first-login path. The authorizer re-evaluates elevation for
+  // an already-provisioned user gated on the armed exact-subject match alone
+  // (access tokens do not reliably carry cognito:groups). Both paths route the
+  // grant through grantTechnicalAdminBootstrapOnce, which elevates at most once
+  // per subject and records the grant.
   const bootstrapAdmin =
     input.technicalAdminBootstrapSubject === input.idpSubject &&
     input.groups?.includes('SystemAdmin') === true;
   await db.query(ENSURE_STUDENT_ROLE_SQL, [userId]);
   if (bootstrapAdmin) {
-    await db.query(ENSURE_TECHNICAL_ADMIN_ROLE_SQL, [userId]);
+    await grantTechnicalAdminBootstrapOnce(
+      db,
+      { userId, idpSubject: input.idpSubject },
+      { recordActivityEvent: deps.recordActivityEvent },
+    );
   }
   return userId;
 }

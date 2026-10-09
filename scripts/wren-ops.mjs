@@ -8,8 +8,8 @@ const SECRET_ENV = new Set(["WREN_GITHUB_TOKEN"]);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const operation = process.argv[2];
 
-if (operation !== "deploy" && operation !== "undeploy") {
-  console.error("Usage: node scripts/wren-ops.mjs <deploy|undeploy>");
+if (operation !== "deploy" && operation !== "undeploy" && operation !== "disarm") {
+  console.error("Usage: node scripts/wren-ops.mjs <deploy|undeploy|disarm>");
   process.exit(2);
 }
 
@@ -69,5 +69,9 @@ if (skipInstall) {
 }
 
 const script =
-  operation === "deploy" ? "deploy:orchestrator" : "undeploy:orchestrator";
+  operation === "deploy"
+    ? "deploy:orchestrator"
+    : operation === "disarm"
+      ? "disarm:orchestrator"
+      : "undeploy:orchestrator";
 run(npm, ["run", script], path.join(root, "cdk"), true);

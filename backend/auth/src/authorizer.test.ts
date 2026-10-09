@@ -372,17 +372,30 @@ describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
   const ORIGINAL_ARMED = process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT;
 
   /**
-   * DB fake that tracks role rows precisely, distinguishing the Student insert
-   * from the TechnicalAdmin insert (unlike the shared makeDb, which always
-   * pushes Student).
+   * DB fake that tracks role rows and the one-shot bootstrap marker precisely,
+   * distinguishing the Student insert from the TechnicalAdmin insert (unlike the
+   * shared makeDb, which always pushes Student). Exposes a `transaction` so the
+   * one-shot grant helper can run.
    */
-  function makeRoleTrackingDb(initialRoles: RoleAssignmentRow[]): {
-    db: QueryExecutor;
+  function makeRoleTrackingDb(
+    initialRoles: RoleAssignmentRow[],
+    opts: { markerPresent?: boolean } = {},
+  ): {
+    db: ProvisioningDb;
     roles: () => string[];
+    markerPresent: () => boolean;
   } {
     const roleRows: RoleAssignmentRow[] = [...initialRoles];
-    const db: QueryExecutor = {
+    let marker = opts.markerPresent ?? false;
+    const db: ProvisioningDb = {
       async query<Row>(text: string, params: readonly unknown[] = []): Promise<Row[]> {
+        if (text.includes('technical_admin_bootstrap')) {
+          if (text.includes('INSERT')) {
+            marker = true;
+            return [] as unknown as Row[];
+          }
+          return (marker ? [{ one: 1 }] : []) as unknown as Row[];
+        }
         if (text.includes("'TechnicalAdmin'")) {
           if (!roleRows.some((r) => r.role === 'TechnicalAdmin')) {
             roleRows.push({ role: 'TechnicalAdmin', scope: null });
@@ -409,8 +422,11 @@ describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
         }
         throw new Error(`unexpected query: ${text}`);
       },
+      async transaction<T>(fn: (tx: QueryExecutor) => Promise<T>): Promise<T> {
+        return fn(this);
+      },
     };
-    return { db, roles: () => roleRows.map((r) => r.role) };
+    return { db, roles: () => roleRows.map((r) => r.role), markerPresent: () => marker };
   }
 
   afterEach(() => {
@@ -418,10 +434,13 @@ describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
     else process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = ORIGINAL_ARMED;
   });
 
-  it('elevates an already-provisioned Student when their exact subject is armed', async () => {
+  it('elevates an already-provisioned Student when their exact subject is armed, once, with an audit event', async () => {
     process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = SUBJECT;
-    const { db, roles } = makeRoleTrackingDb([{ role: 'Student', scope: null }]);
-    const handler = createAuthorizerHandler(async () => depsFor(db));
+    const { db, roles, markerPresent } = makeRoleTrackingDb([{ role: 'Student', scope: null }]);
+    const audits: unknown[] = [];
+    const handler = createAuthorizerHandler(async () =>
+      depsFor(db, fakeVerifier, { recordActivityEvent: async (e) => void audits.push(e) }),
+    );
 
     const result = await handler(event(tokenFor({ sub: SUBJECT })));
 
@@ -434,6 +453,37 @@ describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
     expect(JSON.parse(String(result.context?.roles))).toHaveLength(2);
     expect(roles()).toEqual(expect.arrayContaining(['Student', 'TechnicalAdmin']));
     expect(roles()).toHaveLength(2);
+    // The one-shot marker is written and exactly one role.assigned is emitted.
+    expect(markerPresent()).toBe(true);
+    expect(audits).toEqual([
+      expect.objectContaining({
+        verb: 'role.assigned',
+        objectType: 'RoleAssignment',
+        objectRef: USER.id,
+        context: expect.objectContaining({ targetRole: 'TechnicalAdmin' }),
+      }),
+    ]);
+  });
+
+  it('does not re-elevate after revocation: role absent but marker present stays revoked and emits nothing', async () => {
+    process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = SUBJECT;
+    // Simulates the state after DELETE /v1/roles: the role row is gone but the
+    // one-shot marker from the original bootstrap remains.
+    const { db, roles, markerPresent } = makeRoleTrackingDb(
+      [{ role: 'Student', scope: null }],
+      { markerPresent: true },
+    );
+    const audits: unknown[] = [];
+    const handler = createAuthorizerHandler(async () =>
+      depsFor(db, fakeVerifier, { recordActivityEvent: async (e) => void audits.push(e) }),
+    );
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student']);
+    expect(roles()).toEqual(['Student']);
+    expect(markerPresent()).toBe(true);
+    expect(audits).toEqual([]);
   });
 
   it('does not elevate when no subject is armed', async () => {
@@ -458,13 +508,16 @@ describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
     expect(roles()).toEqual(['Student']);
   });
 
-  it('is idempotent: an armed subject already holding TechnicalAdmin is unchanged', async () => {
+  it('is idempotent: an armed subject already holding TechnicalAdmin is unchanged and emits nothing', async () => {
     process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = SUBJECT;
     const { db, roles } = makeRoleTrackingDb([
       { role: 'Student', scope: null },
       { role: 'TechnicalAdmin', scope: null },
     ]);
-    const handler = createAuthorizerHandler(async () => depsFor(db));
+    const audits: unknown[] = [];
+    const handler = createAuthorizerHandler(async () =>
+      depsFor(db, fakeVerifier, { recordActivityEvent: async (e) => void audits.push(e) }),
+    );
 
     const result = await handler(event(tokenFor({ sub: SUBJECT })));
 
@@ -474,5 +527,7 @@ describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
     expect(JSON.parse(String(result.context?.roles))).toHaveLength(2);
     expect(roles()).toEqual(expect.arrayContaining(['Student', 'TechnicalAdmin']));
     expect(roles()).toHaveLength(2);
+    // The fast-path guard short-circuits before the grant helper runs.
+    expect(audits).toEqual([]);
   });
 });
