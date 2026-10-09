@@ -239,13 +239,12 @@ describe('internalGuidance — save-time prompt-injection guardrail coverage', (
     expect(db.errorCategories.size).toBe(0);
   });
 
-  it('createErrorCategory with no internalGuidance is not scanned (no fail-closed throw)', async () => {
+  it('createErrorCategory with no internalGuidance persists a null guidance', async () => {
     process.env.PROMPT_GUARDRAIL_SKIP = 'true';
     const db = new FakeDb();
     seed(db);
 
-    // Even without the skip flag this would succeed (nothing to screen), but
-    // we keep the scan enabled here to assert the happy path explicitly.
+    // `name` is always screened, so the skip flag keeps the scan a no-op here.
     const cat = await createErrorCategory(
       deptAdminContext([DEPT]),
       { documentTypeId: DT, name: 'No Guidance' },
@@ -280,7 +279,9 @@ describe('internalGuidance — save-time prompt-injection guardrail coverage', (
     expect(db.errorCategories.get(cat.id)!.internal_guidance).toBeNull();
   });
 
-  it('updateErrorCategory renaming without internalGuidance is not blocked by the guardrail', async () => {
+  it('updateErrorCategory screens a rename — fails closed with no mutation', async () => {
+    // `name` is rendered into the same trusted prompt block as
+    // internalGuidance (finding f-25321fac), so a rename is screened too.
     process.env.PROMPT_GUARDRAIL_SKIP = 'true';
     const db = new FakeDb();
     seed(db);
@@ -289,13 +290,24 @@ describe('internalGuidance — save-time prompt-injection guardrail coverage', (
       { documentTypeId: DT, name: 'Old' },
       db,
     );
+    const mutationsBefore = db.mutationCount;
 
-    // name-only update: the guardrail must not run, so unsetting the config
-    // (fail-closed branch) must NOT cause a throw.
     delete process.env.PROMPT_GUARDRAIL_SKIP;
-    const renamed = await updateErrorCategory(deptAdminContext([DEPT]), cat.id, { name: 'New' }, db);
+    await expect(
+      updateErrorCategory(deptAdminContext([DEPT]), cat.id, { name: 'New' }, db),
+    ).rejects.toBeInstanceOf(PromptGuardrailUnavailableError);
+    expect(db.mutationCount).toBe(mutationsBefore);
+    expect(db.errorCategories.get(cat.id)!.name).toBe('Old');
+  });
 
-    expect(renamed.name).toBe('New');
+  it('createErrorCategory screens name — fails closed with no mutation', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      createErrorCategory(deptAdminContext([DEPT]), { documentTypeId: DT, name: 'Weak Thesis' }, db),
+    ).rejects.toBeInstanceOf(PromptGuardrailUnavailableError);
+    expect(db.mutationCount).toBe(0);
   });
 });
 
