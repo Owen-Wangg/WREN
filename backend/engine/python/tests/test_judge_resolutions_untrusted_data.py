@@ -2,9 +2,11 @@
 
 ``handler.judge_resolutions_with_llm`` evaluates whether a student addressed
 feedback and persists the verdict to the append-only ``resolution_status_history``
-table. Its Bedrock user message embeds student-authored prose (``original_text``,
-``revised_text``). This test locks in that both of those fields are wrapped in a
-per-call randomized-boundary BEGIN/END UNTRUSTED DATA block, so student text:
+table. Its Bedrock user message embeds student-influenced text (``feedback_question``,
+``original_text``, ``revised_text``). ``feedback_question`` is model output
+persisted via the output guardrail, so it can carry forward student-controlled
+text. This test locks in that all three fields are wrapped in a per-call
+randomized-boundary BEGIN/END UNTRUSTED DATA block, so student text:
 
   1. is unambiguously data, not instructions; and
   2. cannot forge a matching closing delimiter to escape the data region.
@@ -63,7 +65,7 @@ def _user_text(fake: _CapturingBedrockClient) -> str:
     return body["messages"][0]["content"]
 
 
-def test_both_student_fields_wrapped_with_matching_boundary_tokens(monkeypatch):
+def test_all_student_fields_wrapped_with_matching_boundary_tokens(monkeypatch):
     fake = _install(monkeypatch)
 
     handler.judge_resolutions_with_llm(
@@ -80,7 +82,7 @@ def test_both_student_fields_wrapped_with_matching_boundary_tokens(monkeypatch):
 
     user_text = _user_text(fake)
 
-    for label in ("ORIGINAL FLAGGED TEXT", "REVISED DRAFT SECTION"):
+    for label in ("FEEDBACK QUESTION", "ORIGINAL FLAGGED TEXT", "REVISED DRAFT SECTION"):
         begin = re.search(
             rf"BEGIN UNTRUSTED DATA \[([0-9a-f]{{32}})\] label={re.escape(label)}",
             user_text,
@@ -95,7 +97,7 @@ def test_both_student_fields_wrapped_with_matching_boundary_tokens(monkeypatch):
     assert "The court held that the statute applies." in user_text
 
 
-def test_feedback_question_is_not_wrapped(monkeypatch):
+def test_feedback_question_is_wrapped(monkeypatch):
     fake = _install(monkeypatch)
 
     handler.judge_resolutions_with_llm(
@@ -112,10 +114,13 @@ def test_feedback_question_is_not_wrapped(monkeypatch):
 
     body = json.loads(fake.calls[0]["body"])
     item = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])[0]
-    # Trusted, platform-generated field is a bare string (not delimited).
-    assert item["feedback_question"] == "Did the student clarify the holding?"
-    assert "BEGIN UNTRUSTED DATA" not in item["feedback_question"]
-    # Untrusted fields ARE delimited.
+    # feedback_question is model output and can carry student-controlled text, so
+    # it is delimited like the other untrusted fields. The original value still
+    # appears inside the delimited region.
+    assert "BEGIN UNTRUSTED DATA" in item["feedback_question"]
+    assert "label=FEEDBACK QUESTION" in item["feedback_question"]
+    assert "Did the student clarify the holding?" in item["feedback_question"]
+    # Other untrusted fields remain delimited too.
     assert "BEGIN UNTRUSTED DATA" in item["original_text"]
     assert "BEGIN UNTRUSTED DATA" in item["revised_text"]
 
