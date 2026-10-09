@@ -161,8 +161,8 @@ describe('redactDepartmentPrompt (Feedback-Engine prompt read access)', () => {
  * now route their returned DTO through {@link redactDepartmentPrompt}, mirroring
  * the two read paths. The DTO these handlers return carries the confidential
  * Feedback-Engine `prompt` column (via RETURNING / RETURNING_WITH_ASK_WREN), so
- * the response must strip `prompt` for a caller who may not read it while
- * leaving the edited field intact.
+ * the response must strip `prompt` and `askWrenPrompt` for a caller who may
+ * not read them.
  */
 describe('update responses redact the Feedback-Engine prompt (write-path parity)', () => {
   it('PUT ask-wren-prompt: keeps prompt for the authorized editor, strips it for a non-reader', async () => {
@@ -185,12 +185,12 @@ describe('update responses redact the Feedback-Engine prompt (write-path parity)
     expect(authorized.prompt).toBe('Law Feedback-Engine context');
     expect(authorized.askWrenPrompt).toBe('Formal register; legal memoranda.');
 
-    // Same helper, non-reader actor: the confidential prompt is stripped while
-    // the edited Ask WREN prompt is preserved.
+    // Same helper, non-reader actor: both privileged prompt fields are stripped
+    // (the Ask WREN prompt is as confidential as the Feedback-Engine prompt).
     for (const nonReader of [studentContext(), deptAdminContext([TEST])]) {
       const redacted = redactDepartmentPrompt(nonReader, dto);
       expect(redacted.prompt).toBeUndefined();
-      expect(redacted.askWrenPrompt).toBe('Formal register; legal memoranda.');
+      expect(redacted.askWrenPrompt).toBeUndefined();
     }
   });
 

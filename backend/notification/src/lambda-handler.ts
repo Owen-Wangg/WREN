@@ -12,7 +12,12 @@ import type {
   SQSEvent,
 } from 'aws-lambda';
 import { appendActivityEventRow, freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
-import { authorizeCapability, bindCorsOrigin, withCorsHeaders } from '@wren/auth';
+import {
+  authorizeCapability,
+  bindCorsOrigin,
+  rejectIfForgedAuthContext,
+  withCorsHeaders,
+} from '@wren/auth';
 import type { AuthContext } from '@wren/types';
 import { NonRetryableNotificationError, NotificationServiceImpl } from './notificationService';
 import { NotificationTypeCatalogServiceImpl } from './catalogService';
@@ -190,6 +195,13 @@ async function handleScheduledEvent(): Promise<void> {
 async function handleApiEvent(event: any): Promise<APIGatewayProxyResult> {
   bindCorsOrigin(event);
   try {
+    // Reject forged/unsigned authorizer contexts before any route trusts
+    // `userId`/`roles` (direct invoke, findings f-140e2506 / f-bd8143e2).
+    // Scoped to the API path only: SQS and EventBridge events carry no
+    // authorizer context.
+    const forged = await rejectIfForgedAuthContext(event);
+    if (forged) return withCors(forged);
+
     const { httpMethod, resource } = event;
 
     // --- User-facing notification endpoints ---

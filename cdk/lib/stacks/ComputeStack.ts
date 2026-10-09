@@ -540,6 +540,9 @@ export class ComputeStack extends Stack {
         ...dbEnv(secrets.wren_notification),
         ...corsEnv,
         ...activitySaltEnv,
+        // Verifies the authorizer-context signature (findings f-140e2506 / f-bd8143e2).
+        ...authContextSigningEnv,
+        ...authContextVerifyEnv,
         NOTIFICATION_TOPIC_ARN: notificationInfra.topic.topicArn,
         OVERRIDE_EXPIRY_WARNING_HOURS: "24",
       },
@@ -677,6 +680,7 @@ export class ComputeStack extends Stack {
     authContextSigningSecret.grantRead(this.adminFunction);
     authContextSigningSecret.grantRead(this.documentFunction);
     authContextSigningSecret.grantRead(this.feedbackOrchestratorFunction);
+    authContextSigningSecret.grantRead(this.notificationFunction);
 
     // Authorizer: look up Cognito email/name/email_verified when auto-provisioning
     // app_user on first login, and check whether a previously linked subject
