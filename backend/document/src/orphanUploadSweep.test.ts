@@ -149,6 +149,31 @@ describe('sweepOrphanUploads', () => {
     expect(s3.send.mock.calls.some(([c]) => c instanceof DeleteObjectTaggingCommand)).toBe(false);
   });
 
+  it('restores the original tags when the post-tag reference re-check throws', async () => {
+    // Pre-check (over the full aged page) succeeds and reports the key
+    // unreferenced; the post-tag re-check (single key) then throws. The sweep
+    // must not leave the orphan-upload tag on a key it could not re-verify.
+    const tags: Record<string, { Key: string; Value: string }[]> = {
+      [uploadKey(1)]: [{ Key: 'other', Value: 'x' }],
+    };
+    const s3 = fakeS3([{ Key: uploadKey(1), LastModified: OLD }], tags);
+    let calls = 0;
+    const db = {
+      query: jest.fn(async () => {
+        calls += 1;
+        if (calls === 1) return []; // page pre-check: unreferenced
+        throw new Error('proxy connection reset'); // post-tag re-check
+      }),
+    } as unknown as UploadKeyQueryable;
+
+    const result = await sweepOrphanUploads({ s3, bucket: BUCKET, db, now: () => NOW });
+
+    expect(result).toMatchObject({ candidates: 1, retagged: 0, restored: 1, errors: 0 });
+    // Original tags restored; the lifecycle-delete tag is not left behind.
+    expect(tags[uploadKey(1)]).toEqual([{ Key: 'other', Value: 'x' }]);
+    expect(s3.send.mock.calls.some(([c]) => c instanceof DeleteObjectTaggingCommand)).toBe(false);
+  });
+
   it('never tags a page whose reference check fails', async () => {
     const tags: Record<string, { Key: string; Value: string }[]> = {};
     const s3 = fakeS3([{ Key: uploadKey(1), LastModified: OLD }], tags);
