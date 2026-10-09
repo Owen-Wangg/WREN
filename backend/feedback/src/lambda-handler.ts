@@ -644,7 +644,10 @@ async function handleRecordFeedbackHelpfulness(event: any): Promise<APIGatewayPr
   }
 
   const body = event.body ? JSON.parse(event.body) : {};
-  const { environmentId, draftId, helpful, comment } = body;
+  // Reject non-UUID environmentId before it reaches the uuid column document.id
+  // (avoids a 22P02 cast error that wrapHandler would surface as a generic 500).
+  const environmentId = parseUuidParam(body.environmentId);
+  const { draftId, helpful, comment } = body;
 
   if (!environmentId || typeof helpful !== 'boolean') {
     return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'environmentId and helpful are required' }) });
