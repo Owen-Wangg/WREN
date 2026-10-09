@@ -101,6 +101,58 @@ const FALLBACK_REPLY =
 
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
+/**
+ * Byte ceiling for the stored `messages` history on a session item. DynamoDB's
+ * hard item limit is 400 KB; we cap the serialized message history well below
+ * that (300 KB) to leave headroom for the other attributes (`messageCount`,
+ * `ttl`, ids, draft/document ids, and attribute names). Once a conversation's
+ * stored history would exceed this, the oldest turns are trimmed (sliding
+ * window) so `UpdateItem` can never start failing with `ValidationException`
+ * and permanently break Ask WREN for a document. The user-facing quota is still
+ * `messageCount` (see `reserveAskMessageSlot`); trimming only affects displayed
+ * history, and LLM context is unaffected because `generateAskWrenReply` already
+ * uses only the last 12 messages.
+ */
+export const MAX_SESSION_HISTORY_BYTES = 300 * 1024;
+
+/** Approximate the stored byte size of a single persisted message. */
+export function estimateMessageBytes(message: ChatMessage): number {
+  return Buffer.byteLength(JSON.stringify(message), 'utf8');
+}
+
+/**
+ * Given the full post-append message list, return how many of the OLDEST
+ * messages must be removed so the retained suffix fits within `budgetBytes`.
+ *
+ * Walks newest -> oldest accumulating bytes, always keeps at least `minKeep`
+ * newest messages (default 2 — the just-appended user+reply turn) regardless of
+ * budget, and stops before the running total would exceed the budget. Returns
+ * `messages.length - keptCount` (>= 0); 0 means no trim is needed.
+ */
+export function computeHistoryTrimCount(
+  messages: ChatMessage[],
+  budgetBytes: number,
+  minKeep = 2,
+): number {
+  const total = messages.length;
+  if (total === 0) return 0;
+
+  let kept = 0;
+  let bytes = 0;
+  for (let i = total - 1; i >= 0; i -= 1) {
+    const size = estimateMessageBytes(messages[i]);
+    const wouldKeep = kept + 1;
+    // Always retain the newest `minKeep` messages even if they alone exceed the
+    // budget — we must never drop the turn we just committed.
+    if (wouldKeep > minKeep && bytes + size > budgetBytes) {
+      break;
+    }
+    bytes += size;
+    kept = wouldKeep;
+  }
+  return total - kept;
+}
+
 let dynamoDoc: DynamoDBDocumentClient | undefined;
 let bedrockClient: BedrockRuntimeClient | undefined;
 
@@ -206,7 +258,21 @@ export async function saveSessionIfAbsent(
 }
 
 /**
- * Atomically append messages to a session WITHOUT touching `messageCount`.
+ * Atomically append messages to a session WITHOUT touching `messageCount`, then
+ * best-effort trim the OLDEST messages so the stored history stays under
+ * {@link MAX_SESSION_HISTORY_BYTES}.
+ *
+ * The append is a single atomic `list_append` (never a full-item overwrite and
+ * never a write to `messageCount`), preserving the lost-update protection the
+ * quota design relies on. When `priorMessages` is supplied, the full
+ * post-append list is known locally, so we compute how many oldest messages are
+ * over budget and, if any, issue a SECOND atomic `REMOVE messages[0..k-1]`.
+ * Removing leading indices is safe under concurrency: a concurrent turn only
+ * appends to the tail, so the oldest indices are stable, and `messageCount` is
+ * untouched. The trim is guarded by `size(messages) > :keep` and wrapped in a
+ * try/catch — a lost trim race (`ConditionalCheckFailedException`) or any other
+ * trim error is swallowed, because the user's turn is already durably appended
+ * and a failed trim must never surface as a failed turn.
  */
 export async function appendMessagesToSession(input: {
   sessionId: string;
@@ -215,6 +281,11 @@ export async function appendMessagesToSession(input: {
   draftId: string;
   messages: ChatMessage[];
   ttl: number;
+  /**
+   * Messages already stored before this append. When provided, enables the
+   * byte-budget sliding-window trim; omit to append without trimming.
+   */
+  priorMessages?: ChatMessage[];
 }): Promise<void> {
   await getDynamo().send(
     new UpdateCommand({
@@ -233,6 +304,50 @@ export async function appendMessagesToSession(input: {
       },
     }),
   );
+
+  if (!input.priorMessages) return;
+
+  const fullHistory = [...input.priorMessages, ...input.messages];
+  const trimCount = computeHistoryTrimCount(
+    fullHistory,
+    MAX_SESSION_HISTORY_BYTES,
+  );
+  if (trimCount <= 0) return;
+
+  const keptCount = fullHistory.length - trimCount;
+  const removePaths: string[] = [];
+  const removeNames: Record<string, string> = {};
+  for (let i = 0; i < trimCount; i += 1) {
+    removeNames[`#m${i}`] = 'messages';
+    removePaths.push(`#m${i}[${i}]`);
+  }
+
+  try {
+    await getDynamo().send(
+      new UpdateCommand({
+        TableName: tableName(),
+        Key: { sessionId: input.sessionId },
+        UpdateExpression: `REMOVE ${removePaths.join(', ')}`,
+        // Only trim if the stored list is still longer than what we intend to
+        // keep. If a concurrent trim already shrank it, this fails and is
+        // swallowed below.
+        ConditionExpression: 'size(messages) > :keep',
+        ExpressionAttributeNames: removeNames,
+        ExpressionAttributeValues: { ':keep': keptCount },
+      }),
+    );
+  } catch (err) {
+    const name =
+      err && typeof err === 'object' && 'name' in err
+        ? String((err as { name: unknown }).name)
+        : '';
+    if (name === 'ConditionalCheckFailedException') return;
+    // The turn is already durably appended; a failed trim must not fail the
+    // turn. Log and continue — the next turn will attempt the trim again.
+    console.warn(
+      `[askWren] history trim failed for session; continuing: ${name || 'UnknownError'}`,
+    );
+  }
 }
 
 /**
@@ -816,6 +931,9 @@ export async function appendAskWrenTurn(input: {
     draftId: input.draftId,
     messages: [userMessage, reply],
     ttl,
+    // Enables the byte-budget sliding-window trim. `prior` was read above; the
+    // trim only drops oldest display history and never touches `messageCount`.
+    priorMessages: prior,
   });
   return { sessionId, userMessage, reply };
 }
