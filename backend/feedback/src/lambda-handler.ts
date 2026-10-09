@@ -93,14 +93,35 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>, event?: any
         body: JSON.stringify({ code: error.code, message: error.message }),
       });
     }
+    // Only surface messages for intentional 4xx errors. Anything else (driver,
+    // AWS SDK, unexpected exceptions) is logged above and returned generically
+    // so internal schema/infrastructure details never reach the client.
+    const candidateStatus = typeof error?.statusCode === 'number' ? error.statusCode : 500;
+    const statusCode =
+      Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus < 600
+        ? candidateStatus
+        : 500;
+    const code =
+      statusCode === 403 ? 'PERMISSION_DENIED'
+        : statusCode === 404 ? 'NOT_FOUND'
+          : statusCode >= 500 ? 'INTERNAL_ERROR'
+            : 'BAD_REQUEST';
+    const message =
+      statusCode < 500 && typeof error?.message === 'string' && error.message
+        ? error.message
+        : 'Internal server error';
     return withCors({
-      statusCode: error.statusCode || 500,
-      body: JSON.stringify({
-        code: error.statusCode === 403 ? 'PERMISSION_DENIED' : error.statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR',
-        message: error.message || 'Internal server error',
-      }),
+      statusCode,
+      body: JSON.stringify({ code, message }),
     });
   }
+}
+
+function documentNotFound(): APIGatewayProxyResult {
+  return {
+    statusCode: 404,
+    body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+  };
 }
 
 function toIsoDateTime(value: unknown): string {
@@ -222,7 +243,9 @@ export const handler: APIGatewayProxyHandler = async (event, context): Promise<A
 async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { documentId } = event.pathParameters || {};
+  // Reject non-UUID ids before they reach a uuid column (avoids 22P02 errors).
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
+  if (!documentId) return documentNotFound();
   // UI uses the sentinel "none" when no draft exists; never bind that to uuid.
   const requestedDraftId = parseUuidParam(event.queryStringParameters?.draftId);
 
@@ -480,7 +503,9 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
 async function handleGetFeedbackHistory(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { documentId } = event.pathParameters || {};
+  // Reject non-UUID ids before they reach a uuid column (avoids 22P02 errors).
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
+  if (!documentId) return documentNotFound();
 
   const docQuery = `
     SELECT owner_user_id FROM document WHERE id = $1
@@ -528,7 +553,9 @@ async function handleGetFeedbackHistory(event: any): Promise<APIGatewayProxyResu
 async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { documentId } = event.pathParameters || {};
+  // Reject non-UUID ids before they reach a uuid column (avoids 22P02 errors).
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
+  if (!documentId) return documentNotFound();
 
   const docQuery = `
     SELECT owner_user_id, document_type_id, name FROM document WHERE id = $1
@@ -660,7 +687,9 @@ async function handleRecordFeedbackHelpfulness(event: any): Promise<APIGatewayPr
 async function handleGetFeedbackStatus(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { documentId } = event.pathParameters || {};
+  // Reject non-UUID ids before they reach a uuid column (avoids 22P02 errors).
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
+  if (!documentId) return documentNotFound();
 
   const docQuery = `
     SELECT owner_user_id FROM document WHERE id = $1
