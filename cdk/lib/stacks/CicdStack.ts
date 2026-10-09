@@ -34,6 +34,7 @@ const COMPUTE_FUNCTION_SUFFIXES = [
   "diff-anchor-progress",
   "notification",
   "appsync-authorizer",
+  "orphan-upload-sweep",
 ] as const;
 
 /**
@@ -76,7 +77,7 @@ export interface ComputeDeployScopes {
   readonly boundaryArn: string;
   /**
    * The exact Lambda ARNs the Compute deploy role may mutate and invoke: the
-   * nine `${prefix}-<service>` functions from {@link COMPUTE_FUNCTION_SUFFIXES}
+   * ten `${prefix}-<service>` functions from {@link COMPUTE_FUNCTION_SUFFIXES}
    * plus `function:${prefix}-Compute-*` for the CFN-auto-named LogRetention
    * provider. Enumerated rather than `function:${prefix}-*` so the Database
    * stack's `${prefix}-migrate` / `${prefix}-sync-db-passwords` (which hold DB
@@ -551,7 +552,7 @@ export class CicdStack extends Stack {
       boundaryArn: CicdStack.boundaryPolicyArnFor(account, prefix),
       // Enumerated owned functions, deliberately NOT `function:${prefix}-*`:
       // that wildcard also matches the Database stack's `${prefix}-migrate` and
-      // `${prefix}-sync-db-passwords`, which hold DB credentials. The nine named
+      // `${prefix}-sync-db-passwords`, which hold DB credentials. The ten named
       // service functions are listed explicitly; `${prefix}-Compute-*` covers
       // the CFN-auto-named LogRetention provider.
       ownedFunctionArns: [
@@ -975,7 +976,7 @@ export class CicdStack extends Stack {
             }),
             new iam.PolicyStatement({
               // Requirement 5 criteria 1, 4, 6. `ownedFunctionArns` covers both
-              // invocation targets a Compute deploy needs: the nine explicitly
+              // invocation targets a Compute deploy needs: the ten explicitly
               // named `${prefix}-<service>` functions and the
               // CloudFormation-auto-named `${prefix}-Compute-LogRetention*`
               // provider that backs the `Custom::LogRetention` resources.
@@ -1081,9 +1082,9 @@ export class CicdStack extends Stack {
               // direct `iam:PassRole` call outside a service integration —
               // fails the condition and is implicitly denied.
               //
-              // Exactly two service principals, covering all eleven
+              // Exactly two service principals, covering all twelve
               // PassRole_Targets (Requirement 3 criteria 3, 6; Requirement 6
-              // criterion 1): `lambda.amazonaws.com` for the nine service
+              // criterion 1): `lambda.amazonaws.com` for the ten service
               // function execution roles plus the CDK LogRetention provider
               // role, and `appsync.amazonaws.com` for the AppSync API logs role
               // consumed as `LogConfig.CloudWatchLogsRoleArn`.
