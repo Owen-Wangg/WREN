@@ -57,16 +57,18 @@ const SIGNED_FIELDS = [
 export type AuthContextVerifyMode = 'enforce' | 'permissive';
 
 /**
- * Runtime default is `permissive`: it flips to `enforce` only when
- * `AUTH_CONTEXT_VERIFY_MODE=enforce` is set. Production always sets it
- * explicitly from CDK (whose config default is `enforce`), so deployed service
- * Lambdas enforce; an unset env (local runs, unit tests) stays permissive so a
- * missing signing secret does not hard-fail every request.
+ * Fail closed: the runtime default is `enforce`. Only an explicit
+ * `AUTH_CONTEXT_VERIFY_MODE=permissive` relaxes verification; an unset, empty,
+ * or unrecognized value enforces. This way a service Lambda that is missing the
+ * env var (e.g. a new function that forgot the CDK spread) rejects unsigned
+ * contexts instead of silently trusting a caller-built identity (finding
+ * f-b24eb0a1). Local runs and unit tests that need the relaxed behavior must
+ * opt in via the env var or `VerifyAuthContextOptions.mode`.
  */
 export function resolveAuthContextVerifyMode(
   env: NodeJS.ProcessEnv = process.env,
 ): AuthContextVerifyMode {
-  return env[AUTH_CONTEXT_VERIFY_MODE_ENV] === 'enforce' ? 'enforce' : 'permissive';
+  return env[AUTH_CONTEXT_VERIFY_MODE_ENV] === 'permissive' ? 'permissive' : 'enforce';
 }
 
 /** True when a signing secret is configured for this function (i.e. the env var is set). */
