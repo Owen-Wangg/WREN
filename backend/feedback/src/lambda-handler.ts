@@ -29,7 +29,6 @@ import {
 import { parseUuidParam } from './uuidParam.js';
 import { resolveQuotedTextForItem } from './quoteResolution.js';
 import {
-  getPlatformUsagePolicy,
   reserveDebriefGeneration,
   UsageLimitReachedError,
 } from '@wren/admin/lifetimeUsagePolicy';
@@ -191,7 +190,7 @@ export const handler: APIGatewayProxyHandler = async (event, context): Promise<A
   freezeEventLoopOnReturn(context);
   bindCorsOrigin(event);
   try {
-    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    // Reject forged/unsigned authorizer contexts
     const forged = await rejectIfForgedAuthContext(event);
     if (forged) return withCors(forged);
 
@@ -1006,7 +1005,6 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
 
   const db = await getDataAccess();
   const userMessageCount = (conversation?.messages ?? []).filter((m) => m.role === 'user').length;
-  const policy = await getPlatformUsagePolicy(db);
 
   const [documentTypeContext, departmentAskWrenContext] = await Promise.all([
     loadDocumentTypeContext(documentId),
@@ -1028,7 +1026,7 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
     documentTypeContext,
     departmentAskWrenContext,
     modelId,
-    messageLimit: policy.messageLimit,
+    db,
   });
 
   // Transition status to 'Polishing' on the student's first Ask WREN message.

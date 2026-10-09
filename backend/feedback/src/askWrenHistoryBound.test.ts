@@ -13,10 +13,12 @@
  *   - the pure `computeHistoryTrimCount` budget math, and
  *   - the end-to-end bound: driving many large turns keeps stored history under
  *     budget, never throws, retains the newest turns (sliding window), and keeps
- *     `messageCount` incrementing to the true turn count (quota unaffected).
+ *     the durable Postgres quota counter incrementing to the true turn count
+ *     (quota unaffected by trimming).
  *
- * No live AWS: the in-memory DynamoDB stub mirrors askWrenQuota.test.ts and adds
- * a `REMOVE` UpdateCommand path (oldest-index trim + `size(messages) > :keep`).
+ * No live AWS: the in-memory DynamoDB stub mirrors askWrenQuota.test.ts (transcript
+ * append + oldest-index `REMOVE` trim); the lifetime quota is a tiny in-memory
+ * Postgres `QueryExecutor` fake.
  */
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
@@ -30,6 +32,7 @@ import {
   type ChatMessage,
   type ConversationSession,
 } from './askWren';
+import type { QueryExecutor } from './db';
 
 const USER_ID = 'user-size';
 const DOCUMENT_ID = 'doc-size';
@@ -45,10 +48,50 @@ function msg(id: string, role: ChatMessage['role'], text: string): ChatMessage {
 }
 
 /**
+ * In-memory Postgres `QueryExecutor` fake for the durable Ask WREN quota counter
+ * (`document.ask_message_count`). The limit is set high so the size-bound tests
+ * are never gated by the quota. `count()` exposes the durable counter.
+ */
+function makeQuotaDb(limit: number) {
+  const state = { count: 0 };
+  const db: QueryExecutor & { count: () => number } = {
+    count: () => state.count,
+    async query<Row = Record<string, unknown>>(
+      text: string,
+      params?: readonly unknown[],
+    ): Promise<Row[]> {
+      if (text.includes('FROM platform_usage_policy WHERE id = 1')) {
+        return [
+          {
+            message_limit: limit,
+            debrief_generation_limit: 15,
+            document_upload_limit: 30,
+            drafts_per_document_limit: 15,
+            max_upload_file_size_bytes: 31457280,
+            max_word_count: 10000,
+          },
+        ] as unknown as Row[];
+      }
+      if (
+        text.includes('UPDATE document') &&
+        text.includes('ask_message_count = ask_message_count + 1')
+      ) {
+        const lim = params?.[1] as number;
+        if (state.count >= lim) return [] as unknown as Row[];
+        state.count += 1;
+        return [{ ask_message_count: state.count }] as unknown as Row[];
+      }
+      throw new Error(`Unexpected SQL in quota fake: ${text}`);
+    },
+  };
+  return db;
+}
+
+/**
  * In-memory single-item DynamoDB emulation. Mirrors askWrenQuota.test.ts:
- * GetCommand, conditional-create PutCommand, reservation UpdateCommand (atomic
- * increment), and the `list_append` append UpdateCommand — PLUS the new
- * oldest-index `REMOVE` trim UpdateCommand.
+ * GetCommand, conditional-create PutCommand, and the `list_append` append
+ * UpdateCommand (transcript only) — PLUS the oldest-index `REMOVE` trim
+ * UpdateCommand.
  */
 function stubDynamo(): void {
   jest
@@ -87,32 +130,7 @@ function stubDynamo(): void {
         const expr = String(input.UpdateExpression);
         const existing = store.get(key);
 
-        // Reservation: atomic conditional increment of messageCount.
-        if (input.ConditionExpression && expr.includes('messageCount')) {
-          const hasCount = !!existing && typeof existing.messageCount === 'number';
-          const base = hasCount ? (existing!.messageCount as number) : vals[':current'];
-          if (!(base < vals[':limit'])) {
-            return Promise.reject(
-              Object.assign(new Error('The conditional request failed'), {
-                name: 'ConditionalCheckFailedException',
-              }),
-            ) as never;
-          }
-          const prevItem = existing ?? {};
-          store.set(key, {
-            ...prevItem,
-            sessionId: key,
-            messageCount: base + vals[':one'],
-            userId: prevItem.userId ?? vals[':uid'],
-            documentId: prevItem.documentId ?? vals[':did'],
-            draftId: vals[':draftId'],
-            ttl: prevItem.ttl ?? vals[':ttl'],
-            messages: prevItem.messages ?? vals[':empty'],
-          });
-          return Promise.resolve({}) as never;
-        }
-
-        // Append: list_append of new messages, never writes messageCount.
+        // Append: list_append of new messages (transcript only).
         if (expr.includes('list_append')) {
           const prevItem = existing ?? { sessionId: key };
           const prevMsgs = Array.isArray(prevItem.messages)
@@ -262,7 +280,7 @@ describe('computeHistoryTrimCount', () => {
 });
 
 describe('appendAskWrenTurn — stored history stays within the item-size budget', () => {
-  function callLargeTurn(i: number) {
+  function callLargeTurn(db: QueryExecutor, i: number) {
     return appendAskWrenTurn({
       userId: USER_ID,
       documentId: DOCUMENT_ID,
@@ -272,16 +290,17 @@ describe('appendAskWrenTurn — stored history stays within the item-size budget
         { index: 0, text: 'The tribunal must consider all relevant evidence.' },
       ],
       modelId: MODEL_ID,
-      messageLimit: 1000,
+      db,
     });
   }
 
   it('runs many large turns without ever throwing and keeps the item under 400 KB', async () => {
+    const db = makeQuotaDb(1000);
     const TURNS = 120;
     for (let i = 0; i < TURNS; i += 1) {
       // Must not throw (the old unbounded growth eventually failed with a
       // DynamoDB ValidationException surfacing as a 5xx).
-      await expect(callLargeTurn(i)).resolves.toMatchObject({
+      await expect(callLargeTurn(db, i)).resolves.toMatchObject({
         reply: { role: 'wren' },
       });
     }
@@ -298,15 +317,17 @@ describe('appendAskWrenTurn — stored history stays within the item-size budget
     expect(itemBytes(item)).toBeLessThan(400 * 1024);
   });
 
-  it('retains the newest turns (sliding window) and keeps messageCount at the true turn total', async () => {
+  it('retains the newest turns (sliding window) and keeps the durable counter at the true turn total', async () => {
+    const db = makeQuotaDb(1000);
     const TURNS = 120;
     for (let i = 0; i < TURNS; i += 1) {
-      await callLargeTurn(i);
+      await callLargeTurn(db, i);
     }
 
     const item = currentItem();
-    // Quota counter reflects every committed turn — trimming never touches it.
-    expect(item?.messageCount).toBe(TURNS);
+    // Durable Postgres counter reflects every committed turn — trimming the
+    // DynamoDB transcript never touches it.
+    expect(db.count()).toBe(TURNS);
 
     // The most recent user turn is still present; an early one was trimmed.
     const texts = (item?.messages ?? []).map((m) => m.text);

@@ -414,6 +414,8 @@ Lifetime caps are stored in **Postgres** (`platform_usage_policy`) and enforced 
 | `documentUploadLimit` | Uploads |
 | `draftsPerDocumentLimit` | Draft versions per document |
 
+The Ask WREN `messageLimit` is a **durable, per-document lifetime** cap: the counter lives in Postgres (`document.ask_message_count`, incremented by `reserveAskMessage`), not on the TTL'd DynamoDB conversation item, so it cannot be reset by letting a session expire.
+
 - Technical Admin UI: `SystemUsageLimitsForm` (`frontend/src/features/system-admin/components/SystemUsageLimitsForm.tsx`)
 - API: `GET`/`PUT /v1/admin/config/usage-limits`
 - Overrides: `POST /v1/overrides` grants extra actions for one student and document type, with an expiry.
