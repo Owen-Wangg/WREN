@@ -25,47 +25,49 @@ export function GuidePage() {
       <h1 className="text-title-page font-sans font-bold text-text-primary">Guide</h1>
 
       <GuideSection title="Getting started">
-        <p>Welcome to {appName}. Here is how to use it.</p>
         <p>
-          Set up your document by creating a new one and selecting your document type. This
-          ensures feedback is tailored to your writing context.
+          Welcome to {appName}. This guide shows you how to create a document, get feedback,
+          and revise your writing.
+        </p>
+        <p>
+          Start by creating a new document and selecting its document type. This makes sure
+          the feedback you get fits the kind of writing you are doing.
         </p>
         <p>Upload your draft or start writing directly in the editor.</p>
-        <p>Once you have content, two tools will help you improve:</p>
+        <p>Once you have some content, two tools help you improve it:</p>
         <p>
-          <strong>AI Debrief</strong> gives you a bird&apos;s-eye view of your writing. See
-          what&apos;s working, what could improve, and click any quote to highlight it in your
-          document.
+          <strong>AI Debrief</strong> gives you a bird&apos;s-eye view of your writing. It
+          shows what is working and what could be improved. Click any quote in the debrief to
+          highlight that passage in your document.
         </p>
         <p>
-          <strong>Ask {appName}</strong> to go deeper. Ask questions about your draft, the
-          AI Debrief, or aspects of your writing such as clarity and organization. It
-          coaches with questions rather than rewriting your text, so you can think
-          critically and develop your own revisions.
+          <strong>Ask {appName}</strong> to go deeper. You can ask about your draft, the AI
+          Debrief, or parts of your writing such as clarity and organization. It coaches you
+          by asking questions instead of rewriting your text, so you can think critically
+          and make your own revisions.
         </p>
         <p>
-          Revise in the editor or upload a new draft as you work. Each version gives you
-          updated feedback so you can track your improvement.
+          As you work, revise in the editor or upload a new draft. Each new version gets
+          updated feedback, so you can track your improvement.
         </p>
       </GuideSection>
 
       <GuideSection title="Creating a new document draft">
         <p>
-          From the Student Dashboard, find <strong>New Document</strong> in the top-right
-          corner of the screen (next to <strong>All Documents</strong>, which is the page you
-          are currently on).
+          To start a new document, click <strong>New Document</strong> in the menu at the
+          top of the screen, next to <strong>All Documents</strong>.
         </p>
         <p>
-          The department list shows what you can currently discover. Visible departments
-          appear for everyone. Permitted users only departments appear when you have an
-          explicit permission, are a Technical Admin, or are the Department Admin appointed
-          to that department. This filter affects New Document, not documents you already
-          created.
+          The department list shows the departments available to you. Some departments are
+          visible to everyone; others appear only if you have been given permission.
+          Documents you have already created are not affected and stay in All Documents.
         </p>
         <p>
-          Department visibility and submission access are separate. A department may appear
-          here but still be Locked, in which case you need a document-type Access Grant. If
-          an expected department is missing, contact your System Admin.
+          Seeing a department in the list does not always mean you can submit to it. Some
+          document types are locked, which means you need to be given access before you can
+          use them. To ask for access, click <strong>Request access</strong> next to the
+          locked document type. If a department you expect is missing, contact your System
+          Admin.
         </p>
         <ol className="list-decimal space-y-sm pl-xl">
           <li>Click <strong>New Document</strong>.</li>
@@ -75,89 +77,89 @@ export function GuidePage() {
           </li>
           <li>Give your draft a name.</li>
           <li>
-            Choose a file from your computer. Prefer a <strong>.docx</strong> Word file so
-            fonts, colors, headings, lists, tables, and images come through more accurately.
-            PDF is supported for convenience, including many scanned files, but layout is
-            best-effort.
+            Choose a file from your computer. For the best results, use a{' '}
+            <strong>Word (.docx)</strong> file so fonts, colors, headings, lists, tables, and
+            images carry over accurately. PDF files, including many scanned PDFs, also work,
+            but their layout may not be kept exactly.
           </li>
           <li>
-            Click <strong>Activate Editor</strong>. You will open in the editor with your
-            draft loaded. The same draft also appears under <strong>All Documents</strong> /
-            My Documents.
+            Click <strong>Activate Editor</strong>. The editor opens with your draft loaded.
+            Your draft also appears in your document list under{' '}
+            <strong>All Documents</strong>.
           </li>
         </ol>
       </GuideSection>
 
       <GuideSection title="Opening and reviewing your document">
         <p>
-          From My Documents, click the draft you want to open. This brings up the editor: a
-          single continuous document on the right, with a side panel on the left.
+          In <strong>All Documents</strong>, click the draft you want to work on. The editor
+          opens, with your document on the right and a side panel on the left.
         </p>
         <p>
-          The document is not split into pages on screen. Header and footer regions sit at
-          the top and bottom of the draft. The Contents panel shows the draft version, word
-          count, and an estimated printed page count (US Letter). Add Heading 1–3 styles to
-          build an outline; click a heading to jump to it.
+          On screen, your document is shown as one continuous page rather than separate
+          pages. The header and footer areas are at the very top and bottom of the draft.
+          The <strong>Contents</strong> panel shows the draft version, the word count, and
+          about how many pages the document will be when printed on US Letter (8.5 × 11
+          inch) paper. To build an outline, apply the Heading 1, Heading 2, or Heading 3
+          style to your headings. Click a heading in the outline to jump to it.
         </p>
         <p>
-          Hover or drag the scrollbar on the right to see which printed page you are on —
-          for example, <strong>Page 2 of 17</strong>. That number is an estimate of how the
-          document will paginate when you preview or export, not a live page break in the
-          editor.
+          Hover over or drag the scrollbar on the right to see which printed page you are
+          on, for example <strong>Page 2 of 17</strong>. This number estimates where page
+          breaks will fall when you preview or export your document. The editor itself does
+          not show page breaks.
         </p>
         <p>
-          On the left, the icon rail opens more information about two tools:{' '}
-          <strong>AI Debrief</strong> and <strong>Ask {appName}</strong>. Click{' '}
-          <strong>Contents</strong>, <strong>{appName}</strong>, or <strong>AI Debrief</strong>{' '}
-          to switch the panel.
+          Use the icon bar on the far left to change what the side panel shows. Click{' '}
+          <strong>Contents</strong> for your outline, <strong>{appName}</strong> for Ask{' '}
+          {appName}, or <strong>AI Debrief</strong> for your feedback report.
         </p>
-        <p>Other options in this view:</p>
+        <p>Other options in the editor:</p>
         <ul className="list-disc space-y-sm pl-xl">
           <li>
-            <strong>Upload New Draft</strong> — use this if you edited the document in
-            another program and need {appName} to review the updated version.
+            <strong>Upload New Draft</strong> — use this if you edited your document in
+            another program, such as Word, and want {appName} to review the updated version.
           </li>
           <li>
-            <strong>Export</strong> — download your document as DOCX or PDF after you have
-            made changes. Open the menu to choose a format, optionally include the AI
-            Debrief (PDF only), <strong>Preview</strong> a US Letter print preview, then
-            export.
+            <strong>Export</strong> — download your document as a Word (.docx) or PDF file.
+            Open the Export menu and choose a format. If you choose PDF, you can also include
+            your AI Debrief. Click <strong>Preview</strong> to see how the printed document
+            will look, then export.
           </li>
           <li>
-            <strong>Close</strong> — collapse the side panel if you want more screen space.
-            Drag the divider between the panel and the document to resize it.
+            <strong>Close</strong> — hide the side panel to give your document more room.
+            You can also drag the divider between the panel and the document to resize the
+            panel.
           </li>
         </ul>
       </GuideSection>
 
       <GuideSection title="Using AI Debrief">
         <p>
-          Click <strong>AI Debrief</strong> on the left rail. The panel opens with your
-          latest report.
+          Click <strong>AI Debrief</strong> in the icon bar on the left. The panel opens and
+          shows your latest report.
         </p>
         <p>
-          Click <strong>Regenerate</strong> to save any inline edits and generate a new AI
-          Debrief on your document.
+          Click <strong>Regenerate</strong> to save your edits and create a new AI Debrief
+          for the current version of your document.
         </p>
         <p>
-          To view a previously generated report, use the drop-down and select an earlier
-          draft&apos;s report from the list.
+          To see an earlier report, open the drop-down list and select the draft you want to
+          review.
         </p>
         <p>
-          Click a quoted passage in the debrief to highlight it in the document.
+          Click a quoted passage in the report to highlight it in your document.
         </p>
       </GuideSection>
 
       <GuideSection title={`Using Ask ${appName}`}>
         <p>
-          On the left rail, click <strong>{appName}</strong> to switch from AI Debrief (or
-          Contents) into chat.
+          In the icon bar on the left, click <strong>{appName}</strong> to open the chat.
         </p>
         <p>
-          Ask {appName} supports the writing coach by helping you strengthen your writing
-          through guided reflection rather than direct editing. It asks questions that
-          encourage you to think critically about your draft and develop your own
-          revisions.
+          Ask {appName} is your writing coach. It helps you strengthen your writing through
+          guided reflection rather than direct editing. It asks questions that encourage you
+          to think critically about your draft and make your own revisions.
         </p>
         <p>You can ask questions about:</p>
         <ul className="list-disc space-y-sm pl-xl">
@@ -169,9 +171,9 @@ export function GuidePage() {
           </li>
         </ul>
         <p>
-          You can also track your progress and see how much work has been completed as
-          you make changes. Click a quoted phrase in a reply to jump to that passage in
-          the draft.
+          As you make changes, you can also track your progress and see how much work you
+          have completed. Click a quoted phrase in a reply to jump to that passage in your
+          draft.
         </p>
 
         <p className="font-semibold text-text-primary">
@@ -180,9 +182,9 @@ export function GuidePage() {
         <p>
           Ask specific questions about your draft and the quality of your writing. The
           more focused the question, the more targeted the guidance will be. Ask{' '}
-          {appName} is designed to coach rather than edit. Instead of providing rewrites,
-          it will often respond with questions and prompts that help you identify
-          opportunities for improvement on your own.
+          {appName} is designed to coach, not edit. Instead of rewriting your text, it
+          often responds with questions and prompts that help you find ways to improve on
+          your own.
         </p>
 
         <p className="font-semibold text-text-primary">Sample questions</p>
@@ -192,7 +194,7 @@ export function GuidePage() {
             &ldquo;Does my second section actually build on the first, or does it feel
             disconnected?&rdquo;
           </li>
-          <li>&ldquo;I have three main points, does the order make sense?&rdquo;</li>
+          <li>&ldquo;I have three main points. Does the order make sense?&rdquo;</li>
           <li>&ldquo;My conclusion feels weak. What am I missing?&rdquo;</li>
           <li>
             &ldquo;Does the argument in my conclusion follow logically from the
@@ -223,7 +225,7 @@ export function GuidePage() {
         <p>When you are not sure what is wrong:</p>
         <ul className="list-disc space-y-sm pl-xl">
           <li>
-            &ldquo;Something feels off about my introduction but I can&apos;t tell
+            &ldquo;Something feels off about my introduction, but I can&apos;t tell
             what.&rdquo;
           </li>
           <li>
@@ -242,8 +244,9 @@ export function GuidePage() {
           What Ask {appName} will not do
         </p>
         <p>
-          {appName} will not rewrite your text for you — it asks questions and offers
-          observations so you can revise in your own words. Specifically, it will not:
+          Ask {appName} will not rewrite your text for you. Instead, it asks questions and
+          offers observations so you can revise in your own words. Specifically, it will
+          not:
         </p>
         <ul className="list-disc space-y-sm pl-xl">
           <li>
@@ -266,8 +269,8 @@ export function GuidePage() {
             craft, not fact-checking.
           </li>
           <li>
-            &ldquo;Just tell me what to fix&rdquo; — it holds that line even when asked
-            directly.
+            &ldquo;Just tell me what to fix&rdquo; — it keeps coaching you instead of
+            listing fixes, even when asked directly.
           </li>
         </ul>
       </GuideSection>
