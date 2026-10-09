@@ -3,7 +3,11 @@
  */
 import { getDataAccess } from '@wren/db-node';
 import type { TipTapDoc } from '@wren/types';
-import { tipTapContentToSegments, wordCountFromTipTapContent } from '@wren/types';
+import {
+  charCountFromTipTapContent,
+  tipTapContentToSegments,
+  wordCountFromTipTapContent,
+} from '@wren/types';
 import { getPlatformUsagePolicy } from '@wren/admin/lifetimeUsagePolicy';
 import { validate as isUuid } from 'uuid';
 
@@ -19,7 +23,7 @@ import {
 } from './ingestJob.js';
 import { MammothDocxExtractor } from './docxExtractor.js';
 import { createPdfExtractor } from './ocrFactory.js';
-import { enforceSizeLimit } from './sizeLimit.js';
+import { countChars, effectiveCharLimit, enforceSizeLimit } from './sizeLimit.js';
 
 const docxExtractor = new MammothDocxExtractor();
 
@@ -157,7 +161,12 @@ export async function processIngestQueueMessage(
     const headerFooterWords =
       (ingestResult.header ? wordCountFromTipTapContent(ingestResult.header as TipTapDoc) : 0) +
       (ingestResult.footer ? wordCountFromTipTapContent(ingestResult.footer as TipTapDoc) : 0);
-    if (headerFooterWords > 0) {
+    // Characters too: a whitespace-free blob counts as one word but can be
+    // arbitrarily large (mirrors the synchronous upload path in lambda-handler).
+    const headerFooterChars =
+      (ingestResult.header ? charCountFromTipTapContent(ingestResult.header as TipTapDoc) : 0) +
+      (ingestResult.footer ? charCountFromTipTapContent(ingestResult.footer as TipTapDoc) : 0);
+    if (headerFooterWords > 0 || headerFooterChars > 0) {
       const effectiveLimit = sizeResult.effectiveLimitWords;
       const bodyWords = storedContent
         ? wordCountFromTipTapContent(storedContent)
@@ -167,6 +176,16 @@ export async function processIngestQueueMessage(
           db,
           message.jobId,
           `Document exceeds the ${effectiveLimit}-word limit (${bodyWords + headerFooterWords} words including header and footer).`,
+        );
+        return;
+      }
+      const charLimit = effectiveCharLimit(effectiveLimit);
+      const bodyChars = storedContent ? charCountFromTipTapContent(storedContent) : countChars(segments);
+      if (bodyChars + headerFooterChars > charLimit) {
+        await markIngestJobFailed(
+          db,
+          message.jobId,
+          `Document exceeds the ${charLimit}-character limit (${bodyChars + headerFooterChars} characters including header and footer).`,
         );
         return;
       }

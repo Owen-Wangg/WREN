@@ -644,7 +644,9 @@ async function handleRecordFeedbackHelpfulness(event: any): Promise<APIGatewayPr
   }
 
   const body = event.body ? JSON.parse(event.body) : {};
-  const { environmentId, draftId, helpful, comment } = body;
+  const { draftId, helpful, comment } = body;
+  // Reject non-UUIDs up front so they 400 instead of a Postgres 22P02 → 500.
+  const environmentId = parseUuidParam(body.environmentId);
 
   if (!environmentId || typeof helpful !== 'boolean') {
     return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'environmentId and helpful are required' }) });

@@ -95,7 +95,9 @@ def test_both_student_fields_wrapped_with_matching_boundary_tokens(monkeypatch):
     assert "The court held that the statute applies." in user_text
 
 
-def test_feedback_question_is_not_wrapped(monkeypatch):
+def test_feedback_question_is_wrapped(monkeypatch):
+    # question_text is persisted model output that student prose can steer
+    # (finding f-23971d45), so it is fenced like the student-authored fields.
     fake = _install(monkeypatch)
 
     handler.judge_resolutions_with_llm(
@@ -112,10 +114,9 @@ def test_feedback_question_is_not_wrapped(monkeypatch):
 
     body = json.loads(fake.calls[0]["body"])
     item = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])[0]
-    # Trusted, platform-generated field is a bare string (not delimited).
-    assert item["feedback_question"] == "Did the student clarify the holding?"
-    assert "BEGIN UNTRUSTED DATA" not in item["feedback_question"]
-    # Untrusted fields ARE delimited.
+    assert "BEGIN UNTRUSTED DATA" in item["feedback_question"]
+    assert "FEEDBACK QUESTION" in item["feedback_question"]
+    assert "Did the student clarify the holding?" in item["feedback_question"]
     assert "BEGIN UNTRUSTED DATA" in item["original_text"]
     assert "BEGIN UNTRUSTED DATA" in item["revised_text"]
 

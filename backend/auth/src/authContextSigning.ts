@@ -155,7 +155,17 @@ export async function loadAuthContextSigningSecret(
 export function getAuthContextSigningSecret(
   client?: Pick<SecretsManagerClient, 'send'>,
 ): Promise<string> {
-  return (secretPromise ??= loadAuthContextSigningSecret(client));
+  if (!secretPromise) {
+    const pending = loadAuthContextSigningSecret(client);
+    secretPromise = pending;
+    // Evict a rejected load so one transient Secrets Manager failure does not
+    // poison the container; the next caller retries. Callers still observe the
+    // rejection via the returned promise.
+    pending.catch(() => {
+      if (secretPromise === pending) secretPromise = undefined;
+    });
+  }
+  return secretPromise;
 }
 
 /** Test seam: drop the cached secret so the next call re-fetches. */

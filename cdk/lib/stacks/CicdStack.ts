@@ -34,6 +34,7 @@ const COMPUTE_FUNCTION_SUFFIXES = [
   "diff-anchor-progress",
   "notification",
   "appsync-authorizer",
+  "orphan-upload-sweep",
 ] as const;
 
 /**

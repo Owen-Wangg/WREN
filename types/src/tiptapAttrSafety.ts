@@ -83,6 +83,21 @@ export function isSafeCssFontSize(value: string): boolean {
   return FONT_SIZE_LENGTH.test(v) || FONT_SIZE_KEYWORD.test(v);
 }
 
+const MAX_LINE_HEIGHT_LENGTH = 16;
+/** Unitless multiplier or length, e.g. `1`, `1.5`, `24px`, `1.2em`, `150%`. */
+const LINE_HEIGHT = /^\d{1,3}(?:\.\d{1,3})?(?:px|em|rem|%)?$/i;
+
+/**
+ * True for a CSS `line-height` value without declaration syntax. The editor
+ * only produces `1` / `1.5` / `2`; the pattern is slightly wider so legacy
+ * numeric values survive, but `;`, `:`, and `url(` can never pass.
+ */
+export function isSafeCssLineHeight(value: string): boolean {
+  const v = value.trim();
+  if (v.length === 0 || v.length > MAX_LINE_HEIGHT_LENGTH) return false;
+  return LINE_HEIGHT.test(v);
+}
+
 /** True for a CSS `text-align` keyword the editor can produce. */
 export function isSafeTextAlign(value: string): boolean {
   return TEXT_ALIGN_VALUES.has(value);
@@ -112,6 +127,7 @@ const ATTR_VALIDATORS: ReadonlyMap<string, (value: string) => boolean> = new Map
   ['fontFamily', isSafeCssFontFamily],
   ['fontSize', isSafeCssFontSize],
   ['textAlign', isSafeTextAlign],
+  ['lineHeight', isSafeCssLineHeight],
 ]);
 
 /**
