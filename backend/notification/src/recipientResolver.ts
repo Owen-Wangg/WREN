@@ -22,8 +22,14 @@ export interface ResolvedRecipient {
  *
  * Resolution strategy by target role:
  * - Student: explicit recipientUserId from event (single-recipient)
- * - DepartmentAdmin: all Org Owners whose scope includes the relevant department
- * - TechnicalAdmin: all users with the Admin role
+ * - DepartmentAdmin: all `DepartmentAdmin` role assignments scoped to the
+ *   relevant department (event.departmentId, or document_type.department_id)
+ * - TechnicalAdmin: all users with the global `TechnicalAdmin` role
+ *
+ * Role literals and the scope JSONB shape MUST match the `role_assignment`
+ * CHECK constraint (0001_baseline.sql) and the writer in
+ * backend/admin/src/roleAssignmentService.ts (`{ departmentId }`, plus the
+ * legacy `{ departmentIds: [...] }` shape).
  */
 export async function recipientResolver(
   event: NotificationEvent,
@@ -46,27 +52,32 @@ export async function recipientResolver(
         break;
       }
       case 'DepartmentAdmin': {
-        // Resolve all Org Owners whose scope includes the relevant department.
+        // Resolve all Department Admins scoped to the relevant department.
         // If departmentId is provided directly, use it. Otherwise, resolve via
-        // the writing_type (Document Type) → organization FK.
+        // the document_type → department FK.
         let departmentId = event.departmentId;
 
         if (!departmentId && event.documentTypeId) {
-          const orgRows = await deps.query<{ organization_id: string }>(
-            `SELECT organization_id FROM writing_type WHERE id = $1`,
+          const deptRows = await deps.query<{ department_id: string | null }>(
+            `SELECT department_id FROM document_type WHERE id = $1`,
             [event.documentTypeId],
           );
-          departmentId = orgRows[0]?.organization_id;
+          departmentId = deptRows[0]?.department_id ?? undefined;
         }
 
         if (!departmentId) break;
 
-        // Query Org Owners scoped to this department/organization
+        // Match the current `{ departmentId }` scope and the legacy
+        // `{ departmentIds: [...] }` shape (same predicate as
+        // roleAssignmentService.findDeptScopedAssignment).
         const rows = await deps.query<{ user_id: string }>(
           `SELECT DISTINCT ra.user_id
            FROM role_assignment ra
-           WHERE ra.role = 'Org Owner'
-             AND ra.scope->>'organizationId' = $1`,
+           WHERE ra.role = 'DepartmentAdmin'
+             AND (
+               ra.scope->>'departmentId' = $1
+               OR ra.scope->'departmentIds' ? $1
+             )`,
           [departmentId],
         );
         for (const row of rows) {
@@ -77,11 +88,11 @@ export async function recipientResolver(
         break;
       }
       case 'TechnicalAdmin': {
-        // Resolve all users with the Admin role
+        // Resolve all users with the global TechnicalAdmin role
         const rows = await deps.query<{ user_id: string }>(
           `SELECT DISTINCT ra.user_id
            FROM role_assignment ra
-           WHERE ra.role = 'Admin'`,
+           WHERE ra.role = 'TechnicalAdmin'`,
           [],
         );
         for (const row of rows) {

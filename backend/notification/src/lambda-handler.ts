@@ -14,7 +14,7 @@ import type {
 import { appendActivityEventRow, freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { authorizeCapability, bindCorsOrigin, withCorsHeaders } from '@wren/auth';
 import type { AuthContext } from '@wren/types';
-import { NotificationServiceImpl } from './notificationService';
+import { NonRetryableNotificationError, NotificationServiceImpl } from './notificationService';
 import { NotificationTypeCatalogServiceImpl } from './catalogService';
 import { checkOverrideExpiry } from './overrideExpiryHandler';
 import type { NotificationEvent } from './types';
@@ -119,15 +119,43 @@ async function handleSqsEvent(event: SQSEvent): Promise<void> {
   const service = new NotificationServiceImpl(db);
 
   for (const record of event.Records) {
+    // Parse the SQS/SNS payload on its own. Only a malformed *message body*
+    // is unprocessable on retry; SyntaxErrors raised later (e.g. parsing
+    // DB-sourced catalog JSON inside processEvent) must keep the retry/DLQ path.
+    let notificationEvent: NotificationEvent;
     try {
       // SNS wraps the message in an envelope
       const body = JSON.parse(record.body);
-      const notificationEvent: NotificationEvent = body.Message
-        ? JSON.parse(body.Message)
-        : body;
+      notificationEvent = body.Message ? JSON.parse(body.Message) : body;
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          event: 'notification_event_dropped',
+          reason: 'MalformedMessageBody',
+          message: err instanceof Error ? err.message : String(err),
+          messageId: record.messageId,
+        }),
+      );
+      continue;
+    }
 
+    try {
       await service.processEvent(notificationEvent);
     } catch (err) {
+      // Unknown slugs can never succeed on retry: log and acknowledge instead
+      // of cycling into the DLQ. Everything else (DB, network, bad catalog
+      // rows) is rethrown so SQS retries it and the DLQ alarm fires.
+      if (err instanceof NonRetryableNotificationError) {
+        console.error(
+          JSON.stringify({
+            event: 'notification_event_dropped',
+            reason: err.name,
+            message: err.message,
+            messageId: record.messageId,
+          }),
+        );
+        continue;
+      }
       console.error('Failed to process notification event:', err, 'Record:', record.messageId);
       throw err; // Let SQS retry / DLQ handle it
     }

@@ -662,19 +662,30 @@ async function handleAssignRole(event: any): Promise<APIGatewayProxyResult> {
     departmentId: body.departmentId,
   }, db);
 
-  // Publish department-appointment notification for the user receiving the role.
-  publishNotificationEvent({
-    typeSlug: 'department-appointment',
-    entityId: body.userId,
-    recipientUserId: body.userId,
-    departmentId: body.departmentId,
-    context: {
-      role: body.role,
-      departmentId: body.departmentId ?? '',
-    },
-  }).catch((err) => {
-    console.warn('Failed to publish department-appointment notification:', err);
-  });
+  // Publish the appointment notification for the user receiving the role.
+  // The catalog entry is `new-department-appointment` (0001_baseline.sql seed)
+  // and its template only makes sense for a DepartmentAdmin appointment, so
+  // global role assignments (Student / TechnicalAdmin) do not publish it.
+  // Awaited (errors swallowed) so the publish completes before Lambda freezes;
+  // a notification failure never fails the role assignment itself.
+  if (body.role === 'DepartmentAdmin' && body.departmentId) {
+    try {
+      const department = await getDepartment(body.departmentId, db);
+      await publishNotificationEvent({
+        typeSlug: 'new-department-appointment',
+        entityId: body.userId,
+        recipientUserId: body.userId,
+        departmentId: body.departmentId,
+        context: {
+          role: body.role,
+          departmentId: body.departmentId,
+          departmentName: department?.name ?? 'your department',
+        },
+      });
+    } catch (err) {
+      console.warn('Failed to publish new-department-appointment notification:', err);
+    }
+  }
 
   return {
     statusCode: 200,
