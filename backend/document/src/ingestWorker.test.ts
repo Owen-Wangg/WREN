@@ -165,6 +165,49 @@ describe('processIngestQueueMessage uses the job row, not the message', () => {
     expect(markIngestJobFailed.mock.calls[0]![2]).toMatch(/character limit/);
   });
 
+  it('counts footnote bodies toward the limit even without a header/footer', async () => {
+    loadIngestJob.mockResolvedValue(ROW);
+    query.mockResolvedValue([{ size_limit_words: 3 }]);
+    // Segments carry only the `[1]` marker; the footnote body holds 6 words.
+    ingestUpload.mockResolvedValue({
+      status: 'success',
+      segments: [{ index: 0, text: 'hi [1]' }],
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'hi ' },
+              {
+                type: 'footnote',
+                attrs: {
+                  footnoteNumber: 1,
+                  content: {
+                    type: 'doc',
+                    content: [
+                      {
+                        type: 'paragraph',
+                        content: [{ type: 'text', text: 'one two three four five six' }],
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    await processIngestQueueMessage({ jobId: JOB_ID }, readS3);
+
+    expect(createDraftRevision).not.toHaveBeenCalled();
+    expect(markIngestJobCompleted).not.toHaveBeenCalled();
+    expect(markIngestJobFailed).toHaveBeenCalledTimes(1);
+    expect(markIngestJobFailed.mock.calls[0]![2]).toMatch(/word/);
+  });
+
   it('fails closed when the target document no longer exists', async () => {
     loadIngestJob.mockResolvedValue(ROW);
     query.mockResolvedValue([]);
