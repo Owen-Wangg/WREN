@@ -38,7 +38,12 @@ export class DbPasswordSync extends CustomResource {
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
-      timeout: Duration.minutes(2),
+      // Sized to cover the worst-case sequential per-role verification through
+      // the proxy: APP_DB_ROLES (7) x VERIFY_MAX_ATTEMPTS (6) x VERIFY_DELAY_MS
+      // (5s) ~= 4 min, plus the ALTER ROLE + admin connect overhead. 8 minutes
+      // leaves margin so a multi-role proxy-cache lag fails with the explicit
+      // "still fails ... desynced" error rather than an opaque Lambda timeout.
+      timeout: Duration.minutes(8),
       vpc: props.vpc,
       vpcSubnets: props.vpcSubnets,
       environment: {

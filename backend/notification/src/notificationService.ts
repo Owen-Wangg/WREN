@@ -18,6 +18,18 @@ import { lifecycleStateMachine } from './lifecycle.js';
 import { buildDedupKey } from './dedup.js';
 import { renderTemplate, renderActionUrl } from './templateRenderer.js';
 
+/**
+ * Raised for events that can never succeed no matter how often they are
+ * retried (e.g. an unknown notification type slug). The SQS consumer logs
+ * these and acknowledges the message instead of cycling it into the DLQ.
+ */
+export class NonRetryableNotificationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NonRetryableNotificationError';
+  }
+}
+
 export interface NotificationServiceDeps {
   query: <Row = Record<string, unknown>>(text: string, params: readonly unknown[]) => Promise<Row[]>;
   execute: (text: string, params: readonly unknown[]) => Promise<number>;
@@ -46,7 +58,7 @@ class NotificationServiceImpl implements NotificationService {
     );
 
     if (typeRows.length === 0) {
-      throw new Error(`Notification type not found: ${event.typeSlug}`);
+      throw new NonRetryableNotificationError(`Notification type not found: ${event.typeSlug}`);
     }
 
     const typeRow = typeRows[0];
@@ -67,6 +79,21 @@ class NotificationServiceImpl implements NotificationService {
     // 3. Resolve recipients
     const resolverDeps: RecipientResolverDeps = { query: this.db.query };
     const recipients = await recipientResolver(event, targetRoles, resolverDeps);
+
+    // An event that reaches nobody is otherwise invisible. Emit a structured
+    // warning so it is queryable in CloudWatch Logs Insights.
+    if (recipients.length === 0) {
+      console.warn(
+        JSON.stringify({
+          event: 'notification_no_recipients',
+          typeSlug: event.typeSlug,
+          entityId: event.entityId,
+          targetRoles,
+          departmentId: event.departmentId ?? null,
+          documentTypeId: event.documentTypeId ?? null,
+        }),
+      );
+    }
 
     // 4. Insert notifications for each recipient
     let created = 0;

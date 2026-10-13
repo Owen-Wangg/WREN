@@ -61,6 +61,14 @@ export type AccessDecision = z.infer<typeof accessDecisionSchema>;
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Student-catalog visibility for a Department. This is intentionally separate
+ * from OPEN/LOCKED submission access: PERMITTED_ONLY controls discovery while
+ * document-type Access Grants continue to control submission.
+ */
+export const departmentVisibilityStateSchema = z.enum(['VISIBLE', 'PERMITTED_ONLY']);
+export type DepartmentVisibilityState = z.infer<typeof departmentVisibilityStateSchema>;
+
+/**
  * A Department is a GROUPING of Document Types, the DepartmentAdmins who
  * maintain them, department-wide Reference Material, and business Topics —
  * never a data-isolation boundary and never an owner of Users (Requirement 28.1
@@ -72,11 +80,23 @@ export const departmentSchema = z
     name: z.string().min(1),
     prompt: z.string().nullable().optional(),
     /**
+     * Department-level Ask WREN coaching context, editable by a DepartmentAdmin
+     * for their administered Department(s). Appended to Ask WREN's universal
+     * system prompt as labeled context (never overriding rules). Independent of
+     * `prompt`, which feeds the Feedback Engine. NULL/absent means no department
+     * Ask WREN layer.
+     */
+    askWrenPrompt: z.string().nullable().optional(),
+    /**
      * Department-wide student access. OPEN = any student may self-select
      * document types in this department; LOCKED = grant required. Controlled
      * by TechnicalAdmin only.
      */
     accessState: documentTypeAccessStateSchema.optional(),
+    /** Whether the Department is discoverable by every student or permitted viewers only. */
+    visibilityState: departmentVisibilityStateSchema,
+    /** Caller-specific discovery decision; false entries are client-filtered in the UI-only phase. */
+    viewerCanDiscover: z.boolean(),
     /** Count of distinct users who have uploaded at least one document under this department. */
     activeUserCount: z.number().int().nonnegative().optional(),
     /**
@@ -87,6 +107,16 @@ export const departmentSchema = z
   })
   .strict();
 export type Department = z.infer<typeof departmentSchema>;
+
+/** Input to update a Department's student-catalog visibility. */
+export const updateDepartmentVisibilityInputSchema = z
+  .object({
+    visibilityState: departmentVisibilityStateSchema,
+  })
+  .strict();
+export type UpdateDepartmentVisibilityInput = z.infer<
+  typeof updateDepartmentVisibilityInputSchema
+>;
 
 /**
  * Input to create a Department.
@@ -113,6 +143,21 @@ export const updateDepartmentPromptInputSchema = z
   })
   .strict();
 export type UpdateDepartmentPromptInput = z.infer<typeof updateDepartmentPromptInputSchema>;
+
+/**
+ * Input to update a Department's Ask WREN prompt text (department-level Socratic
+ * coaching context). Separate from {@link updateDepartmentPromptInputSchema},
+ * which targets the Feedback-Engine `prompt`. Editable by DepartmentAdmins for
+ * their administered Department(s).
+ */
+export const updateDepartmentAskWrenPromptInputSchema = z
+  .object({
+    askWrenPrompt: z.string().nullable(),
+  })
+  .strict();
+export type UpdateDepartmentAskWrenPromptInput = z.infer<
+  typeof updateDepartmentAskWrenPromptInputSchema
+>;
 
 /* -------------------------------------------------------------------------- */
 /* DocumentType (configurable, self-selectable — design "Document Type")        */
@@ -524,6 +569,31 @@ export const createAccessGrantInputSchema = z
   .strict();
 export type CreateAccessGrantInput = z.infer<typeof createAccessGrantInputSchema>;
 
+/* -------------------------------------------------------------------------- */
+/* DepartmentVisibilityGrant — discovery permission, never submission access   */
+/* -------------------------------------------------------------------------- */
+
+export const departmentVisibilityGrantSchema = z
+  .object({
+    id: idSchema,
+    departmentId: idSchema,
+    userId: idSchema,
+    grantedBy: idSchema.nullable(),
+    grantedAt: isoDateTimeSchema,
+    revokedAt: isoDateTimeSchema.optional(),
+  })
+  .strict();
+export type DepartmentVisibilityGrant = z.infer<
+  typeof departmentVisibilityGrantSchema
+>;
+
+export const createDepartmentVisibilityGrantInputSchema = z
+  .object({ userId: idSchema })
+  .strict();
+export type CreateDepartmentVisibilityGrantInput = z.infer<
+  typeof createDepartmentVisibilityGrantInputSchema
+>;
+
 /**
  * A pending access request for a LOCKED Document Type (Requirement 4.6): a
  * User requesting a Document Type they cannot currently reach. Approving a
@@ -565,6 +635,29 @@ export const userSummarySchema = z
   })
   .strict();
 export type UserSummary = z.infer<typeof userSummarySchema>;
+
+/** Active explicit visibility permission joined to the safe user summary used by System Admin UI. */
+export const departmentVisibilityPermissionSchema = z
+  .object({
+    grant: departmentVisibilityGrantSchema,
+    user: userSummarySchema,
+  })
+  .strict();
+export type DepartmentVisibilityPermission = z.infer<
+  typeof departmentVisibilityPermissionSchema
+>;
+
+export const departmentVisibilityPermissionListSchema = z
+  .object({
+    items: z.array(departmentVisibilityPermissionSchema),
+    total: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+  })
+  .strict();
+export type DepartmentVisibilityPermissionList = z.infer<
+  typeof departmentVisibilityPermissionListSchema
+>;
 
 /**
  * Search/filter/pagination input for the system-wide User directory.
@@ -799,7 +892,8 @@ export type ErrorCategory = z.infer<typeof errorCategorySchema>;
 export const createErrorCategoryInputSchema = z
   .object({
     documentTypeId: idSchema,
-    name: z.string().min(1),
+    // Capped: the name is rendered into the trusted Feedback Engine prompt.
+    name: z.string().min(1).max(200),
     internalGuidance: z.string().nullable().optional(),
   })
   .strict();
@@ -811,7 +905,7 @@ export type CreateErrorCategoryInput = z.infer<typeof createErrorCategoryInputSc
  */
 export const updateErrorCategoryInputSchema = z
   .object({
-    name: z.string().min(1).optional(),
+    name: z.string().min(1).max(200).optional(),
     internalGuidance: z.string().nullable().optional(),
   })
   .strict();
@@ -931,9 +1025,8 @@ export type ReferenceMaterialContentKind = z.infer<
 /**
  * A Reference Material entry: Department-wide (tier 1) or Document-Type-scoped
  * (tier 2), managed by a DepartmentAdmin who administers the owning
- * Department (REQ-REFMAT-MGMT-01 / Requirement 26). `embeddingId` links to the
- * `wren_engine.reference_store` `embedding` table row(s) once indexed; it is
- * `null` until indexing completes.
+ * Department (REQ-REFMAT-MGMT-01 / Requirement 26). Reference grounding is
+ * full-text, not RAG, so there is no embedding linkage.
  */
 export const referenceMaterialSchema = z
   .object({
@@ -949,7 +1042,6 @@ export const referenceMaterialSchema = z
     s3Key: z.string().nullable(),
     /** Present when `contentKind` is `'text'` or `'html'`. */
     inlineContent: z.string().nullable(),
-    embeddingId: idSchema.nullable(),
   })
   .strict()
   .refine(

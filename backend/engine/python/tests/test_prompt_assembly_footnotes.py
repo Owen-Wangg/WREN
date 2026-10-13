@@ -208,7 +208,10 @@ def test_assemble_prompt_includes_inline_density_cap() -> None:
     )
     assert "INLINE DENSITY CAP:" in prompt
     assert 'kind="inline"' in prompt
-    assert "COMPACT:" in prompt
+    # The anchor-quoting rubric requires a full sentence (reworded from the
+    # earlier "COMPACT:"/"NO SHORTENING" guidance for robust quote-to-highlight
+    # mapping — see handler.py anchor.quotedText rules, rule 3).
+    assert "COMPLETE SENTENCE:" in prompt
     assert "NO SHORTENING" not in prompt
 
 

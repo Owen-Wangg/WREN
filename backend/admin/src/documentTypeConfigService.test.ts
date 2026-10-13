@@ -4,7 +4,7 @@
  * no-ghostwriting guardrail (REQ-CONFIG-CONV-01 / Requirement 24,
  * REQ-PROMPT-EDIT-01 / Requirement 32; Tasks 12.1, 12.3).
  */
-import { NotFoundError, AuthorizationError } from './errors';
+import { NotFoundError, AuthorizationError, PromptGuardrailUnavailableError } from './errors';
 import { PromptGuardrailError } from './promptGuardrail';
 import { FakeDb } from './fakeDb';
 import { deptAdminContext, studentContext, techAdminContext } from './testContexts';
@@ -248,6 +248,93 @@ describe('upsertDocumentTypeConfig — save-time no-ghostwriting guardrail (Requ
     );
 
     expect(cleared.typePromptText).toBeNull();
+  });
+});
+
+describe('upsertDocumentTypeConfig — save-time prompt-injection guardrail coverage', () => {
+  // The global jest setup (testing/typescript/jest.setup.ts) sets
+  // PROMPT_GUARDRAIL_SKIP=true so the injection scan is a no-op by default.
+  // Unsetting both PROMPT_GUARDRAIL_ID and the skip flag drives the control
+  // into its fail-closed branch: if the field under test is routed through
+  // assertPromptInjectionFree it throws PromptGuardrailUnavailableError with
+  // NO mutation; if it were NOT screened the upsert would succeed. This is the
+  // same proof-of-routing pattern departmentService.test.ts uses.
+  let savedId: string | undefined;
+  let savedSkip: string | undefined;
+  let warnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    savedId = process.env.PROMPT_GUARDRAIL_ID;
+    savedSkip = process.env.PROMPT_GUARDRAIL_SKIP;
+    delete process.env.PROMPT_GUARDRAIL_ID;
+    delete process.env.PROMPT_GUARDRAIL_SKIP;
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+    if (savedId !== undefined) process.env.PROMPT_GUARDRAIL_ID = savedId;
+    if (savedSkip !== undefined) process.env.PROMPT_GUARDRAIL_SKIP = savedSkip;
+  });
+
+  it('screens toneDescription — fails closed with no mutation when the guardrail is unconfigured', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      upsertDocumentTypeConfig(
+        deptAdminContext([DEPT]),
+        DT,
+        { toneDescription: 'Grounded, encouraging reference tone.' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(PromptGuardrailUnavailableError);
+    expect(db.documentTypeConfigs.has(DT)).toBe(false);
+  });
+
+  it('screens densityDescription — fails closed with no mutation when the guardrail is unconfigured', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      upsertDocumentTypeConfig(
+        deptAdminContext([DEPT]),
+        DT,
+        { densityDescription: 'High: flag every category occurrence.' },
+        db,
+      ),
+    ).rejects.toBeInstanceOf(PromptGuardrailUnavailableError);
+    expect(db.documentTypeConfigs.has(DT)).toBe(false);
+  });
+
+  it('screens the newly-covered fields with the scan enabled (skip flag) — no false rejection', async () => {
+    process.env.PROMPT_GUARDRAIL_SKIP = 'true';
+    const db = new FakeDb();
+    seed(db);
+
+    const config = await upsertDocumentTypeConfig(
+      deptAdminContext([DEPT]),
+      DT,
+      { toneDescription: 'Encouraging, specific tone.', densityDescription: 'Medium coverage.' },
+      db,
+    );
+
+    expect(config.toneDescription).toBe('Encouraging, specific tone.');
+    expect(config.densityDescription).toBe('Medium coverage.');
+  });
+
+  it('does not scan an empty/whitespace-only description (no fail-closed throw)', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    const config = await upsertDocumentTypeConfig(
+      deptAdminContext([DEPT]),
+      DT,
+      { toneDescription: '   ', tone: 'formal' },
+      db,
+    );
+
+    expect(config.tone).toBe('formal');
   });
 });
 

@@ -3,6 +3,7 @@ from wren_engine.strength_coverage import (
     accept_filled_strengths,
     build_strength_fill_prompt,
     categories_with_strengths,
+    categories_without_improvements,
     document_text_from_segments,
     missing_strength_categories,
     normalize_feedback_kinds,
@@ -62,6 +63,8 @@ def test_required_categories_use_priority_and_present_items() -> None:
 
 
 def test_required_categories_fall_back_to_present_when_no_priority() -> None:
+    # No saved selection means every taxonomy category is enabled, so each
+    # needs a strength even if the model emitted nothing for it (1.6 / 2.6).
     items = [
         {"error_category_id": ORG, "kind": "inline", "question_text": "Q"},
         {"error_category_id": CLARITY, "kind": "structural", "question_text": "Q"},
@@ -71,7 +74,34 @@ def test_required_categories_fall_back_to_present_when_no_priority() -> None:
         valid_category_ids=[ORG, CLARITY, CONTENT],
         category_priority=[],
     )
+    assert required == {ORG, CLARITY, CONTENT}
+
+
+def test_required_categories_exclude_present_items_outside_selection() -> None:
+    items = [
+        {"error_category_id": ORG, "kind": "inline", "question_text": "Q"},
+        {"error_category_id": CONTENT, "kind": "inline", "question_text": "Q"},
+    ]
+    required = required_strength_categories(
+        items,
+        valid_category_ids=[ORG, CLARITY, CONTENT],
+        category_priority=[ORG, CLARITY],
+    )
     assert required == {ORG, CLARITY}
+
+
+def test_required_categories_stale_selection_enables_full_taxonomy() -> None:
+    required = required_strength_categories(
+        [],
+        valid_category_ids=[ORG, CLARITY, CONTENT],
+        category_priority=["stale-id"],
+    )
+    assert required == {ORG, CLARITY, CONTENT}
+
+
+def test_required_categories_use_present_items_without_taxonomy_or_selection() -> None:
+    items = [{"error_category_id": ORG, "kind": "inline", "question_text": "Q"}]
+    assert required_strength_categories(items) == {ORG}
 
 
 def test_missing_strength_categories_detects_gaps() -> None:
@@ -183,3 +213,58 @@ def test_document_text_from_segments_truncates_for_fill_in() -> None:
     assert "[PARAGRAPH 0]" in excerpt
     assert "[PARAGRAPH 2]" not in excerpt
     assert len(excerpt) <= 200
+
+
+# ── categories_without_improvements (debrief-single-category-feedback-fix 3.5) ──
+
+
+def test_without_improvements_zero_gaps() -> None:
+    items = [
+        {"error_category_id": ORG, "kind": "inline", "question_text": "Q"},
+        {"error_category_id": CLARITY, "kind": "structural", "question_text": "Q"},
+    ]
+    assert categories_without_improvements(items, [ORG, CLARITY]) == []
+
+
+def test_without_improvements_one_gap_ignores_strengths() -> None:
+    items = [
+        {"error_category_id": ORG, "kind": "inline", "question_text": "Q"},
+        {"error_category_id": CLARITY, "kind": "strength", "question_text": "Q",
+         "positive_note": "Clear."},
+    ]
+    assert categories_without_improvements(items, [ORG, CLARITY]) == [CLARITY]
+
+
+def test_without_improvements_all_gaps_in_enabled_order() -> None:
+    items = [
+        {"error_category_id": ORG, "kind": "strength", "question_text": "Q",
+         "positive_note": "Good."},
+        # Outside the enabled set: never counted and never reported.
+        {"error_category_id": "foreign", "kind": "inline", "question_text": "Q"},
+    ]
+    assert categories_without_improvements(items, [CONTENT, ORG, CLARITY]) == [
+        CONTENT, ORG, CLARITY,
+    ]
+
+
+def test_without_improvements_alias_kinds() -> None:
+    items = [
+        # "structure" aliases to structural -> improvement.
+        {"error_category_id": ORG, "kind": "Structure", "question_text": "Q"},
+        # Missing kind with a positive_note -> strength, not an improvement.
+        {"error_category_id": CLARITY, "question_text": "Q", "positive_note": "Nice."},
+        # Missing kind without a note -> inline improvement.
+        {"error_category_id": CONTENT, "question_text": "Q"},
+    ]
+    assert categories_without_improvements(items, [ORG, CLARITY, CONTENT]) == [CLARITY]
+
+
+def test_without_improvements_does_not_mutate_items() -> None:
+    items = [
+        {"error_category_id": ORG, "kind": "Structure", "question_text": "Q"},
+        {"error_category_id": CLARITY, "question_text": "Q", "positive_note": "Nice."},
+        {"error_category_id": CONTENT, "question_text": "Q"},
+    ]
+    snapshot = [dict(item) for item in items]
+    categories_without_improvements(items, [ORG, CLARITY, CONTENT])
+    assert items == snapshot

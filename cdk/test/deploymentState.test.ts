@@ -16,6 +16,7 @@ import { pendingStages } from "../scripts/operations/plan.js";
 const config = parseDeploymentConfig({
   WREN_ENABLE_AMPLIFY: "false",
   WREN_EXPECTED_ACCOUNT_ID: "123456789012",
+  WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
 });
 
 describe("deployment checkpoints", () => {
@@ -31,19 +32,48 @@ describe("deployment checkpoints", () => {
     const store = new CheckpointStore(directory, "deploy", "123456789012", config.region, config.stackPrefix);
     let checkpoint = newCheckpoint("deploy", config, "123456789012", new Date("2026-01-01T00:00:00Z"));
     checkpoint = updateStage(checkpoint, "preflight", "complete", undefined, new Date("2026-01-01T00:01:00Z"));
-    checkpoint = withImage(checkpoint, "abc123", "sha256:digest", new Date("2026-01-01T00:02:00Z"));
+    checkpoint = withImage(checkpoint, "abc123", "sha256:digest", "0123456789abcdef", new Date("2026-01-01T00:02:00Z"));
     store.save(checkpoint);
 
     expect(store.load()).toEqual(checkpoint);
+    expect(checkpoint.schemaVersion).toBe(2);
+    expect(checkpoint.image).toEqual({ tag: "abc123", digest: "sha256:digest", sourceCommit: "0123456789abcdef" });
     const raw = readFileSync(store.checkpointPath, "utf8");
     expect(raw).not.toContain("WREN_GITHUB_TOKEN");
     expect(raw).not.toContain("WREN_SMOKE_ACCESS_TOKEN");
   });
 
+  it("loads a legacy v1 checkpoint whose image carries no sourceCommit", () => {
+    const store = new CheckpointStore(directory, "deploy", "123456789012", config.region, config.stackPrefix);
+    const legacy = {
+      ...newCheckpoint("deploy", config, "123456789012", new Date("2026-01-01T00:00:00Z")),
+      schemaVersion: 1 as const,
+      image: { tag: "legacy-tag", digest: "sha256:legacy" },
+    };
+    store.save(legacy);
+
+    const loaded = store.load();
+    expect(loaded?.schemaVersion).toBe(1);
+    expect(loaded?.image?.sourceCommit).toBeUndefined();
+    // A v1 checkpoint still matches the current operation/account/config so the
+    // workflow can recover it (and then rebuild, since the commit is unknown).
+    expect(() => assertCheckpointMatches(loaded!, "deploy", config, "123456789012")).not.toThrow();
+
+    // Recording a new image upgrades the schema label so it matches the
+    // v2-shaped payload instead of leaving a stale v1 label.
+    const upgraded = withImage(loaded!, "src-abc", "sha256:new", "abc123");
+    expect(upgraded.schemaVersion).toBe(2);
+    expect(upgraded.image).toEqual({ tag: "src-abc", digest: "sha256:new", sourceCommit: "abc123" });
+  });
+
   it("rejects stale configuration and account state", () => {
     const checkpoint = newCheckpoint("deploy", config, "123456789012");
     expect(() => assertCheckpointMatches(checkpoint, "deploy", config, "999999999999")).toThrow("does not match");
-    const changed = parseDeploymentConfig({ WREN_ENABLE_AMPLIFY: "false", WREN_ENVIRONMENT: "staging" });
+    const changed = parseDeploymentConfig({
+      WREN_ENABLE_AMPLIFY: "false",
+      WREN_ENVIRONMENT: "staging",
+      WREN_ALLOWED_EMAIL_DOMAINS: "example.ca",
+    });
     expect(configFingerprint(changed)).not.toBe(configFingerprint(config));
   });
 

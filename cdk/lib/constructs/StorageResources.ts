@@ -1,4 +1,4 @@
-import { Duration, RemovalPolicy } from "aws-cdk-lib";
+import { Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
 import {
   AttributeType,
   BillingMode,
@@ -7,6 +7,7 @@ import {
 } from "aws-cdk-lib/aws-dynamodb";
 import { Key } from "aws-cdk-lib/aws-kms";
 import {
+  AnyPrincipal,
   Effect,
   PolicyStatement,
   ServicePrincipal,
@@ -19,8 +20,10 @@ import {
   type LifecycleRule,
   StorageClass,
 } from "aws-cdk-lib/aws-s3";
+import { ReadWriteType, Trail } from "aws-cdk-lib/aws-cloudtrail";
 import { Construct } from "constructs";
 import { conversationTableName, type AppConfig } from "../config.js";
+import { s3CorsAllowedOrigins } from "../corsOrigins.js";
 
 export interface StorageResourcesProps {
   readonly config: AppConfig;
@@ -36,6 +39,9 @@ export interface StorageResourcesProps {
  *     `${StackPrefix}-ConversationHistory` (PK `sessionId`, `ttl` attribute).
  *     The table name is scoped to `StackPrefix` only and carries NO brand or
  *     application name.
+ *   - A CloudTrail data-event trail scoped to the two PII buckets, delivering
+ *     object-level read/write audit records to a dedicated, lifecycle-expired
+ *     log bucket for incident forensics (finding S-5).
  *
  * All resources are at-rest encrypted and retained on stack teardown so
  * personal data is never silently destroyed. Per the CDK steering the props
@@ -46,6 +52,8 @@ export class StorageResources extends Construct {
   public readonly documentsBucket: Bucket;
   public readonly referenceBucket: Bucket;
   public readonly conversationTable: Table;
+  public readonly auditLogBucket: Bucket;
+  public readonly auditTrail: Trail;
 
   private readonly props: StorageResourcesProps;
 
@@ -62,10 +70,35 @@ export class StorageResources extends Construct {
         principals: [new ServicePrincipal("textract.amazonaws.com")],
         actions: ["s3:GetObject", "s3:GetObjectVersion"],
         resources: [this.documentsBucket.arnForObjects("*")],
+        conditions: {
+          StringEquals: { "aws:SourceAccount": Stack.of(this).account },
+        },
+      }),
+    );
+    // Defense-in-depth: enforce SSE-KMS on every upload regardless of the
+    // presign env var (finding S-4). StringNotEquals also denies PutObject
+    // that omits the header entirely, so the encryption invariant no longer
+    // rests solely on bucket default encryption. The CMK id is intentionally
+    // not pinned — requiring aws:kms is enough and avoids coupling the policy
+    // to the key's lifecycle.
+    this.documentsBucket.addToResourcePolicy(
+      new PolicyStatement({
+        sid: "DenyUnencryptedDocumentUploads",
+        effect: Effect.DENY,
+        principals: [new AnyPrincipal()],
+        actions: ["s3:PutObject"],
+        resources: [this.documentsBucket.arnForObjects("*")],
+        conditions: {
+          StringNotEquals: { "s3:x-amz-server-side-encryption": "aws:kms" },
+        },
       }),
     );
     this.referenceBucket = this.createBucket("Reference");
     this.conversationTable = this.createConversationTable();
+
+    const trail = this.createObjectAccessTrail();
+    this.auditLogBucket = trail.auditLogBucket;
+    this.auditTrail = trail.auditTrail;
   }
 
   protected createEncryptionKey(): Key {
@@ -112,14 +145,28 @@ export class StorageResources extends Construct {
       versioned: true,
       lifecycleRules: this.lifecycleRules(),
       removalPolicy: RemovalPolicy.RETAIN,
-      // Documents: browser PUT via presigned URL (create/ingest flow).
+      // Documents: browser POST via presigned URL (create/ingest flow).
+      // Reference material is uploaded by the Admin Lambda (PutObject), not
+      // the browser — no CORS on that bucket.
       ...(name === "Documents"
         ? {
             cors: [
               {
                 allowedMethods: [HttpMethods.PUT, HttpMethods.POST, HttpMethods.GET, HttpMethods.HEAD],
-                allowedOrigins: ["*"],
-                allowedHeaders: ["*"],
+                allowedOrigins: s3CorsAllowedOrigins(this.props.config),
+                // Scoped to the headers an upload actually needs instead of "*"
+                // (finding S-7). The current flow is a multipart POST, which
+                // sends only Content-Type (the SSE / tagging values ride as
+                // form fields, not headers); the x-amz-* SSE headers and
+                // x-amz-tagging are pre-authorized so a future presigned-PUT
+                // flow works without loosening CORS again.
+                allowedHeaders: [
+                  "Content-Type",
+                  "x-amz-server-side-encryption",
+                  "x-amz-server-side-encryption-aws-kms-key-id",
+                  "x-amz-server-side-encryption-bucket-key-enabled",
+                  "x-amz-tagging",
+                ],
                 exposedHeaders: ["ETag"],
                 maxAge: 3000,
               },
@@ -140,5 +187,62 @@ export class StorageResources extends Construct {
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       removalPolicy: RemovalPolicy.RETAIN,
     });
+  }
+
+  /**
+   * Object-level audit trail for the two PII buckets (finding S-5). A
+   * CloudTrail data-event selector scoped to the Documents and Reference
+   * bucket ARNs records every object read/write, giving incident forensics a
+   * "who accessed what" trail that S3 default encryption + TLS alone cannot.
+   *
+   * Records land in a DEDICATED log bucket (never one of the PII buckets),
+   * lifecycle-expired at 90 days and retained on teardown — matching the
+   * CloudFront access-log bucket. The log bucket uses S3-managed encryption:
+   * it matches that precedent and avoids the CloudTrail KMS key-policy
+   * coupling, while still encrypting the logs at rest.
+   *
+   * Management events are disabled (`ReadWriteType.NONE` +
+   * `includeManagementEvents: false`) so the trail carries data events only,
+   * and the trail is single-region (data events are regional) to keep scope
+   * and cost tight. File-log integrity validation is enabled.
+   */
+  protected createObjectAccessTrail(): {
+    auditLogBucket: Bucket;
+    auditTrail: Trail;
+  } {
+    const auditLogBucket = new Bucket(this, "AuditLogBucket", {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      encryption: BucketEncryption.S3_MANAGED,
+      lifecycleRules: [
+        {
+          id: "ExpireObjectAccessLogs",
+          expiration: Duration.days(90),
+          abortIncompleteMultipartUploadAfter: Duration.days(7),
+        },
+      ],
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    const auditTrail = new Trail(this, "DataEventTrail", {
+      bucket: auditLogBucket,
+      managementEvents: ReadWriteType.NONE,
+      enableFileValidation: true,
+      isMultiRegionTrail: false,
+      includeGlobalServiceEvents: false,
+    });
+
+    auditTrail.addS3EventSelector(
+      [
+        { bucket: this.documentsBucket },
+        { bucket: this.referenceBucket },
+      ],
+      {
+        readWriteType: ReadWriteType.ALL,
+        includeManagementEvents: false,
+      },
+    );
+
+    return { auditLogBucket, auditTrail };
   }
 }

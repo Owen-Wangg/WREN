@@ -60,3 +60,17 @@ export class PromptInjectionError extends Error {
     this.name = 'PromptInjectionError';
   }
 }
+
+/**
+ * Thrown when the prompt-injection guardrail is not configured
+ * (`PROMPT_GUARDRAIL_ID` unset) and the explicit dev bypass is not enabled.
+ * Prompt-mutating requests fail closed rather than persisting unscreened text.
+ */
+export class PromptGuardrailUnavailableError extends Error {
+  public readonly code = 'PROMPT_GUARDRAIL_UNCONFIGURED' as const;
+
+  public constructor(message: string) {
+    super(message);
+    this.name = 'PromptGuardrailUnavailableError';
+  }
+}

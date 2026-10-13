@@ -17,7 +17,6 @@ import {
   getReferenceMaterial,
   listDepartmentReferenceMaterial,
   listDocumentTypeReferenceMaterial,
-  setReferenceMaterialEmbeddingId,
 } from './referenceMaterialService';
 
 const DEPT = 'dept-1';
@@ -62,11 +61,10 @@ describe('createReferenceMaterial — tier 1 (department-wide)', () => {
       title: 'Citation Style Guide',
       contentKind: 'text',
       inlineContent: 'Use Bluebook citation format throughout.',
-      embeddingId: null,
     });
   });
 
-  it('accepts a file upload with an s3Key', async () => {
+  it('accepts a file upload with a scope-matching s3Key', async () => {
     const db = new FakeDb();
     seed(db);
 
@@ -77,13 +75,13 @@ describe('createReferenceMaterial — tier 1 (department-wide)', () => {
         departmentId: DEPT,
         title: 'Handbook PDF',
         contentKind: 'file',
-        s3Key: 'refmat/handbook.pdf',
+        s3Key: `departments/${DEPT}/handbook.pdf`,
       },
       db,
     );
 
     expect(mat.contentKind).toBe('file');
-    expect(mat.s3Key).toBe('refmat/handbook.pdf');
+    expect(mat.s3Key).toBe(`departments/${DEPT}/handbook.pdf`);
   });
 
   it('accepts rich HTML content', async () => {
@@ -202,6 +200,87 @@ describe('createReferenceMaterial — tier 1 (department-wide)', () => {
       ),
     ).rejects.toBeInstanceOf(AuthorizationError);
     expect(db.mutationCount).toBe(0);
+  });
+});
+
+describe('createReferenceMaterial — s3Key shape/scope validation (S-3)', () => {
+  it('accepts a tier-type file under the document-types/{documentTypeId}/ prefix', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    const mat = await createReferenceMaterial(
+      deptAdminContext([DEPT]),
+      {
+        tier: 'type',
+        departmentId: DEPT,
+        documentTypeId: DT,
+        title: 'Memo Template',
+        contentKind: 'file',
+        s3Key: `document-types/${DT}/memo-template.pdf`,
+      },
+      db,
+    );
+
+    expect(mat.contentKind).toBe('file');
+    expect(mat.s3Key).toBe(`document-types/${DT}/memo-template.pdf`);
+  });
+
+  const rejected: Array<{ name: string; s3Key: string }> = [
+    { name: 'a ".." traversal segment', s3Key: `departments/${DEPT}/../${OTHER_DEPT}/x.pdf` },
+    { name: 'a leading slash (absolute-looking)', s3Key: `/departments/${DEPT}/x.pdf` },
+    { name: 'a URL scheme', s3Key: 'https://evil.example/x.pdf' },
+    { name: 'a backslash', s3Key: `departments/${DEPT}\\x.pdf` },
+    { name: 'an empty path segment', s3Key: `departments/${DEPT}//x.pdf` },
+    { name: 'surrounding whitespace', s3Key: ` departments/${DEPT}/x.pdf` },
+    { name: 'no scoped prefix', s3Key: 'refmat/handbook.pdf' },
+    { name: 'only the prefix with no object name', s3Key: `departments/${DEPT}/` },
+    { name: "another department's scope", s3Key: `departments/${OTHER_DEPT}/x.pdf` },
+  ];
+
+  for (const { name, s3Key } of rejected) {
+    it(`rejects a tier-department file s3Key with ${name} and persists nothing`, async () => {
+      const db = new FakeDb();
+      seed(db);
+
+      await expect(
+        createReferenceMaterial(
+          deptAdminContext([DEPT]),
+          {
+            tier: 'department',
+            departmentId: DEPT,
+            title: 'Bad',
+            contentKind: 'file',
+            s3Key,
+          },
+          db,
+        ),
+      ).rejects.toThrow(/s3Key/);
+      expect(db.mutationCount).toBe(0);
+      expect(db.referenceMaterials.size).toBe(0);
+    });
+  }
+
+  it('rejects a tier-type file key scoped to the wrong documentType and persists nothing', async () => {
+    const db = new FakeDb();
+    seed(db);
+
+    await expect(
+      createReferenceMaterial(
+        deptAdminContext([DEPT]),
+        {
+          tier: 'type',
+          departmentId: DEPT,
+          documentTypeId: DT,
+          title: 'Bad',
+          contentKind: 'file',
+          // scoped to the department, not the required document-types/{DT}/ prefix
+          s3Key: `departments/${DEPT}/x.pdf`,
+        },
+        db,
+      ),
+    ).rejects.toThrow(/s3Key must be under 'document-types\//);
+    expect(db.mutationCount).toBe(0);
+    expect(db.referenceMaterials.size).toBe(0);
   });
 });
 
@@ -338,27 +417,6 @@ describe('listDepartmentReferenceMaterial / listDocumentTypeReferenceMaterial �
 
     expect(materials).toHaveLength(1);
     expect(materials[0]?.title).toBe('Memo Guide');
-  });
-});
-
-describe('setReferenceMaterialEmbeddingId', () => {
-  it('records the embedding linkage once indexing completes', async () => {
-    const db = new FakeDb();
-    seed(db);
-    db.seedReferenceMaterial({ id: 'r1', department_id: DEPT, tier: 'department', title: 'Guide' });
-
-    const updated = await setReferenceMaterialEmbeddingId('r1', 'emb-123', db);
-
-    expect(updated.embeddingId).toBe('emb-123');
-  });
-
-  it('throws NotFoundError for an unknown material', async () => {
-    const db = new FakeDb();
-    seed(db);
-
-    await expect(setReferenceMaterialEmbeddingId('missing', 'emb-1', db)).rejects.toBeInstanceOf(
-      NotFoundError,
-    );
   });
 });
 

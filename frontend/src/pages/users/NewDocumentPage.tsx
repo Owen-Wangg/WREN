@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { useUploadConfig } from '@/hooks/useUploadConfig';
+import { useAuth } from '@/features/auth/AuthContext';
+import { selectStudentFacingDepartments } from '@/features/dashboard/departmentVisibility';
 
 import {
   useDocumentTypes,
@@ -19,7 +21,7 @@ import {
   docxBytesToTiptapContent,
 } from '@/features/editor/docxContentMapper';
 import { apiClient, ApiError } from '@/services';
-import { stripAiMarksFromTipTapContent, asTipTapDoc } from '@wren/types';
+import { stripAiMarksFromTipTapContent, stripUnsafeTipTapAttrs, asTipTapDoc } from '@wren/types';
 import type { JSONContent } from '@tiptap/react';
 
 const DOCX_PARSE_FALLBACK_MESSAGE =
@@ -46,9 +48,17 @@ function errorMessageFromUnknown(error: unknown): string {
 
 export function NewDocumentPage() {
   const navigate = useNavigate();
+  const { dbRoles, user } = useAuth();
 
   const organizationsQuery = useOrganizations();
-  const organizations = organizationsQuery.data ?? [];
+  const studentFacingDepartments = useMemo(
+    () =>
+      selectStudentFacingDepartments(organizationsQuery.data ?? [], {
+        roles: dbRoles,
+        administeredDepartmentIds: user?.administeredDepartmentIds ?? [],
+      }),
+    [dbRoles, organizationsQuery.data, user?.administeredDepartmentIds],
+  );
 
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedDocumentType, setSelectedDocumentType] = useState('');
@@ -64,9 +74,22 @@ export function NewDocumentPage() {
   const missingRequiredMetadata = metadataFields.filter(
     (field) => field.required && !metadata[field.id]?.trim(),
   );
+  const selectedDepartmentIsDiscoverable = studentFacingDepartments.some(
+    (department) => department.id === selectedDepartment,
+  );
+
+  useEffect(() => {
+    if (!organizationsQuery.data || !selectedDepartment) return;
+    if (selectedDepartmentIsDiscoverable) return;
+
+    setSelectedDepartment('');
+    setSelectedDocumentType('');
+    setMetadata({});
+  }, [organizationsQuery.data, selectedDepartment, selectedDepartmentIsDiscoverable]);
 
   const canActivate = Boolean(
     selectedDepartment &&
+    selectedDepartmentIsDiscoverable &&
     selectedDocumentType &&
     documentName.trim() &&
     referenceFile &&
@@ -89,8 +112,11 @@ export function NewDocumentPage() {
 
   const activateMutation = useMutation({
     mutationFn: async () => {
-      const org = organizations.find((o) => o.id === selectedDepartment);
+      const org = studentFacingDepartments.find((o) => o.id === selectedDepartment);
       const docType = documentTypes.find((dt) => dt.id === selectedDocumentType);
+      if (!org) {
+        throw new Error('Select a department you can currently discover.');
+      }
       if (!referenceFile) {
         throw new Error('A .docx or .pdf file is required');
       }
@@ -121,7 +147,7 @@ export function NewDocumentPage() {
       }
 
       const cleaned = initialContent
-        ? asTipTapDoc(stripAiMarksFromTipTapContent(initialContent))
+        ? asTipTapDoc(stripUnsafeTipTapAttrs(stripAiMarksFromTipTapContent(initialContent)))
         : undefined;
 
       const doc = await createDocument(apiClient, {
@@ -183,6 +209,7 @@ export function NewDocumentPage() {
   });
 
   const handleActivate = () => {
+    if (!canActivate) return;
     activateMutation.mutate();
   };
 
@@ -228,13 +255,11 @@ export function NewDocumentPage() {
               <option value="" disabled>
                 Select department
               </option>
-              {organizations
-                .filter((org) => org.name !== 'Test Department')
-                .map((org) => (
-                  <option key={org.id} value={org.id}>
-                    {org.name}
-                  </option>
-                ))}
+              {studentFacingDepartments.map((org) => (
+                <option key={org.id} value={org.id}>
+                  {org.name}
+                </option>
+              ))}
             </select>
           )}
         </div>

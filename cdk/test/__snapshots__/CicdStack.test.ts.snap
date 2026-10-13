@@ -10,6 +10,469 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
     },
   },
   "Resources": {
+    "BootstrapImageBuild78A4EFC8": {
+      "Properties": {
+        "Artifacts": {
+          "Type": "NO_ARTIFACTS",
+        },
+        "Cache": {
+          "Type": "NO_CACHE",
+        },
+        "EncryptionKey": "alias/aws/s3",
+        "Environment": {
+          "ComputeType": "BUILD_GENERAL1_MEDIUM",
+          "EnvironmentVariables": [
+            {
+              "Name": "IMAGE_TAG",
+              "Type": "PLAINTEXT",
+              "Value": "bootstrap",
+            },
+          ],
+          "Image": "aws/codebuild/standard:7.0",
+          "ImagePullCredentialsType": "CODEBUILD",
+          "PrivilegedMode": true,
+          "Type": "LINUX_CONTAINER",
+        },
+        "Name": "wren-test-bootstrap-image",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "BootstrapImageBuildRoleB593BDCC",
+            "Arn",
+          ],
+        },
+        "Source": {
+          "BuildSpec": {
+            "Fn::Join": [
+              "",
+              [
+                "{
+  "version": "0.2",
+  "phases": {
+    "pre_build": {
+      "commands": [
+        "aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.ca-central-1.amazonaws.com"
+      ]
+    },
+    "build": {
+      "commands": [
+        "docker build -t ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG backend/engine/python/",
+        "docker push ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG",
+        "docker tag ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":$IMAGE_TAG ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":bootstrap",
+        "docker push ",
+                {
+                  "Fn::Select": [
+                    4,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".dkr.ecr.",
+                {
+                  "Fn::Select": [
+                    3,
+                    {
+                      "Fn::Split": [
+                        ":",
+                        {
+                          "Fn::GetAtt": [
+                            "FeedbackEngineRepo9E90635E",
+                            "Arn",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                ".",
+                {
+                  "Ref": "AWS::URLSuffix",
+                },
+                "/",
+                {
+                  "Ref": "FeedbackEngineRepo9E90635E",
+                },
+                ":bootstrap"
+      ]
+    }
+  }
+}",
+              ],
+            ],
+          },
+          "Location": "cdk-hnb659fds-assets-123456789012-ca-central-1/wren-bootstrap-source/wren-test/HEAD.zip",
+          "Type": "S3",
+        },
+      },
+      "Type": "AWS::CodeBuild::Project",
+    },
+    "BootstrapImageBuildRoleB593BDCC": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codebuild.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "BootstrapImageBuildRoleDefaultPolicyBCA552EB": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-ca-central-1",
+                    ],
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-ca-central-1/wren-bootstrap-source/wren-test/HEAD.zip",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":logs:ca-central-1:123456789012:log-group:/aws/codebuild/",
+                      {
+                        "Ref": "BootstrapImageBuild78A4EFC8",
+                      },
+                    ],
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":logs:ca-central-1:123456789012:log-group:/aws/codebuild/",
+                      {
+                        "Ref": "BootstrapImageBuild78A4EFC8",
+                      },
+                      ":*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "codebuild:CreateReportGroup",
+                "codebuild:CreateReport",
+                "codebuild:UpdateReport",
+                "codebuild:BatchPutTestCases",
+                "codebuild:BatchPutCodeCoverages",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":codebuild:ca-central-1:123456789012:report-group/",
+                    {
+                      "Ref": "BootstrapImageBuild78A4EFC8",
+                    },
+                    "-*",
+                  ],
+                ],
+              },
+            },
+            {
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+                "ecr:CompleteLayerUpload",
+                "ecr:UploadLayerPart",
+                "ecr:InitiateLayerUpload",
+                "ecr:PutImage",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "FeedbackEngineRepo9E90635E",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:GetBucketLocation",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-ca-central-1",
+                    ],
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-ca-central-1/wren-bootstrap-source/wren-test/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "BootstrapImageBuildRoleDefaultPolicyBCA552EB",
+        "Roles": [
+          {
+            "Ref": "BootstrapImageBuildRoleB593BDCC",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
     "BuildProject097C5DB7": {
       "Properties": {
         "Artifacts": {
@@ -106,6 +569,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
     },
     "build": {
       "commands": [
+        "IMAGE_TAG=src-\${CODEBUILD_RESOLVED_SOURCE_VERSION:0:12}",
         "docker build -t ",
                 {
                   "Fn::Select": [
@@ -148,7 +612,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 {
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
-                ":$CODEBUILD_RESOLVED_SOURCE_VERSION backend/engine/python/",
+                ":$IMAGE_TAG backend/engine/python/",
         "docker push ",
                 {
                   "Fn::Select": [
@@ -191,7 +655,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 {
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
-                ":$CODEBUILD_RESOLVED_SOURCE_VERSION",
+                ":$IMAGE_TAG",
         "docker tag ",
                 {
                   "Fn::Select": [
@@ -234,7 +698,7 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 {
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
-                ":$CODEBUILD_RESOLVED_SOURCE_VERSION ",
+                ":$IMAGE_TAG ",
                 {
                   "Fn::Select": [
                     4,
@@ -362,8 +826,12 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 {
                   "Ref": "FeedbackEngineRepo9E90635E",
                 },
-                ":$CODEBUILD_RESOLVED_SOURCE_VERSION\\" > image-uri.txt",
-        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$CODEBUILD_RESOLVED_SOURCE_VERSION -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
+                ":$IMAGE_TAG\\" > image-uri.txt",
+        "BOOTSTRAP_SUBJECT=$(aws ssm get-parameter --name /wren-test/auth/technical-admin-bootstrap-subject --query Parameter.Value --output text 2>/dev/null || true)",
+        "if [ \\"$BOOTSTRAP_SUBJECT\\" = \\"None\\" ] || [ \\"$BOOTSTRAP_SUBJECT\\" = \\"none\\" ]; then BOOTSTRAP_SUBJECT=\\"\\"; fi",
+        "SUBJECT_CONTEXT=\\"\\"",
+        "if [ -n \\"$BOOTSTRAP_SUBJECT\\" ]; then SUBJECT_CONTEXT=\\"-c technicalAdminBootstrapSubject=$BOOTSTRAP_SUBJECT\\"; fi",
+        "cd cdk && npx cdk synth -c environmentName=test -c projectName=wren -c stackPrefix=wren-test -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=managed -c enableCicd=true -c ecrOwnership=managed -c githubOwner=test-owner -c githubRepo=test-repo -c githubBranch=main $SUBJECT_CONTEXT && npx cdk-assets publish --path cdk.out/wren-test-Compute.assets.json && cd .."
       ]
     }
   },
@@ -521,6 +989,11 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
               "Resource": "arn:aws:iam::123456789012:role/cdk-*-file-publishing-role-123456789012-ca-central-1",
             },
             {
+              "Action": "ssm:GetParameter",
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:ca-central-1:123456789012:parameter/wren-test/auth/technical-admin-bootstrap-subject",
+            },
+            {
               "Action": [
                 "s3:GetObject*",
                 "s3:GetBucket*",
@@ -664,11 +1137,16 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 "ssm:GetParameter",
                 "ssm:GetParameters",
                 "ssm:GetParametersByPath",
-                "ssm:PutParameter",
               ],
               "Effect": "Allow",
               "Resource": "arn:aws:ssm:ca-central-1:123456789012:parameter/wren-test/*",
-              "Sid": "Parameters",
+              "Sid": "ParametersRead",
+            },
+            {
+              "Action": "ssm:PutParameter",
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:ca-central-1:123456789012:parameter/wren-test/config/bedrock-model-id",
+              "Sid": "ParametersWriteBedrockModelOnly",
             },
             {
               "Action": [
@@ -678,7 +1156,6 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 "s3:PutObject",
                 "s3:PutObjectTagging",
                 "s3:DeleteObject",
-                "s3:DeleteObjects",
                 "s3:DeleteObjectTagging",
                 "s3:ListBucket",
               ],
@@ -812,6 +1289,14 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
           "Statement": [
             {
               "Action": "sts:AssumeRole",
+              "Condition": {
+                "ArnLike": {
+                  "aws:SourceArn": "arn:aws:cloudformation:ca-central-1:123456789012:stack/wren-test-Compute/*",
+                },
+                "StringEquals": {
+                  "aws:SourceAccount": "123456789012",
+                },
+              },
               "Effect": "Allow",
               "Principal": {
                 "Service": "cloudformation.amazonaws.com",
@@ -850,13 +1335,37 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                     "lambda:UpdateFunctionConfiguration",
                   ],
                   "Effect": "Allow",
-                  "Resource": "*",
+                  "Resource": [
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-authorizer",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-document",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-admin",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-sync-cognito-admins",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-orchestrator",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-engine",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-diff-anchor-progress",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-notification",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-appsync-authorizer",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-orphan-upload-sweep",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-Compute-*",
+                  ],
                   "Sid": "LambdaCompute",
                 },
                 {
                   "Action": "lambda:InvokeFunction",
                   "Effect": "Allow",
-                  "Resource": "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-*",
+                  "Resource": [
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-authorizer",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-document",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-admin",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-sync-cognito-admins",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-orchestrator",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-engine",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-diff-anchor-progress",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-notification",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-appsync-authorizer",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-orphan-upload-sweep",
+                    "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-Compute-*",
+                  ],
                   "Sid": "LambdaInvokeOwnedFunctions",
                 },
                 {
@@ -990,16 +1499,34 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 },
                 {
                   "Action": [
-                    "kms:CreateGrant",
                     "kms:Decrypt",
                     "kms:DescribeKey",
                     "kms:Encrypt",
                     "kms:GenerateDataKey",
                     "kms:GenerateDataKeyWithoutPlaintext",
                   ],
+                  "Condition": {
+                    "StringEquals": {
+                      "kms:ViaService": [
+                        "s3.ca-central-1.amazonaws.com",
+                        "dynamodb.ca-central-1.amazonaws.com",
+                      ],
+                    },
+                  },
                   "Effect": "Allow",
-                  "Resource": "*",
-                  "Sid": "KmsUseExistingStorageKey",
+                  "Resource": "arn:aws:kms:ca-central-1:123456789012:key/*",
+                  "Sid": "KmsUseStorageKeyViaService",
+                },
+                {
+                  "Action": "kms:CreateGrant",
+                  "Condition": {
+                    "Bool": {
+                      "kms:GrantIsForAWSResource": "true",
+                    },
+                  },
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:kms:ca-central-1:123456789012:key/*",
+                  "Sid": "KmsCreateGrantForAwsResourcesOnly",
                 },
                 {
                   "Action": [
@@ -1063,6 +1590,14 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 "ecr:BatchGetImage",
                 "ecr:BatchCheckLayerAvailability",
               ],
+              "Condition": {
+                "ArnLike": {
+                  "aws:SourceArn": "arn:aws:lambda:ca-central-1:123456789012:function:wren-test-feedback-engine",
+                },
+                "StringEquals": {
+                  "aws:SourceAccount": "123456789012",
+                },
+              },
               "Effect": "Allow",
               "Principal": {
                 "Service": "lambda.amazonaws.com",
@@ -1090,6 +1625,18 @@ exports[`CicdStack matches the complete fixed Cicd template snapshot 1`] = `
                 },
                 "SSEAlgorithm": "aws:kms",
               },
+            },
+          ],
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7,
+              },
+              "ExpirationInDays": 90,
+              "Id": "ExpirePipelineArtifacts",
+              "Status": "Enabled",
             },
           ],
         },

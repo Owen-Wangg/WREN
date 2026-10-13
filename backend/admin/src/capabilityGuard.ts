@@ -26,6 +26,21 @@ export function requireCapability(
 ): void {
   const decision = authorizeCapability(actor, request);
   if (!decision.allowed) {
+    // Log the authorization denial before throwing: previously a
+    // denial threw with no log line, so 403s were invisible to operators and
+    // unalarmable. Structured + machine-queryable via the stable
+    // `event: "authz_denial"` key. Logs NO secrets — only the actor's app id,
+    // roles, the requested capability + scope, and the matrix's reason.
+    console.warn(
+      JSON.stringify({
+        event: 'authz_denial',
+        actorUserId: actor.userId,
+        roles: actor.roles,
+        capability: request.capability,
+        scope: request.scope,
+        reason: decision.reason,
+      }),
+    );
     throw new AuthorizationError(decision.reason);
   }
 }

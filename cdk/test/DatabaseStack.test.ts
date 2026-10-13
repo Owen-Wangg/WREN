@@ -54,6 +54,25 @@ describe("DatabaseStack", () => {
     });
   });
 
+  it("exports PostgreSQL engine + upgrade logs to CloudWatch (gap 3.3)", () => {
+    template.hasResourceProperties("AWS::RDS::DBInstance", {
+      EnableCloudwatchLogsExports: Match.arrayWith(["postgresql", "upgrade"]),
+    });
+  });
+
+  it("bounds the RDS engine log group with a retention (30 days in non-prod)", () => {
+    // cloudwatchLogsRetention makes CDK emit a LogRetention custom resource for
+    // the auto-created /aws/rds/instance/{id}/postgresql (and upgrade) groups.
+    const retentions = template.findResources("Custom::LogRetention");
+    const rdsRetentions = Object.values(retentions).filter((r) =>
+      JSON.stringify(r.Properties?.LogGroupName ?? "").includes("/aws/rds/instance/"),
+    );
+    expect(rdsRetentions.length).toBeGreaterThan(0);
+    for (const retention of rdsRetentions) {
+      expect(retention.Properties?.RetentionInDays).toBe(30);
+    }
+  });
+
   it("keeps exporting the RDS admin secret while Compute still imports it", () => {
     const outputs = template.findOutputs("*");
     const exported = Object.values(outputs).some((output) => {
@@ -67,10 +86,11 @@ describe("DatabaseStack", () => {
   });
 
   it("generates DB credentials into Secrets Manager (never inlined)", () => {
-    template.resourceCountIs("AWS::SecretsManager::Secret", 9);
+    // dbadmin + 7 app roles.
+    template.resourceCountIs("AWS::SecretsManager::Secret", 8);
     const proxies = template.findResources("AWS::RDS::DBProxy");
     const auth = Object.values(proxies)[0]?.Properties?.Auth as unknown[];
-    expect(auth).toHaveLength(9);
+    expect(auth).toHaveLength(8);
     // The instance's MasterUserPassword must resolve from the secret, not a
     // plaintext literal — regardless of whether CDK emits a resolve token
     // string or an intrinsic Join.
@@ -79,6 +99,12 @@ describe("DatabaseStack", () => {
       const password = instance.Properties?.MasterUserPassword;
       expect(JSON.stringify(password)).toContain("secretsmanager");
     }
+  });
+
+  it("provisions nothing for the retired wren_audit role", () => {
+    const json = JSON.stringify(template.toJSON());
+    expect(json).not.toContain("wren_audit");
+    expect(json).not.toContain("WrenAudit");
   });
 
   it("matches the synthesized template snapshot", () => {

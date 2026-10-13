@@ -5,9 +5,17 @@
  * to app_user rows by idp_subject (Cognito sub), and upserts TechnicalAdmin
  * into role_assignment for any who don't already have it.
  *
- * Run via Lambda invoke:
+ * This grants the most privileged application role, so it is NOT reachable
+ * from the API-facing Admin Lambda. It runs only in its own dedicated Lambda
+ * (`${StackPrefix}-sync-cognito-admins`, entry `../lambda-sync-cognito-admins.ts`)
+ * which has no API Gateway permission — invoking it requires a
+ * `lambda:InvokeFunction` grant on that function. The caller's identity is
+ * recorded by the `${prefix}-privileged-invokes` CloudTrail trail in the
+ * CloudWatch log group `/aws/cloudtrail/${prefix}-privileged-invokes`.
+ *
+ * Run via Lambda invoke (payload must be exactly this object):
  *   aws lambda invoke \
- *     --function-name wren-dev-admin \
+ *     --function-name wren-dev-sync-cognito-admins \
  *     --region ca-central-1 \
  *     --cli-binary-format raw-in-base64-out \
  *     --payload '{"_script":"sync-cognito-admins"}' \
@@ -20,11 +28,21 @@ import {
   CognitoIdentityProviderClient,
   ListUsersInGroupCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { getDataAccess } from '@wren/db-node';
+import { getDataAccess, recordActivityEventRow } from '@wren/db-node';
 
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID!;
 const REGION = process.env.AWS_REGION ?? 'ca-central-1';
 const GROUP_NAME = 'SystemAdmin';
+
+/**
+ * Synthetic actor id for role grants performed by this out-of-band script
+ * rather than an interactive administrator. It has no real
+ * `AuthContext` — a script is not a logged-in user — so we attribute the audit
+ * event to a stable synthetic id, mirroring the `__system__` actor the audit
+ * service already uses for engine-driven guardrail events. The shared writer
+ * pseudonymizes it like any other actor.
+ */
+const SCRIPT_ACTOR_ID = '__script:sync-cognito-admins__';
 
 export async function syncCognitoAdmins(): Promise<{
   checked: number;
@@ -60,8 +78,8 @@ export async function syncCognitoAdmins(): Promise<{
 
   for (const sub of subs) {
     // 2. Find the app_user row by idp_subject
-    const userRows = await db.query<{ id: string; email: string }>(
-      'SELECT id, email FROM app_user WHERE idp_subject = $1',
+    const userRows = await db.query<{ id: string }>(
+      'SELECT id FROM app_user WHERE idp_subject = $1',
       [sub],
     );
     if (userRows.length === 0) {
@@ -69,7 +87,7 @@ export async function syncCognitoAdmins(): Promise<{
       notFound.push(sub);
       continue;
     }
-    const { id: userId, email } = userRows[0]!;
+    const { id: userId } = userRows[0]!;
 
     // 3. Check existing role
     const existing = await db.query<{ role: string }>(
@@ -77,8 +95,8 @@ export async function syncCognitoAdmins(): Promise<{
       [userId],
     );
     if (existing.length > 0) {
-      console.log(`  ${email} — already TechnicalAdmin, skipping`);
-      alreadyAdmin.push(email);
+      console.log(`  userId=${userId} — already TechnicalAdmin, skipping`);
+      alreadyAdmin.push(userId);
       continue;
     }
 
@@ -91,21 +109,45 @@ export async function syncCognitoAdmins(): Promise<{
        )`,
       [userId],
     );
-    console.log(`  ${email} — granted TechnicalAdmin`);
-    upserted.push(email);
+    console.log(`  userId=${userId} — granted TechnicalAdmin`);
+
+    // Audit the privileged role grant (Requirement 45.2): granting
+    // TechnicalAdmin is a security event and must leave an audit record, even
+    // when performed by this script rather than an interactive admin. Shape
+    // mirrors auditRoleOrGrantChange's 'role.assigned' event. Best-effort and
+    // non-fatal: the grant already succeeded, so an audit-write failure must
+    // not abort the sync — record it visibly instead.
+    try {
+      await recordActivityEventRow(
+        {
+          actorUserId: SCRIPT_ACTOR_ID,
+          verb: 'role.assigned',
+          objectType: 'RoleAssignment',
+          objectRef: userId,
+          context: {
+            action: 'role.assigned',
+            targetUserId: userId,
+            targetRole: 'TechnicalAdmin',
+            source: 'sync-cognito-admins',
+          },
+        },
+        db,
+      );
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          event: 'audit_write_failed',
+          action: 'role.assigned',
+          targetUserId: userId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+
+    upserted.push(userId);
   }
 
   return { checked: subs.length, upserted, alreadyAdmin, notFound };
-}
-
-// Allow the admin Lambda handler to delegate here when it sees _script
-export async function handler(event: Record<string, unknown>) {
-  if (event['_script'] !== 'sync-cognito-admins') {
-    return { statusCode: 400, body: 'wrong script name' };
-  }
-  const result = await syncCognitoAdmins();
-  console.log('Result:', JSON.stringify(result, null, 2));
-  return { statusCode: 200, body: JSON.stringify(result) };
 }
 
 // Direct invocation (ts-node / npx tsx)

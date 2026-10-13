@@ -3,6 +3,8 @@ import { Duration } from "aws-cdk-lib";
 import * as appsync from "aws-cdk-lib/aws-appsync";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as logs from "aws-cdk-lib/aws-logs";
+import * as wafv2 from "aws-cdk-lib/aws-wafv2";
 import { Construct } from "constructs";
 
 export interface AppSyncRealtimeProps {
@@ -18,6 +20,13 @@ export interface AppSyncRealtimeProps {
   /** IAM role of the Notification Lambda — granted notification publish access. */
   readonly notificationLambdaRole?: iam.IRole;
   readonly stackPrefix: string;
+  /**
+   * CloudWatch Logs retention for the AppSync-managed `/aws/appsync/apis/{apiId}`
+   * log group. Without this, AppSync creates that group with no expiry (logs
+   * accumulate and bill forever). Passed in from the stack via
+   * `resolveLogRetention(config)` so it tracks the project-wide 90/30-day policy.
+   */
+  readonly logRetention: logs.RetentionDays;
 }
 
 /**
@@ -78,7 +87,52 @@ export class AppSyncRealtimeConstruct extends Construct {
       logConfig: {
         fieldLogLevel: appsync.FieldLogLevel.ERROR,
         excludeVerboseContent: true,
+        // Bound the AppSync-managed log group so it expires on the project's
+        // 90-day-prod / 30-day-else schedule instead of never expiring.
+        retention: props.logRetention,
       },
+    });
+
+    // WAF protection layer for the AppSync GraphQL and real-time API.
+    // AWSManagedRulesCommonRuleSet filters requests before they reach AppSync
+    // authorization, providing an additional protection layer for the Lambda
+    // authorizer and its per-request DB ownership checks.
+    const webAcl = new wafv2.CfnWebACL(this, "AppSyncWebAcl", {
+      name: `${props.stackPrefix}-appsync-webacl`,
+      scope: "REGIONAL",
+      defaultAction: {
+        allow: {},
+      },
+      visibilityConfig: {
+        cloudWatchMetricsEnabled: true,
+        metricName: `${props.stackPrefix}-appsync-webacl`,
+        sampledRequestsEnabled: true,
+      },
+      rules: [
+        {
+          name: "AWSManagedRulesCommonRuleSet",
+          priority: 1,
+          overrideAction: {
+            none: {},
+          },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: "AWS",
+              name: "AWSManagedRulesCommonRuleSet",
+            },
+          },
+          visibilityConfig: {
+            cloudWatchMetricsEnabled: true,
+            metricName: "AWSManagedRulesCommonRuleSet",
+            sampledRequestsEnabled: true,
+          },
+        },
+      ],
+    });
+
+    new wafv2.CfnWebACLAssociation(this, "AppSyncWebAclAssociation", {
+      resourceArn: api.arn,
+      webAclArn: webAcl.attrArn,
     });
 
     // None data source: AppSync fans the mutation payload directly to

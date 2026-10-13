@@ -1,10 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, Trash2 } from 'lucide-react';
 
 import { useActiveDepartment } from '@/features/department-admin/ActiveDepartmentContext';
-import { listDocumentTypes, createDocumentType, deleteDocumentType } from '@/features/department-admin/departmentAdminApi';
+import { useAuth } from '@/features/auth/AuthContext';
+import {
+  listDocumentTypes,
+  createDocumentType,
+  deleteDocumentType,
+  updateDepartmentAskWrenPrompt,
+  updateDepartmentPrompt,
+} from '@/features/department-admin/departmentAdminApi';
+import { DepartmentPromptEditor } from '@/features/department-admin/DepartmentPromptEditor';
 import { ApiError } from '@/services';
 
 function createErrorMessage(error: unknown): string {
@@ -41,8 +49,24 @@ function deleteErrorMessage(error: unknown): string {
   return 'Failed to delete document type. Please try again.';
 }
 
+function promptErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const message = (details as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim()) return message;
+    }
+    if (error.status === 403) {
+      return 'You are not appointed as Department Admin for this department.';
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return 'Failed to save the Ask Wren prompt. Please try again.';
+}
+
 export function DepartmentAdminDashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     activeDepartment,
     departments,
@@ -53,7 +77,24 @@ export function DepartmentAdminDashboard() {
   const [showCreateDocType, setShowCreateDocType] = useState(false);
   const [newDocTypeName, setNewDocTypeName] = useState('');
   const [docTypeToDelete, setDocTypeToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [askWrenPrompt, setAskWrenPrompt] = useState('');
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    setAskWrenPrompt(activeDepartment?.askWrenPrompt ?? '');
+  }, [activeDepartment?.id, activeDepartment?.askWrenPrompt]);
+
+  const askWrenPromptMutation = useMutation({
+    mutationFn: (prompt: string) =>
+      updateDepartmentAskWrenPrompt(
+        activeDepartment!.id,
+        prompt.trim() ? prompt : null,
+      ),
+    onSuccess: (updatedDepartment) => {
+      setAskWrenPrompt(updatedDepartment.askWrenPrompt ?? '');
+      void queryClient.invalidateQueries({ queryKey: ['dept-admin-departments'] });
+    },
+  });
 
   const deleteDocTypeMutation = useMutation({
     mutationFn: (documentTypeId: string) => deleteDocumentType(documentTypeId),
@@ -101,6 +142,12 @@ export function DepartmentAdminDashboard() {
     );
   }
 
+  // Both department prompts (Feedback-Engine + Ask Wren) are editable by a
+  // DepartmentAdmin appointed to this department; the backend re-checks scope.
+  const canManageDepartmentPrompts = Boolean(
+    user?.roles.includes('DepartmentAdmin') &&
+    user.administeredDepartmentIds.includes(activeDepartment.id),
+  );
   const filteredDocumentTypes = documentTypes.filter((docType) =>
     docType.name.toLowerCase().includes(searchTerm.toLowerCase()),
   );
@@ -140,6 +187,79 @@ export function DepartmentAdminDashboard() {
           )}
         </p>
       </div>
+
+      {/* Department-level Feedback-Engine prompt */}
+      {canManageDepartmentPrompts && (
+        <section className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <h1 className="mb-4 text-2xl font-bold text-gray-900">Department Prompt</h1>
+          <DepartmentPromptEditor
+            departmentId={activeDepartment.id}
+            prompt={activeDepartment.prompt}
+            save={updateDepartmentPrompt}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: ['dept-admin-departments'] });
+            }}
+          />
+        </section>
+      )}
+
+      {/* Department-level Ask Wren coaching context */}
+      {canManageDepartmentPrompts && (
+        <section className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <h1 className="text-2xl font-bold text-gray-900">Ask Wren Prompt</h1>
+        <p className="mt-2 text-sm text-gray-600">
+          Add department-specific context for Ask Wren's Socratic coaching questions across
+          every document type in {activeDepartment.name}. Core coaching safeguards still apply.
+        </p>
+        <label
+          htmlFor="department-ask-wren-prompt"
+          className="mt-5 block text-sm font-semibold text-gray-900"
+        >
+          Ask Wren coaching context
+        </label>
+        <textarea
+          id="department-ask-wren-prompt"
+          value={askWrenPrompt}
+          onChange={(event) => {
+            setAskWrenPrompt(event.target.value);
+            askWrenPromptMutation.reset();
+          }}
+          placeholder="e.g. Law students writing legal memoranda. Encourage IRAC structure and precise use of authority."
+          className="mt-2 h-40 w-full rounded-lg border border-gray-300 p-3 text-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+        />
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => askWrenPromptMutation.mutate(askWrenPrompt)}
+            disabled={askWrenPromptMutation.isPending}
+            className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {askWrenPromptMutation.isPending ? 'Saving…' : 'Save Ask Wren Prompt'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAskWrenPrompt('');
+              askWrenPromptMutation.reset();
+            }}
+            disabled={askWrenPromptMutation.isPending}
+            className="rounded-lg border border-gray-300 px-5 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Clear
+          </button>
+          {askWrenPromptMutation.isSuccess && (
+            <span role="status" className="text-sm font-semibold text-green-700">
+              Saved successfully!
+            </span>
+          )}
+        </div>
+        {askWrenPromptMutation.isError && (
+          <p role="alert" className="mt-3 text-sm font-medium text-red-600">
+            {promptErrorMessage(askWrenPromptMutation.error)}
+          </p>
+        )}
+        </section>
+      )}
 
       {/* Document Types Section */}
       <div className="mb-12">

@@ -30,29 +30,44 @@ import type { QueryExecutor } from './db';
 import type { AuthContext } from '@wren/types';
 
 /**
- * Record an audit event for a configuration edit (taxonomy, prompt, convention
- * change). Requirement 23.3: "record Department Admin configuration changes
- * with the actor, Document Type, and timestamp."
+ * Record an audit event for a configuration or tenant-lifecycle edit (taxonomy
+ * change, Document-Type catalog change, Department lifecycle). Requirement
+ * 23.3: "record Department Admin configuration changes with the actor,
+ * Document Type, and timestamp."
+ *
+ * `documentTypeId` is optional so this also covers Department-scoped lifecycle
+ * mutations (create/archive), which have no owning Document Type. `objectType`
+ * defaults to `Config` for taxonomy/convention edits; callers acting on a
+ * concrete tenant object (a Department or Document Type) pass the matching
+ * type so the event's object is self-describing. `objectRef` is derived from
+ * the most specific identifier available: the Document Type, else the
+ * Department, else the field name itself.
  */
 export async function auditConfigEdit(
   actor: AuthContext,
   detail: {
-    documentTypeId: string;
+    documentTypeId?: string;
     departmentId?: string;
     field: string;
     action: 'created' | 'updated' | 'deleted';
+    objectType?: string;
     description?: string;
   },
   db: QueryExecutor,
 ): Promise<void> {
+  const objectRef = detail.documentTypeId
+    ? `${detail.field}:${detail.documentTypeId}`
+    : detail.departmentId
+      ? `${detail.field}:${detail.departmentId}`
+      : detail.field;
   await recordActivityEvent(
     {
       actorUserId: actor.userId,
       verb: `config.${detail.action}`,
-      objectType: 'Config',
-      objectRef: `${detail.field}:${detail.documentTypeId}`,
-      documentTypeId: detail.documentTypeId,
-      departmentId: detail.departmentId,
+      objectType: detail.objectType ?? 'Config',
+      objectRef,
+      ...(detail.documentTypeId ? { documentTypeId: detail.documentTypeId } : {}),
+      ...(detail.departmentId ? { departmentId: detail.departmentId } : {}),
       context: {
         role: actor.roles[0],
         field: detail.field,
@@ -74,18 +89,32 @@ export async function auditPromptEdit(
   detail: {
     documentTypeId?: string;
     departmentId?: string;
-    scope: 'documentType' | 'system';
+    /**
+     * Which prompt surface was edited:
+     *  - `documentType` — Document-Type prompt config (`type_prompt_text`).
+     *  - `system`       — Feedback-Engine `department.prompt` (TechnicalAdmin, or
+     *                     DepartmentAdmin for an administered Department).
+     *  - `department`   — DepartmentAdmin-owned department Ask WREN prompt
+     *                     (`department.ask_wren_prompt`).
+     */
+    scope: 'documentType' | 'system' | 'department';
     guardrailOutcome: 'passed' | 'rejected';
     rejectionReason?: string;
   },
   db: QueryExecutor,
 ): Promise<void> {
+  const objectRef =
+    detail.scope === 'system'
+      ? 'system-scaffolding'
+      : detail.scope === 'department'
+        ? `department:${detail.departmentId}`
+        : `documentType:${detail.documentTypeId}`;
   await recordActivityEvent(
     {
       actorUserId: actor.userId,
       verb: 'prompt.edited',
       objectType: 'Prompt',
-      objectRef: detail.scope === 'system' ? 'system-scaffolding' : `documentType:${detail.documentTypeId}`,
+      objectRef,
       documentTypeId: detail.documentTypeId,
       departmentId: detail.departmentId,
       context: {
@@ -93,6 +122,76 @@ export async function auditPromptEdit(
         scope: detail.scope,
         guardrailOutcome: detail.guardrailOutcome,
         ...(detail.rejectionReason ? { rejectionReason: detail.rejectionReason } : {}),
+      },
+    },
+    db,
+  );
+}
+
+/**
+ * Record an audit event for a platform-policy change made by a TechnicalAdmin:
+ * the active Bedrock model id (`handleUpdateModelConfig`) or the
+ * platform usage caps (`handleUpdateUsageLimits`). These are platform-scoped
+ * privileged mutations with no Department/Document-Type scope, so they carry
+ * neither. `newValue`/`previousValue` hold only structured policy fields —
+ * never secrets.
+ */
+export async function auditPlatformPolicyChange(
+  actor: AuthContext,
+  detail: {
+    change: 'model' | 'usageLimits';
+    newValue: Record<string, unknown>;
+    previousValue?: Record<string, unknown>;
+  },
+  db: QueryExecutor,
+): Promise<void> {
+  await recordActivityEvent(
+    {
+      actorUserId: actor.userId,
+      verb: 'platform_policy.updated',
+      objectType: 'PlatformUsagePolicy',
+      objectRef: `platform:${detail.change}`,
+      context: {
+        role: actor.roles[0],
+        change: detail.change,
+        newValue: detail.newValue,
+        ...(detail.previousValue ? { previousValue: detail.previousValue } : {}),
+      },
+    },
+    db,
+  );
+}
+
+/**
+ * Record an audit event for an OPEN/LOCKED access-state change on a Document
+ * Type (`handleSetDocumentTypeAccessState`) or a Department
+ * (`handleSetDepartmentAccessState`). Access state gates whether
+ * Students may submit work, so a flip is a security-relevant configuration
+ * change that must be attributable to the acting TechnicalAdmin.
+ */
+export async function auditAccessStateChange(
+  actor: AuthContext,
+  detail: {
+    scope: 'documentType' | 'department';
+    documentTypeId?: string;
+    departmentId: string;
+    accessState: 'OPEN' | 'LOCKED';
+  },
+  db: QueryExecutor,
+): Promise<void> {
+  await recordActivityEvent(
+    {
+      actorUserId: actor.userId,
+      verb: 'access_state.updated',
+      objectType: detail.scope === 'documentType' ? 'DocumentType' : 'Department',
+      objectRef:
+        detail.scope === 'documentType' ? detail.documentTypeId! : detail.departmentId,
+      documentTypeId: detail.documentTypeId,
+      departmentId: detail.departmentId,
+      context: {
+        role: actor.roles[0],
+        scope: detail.scope,
+        accessState: detail.accessState,
       },
     },
     db,
@@ -128,6 +227,40 @@ export async function auditRoleOrGrantChange(
         action: detail.action,
         targetUserId: detail.targetUserId, // recorded for audit trail (pseudonymized by recordActivityEvent for the actor)
         ...(detail.targetRole ? { targetRole: detail.targetRole } : {}),
+      },
+    },
+    db,
+  );
+}
+
+export async function auditDepartmentVisibilityChange(
+  actor: AuthContext,
+  detail: {
+    action:
+      | 'department.visibility.updated'
+      | 'department_visibility_grant.created'
+      | 'department_visibility_grant.revoked';
+    departmentId: string;
+    grantId?: string;
+    targetUserId?: string;
+    previousState?: 'VISIBLE' | 'PERMITTED_ONLY';
+    newState?: 'VISIBLE' | 'PERMITTED_ONLY';
+  },
+  db: QueryExecutor,
+): Promise<void> {
+  const isGrant = detail.action.startsWith('department_visibility_grant.');
+  await recordActivityEvent(
+    {
+      actorUserId: actor.userId,
+      verb: detail.action,
+      objectType: isGrant ? 'DepartmentVisibilityGrant' : 'Department',
+      objectRef: detail.grantId ?? detail.departmentId,
+      departmentId: detail.departmentId,
+      context: {
+        role: actor.roles[0],
+        ...(detail.targetUserId ? { targetUserId: detail.targetUserId } : {}),
+        ...(detail.previousState ? { previousState: detail.previousState } : {}),
+        ...(detail.newState ? { newState: detail.newState } : {}),
       },
     },
     db,

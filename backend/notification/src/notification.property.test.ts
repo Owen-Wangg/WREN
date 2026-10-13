@@ -13,6 +13,8 @@ import { renderTemplate, sanitizeValue } from './templateRenderer.js';
 import type { NotificationEvent, NotificationState, TargetRole, DedupStrategy } from './types.js';
 import { NotificationServiceImpl, type NotificationServiceDeps } from './notificationService.js';
 import { validateNoLeakConstraint } from './noLeakValidation.js';
+import { authorizeCapability } from '@wren/auth';
+import type { AuthContext, Role } from '@wren/types';
 
 /* -------------------------------------------------------------------------- */
 /* Shared arbitraries                                                          */
@@ -980,6 +982,38 @@ describe('Feature: in-app-notifications, Property 13: Catalog authorization', ()
    * when called (no internal auth check blocks them) — proving that auth
    * is correctly externalized to the handler layer.
    */
+
+  it('authorizes catalog mutations through the shared matrix iff the actor is TechnicalAdmin', () => {
+    // The Notification_Service handler now re-checks the shared capability
+    // matrix (never a parallel literal-role scheme), so a denial is attributable
+    // and alarmable. notificationType.manageCatalog is platform-scoped and held
+    // only by TechnicalAdmin; every other role is denied with no mutation.
+    const platformScope = { kind: 'platform' as const };
+    const buildActor = (roles: Role[]): AuthContext => ({
+      userId: 'user-1',
+      idpSubject: 'sub-1',
+      email: 'user@example.com',
+      roles,
+      administeredDepartmentIds: [],
+      grants: [],
+    });
+
+    expect(
+      authorizeCapability(buildActor(['TechnicalAdmin']), {
+        capability: 'notificationType.manageCatalog',
+        scope: platformScope,
+      }).allowed,
+    ).toBe(true);
+
+    for (const roles of [['Student'], ['DepartmentAdmin'], []] as Role[][]) {
+      const decision = authorizeCapability(buildActor(roles), {
+        capability: 'notificationType.manageCatalog',
+        scope: platformScope,
+      });
+      expect(decision.allowed).toBe(false);
+      expect(decision.reason.length).toBeGreaterThan(0);
+    }
+  });
 
   it('catalog create succeeds for any valid input (auth is enforced by handler, not service)', async () => {
     await fc.assert(

@@ -3,31 +3,41 @@
  * Adapter: API Gateway proxy events → backend/document service handlers.
  */
 import type { APIGatewayProxyResult, Context } from 'aws-lambda';
-import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
-import { S3Client, GetObjectCommand, DeleteObjectsCommand, DeleteObjectTaggingCommand } from '@aws-sdk/client-s3';
+import { freezeEventLoopOnReturn, getDataAccess, recordActivityEventRow } from '@wren/db-node';
+import { S3Client, GetObjectCommand, DeleteObjectsCommand, PutObjectTaggingCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { v4 as uuid } from 'uuid';
-import { resolveAccess } from '@wren/auth';
-import type { AccessGrant, CustomMetadataField, TipTapDoc } from '@wren/types';
+import {
+  bindCorsOrigin,
+  checkSubmissionAccess,
+  rejectIfForgedAuthContext,
+  submissionAccessDeniedResponse,
+  withCorsHeaders,
+} from '@wren/auth';
+import type { CustomMetadataField, TipTapDoc } from '@wren/types';
 import {
   createDocumentInputSchema,
   isTipTapDoc,
   stripAiMarksFromTipTapContent,
   tipTapContentToSegments,
   wordCountFromTipTapContent,
+  charCountFromTipTapContent,
   findDisallowedTipTapNodeType,
+  findUnsafeTipTapAttr,
   serializedTipTapBytes,
   TIPTAP_FIELD_MAX_BYTES,
 } from '@wren/types';
 
+import { clearOrphanUploadTag as clearOrphanUploadTagWithRetry } from './orphanUploadTag.js';
+import { findUnreferencedUploadKeys } from './uploadKeyReferences.js';
 import { MammothDocxExtractor } from './docxExtractor.js';
 import { createPdfExtractor } from './ocrFactory.js';
 import { resolveOcrEngine } from './textractOcr.js';
 import { UnsupportedFileFormatError } from './errors.js';
 import { ingestUpload } from './ingestion.js';
-import { enforceSizeLimit } from './sizeLimit.js';
+import { countWords, countChars } from './sizeLimit.js';
 import { overSizeLimitHttpResponse } from './patchDraftSizeLimit.js';
 import { gateSubmission } from './submissionGating.js';
 import { validateDocumentMetadata } from './metadataGating.js';
@@ -41,8 +51,8 @@ import {
   shouldIngestPdfAsync,
 } from './ingestJob.js';
 import {
+  parseIngestQueueMessage,
   processIngestQueueMessage,
-  type IngestQueueMessage,
 } from './ingestWorker.js';
 import {
   assertDocumentUploadAllowed,
@@ -59,22 +69,7 @@ function parseOcrEngineFromBody(body: { readonly ocrEngine?: unknown }): string 
   return resolveOcrEngine(typeof raw === 'string' ? raw : null);
 }
 
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-};
-
-function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
-  return {
-    ...result,
-    headers: {
-      ...CORS_HEADERS,
-      ...(result.headers as Record<string, string> | undefined),
-    },
-  };
-}
+const withCors = withCorsHeaders;
 
 function parseAuthContext(event: any) {
   const ctx = event.requestContext?.authorizer || {};
@@ -179,15 +174,91 @@ function canonicalUploadContentType(filename: string, contentType: string): stri
   return null;
 }
 
-async function clearOrphanUploadTag(key: string): Promise<void> {
+/**
+ * Clear the `orphan-upload` tag on an attached upload so the retained original
+ * survives the lifecycle rule. Fails closed on unrecoverable failure (see
+ * `orphanUploadTag.ts` / finding S-2): a thrown `OrphanTagClearError` carries a
+ * 500 and is mapped to `INTERNAL_ERROR` by `wrapHandler`, so no document row is
+ * committed against an object S3 will delete within 24h.
+ */
+function clearOrphanUploadTag(key: string): Promise<void> {
+  return clearOrphanUploadTagWithRetry(key, {
+    client: s3Client,
+    bucket: process.env.DOCUMENTS_BUCKET_NAME,
+  });
+}
+
+/**
+ * Re-apply the `orphan-upload=true` tag so the bucket lifecycle rule
+ * (StorageResources.ts: 1-day expiry on this tag) reclaims the object.
+ * Called on failed create/draft paths so a rejected upload key cannot be
+ * replayed to force repeated paid OCR. Best-effort and non-fatal — a tagging
+ * failure must never mask the underlying create error.
+ *
+ * The key is re-tagged only when no `draft` / `document_ingest_job` row
+ * references it: a key already attached elsewhere must not be handed to the
+ * lifecycle rule. If the reference check fails the tag is skipped (fail-safe
+ * against data loss); the scheduled sweep (`orphanUploadSweep.ts`) re-tags any
+ * key left untagged and unreferenced.
+ *
+ * Race with a concurrent request attaching the same key: references are
+ * re-checked AFTER the tag write, and the tag is removed if the key is now
+ * referenced. Together with the attach paths' post-commit clear
+ * ({@link clearOrphanUploadTagAfterCommit}), any tag written here is either
+ * removed by the winner's post-commit clear (tag landed first) or seen by this
+ * re-check (winner committed first).
+ */
+async function tagOrphanUploadForExpiry(key: string): Promise<void> {
   const bucket = process.env.DOCUMENTS_BUCKET_NAME;
   if (!bucket) return;
+  let db;
+  try {
+    db = await getDataAccess();
+    const unreferenced = await findUnreferencedUploadKeys(db, [key]);
+    if (unreferenced.length === 0) return;
+  } catch (err) {
+    console.warn('tagOrphanUploadForExpiry: reference check failed; leaving tag for sweep', err);
+    return;
+  }
   try {
     await s3Client.send(
-      new DeleteObjectTaggingCommand({ Bucket: bucket, Key: key }),
+      new PutObjectTaggingCommand({
+        Bucket: bucket,
+        Key: key,
+        Tagging: {
+          TagSet: [{ Key: 'orphan-upload', Value: 'true' }],
+        },
+      }),
     );
   } catch (err) {
-    console.warn('clearOrphanUploadTag: non-fatal error', err);
+    console.warn('tagOrphanUploadForExpiry: non-fatal error', err);
+    return;
+  }
+  let stillUnreferenced = true;
+  try {
+    stillUnreferenced = (await findUnreferencedUploadKeys(db, [key])).length > 0;
+  } catch (err) {
+    // Cannot prove the key is still unattached: undo the tag (fail-safe).
+    console.warn('tagOrphanUploadForExpiry: post-tag reference check failed; removing tag', err);
+    stillUnreferenced = false;
+  }
+  if (!stillUnreferenced) {
+    await clearOrphanUploadTagAfterCommit(key);
+  }
+}
+
+/**
+ * Best-effort second clear after an attach transaction commits. The fail-closed
+ * clear before the transaction remains the primary guarantee; this one removes
+ * any tag a concurrent failing request wrote in between. A failure here is
+ * logged (and `clearOrphanUploadTag` emits its failure metric) but does not
+ * fail the already-committed request.
+ */
+async function clearOrphanUploadTagAfterCommit(key: string): Promise<void> {
+  try {
+    await clearOrphanUploadTag(key);
+  } catch (err) {
+    console.error('clearOrphanUploadTagAfterCommit: failed to clear orphan tag', { key, error: err });
   }
 }
 
@@ -221,13 +292,6 @@ function normalizeSegments(segments: unknown): Array<{ index: number; text: stri
   });
 }
 
-function wordCountFromSegments(segments: Array<{ text: string }>): number {
-  return segments.reduce(
-    (total, seg) => total + seg.text.split(/\s+/).filter(Boolean).length,
-    0,
-  );
-}
-
 /** Parse and sanitize optional TipTap `content` from a request body. */
 function parseRequestTipTapContent(raw: unknown): TipTapDoc | undefined {
   if (!isTipTapDoc(raw)) return undefined;
@@ -248,12 +312,24 @@ function rejectUnsafeTipTap(
       }),
     };
   }
+  // Node-type allowlisting does not constrain attribute values that the
+  // client renderer interpolates into style/src (stored-XSS vector).
+  const unsafeAttr = findUnsafeTipTapAttr(doc);
+  if (unsafeAttr) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: `Unsupported TipTap attribute value '${unsafeAttr}' in ${field}`,
+      }),
+    };
+  }
   if (serializedTipTapBytes(doc) > TIPTAP_FIELD_MAX_BYTES) {
     return {
       statusCode: 400,
       body: JSON.stringify({
         code: 'PAYLOAD_TOO_LARGE',
-        message: `${field} exceeds the 1MB serialized size limit`,
+        message: `${field} exceeds the ${Math.round(TIPTAP_FIELD_MAX_BYTES / 1_048_576)}MB serialized size limit`,
       }),
     };
   }
@@ -349,13 +425,22 @@ export const handler = async (
   // SQS async PDF ingest (Textract OCR) — not an API Gateway event.
   if (Array.isArray(event?.Records) && event.Records[0]?.eventSource === 'aws:sqs') {
     for (const record of event.Records) {
-      const body = JSON.parse(record.body) as IngestQueueMessage;
-      await processIngestQueueMessage(body, readS3ObjectBytes);
+      const trigger = parseIngestQueueMessage(record.body);
+      if (!trigger) {
+        console.warn('Dropping ingest queue message with invalid body');
+        continue;
+      }
+      await processIngestQueueMessage(trigger, readS3ObjectBytes);
     }
     return;
   }
 
+  bindCorsOrigin(event);
   try {
+    // Reject forged/unsigned authorizer contexts (direct-invoke).
+    const forged = await rejectIfForgedAuthContext(event);
+    if (forged) return withCors(forged);
+
     const { httpMethod, resource } = event;
     const accessFailure = studentAccessFailure(event);
     if (accessFailure) return withCors(accessFailure);
@@ -425,56 +510,45 @@ async function handleListDocuments(event: any): Promise<APIGatewayProxyResult> {
   };
 }
 
-function normalizeGrants(raw: unknown): AccessGrant[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((g) => {
-      if (!g || typeof g !== 'object') return null;
-      const row = g as Record<string, unknown>;
-      const id = typeof row.id === 'string' ? row.id : null;
-      const userId = typeof row.userId === 'string' ? row.userId : null;
-      const documentTypeId =
-        typeof row.documentTypeId === 'string' ? row.documentTypeId : null;
-      const grantedBy = typeof row.grantedBy === 'string' ? row.grantedBy : '';
-      const grantedAt =
-        typeof row.grantedAt === 'string' ? row.grantedAt : new Date().toISOString();
-      if (!id || !userId || !documentTypeId) return null;
-      return {
-        id,
-        userId,
-        documentTypeId,
-        grantedBy,
-        grantedAt,
-        ...(typeof row.revokedAt === 'string' ? { revokedAt: row.revokedAt } : {}),
-      } satisfies AccessGrant;
-    })
-    .filter((g): g is AccessGrant => g !== null);
-}
-
 /**
- * Reload the relevant active grant inside the Document service. The REST
- * authorizer also loads grants on every request, but this local query preserves
- * dual enforcement and prevents stale or forged authorizer context from
- * authorizing submission to a locked Department.
+ * Submission access gate shared by every Document route that creates or
+ * modifies a Draft (create document, create draft, autosave). Re-reads the
+ * department's archived/OPEN-LOCKED state and the caller's active grants from
+ * the database on every request — never from the authorizer context or UI —
+ * so LOCKED, revoked grants and archived departments bind existing Documents
+ * too. The decision is routed through `gateSubmission`
+ * per the submissionGating contract: callers MUST NOT proceed unless `ok`.
  */
-async function loadActiveSubmissionGrants(
+async function enforceSubmissionAccess(
+  db: Awaited<ReturnType<typeof getDataAccess>>,
   userId: string,
   documentTypeId: string,
-  db: Awaited<ReturnType<typeof getDataAccess>>,
-): Promise<AccessGrant[]> {
-  const rows = await db.query<Record<string, unknown>>(
-    `SELECT id,
-            user_id AS "userId",
-            document_type_id AS "documentTypeId",
-            granted_by AS "grantedBy",
-            granted_at::text AS "grantedAt"
-     FROM access_grant
-     WHERE user_id = $1
-       AND document_type_id = $2
-       AND revoked_at IS NULL`,
-    [userId, documentTypeId],
+): Promise<
+  | { ok: true; sizeLimitWords: number | null }
+  | { ok: false; response: APIGatewayProxyResult }
+> {
+  const access = await checkSubmissionAccess(db, userId, documentTypeId);
+  if (!access.ok) {
+    return { ok: false, response: submissionAccessDeniedResponse(access) };
+  }
+  const gate = await gateSubmission(
+    { resolveAccess: async () => access.decision },
+    userId,
+    documentTypeId,
   );
-  return normalizeGrants(rows);
+  if (gate.status !== 'permitted') {
+    return {
+      ok: false,
+      response: submissionAccessDeniedResponse({
+        ok: false,
+        statusCode: 403,
+        code: 'ACCESS_REQUEST_REQUIRED',
+        message: 'This department is locked. Request access from a department admin.',
+        documentTypeId,
+      }),
+    };
+  }
+  return { ok: true, sizeLimitWords: access.sizeLimitWords };
 }
 
 async function readS3ObjectBytes(key: string): Promise<Buffer> {
@@ -536,64 +610,13 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  const dtRows = await db.query(
-    `SELECT dt.id, d.access_state AS access_state, dt.size_limit_words, d.archived_at
-     FROM document_type dt
-     INNER JOIN department d ON d.id = dt.department_id
-     WHERE dt.id = $1`,
-    [documentTypeId],
-  );
-  if (dtRows.length === 0) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        code: 'BAD_REQUEST',
-        message: `Document type '${documentTypeId}' was not found`,
-      }),
-    };
-  }
-
-  if (dtRows[0].archived_at) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        code: 'DEPARTMENT_ARCHIVED',
-        message: 'This department is no longer accepting submissions.',
-      }),
-    };
-  }
-
-  const documentType = {
-    id: dtRows[0].id as string,
-    accessState: dtRows[0].access_state as 'OPEN' | 'LOCKED',
-  };
-  const sizeLimitWords =
-    typeof dtRows[0].size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  // Submission access gate (archived / OPEN-LOCKED / active grant). Shared with
+  // every other submission path — see enforceSubmissionAccess.
+  const access = await enforceSubmissionAccess(db, actor.userId, documentTypeId);
+  if (!access.ok) return access.response;
+  const sizeLimitWords = access.sizeLimitWords;
   const createDocPolicy = await getPlatformUsagePolicy(db);
   const platformWordLimit = createDocPolicy.maxWordCount;
-
-  const grants = await loadActiveSubmissionGrants(actor.userId, documentTypeId, db);
-  const submissionGate = await gateSubmission(
-    {
-      resolveAccess: async (_userId, dtId) =>
-        resolveAccess({
-          documentType: { id: dtId, accessState: documentType.accessState },
-          grants,
-        }),
-    },
-    actor.userId,
-    documentTypeId,
-  );
-  if (submissionGate.status === 'requires-access-request') {
-    return {
-      statusCode: 403,
-      body: JSON.stringify({
-        code: 'ACCESS_REQUEST_REQUIRED',
-        message: 'This department is locked. Request access from a department admin.',
-        documentTypeId: submissionGate.documentTypeId,
-      }),
-    };
-  }
 
   const metadataRows = await db.query<{
     id: string;
@@ -677,6 +700,9 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   let asyncPdf:
     | { key: string; fileName: string }
     | null = null;
+  // Set once the lifetime upload slot has been reserved ahead of OCR on the
+  // sync file branch, so the final transaction does not reserve a second time.
+  let slotReserved = false;
 
   if (source.kind === 'paste') {
     const text = typeof source.text === 'string' ? source.text : '';
@@ -713,51 +739,79 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     }
     const fileName = key.split('/').pop() || 'upload.docx';
     s3Key = key;
+    // Fail-closed clear BEFORE any transaction (no S3 call is made while a DB
+    // connection or row lock is held). Every failure path below re-tags, and
+    // every success path clears again after commit.
     await clearOrphanUploadTag(key);
     // PDF OCR can exceed API Gateway ~29s — enqueue and return immediately.
-    if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
+    if (shouldIngestPdfAsync(fileName)) {
       asyncPdf = { key, fileName };
     } else {
+      // Reserve the lifetime upload slot BEFORE fetching bytes or running paid
+      // extraction (pdf.js/Textract), mirroring the async branch's
+      // reserve-before-enqueue ordering. An over-cap user is rejected before
+      // any S3 fetch or OCR and before the Lambda is held for the Textract poll
+      // loop. On any rejection, re-tag the upload for lifecycle expiry so the
+      // key cannot be replayed to force repeated paid OCR and is not left
+      // untagged with nothing referencing it.
+      try {
+        await reserveDocumentUpload(actor.userId, db);
+        slotReserved = true;
+      } catch (error) {
+        await tagOrphanUploadForExpiry(key);
+        throw error;
+      }
       const bytes = await readS3ObjectBytes(key);
       ingestSource = { kind: 'file', fileName, bytes };
     }
   }
 
   if (asyncPdf) {
-    const created = await db.transaction(async (tx) => {
-      await reserveDocumentUpload(actor.userId, tx);
-      const rows = await tx.query<any>(
-        `INSERT INTO document (
-           owner_user_id, document_type_id, content_type_id, name, metadata,
-           status, created_at, draft_create_count
-         ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
-         RETURNING id, owner_user_id, document_type_id, content_type_id,
-                   name, metadata, status, created_at`,
-        [
-          actor.userId,
-          documentTypeId,
-          contentTypeId,
-          name,
-          JSON.stringify(metadata),
-          'Still Drafting',
-        ],
-      );
-      const documentId = rows[0].id as string;
-      const job = await insertQueuedIngestJob(tx, {
-        documentId,
-        s3Key: asyncPdf.key,
-        fileName: asyncPdf.fileName,
-        ocrEngine,
+    const pdf = asyncPdf;
+    // Any throw out of the transaction (reservation 429, insert or commit
+    // failure) means it rolled back and this request references nothing, so
+    // re-tag the upload for lifecycle expiry.
+    let created;
+    try {
+      created = await db.transaction(async (tx) => {
+        await reserveDocumentUpload(actor.userId, tx);
+        const rows = await tx.query<any>(
+          `INSERT INTO document (
+             owner_user_id, document_type_id, content_type_id, name, metadata,
+             status, created_at, draft_create_count
+           ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), 1)
+           RETURNING id, owner_user_id, document_type_id, content_type_id,
+                     name, metadata, status, created_at`,
+          [
+            actor.userId,
+            documentTypeId,
+            contentTypeId,
+            name,
+            JSON.stringify(metadata),
+            'Still Drafting',
+          ],
+        );
+        const documentId = rows[0].id as string;
+        const job = await insertQueuedIngestJob(tx, {
+          documentId,
+          s3Key: pdf.key,
+          fileName: pdf.fileName,
+          ocrEngine,
+        });
+        return { rows, documentId, job };
       });
-      return { rows, documentId, job };
-    });
+    } catch (error) {
+      await tagOrphanUploadForExpiry(pdf.key);
+      throw error;
+    }
+    await clearOrphanUploadTagAfterCommit(pdf.key);
 
     try {
       await enqueueIngestJob({
         jobId: created.job.id,
         documentId: created.documentId,
-        s3Key: asyncPdf.key,
-        fileName: asyncPdf.fileName,
+        s3Key: pdf.key,
+        fileName: pdf.fileName,
         userId: actor.userId,
         sizeLimitWords,
         platformSizeLimitWords: platformWordLimit,
@@ -805,15 +859,18 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     });
   } catch (error) {
     if (error instanceof UnsupportedFileFormatError) {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
       return {
         statusCode: 400,
         body: JSON.stringify({ code: 'UNSUPPORTED_FORMAT', message: error.message }),
       };
     }
+    if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
     throw error;
   }
 
   if (ingestResult.status === 'fallback') {
+    if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -828,37 +885,41 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   const segments = storedContent
     ? tipTapContentToSegments(storedContent)
     : ingestResult.segments;
-  const sizeResult = enforceSizeLimit(segments, {
-    documentTypeSizeLimitWords: sizeLimitWords,
-    platformSizeLimitWords: platformWordLimit,
-  });
-  if (sizeResult.status === 'over-limit') {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        code: 'OVER_SIZE_LIMIT',
-        message: sizeResult.message,
-        measuredWords: sizeResult.measuredWords,
-        effectiveLimitWords: sizeResult.effectiveLimitWords,
-      }),
-    };
-  }
 
   // Header and footer are stored in the draft and fed to AI prompts — include
-  // them in the total word count and enforce the same size cap.
+  // them in the total word/char counts and enforce the same size cap.
+  // Body counts are footnote-aware when a TipTap doc is the source so footnote
+  // bodies (which reach the Bedrock prompt) cannot bypass the gate; when the
+  // source is raw ingest segments, measure the segments directly.
+  const bodyWords = storedContent
+    ? wordCountFromTipTapContent(storedContent)
+    : countWords(segments);
+  const bodyChars = storedContent
+    ? charCountFromTipTapContent(storedContent)
+    : countChars(segments);
   const headerFooterWords =
     (ingestResult.header ? wordCountFromTipTapContent(ingestResult.header) : 0) +
     (ingestResult.footer ? wordCountFromTipTapContent(ingestResult.footer) : 0);
-  if (headerFooterWords > 0) {
-    const bodyWords = storedContent
-      ? wordCountFromTipTapContent(storedContent)
-      : sizeResult.measuredWords;
-    const overLimit = overSizeLimitHttpResponse(bodyWords + headerFooterWords, sizeLimitWords, platformWordLimit);
-    if (overLimit) return overLimit;
+  const headerFooterChars =
+    (ingestResult.header ? charCountFromTipTapContent(ingestResult.header) : 0) +
+    (ingestResult.footer ? charCountFromTipTapContent(ingestResult.footer) : 0);
+  const overLimit = overSizeLimitHttpResponse(
+    bodyWords + headerFooterWords,
+    sizeLimitWords,
+    platformWordLimit,
+    bodyChars + headerFooterChars,
+  );
+  if (overLimit) {
+    if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
+    return overLimit;
   }
 
   const created = await db.transaction(async (tx) => {
-    await reserveDocumentUpload(actor.userId, tx);
+    // The sync file branch already reserved the slot ahead of OCR; only reserve
+    // here for the paste branch to avoid double-counting.
+    if (!slotReserved) {
+      await reserveDocumentUpload(actor.userId, tx);
+    }
     const rows = await tx.query<any>(
       `INSERT INTO document (
          owner_user_id, document_type_id, content_type_id, name, metadata,
@@ -881,10 +942,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
       {
         documentId,
         segments,
-        wordCount:
-          (storedContent
-            ? wordCountFromTipTapContent(storedContent)
-            : sizeResult.measuredWords) + headerFooterWords,
+        wordCount: bodyWords + headerFooterWords,
         s3Key,
         ...(storedContent ? { content: storedContent } : {}),
         ...(ingestResult.header ? { header: ingestResult.header } : {}),
@@ -897,6 +955,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     );
     return { rows, documentId };
   });
+  if (s3Key !== 'inline') await clearOrphanUploadTagAfterCommit(s3Key);
 
   // Analytics counters are intentionally best-effort and outside the atomic
   // user-visible document/draft transaction.
@@ -1012,13 +1071,54 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
   if (s3Keys.length > 0) {
     const s3 = new S3Client({ region: process.env.AWS_REGION || 'ca-central-1' });
     const bucketName = process.env.DOCUMENTS_BUCKET_NAME!;
-    // DeleteObjects accepts up to 1000 keys per call.
+    // DeleteObjects accepts up to 1000 keys per call. It returns a per-key
+    // Errors[] (even with Quiet: true) — this is a compliance-driven PII
+    // erasure (REQ-SEC-PII-01), so a partial failure must NOT be reported as a
+    // clean deletion. Accumulate any per-key errors and fail closed below.
+    const deleteErrors: { Key?: string; Code?: string; Message?: string }[] = [];
     for (let i = 0; i < s3Keys.length; i += 1000) {
       const batch = s3Keys.slice(i, i + 1000);
-      await s3.send(new DeleteObjectsCommand({
+      const resp = await s3.send(new DeleteObjectsCommand({
         Bucket: bucketName,
         Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
       }));
+      if (resp.Errors?.length) deleteErrors.push(...resp.Errors);
+    }
+    if (deleteErrors.length > 0) {
+      // EMF metric (parsed from stdout) so incomplete erasure is observable.
+      console.log(
+        JSON.stringify({
+          _aws: {
+            Timestamp: Date.now(),
+            CloudWatchMetrics: [
+              {
+                Namespace: 'WREN/Document',
+                Dimensions: [[]],
+                Metrics: [{ Name: 'PiiDeleteObjectsFailure', Unit: 'Count' }],
+              },
+            ],
+          },
+          PiiDeleteObjectsFailure: 1,
+          documentId,
+          failedCount: deleteErrors.length,
+        }),
+      );
+      // Error codes only — object keys/bodies are not logged as content.
+      console.error(
+        JSON.stringify({
+          event: 'pii_delete_failed',
+          documentId,
+          failedCount: deleteErrors.length,
+          codes: deleteErrors.map((e) => e.Code),
+        }),
+      );
+      // Fail closed: wrapHandler maps statusCode>=500 to a 500 INTERNAL_ERROR,
+      // so the incomplete erasure is neither audited as complete nor returned
+      // as a success. Positioned before the audit write and the final 200.
+      throw Object.assign(
+        new Error('Failed to delete all uploaded objects during erasure'),
+        { statusCode: 500 },
+      );
     }
   }
 
@@ -1044,6 +1144,41 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
         Key: { sessionId: `${actor.userId}#${canonicalId}` },
       }));
     }
+  }
+
+  // Audit the destructive deletion (Requirement 44). The
+  // activity_event table holds NO foreign key to document/draft/feedback_item,
+  // so this record survives the deletion it describes. Best-effort and
+  // non-fatal: an audit-write failure must never turn a successful deletion
+  // into a user-visible error (the data is already gone). The actor is
+  // pseudonymized by the shared writer — the raw userId is never stored.
+  try {
+    await recordActivityEventRow(
+      {
+        actorUserId: actor.userId,
+        verb: 'document.deleted',
+        objectType: 'Document',
+        objectRef: documentId,
+        documentTypeId,
+        context: {
+          deletedDrafts: draftResult.length,
+          deletedFeedbackItems: feedbackResult.length,
+          deletedS3Objects: s3Keys.length,
+        },
+      },
+      db,
+    );
+  } catch (err) {
+    // Structured, non-content log line so the gap is observable even when the
+    // audit row could not be written (e.g. a missing GRANT on activity_event).
+    console.error(
+      JSON.stringify({
+        event: 'audit_write_failed',
+        action: 'document.deleted',
+        documentId,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }
 
   return {
@@ -1129,13 +1264,12 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
     };
   }
 
+  // Re-check submission access on every autosave: an existing Document does
+  // not keep write access after LOCK / grant revocation / archive.
   const documentTypeId = docRows[0].document_type_id as string;
-  const dtRows = await db.query(
-    `SELECT size_limit_words FROM document_type WHERE id = $1`,
-    [documentTypeId],
-  );
-  const sizeLimitWords =
-    typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const access = await enforceSubmissionAccess(db, actor.userId, documentTypeId);
+  if (!access.ok) return access.response;
+  const sizeLimitWords = access.sizeLimitWords;
   const patchPolicy = await getPlatformUsagePolicy(db);
 
   const cleaned = stripAiMarksFromTipTapContent(tipTapContent) as TipTapDoc;
@@ -1156,7 +1290,16 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
     wordCountFromTipTapContent(cleaned) +
     (header ? wordCountFromTipTapContent(header) : 0) +
     (footer ? wordCountFromTipTapContent(footer) : 0);
-  const overLimit = overSizeLimitHttpResponse(wordCount, sizeLimitWords, patchPolicy.maxWordCount);
+  const charCount =
+    charCountFromTipTapContent(cleaned) +
+    (header ? charCountFromTipTapContent(header) : 0) +
+    (footer ? charCountFromTipTapContent(footer) : 0);
+  const overLimit = overSizeLimitHttpResponse(
+    wordCount,
+    sizeLimitWords,
+    patchPolicy.maxWordCount,
+    charCount,
+  );
   if (overLimit) {
     return overLimit;
   }
@@ -1230,23 +1373,28 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
+  // Resubmission is a submission: run the same access gate as document
+  // creation BEFORE any S3 read, OCR, slot reservation or draft write.
   const documentTypeId = docRows[0].document_type_id as string;
-  const dtRows = await db.query(
-    `SELECT size_limit_words FROM document_type WHERE id = $1`,
-    [documentTypeId],
-  );
-  const sizeLimitWords =
-    typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const access = await enforceSubmissionAccess(db, actor.userId, documentTypeId);
+  if (!access.ok) return access.response;
+  const sizeLimitWords = access.sizeLimitWords;
   const createDraftPolicy = await getPlatformUsagePolicy(db);
   const draftPlatformWordLimit = createDraftPolicy.maxWordCount;
 
   let s3Key = 'inline';
   let normalizedSegments: Array<{ index: number; text: string }>;
   let wordCount: number;
+  // Authoritative character count (footnote-aware for TipTap sources), used for
+  // the defense-in-depth character ceiling alongside wordCount.
+  let charCount: number;
   let storedContent: TipTapDoc | undefined = tipTapContent;
   let storedHeader: TipTapDoc | undefined;
   let storedFooter: TipTapDoc | undefined;
   let storedOcrConfidence: number | undefined;
+  // Set once the draft slot has been reserved ahead of OCR on the sync file
+  // branch, so the final transaction does not reserve a second time.
+  let slotReserved = false;
 
   if (hasSource) {
     let ingestSource:
@@ -1288,25 +1436,39 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       }
       const fileName = key.split('/').pop() || 'upload.docx';
       s3Key = key;
+      // Fail-closed clear BEFORE any transaction (no S3 call is made while a
+      // DB connection or row lock is held). Every failure path below re-tags,
+      // and every success path clears again after commit.
       await clearOrphanUploadTag(key);
 
-      if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
-        const job = await db.transaction(async (tx) => {
-          const locked = await tx.query<{ owner_user_id: string }>(
-            'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
-            [documentId],
-          );
-          if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
-            throw Object.assign(new Error('Document not found'), { statusCode: 404 });
-          }
-          await reserveDraftCreate(documentId, tx);
-          return insertQueuedIngestJob(tx, {
-            documentId: documentId as string,
-            s3Key: key,
-            fileName,
-            ocrEngine,
+      if (shouldIngestPdfAsync(fileName)) {
+        // Any throw out of the transaction (ownership 404, reservation 429,
+        // insert or commit failure) means it rolled back and this request
+        // references nothing, so re-tag the upload.
+        let job;
+        try {
+          job = await db.transaction(async (tx) => {
+            const locked = await tx.query<{ owner_user_id: string }>(
+              'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
+              [documentId],
+            );
+            if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
+              throw Object.assign(new Error('Document not found'), { statusCode: 404 });
+            }
+            await reserveDraftCreate(documentId, tx);
+            const queued = await insertQueuedIngestJob(tx, {
+              documentId: documentId as string,
+              s3Key: key,
+              fileName,
+              ocrEngine,
+            });
+            return queued;
           });
-        });
+        } catch (error) {
+          await tagOrphanUploadForExpiry(key);
+          throw error;
+        }
+        await clearOrphanUploadTagAfterCommit(key);
         try {
           await enqueueIngestJob({
             jobId: job.id,
@@ -1350,6 +1512,28 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
         };
       }
 
+      // Reserve the draft slot BEFORE paid extraction on the sync file branch,
+      // mirroring the async branch's lock → verify → reserve → enqueue ordering.
+      // An over-cap request is rejected before any OCR runs. On rejection,
+      // re-tag the upload for lifecycle expiry so the key cannot be replayed.
+      try {
+        await db.transaction(async (tx) => {
+          const locked = await tx.query<{ owner_user_id: string }>(
+            'SELECT owner_user_id FROM document WHERE id = $1 FOR UPDATE',
+            [documentId],
+          );
+          if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
+            throw Object.assign(new Error('Document not found'), { statusCode: 404 });
+          }
+          await reserveDraftCreate(documentId, tx);
+        });
+        slotReserved = true;
+      } catch (error) {
+        // Ownership 404 or reservation 429: nothing references the key.
+        await tagOrphanUploadForExpiry(key);
+        throw error;
+      }
+
       const bytes = await readS3ObjectBytes(key);
       ingestSource = { kind: 'file', fileName, bytes };
     }
@@ -1367,15 +1551,18 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       });
     } catch (error) {
       if (error instanceof UnsupportedFileFormatError) {
+        if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
         return {
           statusCode: 400,
           body: JSON.stringify({ code: 'UNSUPPORTED_FORMAT', message: error.message }),
         };
       }
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
       throw error;
     }
 
     if (ingestResult.status === 'fallback') {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
       return {
         statusCode: 400,
         body: JSON.stringify({
@@ -1393,61 +1580,64 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     normalizedSegments = storedContent
       ? tipTapContentToSegments(storedContent)
       : normalizeSegments(ingestResult.segments);
-    const sizeResult = enforceSizeLimit(normalizedSegments, {
-      documentTypeSizeLimitWords: sizeLimitWords,
-      platformSizeLimitWords: draftPlatformWordLimit,
-    });
-    if (sizeResult.status === 'over-limit') {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          code: 'OVER_SIZE_LIMIT',
-          message: sizeResult.message,
-          measuredWords: sizeResult.measuredWords,
-          effectiveLimitWords: sizeResult.effectiveLimitWords,
-        }),
-      };
-    }
+    // Body counts are footnote-aware for TipTap sources so footnote bodies
+    // cannot bypass the gate; raw ingest segments are measured directly.
     wordCount = storedContent
       ? wordCountFromTipTapContent(storedContent)
-      : sizeResult.measuredWords;
+      : countWords(normalizedSegments);
+    charCount = storedContent
+      ? charCountFromTipTapContent(storedContent)
+      : countChars(normalizedSegments);
+    const overLimit = overSizeLimitHttpResponse(
+      wordCount,
+      sizeLimitWords,
+      draftPlatformWordLimit,
+      charCount,
+    );
+    if (overLimit) {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
+      return overLimit;
+    }
   } else if (tipTapContent) {
     normalizedSegments = tipTapContentToSegments(tipTapContent);
-    const sizeResult = enforceSizeLimit(normalizedSegments, {
-      documentTypeSizeLimitWords: sizeLimitWords,
-      platformSizeLimitWords: draftPlatformWordLimit,
-    });
-    if (sizeResult.status === 'over-limit') {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          code: 'OVER_SIZE_LIMIT',
-          message: sizeResult.message,
-          measuredWords: sizeResult.measuredWords,
-          effectiveLimitWords: sizeResult.effectiveLimitWords,
-        }),
-      };
-    }
     wordCount = wordCountFromTipTapContent(tipTapContent);
+    charCount = charCountFromTipTapContent(tipTapContent);
+    const overLimit = overSizeLimitHttpResponse(
+      wordCount,
+      sizeLimitWords,
+      draftPlatformWordLimit,
+      charCount,
+    );
+    if (overLimit) {
+      return overLimit;
+    }
   } else {
-    normalizedSegments = normalizeSegments(segments);
-    wordCount = wordCountFromSegments(normalizedSegments);
-    const sizeResult = enforceSizeLimit(normalizedSegments, {
-      documentTypeSizeLimitWords: sizeLimitWords,
-      platformSizeLimitWords: draftPlatformWordLimit,
-    });
-    if (sizeResult.status === 'over-limit') {
+    // Segments write branch: body.segments is taken directly and is NOT passed
+    // through rejectUnsafeTipTap, so the 8MB-per-field TipTap bound does not
+    // apply here. Enforce a serialized-bytes cap on the raw payload plus the
+    // word/char ceiling BEFORE reserving a draft slot.
+    const segmentBytes = serializedTipTapBytes(segments);
+    if (segmentBytes > TIPTAP_FIELD_MAX_BYTES) {
       return {
         statusCode: 400,
         body: JSON.stringify({
-          code: 'OVER_SIZE_LIMIT',
-          message: sizeResult.message,
-          measuredWords: sizeResult.measuredWords,
-          effectiveLimitWords: sizeResult.effectiveLimitWords,
+          code: 'PAYLOAD_TOO_LARGE',
+          message: `segments exceeds the ${Math.round(TIPTAP_FIELD_MAX_BYTES / 1_048_576)}MB serialized size limit`,
         }),
       };
     }
-    wordCount = sizeResult.measuredWords;
+    normalizedSegments = normalizeSegments(segments);
+    wordCount = countWords(normalizedSegments);
+    charCount = countChars(normalizedSegments);
+    const overLimit = overSizeLimitHttpResponse(
+      wordCount,
+      sizeLimitWords,
+      draftPlatformWordLimit,
+      charCount,
+    );
+    if (overLimit) {
+      return overLimit;
+    }
   }
 
   // Include header and footer words in the total — they are stored in the
@@ -1455,9 +1645,20 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   const headerFooterWords =
     (storedHeader ? wordCountFromTipTapContent(storedHeader) : 0) +
     (storedFooter ? wordCountFromTipTapContent(storedFooter) : 0);
-  if (headerFooterWords > 0) {
-    const overLimit = overSizeLimitHttpResponse(wordCount + headerFooterWords, sizeLimitWords, draftPlatformWordLimit);
-    if (overLimit) return overLimit;
+  const headerFooterChars =
+    (storedHeader ? charCountFromTipTapContent(storedHeader) : 0) +
+    (storedFooter ? charCountFromTipTapContent(storedFooter) : 0);
+  if (headerFooterWords > 0 || headerFooterChars > 0) {
+    const overLimit = overSizeLimitHttpResponse(
+      wordCount + headerFooterWords,
+      sizeLimitWords,
+      draftPlatformWordLimit,
+      charCount + headerFooterChars,
+    );
+    if (overLimit) {
+      if (s3Key !== 'inline') await tagOrphanUploadForExpiry(s3Key);
+      return overLimit;
+    }
     wordCount += headerFooterWords;
   }
 
@@ -1469,7 +1670,11 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     if (!locked[0] || locked[0].owner_user_id !== actor.userId) {
       throw Object.assign(new Error('Document not found'), { statusCode: 404 });
     }
-    await reserveDraftCreate(documentId, tx);
+    // The sync file branch already reserved the slot ahead of OCR; only reserve
+    // here for the paste / segments / client-TipTap branches.
+    if (!slotReserved) {
+      await reserveDraftCreate(documentId, tx);
+    }
     const draftRepo = new DbDraftRepository(tx);
     const result = await createDraftRevision(
       {
@@ -1488,6 +1693,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     );
     return result.draft;
   });
+  if (s3Key !== 'inline') await clearOrphanUploadTagAfterCommit(s3Key);
 
   return {
     statusCode: 201,

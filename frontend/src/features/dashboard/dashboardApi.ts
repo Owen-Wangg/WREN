@@ -49,10 +49,11 @@ const organizationsSchema = z.array(organizationAccessSchema);
 const accessGrantsSchema = z.array(accessGrantSchema);
 const contentTypesSchema = z.array(contentTypeSchema);
 
-/** Backend Department DTO (V4) — no accessState; dashboard treats groupings as OPEN. */
+/** Backend Department DTO (V4), including the actor-specific catalog decision. */
 const departmentDtoSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  viewerCanDiscover: z.boolean(),
 });
 
 /** Backend DocumentType DTO mapped into the dashboard Writing Type shape. */
@@ -98,6 +99,7 @@ export async function fetchOrganizations(
       id: d.id,
       name: d.name,
       accessState: 'OPEN' as const,
+      viewerCanDiscover: d.viewerCanDiscover,
     })),
   );
 }

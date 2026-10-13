@@ -1,6 +1,10 @@
 # WREN — Project Modification Guide
 
-This guide covers practical modifications developers commonly need: theming, branding, authentication, API extensions, frontend, LLM configuration, migrations, document ingest, the Feedback Engine, usage limits, encryption, and deployment.
+This guide tells you what to change and where when you modify WREN: styling and branding, authentication, the API, frontend, application configuration, data and documents, the Feedback Engine, shared types, deployment, and troubleshooting.
+
+It does not cover how to deploy or operate WREN in detail. For that, see the operational documentation linked at the end.
+
+The product display name is **WREN**. AWS resources and this repository use the `wren` prefix.
 
 Related docs:
 
@@ -13,43 +17,106 @@ Related docs:
 - [Database migrations](../backend/database/migrations/README.md)
 - [CDK package](../cdk/README.md)
 
-The product display name is **WREN**. AWS resources and this repository use the prefix **WREN**.
+---
+
+## Before You Modify WREN
+
+Work through this before changing anything:
+
+- Decide which layer owns the behavior: frontend, API, database, Feedback Engine, or infrastructure.
+- Read the relevant guide linked above before changing deployment or security behavior.
+- Prefer a configuration change over a code change when the behavior is already configurable (model id, usage limits, prompts).
+- Reuse an existing service boundary instead of creating a duplicate implementation.
+- Update shared types in `@wren/types` before changing the consumers.
+- Add or update tests for behavior that changes.
+- Run the relevant local checks before deploying.
+- Do **not** edit an already-applied database migration.
+- Do **not** introduce a `replacementProse` field into feedback DTOs or persistence.
+- For infrastructure changes, run `npx cdk synth` before deploying.
+
+## Where Should I Look?
+
+| If you need to change… | Start here |
+| --- | --- |
+| UI styling | `frontend/src/styles/` |
+| Product / display name | `frontend/src/config/env.ts`, CDK app config |
+| Authentication | `backend/auth/`, `cdk/lib/stacks/CognitoStack.ts` |
+| API endpoint (route) | `cdk/lib/openapi.yaml` |
+| API business logic | the relevant `backend/<service>/` |
+| UI page | `frontend/src/pages/` |
+| UI feature | `frontend/src/features/` |
+| Database schema | `backend/database/migrations/` |
+| Document processing | `backend/document/` |
+| Feedback generation | `backend/engine/python/` |
+| Feedback API / orchestration | `backend/feedback/` |
+| Shared DTOs | `types/` |
+| AWS infrastructure | `cdk/lib/stacks/` |
+| Model configuration | Admin config / SSM / `cdk/lib/config.ts` |
+| Deployment | [deployment-guide.md](./deployment-guide.md) |
+
+Not every change needs a deploy. Use this to avoid rebuilding the whole app for a configuration tweak:
+
+| Change type | Requires a deploy? |
+| --- | --- |
+| Frontend component | Yes |
+| Lambda (Node) code | Yes |
+| Database migration | Yes |
+| CDK infrastructure | Yes |
+| Feedback Engine Python code | New image + Lambda update |
+| SSM model setting | No code deploy |
+| Usage limits | No code deploy |
+| Admin prompt configuration | No code deploy |
+| Display name | Depends on the path used (config vs deploy) |
 
 ---
 
 ## Table of Contents
 
-- [Modifying Colors and Styles](#modifying-colors-and-styles)
-- [Display Name and Branding](#display-name-and-branding)
-- [Authentication and Authorization](#authentication-and-authorization)
-- [Using External Identity Providers (Enterprise SSO)](#using-external-identity-providers-enterprise-sso)
-- [Extending the API](#extending-the-api)
-- [Modifying Frontend Components](#modifying-frontend-components)
-- [Legal Copy, Disclaimer, and License](#legal-copy-disclaimer-and-license)
-- [Configuring LLM Models](#configuring-llm-models)
-- [Database Schema Changes (Migrations)](#database-schema-changes-migrations)
-- [Usage Limit Management](#usage-limit-management)
-- [Document Ingest and OCR](#document-ingest-and-ocr)
-- [Modifying the Feedback Engine](#modifying-the-feedback-engine)
-- [Shared Types (`@wren/types`)](#shared-types-wrentypes)
-- [Deployment and Testing](#deployment-and-testing)
-  - [Advanced deployment configuration](#advanced-deployment-configuration)
-- [Monitoring and Operational Ownership](#monitoring-and-operational-ownership)
-- [Encryption and KMS Keys](#encryption-and-kms-keys)
-- [Troubleshooting and Best Practices](#troubleshooting-and-best-practices)
+- [WREN — Project Modification Guide](#wren--project-modification-guide)
+  - [Before You Modify WREN](#before-you-modify-wren)
+  - [Where Should I Look?](#where-should-i-look)
+  - [Table of Contents](#table-of-contents)
+  - [1. Styling and Branding](#1-styling-and-branding)
+    - [1.1 Colors and styles](#11-colors-and-styles)
+    - [1.2 Display name and branding](#12-display-name-and-branding)
+  - [2. Authentication and Authorization](#2-authentication-and-authorization)
+    - [Signup email-domain allowlist](#signup-email-domain-allowlist)
+    - [Bootstrap admin](#bootstrap-admin)
+    - [Enterprise SSO](#enterprise-sso)
+  - [3. Extending the API](#3-extending-the-api)
+    - [3.1 Add a route on an existing Lambda](#31-add-a-route-on-an-existing-lambda)
+    - [3.2 Add a new Lambda](#32-add-a-new-lambda)
+  - [4. Modifying Frontend Components](#4-modifying-frontend-components)
+    - [4.1 Adding a page](#41-adding-a-page)
+    - [4.2 Local vs live API](#42-local-vs-live-api)
+  - [5. Application Configuration](#5-application-configuration)
+    - [5.1 Legal copy, disclaimer, and license](#51-legal-copy-disclaimer-and-license)
+    - [5.2 Configuring LLM models](#52-configuring-llm-models)
+    - [5.3 Usage limits](#53-usage-limits)
+  - [6. Data and Documents](#6-data-and-documents)
+    - [6.1 Database schema changes (migrations)](#61-database-schema-changes-migrations)
+    - [6.2 Document ingest and OCR](#62-document-ingest-and-ocr)
+  - [7. Modifying the Feedback Engine](#7-modifying-the-feedback-engine)
+  - [8. Shared Types (`@wren/types`)](#8-shared-types-wrentypes)
+  - [9. Deployment and Testing](#9-deployment-and-testing)
+  - [10. Encryption](#10-encryption)
+  - [11. Troubleshooting](#11-troubleshooting)
+  - [12. Related Operational Documentation](#12-related-operational-documentation)
 
 ---
 
-## Modifying Colors and Styles
+## 1. Styling and Branding
 
-The React web app uses **Tailwind CSS 4** and a **token-first** theme. Raw hex colors and raw `px` font sizes are forbidden in component `.tsx` files. ESLint rule `wren/no-raw-design-values` fails lint on violations.
+### 1.1 Colors and styles
 
-**Single source of truth**
+The React web app uses **Tailwind CSS 4** and a **token-first** theme. Raw hex colors and raw `px` font sizes are not allowed in component `.tsx` files; the ESLint rule `wren/no-raw-design-values` fails lint on violations.
 
-1. Edit TypeScript tokens in `frontend/src/styles/tokens/` (`colors.ts`, `typography.ts`, `spacing.ts`, `radii.ts`, `shadows.ts`).
+The TypeScript token files are the **canonical source** for design values. The Tailwind `@theme` block mirrors those values and must be updated whenever the tokens change:
+
+1. Edit the TypeScript tokens in `frontend/src/styles/tokens/` (`colors.ts`, `typography.ts`, `spacing.ts`, `radii.ts`, `shadows.ts`).
 2. Mirror the same values in the Tailwind `@theme` block in `frontend/src/styles/theme.css`.
 
-**Example** (change the primary button fill):
+Example — change the primary button fill:
 
 ```ts
 // frontend/src/styles/tokens/colors.ts
@@ -67,66 +134,81 @@ export const palette = {
 }
 ```
 
-In components, use named utilities only, for example `bg-accent-primary`, `text-text-primary`, `text-body`, `p-lg`, `rounded-md`.
+In components, use named utilities only, for example `bg-accent-primary`, `text-text-primary`, `text-body`, `p-lg`, `rounded-md`. Global imports live in `frontend/src/styles/index.css`. Fonts are **Inter** (UI) and **Source Serif 4** (document body).
 
-Global imports live in `frontend/src/styles/index.css`. Fonts: **Inter** (UI) and **Source Serif 4** (document body).
+### 1.2 Display name and branding
 
----
+The display name is **configuration**, not a hardcoded string. Do **not** hardcode `LEON` or `WREN` as a product string in UI or Lambda responses.
 
-## Display Name and Branding
+Do not confuse these two values: `appName` controls what users see, while `projectName` controls AWS resource naming.
 
-Do **not** hardcode `LEON` or `WREN` as a product string in UI or Lambda responses. The display name is configuration.
+| Concept | Example | Used for |
+| --- | --- | --- |
+| Display name | `WREN` | UI text and email copy |
+| Project name | `wren` | AWS resource naming (`wren-*`) |
+| Environment | `dev` | Environment separation |
+| Stack prefix | `wren-dev` | CDK stack and resource grouping |
+
+To change the display name:
 
 | Layer | How to change |
 | --- | --- |
 | Frontend | `VITE_APP_NAME` (see `frontend/.env.example`). Read only via `appConfig.appName` in `frontend/src/config/env.ts`. |
 | Amplify | CDK injects `VITE_APP_NAME` from context `appName` (`cdk/lib/stacks/AmplifyStack.ts`). |
-| Cognito emails | Use `config.appName` in `cdk/lib/stacks/CognitoStack.ts` (already parameterized). |
-| CDK synth | `npx cdk deploy -c appName="My Coach"` — updates SSM `/{stackPrefix}/config/app-name`. |
+| Cognito emails | Use `config.appName` in `cdk/lib/stacks/CognitoStack.ts`, already parameterized. |
+| CDK synth | `npx cdk deploy -c appName="My Coach"` updates SSM `/{stackPrefix}/config/app-name`. |
 
-`scripts/check-app-name.mjs` fails the build if the display-name token appears as a whole quoted string outside `cdk/lib/config.ts`. Resource names stay `wren-*` (`projectName`); only the UI/email label changes.
+`scripts/check-app-name.mjs` fails the build if the display-name token appears as a whole quoted string outside `cdk/lib/config.ts`. Resource names stay `wren-*` from `projectName`; only the UI and email label changes. The document title, landing heading, nav, and the "Ask {name}" label all read `appConfig.appName`.
 
-Document title, landing heading, nav, and “Ask {name}” all use `appConfig.appName`.
+The deploy-time default for `WREN_APP_NAME` is `LEON`, kept for backward compatibility with existing deployments. New deployments should set it to the intended display name. See [Advanced deployment configuration](./deployment-guide.md#advanced-deployment-configuration).
 
 ---
 
-## Authentication and Authorization
+## 2. Authentication and Authorization
 
-Users sign in with **Amazon Cognito** (email + password, optional MFA). There is no anonymous REST API (except CORS `OPTIONS`). First login provisions an `app_user` with the **Student** role.
+Users sign in with **Amazon Cognito** (email and password, optional MFA). All REST API methods require Cognito authentication; `OPTIONS` requests are handled separately for CORS. First login provisions an `app_user` with the **Student** role.
 
-**Roles** (database, not Cognito groups on every request):
+Roles are stored in the **database**, not read from Cognito groups on every request.
 
 | Role | Typical access |
 | --- | --- |
 | `Student` | Own documents, debriefs, Ask WREN, notifications |
-| `DepartmentAdmin` | Catalog/config for administered departments |
+| `DepartmentAdmin` | Catalog and config for administered departments |
 | `TechnicalAdmin` | Platform config, usage policy, model id, user search, roles |
 
-Bootstrap a Technical Admin by adding the Cognito user to the **`SystemAdmin`** group **before first login**. After that, Postgres is the source of truth. See the [deployment guide](./deployment-guide.md).
+> **Terminology.** The application role is `TechnicalAdmin`. The frontend refers to this area as **System Admin** (`SystemAdminLayout`, routes under `/system-admin`). They are the same thing.
 
 Key files:
 
-- `cdk/lib/stacks/CognitoStack.ts` — user pool, app client, password policy, `SystemAdmin` group
-- `backend/auth/src/authorizer.ts` — JWT verify + identity mapping
+- `cdk/lib/stacks/CognitoStack.ts` — user pool, app client, password policy, PreSignUp email-domain allowlist, `SystemAdmin` group
+- `backend/auth/src/authorizer.ts` — JWT verify and identity mapping
 - `backend/auth/src/capabilityMatrix.ts` — per-operation allow/deny
-- `frontend/src/features/auth/` — Cognito session, token provider
-- `frontend/src/App.tsx` — `ProtectedRoute` with `allow={['TechnicalAdmin']}` etc.
-- `frontend/src/services/apiClient.ts` — `Authorization: Bearer` on every call
+- `frontend/src/features/auth/` — Cognito session and token provider
+- `frontend/src/App.tsx` — `ProtectedRoute` with `allow={['TechnicalAdmin']}`, etc.
+- `frontend/src/services/apiClient.ts` — attaches `Authorization: Bearer` on every call
 
-Local UI: `VITE_USE_LIVE_API=false` (default) uses an in-memory mock and **does not** enforce login. Set `true` plus Cognito IDs to hit a deployed API.
+Local UI uses `VITE_USE_LIVE_API=false` (the default), which runs an in-memory mock and **does not** enforce login. Set it to `true` plus Cognito IDs to hit a deployed API.
 
----
+### Signup email-domain allowlist
 
-## Using External Identity Providers (Enterprise SSO)
+Self-signup is limited to the exact hostnames in `WREN_ALLOWED_EMAIL_DOMAINS` (for example `ubc.ca,student.ubc.ca`), which `npm run deploy` requires. Matching is exact with no wildcards: list every hostname you want to allow. The Cognito PreSignUp Lambda on `CognitoStack` is the real gate and fails closed: an empty list denies every new sign-up (`isSignupEmailDomainAllowed` in `types/src/signupEmailDomains.ts`, with a CDK copy in `cdk/lib/signupEmailDomains.ts`). Amplify injects the same list as `VITE_ALLOWED_EMAIL_DOMAINS` so the sign-up form can fail clearly. When running `cdk deploy` on the Cognito stack directly, pass `-c allowedEmailDomains=...` (or set it once in `~/.cdk.json`) or new sign-ups are blocked; `npm run deploy` without the variable refuses to run rather than clearing the list. Existing users are not signed out or blocked from login.
 
-The pool is currently **native Cognito** (email/password). To add Microsoft Entra ID, Okta, or another OIDC/SAML IdP:
+See the [deployment guide](./deployment-guide.md#restricting-signup-to-email-domains).
 
-1. In `cdk/lib/stacks/CognitoStack.ts`, add a `CfnUserPoolIdentityProvider` (OIDC or SAML) with issuer, client id/secret, and attribute mapping (`email`, `sub`).
+### Bootstrap admin
+
+There is no Technical Admin until you create one. Add the intended Cognito user to the **`SystemAdmin`** group **before** their first login. After that first login, **Postgres** becomes the source of truth for roles. See the [deployment guide](./deployment-guide.md).
+
+### Enterprise SSO
+
+The pool is currently **native Cognito** (email and password). To add Microsoft Entra ID, Okta, or another OIDC/SAML IdP:
+
+1. In `cdk/lib/stacks/CognitoStack.ts`, add a `CfnUserPoolIdentityProvider` (OIDC or SAML) with issuer, client id/secret, and attribute mapping for `email` and `sub`.
 2. Attach the provider to the Cognito app client (`supportedIdentityProviders`).
-3. Register callback URLs on the IdP: Amplify app URL + Cognito hosted-UI / web-app callback.
+3. Register callback URLs on the IdP: the Amplify app URL plus the Cognito hosted-UI or web-app callback.
 4. Update `frontend/src/features/auth/cognitoAuthService.ts` to start the federated flow (hosted UI or `signInWithRedirect`) using the provider name you registered.
 5. Keep authorization in **Postgres**. Do not grant `TechnicalAdmin` from IdP groups on every request. Optionally map a single bootstrap group the same way `SystemAdmin` is used today (`backend/auth/src/provisionUser.ts`).
-6. Redeploy Cognito (and Amplify if callback URLs change).
+6. Redeploy Cognito, and Amplify if callback URLs change.
 
 AWS docs:
 
@@ -135,18 +217,26 @@ AWS docs:
 
 ---
 
-## Extending the API
+## 3. Extending the API
 
-This API is **spec-first**. Routes are declared in `cdk/lib/openapi.yaml` and deployed by `SpecRestApi` in `cdk/lib/stacks/ApiStack.ts`. Most features attach to an existing Lambda (Document, Feedback, Admin, Audit, Notification).
+The API is **spec-first**. Routes are declared in `cdk/lib/openapi.yaml` and deployed by `SpecRestApi` in `cdk/lib/stacks/ApiStack.ts`. Most features attach to an existing Lambda (Document, Feedback, Admin, Audit, Notification).
 
-### Add a route on an existing Lambda
+**Which approach should I use?**
 
-1. Implement the branch in the service handler, for example `backend/admin/src/lambda-handler.ts` (`resource` + `httpMethod`).
+- Add a route to an **existing Lambda** when the operation belongs to an existing service boundary such as Document, Admin, Feedback, or Notification.
+- Create a **new Lambda** when the operation introduces a distinct execution boundary, permissions model, runtime, scaling requirement, or failure domain.
+- Do **not** create a new Lambda solely to avoid adding another route to an existing service.
+
+> **Authentication default.** API methods are authenticated by default. `ApiStack` applies `CognitoAuthorizer` automatically to every method except `OPTIONS`; do not add a `security` block merely to enable Cognito auth. If a route must be unauthenticated, follow the existing `security: []` exception pattern in `ApiStack.ts` (the same one used for CORS `OPTIONS`) — removing `security` does not make a route public. Verify any new route's authorization behavior before deployment.
+
+### 3.1 Add a route on an existing Lambda
+
+1. Implement the branch in the service handler, for example `backend/admin/src/lambda-handler.ts`, matching on `resource` and `httpMethod`.
 2. If the operation is privileged, add a `Capability` in `types/src/authorization.ts` and map it in `backend/auth/src/capabilityMatrix.ts`. Call `requireCapability` before any mutation.
-3. Add request/response Zod schemas in `types/` if the payload is a domain DTO. Never add a `replacementProse` field.
-4. Add the path/method to `cdk/lib/openapi.yaml` with `x-amazon-apigateway-integration` pointing at the same `Fn::Sub` ARN as sibling routes (`AdminFunctionArn`, `DocumentFunctionArn`, …).
+3. Add request/response Zod schemas in `types/` if the payload is a domain DTO. **Never** add a `replacementProse` field.
+4. Add the path and method to `cdk/lib/openapi.yaml` with `x-amazon-apigateway-integration` pointing at the same `Fn::Sub` ARN as sibling routes (`AdminFunctionArn`, `DocumentFunctionArn`, and so on).
 5. Call the API from the React web app only through `frontend/src/services` (`ApiClient`), validating the response with Zod.
-6. Redeploy: `npx cdk deploy wren-dev-Api` (and `wren-dev-Compute` if handler code changed).
+6. Redeploy: `npx cdk deploy wren-dev-Api`, and `wren-dev-Compute` if handler code changed.
 
 Example OpenAPI stub:
 
@@ -180,15 +270,28 @@ Example OpenAPI stub:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
 ```
 
-`ApiStack` injects CORS `OPTIONS` on every path. Keep `security` unset on methods that should use `CognitoAuthorizer` (applied automatically except `OPTIONS`).
+`ApiStack` injects the CORS `OPTIONS` method on every path and applies `CognitoAuthorizer` to every other method (see the authentication-default note above).
 
-### Add a new Lambda
+**Change → Test → Deploy → Verify** for a new route:
+
+- **Change:** handler branch, capability, types, OpenAPI path, frontend service method.
+- **Test:** unit test the handler; validate the client response with Zod; add an authorization test if the route is privileged.
+- **Deploy:** `wren-dev-Api`, plus `wren-dev-Compute` if handler code changed.
+- **Verify:** an authenticated request succeeds, the expected `401`/`403` behavior holds, and the response shape matches the schema.
+
+**Do not** in the API layer:
+
+- Do not call `fetch` directly from feature components; go through the shared `ApiClient`.
+- Do not duplicate DTO definitions; import from `@wren/types`.
+- Do not bypass `requireCapability` for privileged mutations.
+
+### 3.2 Add a new Lambda
 
 1. Create `backend/<service>/src/lambda-handler.ts`.
-2. Register a `NodejsFunction` in `cdk/lib/stacks/ComputeStack.ts` (VPC private subnets, per-role DB secret, timeout/memory). Add a Postgres role in `cdk/lib/appDbRoles.ts` + a migration if the role is new.
+2. Register a `NodejsFunction` in `cdk/lib/stacks/ComputeStack.ts` (VPC private subnets, per-role DB secret, timeout, memory). If the Lambda needs database access, add or reuse the appropriate Postgres role in `cdk/lib/appDbRoles.ts`; create a migration if the role or its grants are new.
 3. Pass the function ARN into `ApiStack` and add a substitution in `ApiStack.ts` (`MyFunctionArn`).
 4. Reference that placeholder from OpenAPI.
-5. Grant `apigateway.amazonaws.com` invoke permission (follow existing `fromFunctionAttributes` pattern in `ApiStack.ts`).
+5. Grant `apigateway.amazonaws.com` invoke permission, following the existing `fromFunctionAttributes` pattern in `ApiStack.ts`.
 
 Entry points Compute already bundles:
 
@@ -197,30 +300,29 @@ Entry points Compute already bundles:
 | Authorizer | `backend/auth/src/authorizer.ts` |
 | Document | `backend/document/src/lambda-handler.ts` |
 | Admin | `backend/admin/src/lambda-handler.ts` |
-| Audit | `backend/admin/src/lambda-audit.ts` |
 | Feedback orchestrator | `backend/feedback/src/lambda-handler.ts` |
 | Notification | `backend/notification/src/lambda-handler.ts` |
 | Feedback Engine | Python container from ECR `{prefix}-feedback-engine:bootstrap` |
 
 ---
 
-## Modifying Frontend Components
+## 4. Modifying Frontend Components
 
-Layout (`frontend/src/`):
+Layout under `frontend/src/`:
 
 | Path | Role |
 | --- | --- |
-| `pages/` | Route screens (student, department admin, system admin) |
-| `features/` | Feature UI (auth, dashboard, editor, debrief, ask-wren, notifications, …) |
+| `pages/` | Route screens for student, department admin, and system admin |
+| `features/` | Feature UI: auth, dashboard, editor, debrief, ask-wren, notifications, and so on |
 | `components/ui/` | shadcn/Radix primitives |
-| `services/` | Shared API client (do not `fetch` around it) |
+| `services/` | Shared API client; do **not** `fetch` around it |
 | `app/` | Providers |
 | `config/env.ts` | `VITE_*` config |
 
-### Adding a page
+### 4.1 Adding a page
 
-1. Create a page under `frontend/src/pages/…` and export it from `frontend/src/pages/index.ts` (or the existing barrel).
-2. Register the route in `frontend/src/App.tsx`. Wrap with `ProtectedRoute` and the right layout.
+1. Create a page under `frontend/src/pages/` and export it from `frontend/src/pages/index.ts` or the existing barrel.
+2. Register the route in `frontend/src/App.tsx`, wrapped with `ProtectedRoute` and the right layout.
 
 ```tsx
 // frontend/src/App.tsx
@@ -231,32 +333,40 @@ Layout (`frontend/src/`):
 </Route>
 ```
 
-Student chrome: `StudentLayout`. Department: `DepartmentAdminLayout`. Technical Admin: `SystemAdminLayout`. The document editor is a full-viewport route (`/dashboard/document/:documentId`) without the student shell.
+Layouts by area: `StudentLayout` for students, `DepartmentAdminLayout` for department admins, and `SystemAdminLayout` for Technical Admins. The document editor is a full-viewport route (`/dashboard/document/:documentId`) without the student shell.
 
-### Local vs live API
+### 4.2 Local vs live API
 
 ```bash
 cd frontend
 cp .env.example .env.local
-# VITE_USE_LIVE_API=false  → mock, no login
+# VITE_USE_LIVE_API=false → mock, no login
 npm run dev
 ```
 
----
+**Do not** in the frontend:
 
-## Legal Copy, Disclaimer, and License
-
-There is no shared marketing `Footer.tsx`. Landing copy is `frontend/src/pages/users/LandingPage.tsx`.
-
-**AI disclaimer** must stay in one component: `frontend/src/components/ui/AiDisclaimerNotice.tsx` (`AI_DISCLAIMER_DEFAULT_MESSAGE`). Pass `message=` only for a shorter variant (for example Ask LEON). Do not duplicate the legal paragraph on the dashboard or debrief modal.
-
-**Repository license** is MIT (`license` in the root `package.json` and the README License section). Update those files if the distribution terms change.
+- Do not hardcode product names; use `appConfig.appName`.
+- Do not introduce raw design values (hex colors, raw `px`); use tokens.
+- Do not bypass the shared API client.
 
 ---
 
-## Configuring LLM Models
+## 5. Application Configuration
 
-Debrief and Ask WREN call **Amazon Bedrock**. The model id is configuration, not a hardcoded string in orchestration logic.
+### 5.1 Legal copy, disclaimer, and license
+
+There is no shared marketing `Footer.tsx`. Landing copy lives in `frontend/src/pages/users/LandingPage.tsx`.
+
+The AI disclaimer must stay in one component: `frontend/src/components/ui/AiDisclaimerNotice.tsx` (`AI_DISCLAIMER_DEFAULT_MESSAGE`). Pass `message=` only for a shorter variant, for example "Ask WREN". Do not duplicate the legal paragraph on the dashboard or debrief modal.
+
+The repository license is MIT (the `license` field in the root `package.json` and the README License section). Update both files if the distribution terms change.
+
+### 5.2 Configuring LLM models
+
+Debrief and Ask WREN call **Amazon Bedrock**. The model id is **configuration**, not a hardcoded string in orchestration logic.
+
+**Recommended:** change the model through the Technical Admin configuration/API when possible. The other mechanisms exist for deployment and recovery paths.
 
 | Mechanism | Path / API |
 | --- | --- |
@@ -276,47 +386,26 @@ aws ssm put-parameter \
   --region <your-data-plane-region>
 ```
 
-**Rules when updating:**
+When changing the model:
 
-- Prefer cross-region inference profile ids when your account uses them. Enable the model in the **data-plane Region** (and any regions the profile requires).
-- Compute IAM already allows `bedrock:InvokeModel` on `inference-profile/us.anthropic.*`, `us.meta.*`, and corresponding foundation-model ARNs (`crisBedrockInvokeResources` in `ComputeStack.ts`). A new **family** (for example Amazon Titan) needs an IAM update there.
-- Feedback Engine also receives `BEDROCK_MODEL_ID` at deploy time; runtime code should prefer SSM / DB (`platform_usage_policy.bedrock_model_id`). After a model change, confirm the engine logs the id you expect.
-- Admin prompt fields use a separate Bedrock **Guardrail** (`PROMPT_ATTACK`) from the Config stack. Details: [bedrock-guardrails.md](./bedrock-guardrails.md).
+- Prefer cross-region inference profile ids when your account uses them. Enable the model in the **data-plane Region**, and in any other Regions the profile requires.
+- Treat the profile geography as a residency decision, not only an availability setting. A `us.*` profile may route AI Debrief and Ask WREN prompts, draft content or excerpts, conversation context, and responses to US AWS Regions even when the caller and persistent stores are in `ca-central-1`.
+- Compute IAM already allows `bedrock:InvokeModel` on `inference-profile/us.anthropic.*`, `us.meta.*`, and the corresponding foundation-model ARNs (`crisBedrockInvokeResources` in `ComputeStack.ts`). 
 
-Push a new Feedback Engine image if Python invocation code changes; SSM-only model swaps do not require a new image if the engine reads SSM at runtime.
+The Feedback Engine also receives `BEDROCK_MODEL_ID` at deploy time, but runtime code resolves the model in this precedence order:
 
----
+1. `platform_usage_policy.bedrock_model_id` in the database
+2. SSM parameter `/{stackPrefix}/config/bedrock-model-id`
+3. The `BEDROCK_MODEL_ID` environment variable set at deploy time
+4. The CDK deployment default
 
-## Database Schema Changes (Migrations)
+After a model change, confirm the resolved model id in the Feedback Engine CloudWatch logs (`/aws/lambda/wren-dev-feedback-engine`) before treating the change as complete. Admin prompt fields use a separate Bedrock Guardrail (`PROMPT_ATTACK`) from the Config stack; see [bedrock-guardrails.md](./bedrock-guardrails.md).
 
-Migrations are **forward-only numbered `.sql` files** in `backend/database/migrations/`. They are bundled into the Database stack’s migration Lambda and applied on deploy (tracked in `schema_migrations`).
+Push a new Feedback Engine image if Python invocation code changes. SSM-only model swaps do not require a new image, since the engine reads SSM at runtime.
 
-**Do not edit an already-applied file.** Add the next number, for example `0033_my_feature.sql`.
+### 5.3 Usage limits
 
-```sql
--- backend/database/migrations/0033_my_feature.sql
-CREATE TABLE IF NOT EXISTS my_feature (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-```
-
-Invariants (enforced in SQL and `backend/database/schema.test.ts`):
-
-- Drafts are **immutable** (no `UPDATE`; new version = new row).
-- No `replacement_prose` column on feedback.
-- `activity_event` has **no FK** to documents (survives document delete).
-
-Apply by redeploying Database (`MigrationRunner` copies `backend/database/migrations` into the Lambda). For a one-off against RDS Proxy: `psql` with `sslmode=require` (see migrations README).
-
-If you add a **new app DB role**, update `cdk/lib/appDbRoles.ts`, grant in SQL, and let the password-sync custom resource run.
-
----
-
-## Usage Limit Management
-
-Lifetime caps are stored in Postgres (`platform_usage_policy`) and enforced in the Admin/Document/Feedback paths. Changing them does **not** require a code deploy.
+Lifetime caps are stored in **Postgres** (`platform_usage_policy`) and enforced in the Admin, Document, and Feedback paths. Changing them does **not** require a code deploy.
 
 | Limit | Typical meaning |
 | --- | --- |
@@ -325,94 +414,140 @@ Lifetime caps are stored in Postgres (`platform_usage_policy`) and enforced in t
 | `documentUploadLimit` | Uploads |
 | `draftsPerDocumentLimit` | Draft versions per document |
 
-- **Technical Admin UI:** `SystemUsageLimitsForm` (`frontend/src/features/system-admin/components/SystemUsageLimitsForm.tsx`)
-- **API:** `GET`/`PUT /v1/admin/config/usage-limits`
-- **Overrides:** `POST /v1/overrides` (extra actions for one student + document type, with expiry)
+The Ask WREN `messageLimit` is a **durable, per-document lifetime** cap: the counter lives in Postgres (`document.ask_message_count`, incremented by `reserveAskMessage`), not on the TTL'd DynamoDB conversation item, so it cannot be reset by letting a session expire.
 
-`429` with `USAGE_LIMIT_REACHED` means a cap was hit. See the [API guide](./api-guide.md).
+- Technical Admin UI: `SystemUsageLimitsForm` (`frontend/src/features/system-admin/components/SystemUsageLimitsForm.tsx`)
+- API: `GET`/`PUT /v1/admin/config/usage-limits`
+- Overrides: `POST /v1/overrides` grants extra actions for one student and document type, with an expiry.
+
+A `429` with `USAGE_LIMIT_REACHED` means a cap was hit. See the [API guide](./api-guide.md).
 
 ---
 
-## Document Ingest and OCR
+## 6. Data and Documents
 
-Writers upload `.docx` / `.pdf` or paste in the editor.
+### 6.1 Database schema changes (migrations)
+
+Migrations are **forward-only**, numbered `.sql` files in `backend/database/migrations/`. They are bundled into the Database stack's migration Lambda and applied on deploy, tracked in `schema_migrations`.
+
+The schema currently ships as a single consolidated baseline, `0001_baseline.sql`. While the project is still pre-release, schema changes are folded back into that baseline rather than added as separate numbered files, so it stays the one source of the current schema.
+
+```sql
+-- backend/database/migrations/0001_baseline.sql — add to the baseline
+CREATE TABLE IF NOT EXISTS my_feature (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+> **Once the baseline has been applied to a shared or production environment, stop editing it.** From that point, schema changes must be new forward-only files (`0002_…`, `0003_…`); never edit an already-applied migration.
+
+Invariants, enforced in SQL and `backend/database/schema.test.ts`:
+
+- Drafts are **immutable**. There is no `UPDATE`; a new version is a new row.
+- There is **no** `replacement_prose` column on feedback.
+- `activity_event` has **no foreign key** to documents, so it survives a document delete.
+
+Apply migrations by redeploying Database; `MigrationRunner` copies `backend/database/migrations` into the Lambda. For a one-off against RDS Proxy, use `psql` with `sslmode=require` (see the migrations README).
+
+If you add a new app DB role, update `cdk/lib/appDbRoles.ts`, grant it in SQL, and let the password-sync custom resource run.
+
+**Do not** in the database layer:
+
+- Do not edit an applied migration.
+- Do not modify immutable draft rows.
+- Do not bypass the migration runner for normal schema changes.
+
+### 6.2 Document ingest and OCR
+
+Writers upload `.docx` or `.pdf`, or paste into the editor.
 
 Flow:
 
-1. `POST /v1/uploads/presign` → browser POST to S3 (15-minute URL, KMS fields, content-type lock).
+1. `POST /v1/uploads/presign` returns a 15-minute pre-signed URL with KMS fields and a content-type lock; the browser POSTs directly to S3.
 2. `POST /v1/documents` or `POST /v1/documents/{id}/drafts` with `source.kind: file` and `key`.
-3. Document Lambda extracts Word or queues PDF work; **Amazon Textract** runs for PDFs that need OCR.
-4. Poll `GET /v1/documents/{id}/ingest/status` (`queued` / `processing` / `completed` / `failed`).
+3. The Document Lambda extracts Word content directly. PDF work is queued to the ingest worker, which routes **all** PDFs through **Amazon Textract** (`AnalyzeDocument` for single-page or image input; async `StartDocumentAnalysis` for multi-page PDFs in S3). There is no separate digital-text path today — the Tesseract/LiteParse engines were removed, and `resolveOcrEngine` always returns `textract`.
+4. Poll `GET /v1/documents/{id}/ingest/status` for `queued`, `processing`, `completed`, or `failed`.
 
 Key files:
 
-- `backend/document/src/lambda-handler.ts` — HTTP + presign
+- `backend/document/src/lambda-handler.ts` — HTTP and presign
 - `backend/document/src/ingestWorker.ts` — async ingest
-- `backend/document/src/textractOcr.ts` / `pdfToTipTap.ts` — extraction
+- `backend/document/src/textractOcr.ts` and `pdfToTipTap.ts` — extraction
 - S3 lifecycle: tagged orphan uploads expire after 1 day (`StorageResources.ts`)
 
-To support another file type: extend content-type allow-lists in the Document Lambda **and** the presign conditions; add tests. Keep size limits aligned with usage policy.
+To support another file type, extend the content-type allow-lists in the Document Lambda **and** the presign conditions, and add tests. Keep size limits aligned with the usage policy.
 
 ---
 
-## Modifying the Feedback Engine
+## 7. Modifying the Feedback Engine
 
-Coaching is **Socratic debrief**, not RAG over a knowledge base. Do not add a re-ranker against `document_vectors` unless you are building a new retrieval product; this repo diffs drafts and asks questions.
+The Feedback Engine is **not a RAG system**, by decision. It compares drafts and generates **Socratic** questions. 
+
+Reference grounding is full-text. `handler.load_reference_material` reads every UTF-8 file under `document-types/{documentTypeId}/` in the reference bucket, and the prompt assembler takes them in S3 key order up to 4,000 characters per file and 12,000 in total (`wren_engine/debrief_budget.py`). To control which files survive the cap, prefix file names (`01_`, `02_`, …). When the cap cuts anything the engine logs a warning and emits `WREN/FeedbackEngine` EMF metrics (`ReferenceCapApplied`, `ReferenceFilesTruncated`, `ReferenceFilesDropped`, `ReferenceCharsOmitted`). If those fire regularly for a Document Type, revisit the decision (see design.md "Reference grounding (full-text)").
 
 To change coaching behavior:
 
 | Concern | Where |
 | --- | --- |
-| System + type prompts | Department Admin type config (`typePromptText`); save-time no-ghostwriting + Bedrock prompt-attack |
-| Prompt assembly / untrusted student block | `backend/engine/python/wren_engine/prompt_assembly.py` |
+| System and type prompts | Department Admin type config (`typePromptText`); save-time no-ghostwriting and Bedrock prompt-attack checks |
+| Prompt assembly and untrusted student block | `backend/engine/python/wren_engine/prompt_assembly.py` |
 | Output allow-list (no rewrites) | `backend/engine/python/wren_engine/output_guardrail.py` |
-| Diff / anchors / progress | `backend/engine/python/` (see engine README) |
-| Job enqueue / REST | `backend/feedback/src/lambda-handler.ts` |
-| Queue / timeout | `ComputeStack.ts` — engine timeout **15 minutes**, SQS visibility **16 minutes**, `batchSize: 1` |
+| Diff, anchors, progress | `backend/engine/python/` (see engine README) |
+| Job enqueue and REST | `backend/feedback/src/lambda-handler.ts` |
+| Queue and timeout | `ComputeStack.ts`: engine timeout 15 minutes, SQS visibility 16 minutes, `batchSize: 1` |
 
 After Python engine changes:
 
-1. Build and push the image to ECR `{stackPrefix}-feedback-engine` tag `bootstrap` (deployment guide).
-2. Update the Lambda (pipeline or `update-function-code`).
-3. Confirm Bedrock model access and CloudWatch `/aws/lambda/wren-dev-feedback-engine`.
+1. Build and push the image to ECR `{stackPrefix}-feedback-engine` tag `bootstrap` (see the deployment guide).
+2. Update the Lambda through the pipeline or `update-function-code`.
+3. Confirm Bedrock model access and check CloudWatch `/aws/lambda/wren-dev-feedback-engine`.
 
-Realtime completion: AppSync `onDebriefReady`; UI falls back to `GET .../feedback/status` if `VITE_APPSYNC_URL` is unset.
+Realtime completion uses AppSync `onDebriefReady`. The UI falls back to `GET .../feedback/status` if `VITE_APPSYNC_URL` is unset.
+
+**Do not** in the Feedback Engine:
+
+- Do not generate replacement prose.
+- Do not treat student-authored content as trusted instructions.
+- Do not add retrieval unless the reference-cap metrics show corpora have outgrown the prompt budget.
 
 ---
 
-## Shared Types (`@wren/types`)
+## 8. Shared Types (`@wren/types`)
 
-Domain DTOs live in `types/`. Frontend and Lambdas must import from `@wren/types` instead of duplicating shapes.
+Domain DTOs live in `types/`. Frontend and Lambdas **must** import from `@wren/types` rather than duplicating shapes.
 
 When you add an entity:
 
 1. Add a **strict** Zod schema in `types/src/`.
 2. Export it from `types/src/index.ts`.
-3. The compile-time `LacksReplacementProse` guards in `index.ts` must include the new type.
+3. Add the new type to the compile-time `LacksReplacementProse` guards in `index.ts`.
 4. Run `npm run -w @wren/types typecheck` and `npx jest types/src`.
 
 ---
 
-## Deployment and Testing
+## 9. Deployment and Testing
 
-**Repo root (workspaces):**
+Repo root (workspaces):
 
 ```bash
 npm ci
 ```
 
-**CDK** (from `cdk/` after root `npm ci`):
+CDK (from `cdk/` after root `npm ci`). These commands are examples for an already-initialized development environment. For dependency ordering, first deployment, or infrastructure changes, use the [deployment guide](./deployment-guide.md).
+
+> **Important:** `npx cdk deploy --all` requires the Feedback Engine bootstrap image to already exist in ECR.
 
 ```bash
 npm ci
 npx cdk synth
 npx cdk deploy wren-dev-Compute wren-dev-Api
-# or: npx cdk deploy --all   # ECR bootstrap image must exist first
+# or, once the ECR bootstrap image exists:
+npx cdk deploy --all
 ```
 
-Full first-time order, Bedrock, ECR, Amplify, and first admin: [deployment-guide.md](./deployment-guide.md). Context keys: [cdk/README.md](../cdk/README.md).
-
-**Frontend:**
+Frontend:
 
 ```bash
 cd frontend
@@ -423,152 +558,44 @@ npm run lint
 npm test         # vitest
 ```
 
-**Python engine (local tests):** see `backend/engine/python/README.md`.
+Python engine local tests: see `backend/engine/python/README.md`.
 
-**CI/CD:** CodePipeline + Amplify require GitHub context (`githubOwner` / `githubRepo`). Without those, deploy stacks manually.
-
-### Advanced deployment configuration
-
-This section documents environment variables for non-default deployment, recovery, automation, and teardown scenarios. For the normal hosted deployment, use only the short list in the [Deployment Guide](./deployment-guide.md#variables-for-the-standard-deployment) and leave the variables below unset unless a scenario explicitly requires them.
-
-Do not commit access tokens or GitHub personal access tokens to source control. The deployment workflow redacts secrets from its output and removes its temporary secret files after use.
-
-#### AWS target and application identity
-
-| Variable | Default | Use only when |
-| --- | --- | --- |
-| `AWS_PROFILE` | AWS CLI default credential chain | Selecting a named AWS CLI profile or SSO session. Standard AWS credential environment variables also work. |
-| `WREN_REGION` | `ca-central-1` | Deploying the data plane outside the default Region. The CloudFront WAF stack and its second CDK bootstrap remain in `us-east-1`. |
-| `WREN_APP_NAME` | `LEON` | Changing the user-facing display name in the UI and email. |
-| `WREN_PROJECT_NAME` | `wren` | Changing the lowercase resource-name prefix component. |
-| `WREN_ENVIRONMENT` | `dev` | Deploying a distinct environment, such as `staging` or `prod`. Production deployments require `WREN_EXPECTED_ACCOUNT_ID`. |
-| `WREN_STACK_PREFIX` | `{project}-{environment}` | Supplying the derived stack prefix explicitly. Its value must exactly equal `WREN_PROJECT_NAME-WREN_ENVIRONMENT`. |
-| `WREN_BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-6` | Using an approved, available Bedrock inference profile other than the default. The workflow verifies it with a minimal invocation before deployment. |
-
-#### Hosting, CI/CD, images, and ECR ownership
-
-| Variable | Default | Use only when |
-| --- | --- | --- |
-| `WREN_ENABLE_AMPLIFY` | `true` | Running an API-only deployment with `false`. GitHub owner/repository variables become optional only when both Amplify and CI/CD are disabled. |
-| `WREN_ENABLE_CICD` | `false` | Adding or maintaining the optional CodePipeline after application smoke checks pass. The `Cicd` prerequisite stack still owns ECR and the Compute permissions boundary when this is `false`. |
-| `WREN_ECR_OWNERSHIP` | `managed` | Reusing a verified pre-existing repository by setting `external`. New deployments should keep `managed`; ownership is never silently adopted. |
-| `WREN_ENGINE_IMAGE_TAG` | generated immutable deploy tag | Pinning an ECR image tag. Change a pinned value for each engine source release; generated tags are fresh after each successful deployment. |
-
-##### External ECR safety requirement
-
-Use `WREN_ECR_OWNERSHIP=external` only when the expected `{prefix}-feedback-engine` repository already exists outside CloudFormation. Its repository policy must allow the `lambda.amazonaws.com` service principal to call `ecr:GetDownloadUrlForLayer`, `ecr:BatchGetImage`, and `ecr:BatchCheckLayerAvailability`. The workflow stops before deployment if this policy is absent or incomplete.
-
-#### Recovery and automation controls
-
-| Variable | Default | Use only when |
-| --- | --- | --- |
-| `WREN_ADMIN_ALREADY_CONFIGURED` | `false` | Recovering a legacy environment that already has an administrator but cannot provide `WREN_ADMIN_EMAIL`. This bypasses role discovery only; it never bypasses the authenticated smoke-token requirement. |
-| `WREN_BOOTSTRAP_MISSING` | `true` interactively; otherwise `false` | Allowing the workflow to create missing CDK bootstrap stacks. Existing bootstraps are always discovered and reused. |
-| `WREN_REQUIRE_APPROVAL` | `broadening` interactively; otherwise `never` | Choosing the CDK approval mode: `broadening` or `never`. |
-| `WREN_NON_INTERACTIVE` | `CI=true` | Enforcing non-interactive safety behavior. It requires `WREN_EXPECTED_ACCOUNT_ID` and defaults CDK approval to `never`. |
-| `WREN_SKIP_INSTALL` | `false` | Skipping both `npm ci` operations only when the root and `cdk/` `node_modules` directories already exist and are known-good. |
-
-#### Preview and protected teardown
-
-| Variable | Default | Use only when |
-| --- | --- | --- |
-| `WREN_DRY_RUN` | `false` | Discovering and synthesizing deployment or teardown state without mutating AWS resources. |
-| `WREN_UNDEPLOY_CONFIRM` | unset | Authorizing `npm run undeploy`. It is ignored by `npm run deploy`. |
-
-`npm run undeploy` is deliberately protected and retains application data and foundational resources. Before it makes changes, the command prints the exact confirmation value required for `WREN_UNDEPLOY_CONFIRM`; it has the form `<account-id>/<region>/<stack-prefix>`. Set that complete value exactly, then rerun the command. See [Cleanup](./deployment-guide.md#cleanup) for retained-resource behavior. Implementation details are in the [deployment workflow modules](./deployment-guide.md#deployment-workflow-implementation).
+For the full first-time deployment order, Bedrock and ECR setup, Amplify, the first-admin flow, and all advanced deployment variables, see the [deployment guide](./deployment-guide.md). Context keys are documented in the [CDK README](../cdk/README.md).
 
 ---
 
-## Monitoring and Operational Ownership
+## 10. Encryption
 
-The `Observability` stack creates CloudWatch alarms and publishes every alarm to the SNS topic `${stackPrefix}-alarms`. By default, that topic has **no recipient**. Set the optional `alarmEmail` CDK context during deployment to create an email subscription. AWS sends a confirmation link to that address; alarms are not delivered until the recipient accepts it.
+Storage uses a **customer-managed KMS key** with rotation enabled (`StorageResources.ts`), covering the documents and reference S3 buckets and the DynamoDB conversation table. RDS and Secrets Manager use **AWS-managed keys** unless you explicitly configure a CMK. Presigned uploads include `x-amz-server-side-encryption` and the key id when `DOCUMENTS_KMS_KEY_ARN` is set; keep this in sync with the bucket key.
 
-This setup is portable to another AWS account. Replace the profile, stack prefix, Region, and email below with values for that deployment—do not copy the `wren-dev` identifiers unless that is actually the new environment.
+For CDK property names, IAM grants, and the step-by-step CMK changes for each store, see [AWS Managed Keys](./aws-managed-keys.md).
 
-```powershell
-$Profile = "my-aws-profile"
-$StackPrefix = "myproject-dev"
-$Region = "ca-central-1"
-$AlarmEmail = "oncall@example.com"
+> **Do not** turn off `enforceSSL` or `BlockPublicAccess.BLOCK_ALL` on the buckets.
 
-cd cdk
-npx cdk deploy "$StackPrefix-Observability" `
-  --profile $Profile `
-  -c stackPrefix=$StackPrefix `
-  -c region=$Region `
-  -c alarmEmail=$AlarmEmail
-```
-
-Keep `alarmEmail` in the deployment pipeline or pass it on every future `Observability` deployment. If a later synth omits the context value, CloudFormation will remove the managed email subscription.
-
-The configured alarms are:
-
-| Signal | Alarm condition | What it can indicate |
-| --- | --- | --- |
-| Lambda errors | More than 5 errors in one 5-minute period, per monitored function | Broken dependencies, permissions, networking, or application failures |
-| Lambda throttles | More than 1 throttle in each of two 5-minute periods | Insufficient concurrency or a traffic spike |
-| Feedback queue depth | More than 50 visible messages for two 5-minute periods | Feedback processing is falling behind |
-| Feedback dead-letter queue | At least 1 visible message | A feedback job exhausted its retries and needs investigation |
-| API Gateway latency | p99 latency above 10 seconds for three 5-minute periods | Slow API integrations or downstream services |
-
-The stack sets Lambda log retention to **30 days** for non-production environments and **90 days** when `environmentName=prod`. Separately, the VPC stack records accepted and rejected traffic in VPC Flow Logs for 30 days. Flow Logs support investigation but do not currently send an alarm by themselves.
-
-After deploying, open the SNS confirmation email and accept it. Then verify that AWS no longer reports the subscription as `PendingConfirmation`:
-
-```powershell
-$Account = aws sts get-caller-identity --profile $Profile --query Account --output text
-$TopicArn = "arn:aws:sns:$Region:$Account:$StackPrefix-alarms"
-aws sns list-subscriptions-by-topic `
-  --profile $Profile `
-  --region $Region `
-  --topic-arn $TopicArn `
-  --query "Subscriptions[].{Protocol:Protocol,Endpoint:Endpoint,Status:SubscriptionArn}" `
-  --output table
-```
-
-After confirmation, send a harmless delivery test and verify that the recipient receives it:
-
-```powershell
-aws sns publish `
-  --profile $Profile `
-  --region $Region `
-  --topic-arn $TopicArn `
-  --subject "Monitoring delivery test" `
-  --message "SNS alarm delivery is configured for $StackPrefix."
-```
-
-Monitoring is a detection and notification control—not an automatic rollback system. During an infrastructure change, an operator must still review API Gateway 4XX/5XX metrics, RDS Proxy connection errors in application logs, VPC Flow Log rejects, and NAT gateway bytes/errors. If health regresses, follow the affected feature’s rollback procedure. The repository does not configure endpoint-specific alarms or Route 53 Resolver query logging. CloudTrail may be provided centrally by AWS Organizations or Control Tower, so each new account owner must verify its event selectors, retention, and access with their platform team.
+> **CORS.** API Gateway OPTIONS and Lambda responses echo `Access-Control-Allow-Origin` for local Vite, the configured `customDomain` (plus `www`), extra `-c corsAllowedOrigins=...` values, and Amplify default hosts — not `*`. The documents bucket CORS list is the same exact origins plus `https://*.amplifyapp.com` (S3 cannot use a regex). The reference bucket has no CORS: admin uploads go through the Admin Lambda, not a browser presign.
 
 ---
 
-## Encryption and KMS Keys
+## 11. Troubleshooting
 
-| Store | Today | Typical CMK change |
-| --- | --- | --- |
-| S3 documents + reference | Customer-managed key, rotation on (`StorageResources.ts`) | Already CMK; tighten key policy / aliases if required |
-| DynamoDB conversations | Same CMK | Same |
-| RDS PostgreSQL | `storageEncrypted: true` (AWS RDS-managed key) | Pass `storageEncryptionKey` on `DatabaseInstance` in `DatabaseResources.ts` (new `Key` or shared storage key), grant the instance role decrypt |
-| Secrets Manager | AWS-managed secret encryption unless you set `encryptionKey` | Optional CMK on each `Secret` |
-| Presigned uploads | Include `x-amz-server-side-encryption` + key id when `DOCUMENTS_KMS_KEY_ARN` is set | Keep in sync with the bucket key |
-
-Step-by-step CDK property names and IAM grants: [AWS Managed Keys](./aws-managed-keys.md).
-
-Do not turn off `enforceSSL` or `BlockPublicAccess.BLOCK_ALL` on the buckets.
-
-CORS on the **API** is currently `Access-Control-Allow-Origin: *` in `ApiStack.ts`. For production, set `allowedOrigins` to the Amplify domain.
-
----
-
-## Troubleshooting and Best Practices
-
-- **Lambda timeout:** Document ingest 3 minutes; Feedback Engine 15 minutes; authorizer 20s. Raise `timeout` / `memorySize` in `ComputeStack.ts`. SQS visibility must stay **greater** than the consumer timeout.
-- **VPC / DB:** Lambdas use RDS Proxy (`DB_PROXY_HOST`) and per-role secrets (`wren_document`, `wren_admin`, …). Check Secrets Manager `{prefix}/database/...` and security groups (proxy allows VPC CIDR:5432).
-- **401:** Expired Cognito token or missing `Authorization`. Refresh the session. Authorizer log group: `/aws/lambda/wren-dev-authorizer`.
-- **403:** Role/capability/department scope. Inspect `GET /v1/auth/me`.
-- **Debrief never finishes:** Feedback Engine + Bedrock model access; DLQ alarm; queue depth. Poll `/feedback/status` if AppSync is unset.
-- **CORS in the browser:** Gateway 401/403 include CORS headers; raw API URL is not behind WAF — use CloudFront for edge rules.
-- **Theme lint failures:** Move hex/`px` into `frontend/src/styles/tokens/` and `theme.css`.
-- **Display-name CI:** Don’t put `"WREN"` as a quoted product string in new source; use `appConfig` / CDK `appName`.
+- **Lambda timeout:** document ingest 3 minutes, Feedback Engine 15 minutes, authorizer 20 seconds. Raise `timeout` or `memorySize` in `ComputeStack.ts`. SQS visibility must stay **greater** than the consumer timeout.
+- **VPC / DB:** Lambdas use RDS Proxy (`DB_PROXY_HOST`) and per-role secrets (`wren_document`, `wren_admin`, and so on). Check Secrets Manager `{prefix}/database/...` and the security groups; the proxy allows the VPC CIDR on port 5432.
+- **401:** expired Cognito token or missing `Authorization`. Refresh the session. Authorizer log group: `/aws/lambda/wren-dev-authorizer`.
+- **403:** role, capability, or department scope. Inspect `GET /v1/auth/me`.
+- **Debrief never finishes:** check Feedback Engine and Bedrock model access, the DLQ alarm, and queue depth. Poll `/feedback/status` if AppSync is unset.
+- **CORS / edge protection:** API Gateway responses include CORS headers. WAF rules apply at the CloudFront edge; do not assume the direct API Gateway URL receives the same edge protections.
+- **Theme lint failures:** move hex or `px` values into `frontend/src/styles/tokens/` and `theme.css`.
+- **Display-name CI:** do not put `"WREN"` as a quoted product string in new source; use `appConfig` or the CDK `appName`.
 - **Logging:** CloudWatch is the primary debug surface. Do not log JWTs or full draft bodies.
 
-**API Gateway throttling:** 100 req/s, 200 burst. WAF rate limit (CloudFront): 2000 req / 5 min / IP.
+**API Gateway throttling:** 100 req/s, 200 burst. **WAF rate limit** (CloudFront): 2000 requests per 5 minutes per IP.
+
+---
+
+## 12. Related Operational Documentation
+
+This guide covers how to modify WREN. For how to deploy and operate it, see:
+
+- [Deployment guide](./deployment-guide.md) — first-time deployment, first-admin flow, [advanced deployment configuration](./deployment-guide.md#advanced-deployment-configuration), and [monitoring and operational ownership](./deployment-guide.md#monitoring-and-operational-ownership).
+- [AWS managed keys](./aws-managed-keys.md) — full encryption architecture and CMK changes.
+- [Security overview](./security-overview.md) — security model and controls.

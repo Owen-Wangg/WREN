@@ -1,10 +1,18 @@
-import { Stack, type StackProps, CfnOutput, Duration } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, Duration, RemovalPolicy, ArnFormat } from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as kms from "aws-cdk-lib/aws-kms";
+import * as logs from "aws-cdk-lib/aws-logs";
+import * as s3 from "aws-cdk-lib/aws-s3";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as wafv2 from "aws-cdk-lib/aws-wafv2";
 import type { Construct } from "constructs";
 
-import type { AppConfig } from "../config";
+import { resolveLogRetention, type AppConfig } from "../config";
 
 /**
  * Props for the CloudFrontWaf stack. Receives the API Gateway endpoint and
@@ -127,6 +135,43 @@ export class CloudFrontWafStack extends Stack {
     });
 
     // -------------------------------------------------------------------
+    // WAF request logging. visibilityConfig above only emits
+    // aggregate CloudWatch metrics + a small rolling sample — insufficient to
+    // investigate which specific request was blocked/allowed by which rule.
+    // Deliver full per-request WAF logs to a dedicated CloudWatch Logs group.
+    //
+    // Constraints for a CLOUDFRONT-scoped WebACL logging to CloudWatch:
+    //   - The log group MUST live in the WebACL's region (us-east-1 — this
+    //     stack is pinned there) and its name MUST start with `aws-waf-logs-`.
+    //     AWS grants WAF delivery permissions automatically for that prefix, so
+    //     no explicit resource policy is required here.
+    //   - `logDestinationConfigs` takes the log-group ARN WITHOUT the trailing
+    //     `:*` that `logGroup.logGroupArn` appends — build it via `formatArn`.
+    // -------------------------------------------------------------------
+    const wafLogGroup = new logs.LogGroup(this, "WafLogs", {
+      logGroupName: `aws-waf-logs-${config.stackPrefix}-cloudfront`,
+      retention: resolveLogRetention(config),
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    // ARN without the `:*` suffix that logGroup.logGroupArn produces — WAF
+    // rejects the wildcard form in logDestinationConfigs.
+    const wafLogGroupArn = Stack.of(this).formatArn({
+      service: "logs",
+      resource: "log-group",
+      resourceName: wafLogGroup.logGroupName,
+      // Log-group ARNs use a colon between the resource type and name
+      // (arn:aws:logs:<region>:<acct>:log-group:<name>), not a slash.
+      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+    });
+
+    const wafLogging = new wafv2.CfnLoggingConfiguration(this, "WafLogging", {
+      resourceArn: this.webAcl.attrArn,
+      logDestinationConfigs: [wafLogGroupArn],
+    });
+    wafLogging.node.addDependency(wafLogGroup);
+
+    // -------------------------------------------------------------------
     // CloudFront Distribution
     // -------------------------------------------------------------------
     // Parse the API endpoint to extract the domain (strip https:// and path).
@@ -169,6 +214,21 @@ export class CloudFrontWafStack extends Stack {
       },
     );
 
+    const accessLogs = new s3.Bucket(this, "AccessLogs", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      objectOwnership: s3.ObjectOwnership.OBJECT_WRITER,
+      lifecycleRules: [
+        {
+          id: "ExpireCloudFrontAccessLogs",
+          expiration: Duration.days(30),
+          abortIncompleteMultipartUploadAfter: Duration.days(7),
+        },
+      ],
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
       comment: `${config.stackPrefix} - WREN Writing Coach CDN`,
       defaultBehavior: {
@@ -182,6 +242,10 @@ export class CloudFrontWafStack extends Stack {
       webAclId: this.webAcl.attrArn,
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100, // NA + Europe
+      enableLogging: true,
+      logBucket: accessLogs,
+      logFilePrefix: "cloudfront/",
+      publishAdditionalMetrics: true,
     });
 
     // If Amplify domain is provided, add it as a secondary behavior for the
@@ -196,6 +260,86 @@ export class CloudFrontWafStack extends Stack {
         responseHeadersPolicy: securityHeadersPolicy,
       });
     }
+
+    // CloudFront metrics are us-east-1 / Region=Global — keep alarms in this
+    // stack rather than importing the ca-central-1 Observability SNS topic.
+    //
+    // SSE-SNS at rest with a dedicated CMK (KMS keys are regional, so this
+    // stack gets its own us-east-1 key). The AWS-managed SNS key
+    // (alias/aws/sns) cannot be used: its key policy is not editable, so
+    // CloudWatch alarms cannot generate data keys for it and alarm publishes
+    // fail silently. Mirrors the Observability stack's alarm topic; see
+    // https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html.
+    const alarmTopicKey = new kms.Key(this, "AlarmTopicKey", {
+      description: `${config.stackPrefix} alarm SNS topic key (CloudWatch alarms)`,
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.DESTROY,
+      pendingWindow: Duration.days(7),
+    });
+    alarmTopicKey.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowCloudWatchAlarmsToUseKey",
+      principals: [new iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+      actions: ["kms:Decrypt", "kms:GenerateDataKey*"],
+      resources: ["*"],
+    }));
+
+    const alarmTopic = new sns.Topic(this, "AlarmTopic", {
+      topicName: `${config.stackPrefix}-cloudfront-alarms`,
+      displayName: `${config.stackPrefix} CloudFront Alarms`,
+      masterKey: alarmTopicKey,
+      // Adds a topic policy denying aws:SecureTransport=false (TLS-only).
+      enforceSSL: true,
+    });
+    // An explicit topic policy replaces SNS's default policy, so CloudWatch
+    // needs an explicit publish allow, scoped to alarms in this account.
+    alarmTopic.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowCloudWatchAlarmsPublish",
+      principals: [new iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+      actions: ["sns:Publish"],
+      resources: [alarmTopic.topicArn],
+      conditions: { StringEquals: { "aws:SourceAccount": this.account } },
+    }));
+    if (config.alarmEmail !== undefined) {
+      alarmTopic.addSubscription(new subscriptions.EmailSubscription(config.alarmEmail));
+    }
+
+    const cfDimensions = {
+      DistributionId: this.distribution.distributionId,
+      Region: "Global",
+    };
+    const fiveXx = new cloudwatch.Alarm(this, "FiveXxAlarm", {
+      alarmName: `${config.stackPrefix}-cloudfront-5xx`,
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/CloudFront",
+        metricName: "5xxErrorRate",
+        dimensionsMap: cfDimensions,
+        statistic: "Average",
+        period: Duration.minutes(5),
+      }),
+      threshold: 5,
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: "CloudFront 5xx error rate > 5% for 10 minutes",
+    });
+    fiveXx.addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
+
+    const fourXx = new cloudwatch.Alarm(this, "FourXxAlarm", {
+      alarmName: `${config.stackPrefix}-cloudfront-4xx`,
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/CloudFront",
+        metricName: "4xxErrorRate",
+        dimensionsMap: cfDimensions,
+        statistic: "Average",
+        period: Duration.minutes(5),
+      }),
+      threshold: 50,
+      evaluationPeriods: 3,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: "CloudFront 4xx error rate > 50% for 15 minutes",
+    });
+    fourXx.addAlarmAction(new cloudwatchActions.SnsAction(alarmTopic));
 
     // -------------------------------------------------------------------
     // Outputs

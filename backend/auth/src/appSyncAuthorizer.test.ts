@@ -5,6 +5,7 @@
 import {
   createAppSyncAuthorizerHandler,
   parseExecutedSubscriptionField,
+  resolveSubscriptionRequest,
   resolveSubscriptionType,
   type AppSyncAuthorizerEvent,
 } from './appSyncAuthorizer';
@@ -59,6 +60,7 @@ function event(partial: {
   queryString?: string;
   variables?: Record<string, unknown>;
   token?: string;
+  operationName?: string;
 }): AppSyncAuthorizerEvent {
   return {
     authorizationToken: partial.token ?? JSON.stringify({ sub: USER.idp_subject }),
@@ -67,6 +69,7 @@ function event(partial: {
       accountId: '123',
       requestId: 'req',
       queryString: partial.queryString ?? '',
+      operationName: partial.operationName,
       variables: partial.variables,
     },
   };
@@ -104,6 +107,112 @@ describe('parseExecutedSubscriptionField', () => {
     expect(parseExecutedSubscriptionField('')).toBeNull();
     expect(parseExecutedSubscriptionField(undefined)).toBeNull();
     expect(resolveSubscriptionType('')).toBe('connection');
+  });
+});
+
+describe('resolveSubscriptionRequest (argument binding)', () => {
+  it('reports connection phase for an empty query', () => {
+    expect(resolveSubscriptionRequest('', undefined, undefined)).toEqual({
+      kind: 'connection',
+    });
+  });
+
+  it('resolves a variable reference from the variables map', () => {
+    const result = resolveSubscriptionRequest(
+      'subscription On($recipientUserId: ID!) { onNotification(recipientUserId: $recipientUserId) { id } }',
+      { recipientUserId: 'self-id' },
+      undefined,
+    );
+    expect(result).toEqual({
+      kind: 'subscription',
+      field: 'onNotification',
+      type: 'notification',
+      args: { recipientUserId: 'self-id' },
+    });
+  });
+
+  it('binds the inline literal AppSync executes, ignoring an unrelated variables entry', () => {
+    // The query hardcodes the victim via a literal; the variables map carries a
+    // different (attacker-owned) value under the same name. GraphQL coercion
+    // uses the literal, so the resolved arg must be the literal — not the var.
+    const result = resolveSubscriptionRequest(
+      'subscription { onNotification(recipientUserId: "victim-id") { id } }',
+      { recipientUserId: 'attacker-id' },
+      undefined,
+    );
+    expect(result).toMatchObject({
+      kind: 'subscription',
+      args: { recipientUserId: 'victim-id' },
+    });
+  });
+
+  it('ignores commented-out arguments', () => {
+    const query = `
+      subscription {
+        # recipientUserId: "attacker-id"
+        onNotification(recipientUserId: "victim-id") { id }
+      }
+    `;
+    expect(resolveSubscriptionRequest(query, undefined, undefined)).toMatchObject({
+      args: { recipientUserId: 'victim-id' },
+    });
+  });
+
+  it('selects the operation named by operationName', () => {
+    const query = `
+      subscription Self { onNotification(recipientUserId: "self-id") { id } }
+      subscription Victim { onNotification(recipientUserId: "victim-id") { id } }
+    `;
+    expect(
+      resolveSubscriptionRequest(query, undefined, 'Victim'),
+    ).toMatchObject({ args: { recipientUserId: 'victim-id' } });
+    expect(
+      resolveSubscriptionRequest(query, undefined, 'Self'),
+    ).toMatchObject({ args: { recipientUserId: 'self-id' } });
+  });
+
+  it('is invalid for a multi-operation document with no operationName', () => {
+    const query = `
+      subscription Self { onNotification(recipientUserId: "self-id") { id } }
+      subscription Victim { onNotification(recipientUserId: "victim-id") { id } }
+    `;
+    expect(resolveSubscriptionRequest(query, undefined, undefined)).toEqual({
+      kind: 'invalid',
+    });
+  });
+
+  it('is invalid when the selection set has more than one root field', () => {
+    const query = `
+      subscription {
+        onNotification(recipientUserId: "self-id") { id }
+        onDebriefReady(documentId: "doc-id") { documentId }
+      }
+    `;
+    expect(resolveSubscriptionRequest(query, undefined, undefined)).toEqual({
+      kind: 'invalid',
+    });
+  });
+
+  it('is invalid for a non-subscription operation', () => {
+    expect(
+      resolveSubscriptionRequest('query { _health }', undefined, undefined),
+    ).toEqual({ kind: 'invalid' });
+  });
+
+  it('is invalid for an unparseable document', () => {
+    expect(
+      resolveSubscriptionRequest('subscription { onNotification(', undefined, undefined),
+    ).toEqual({ kind: 'invalid' });
+  });
+
+  it('is invalid for an unknown subscription field', () => {
+    expect(
+      resolveSubscriptionRequest(
+        'subscription { onSomethingElse(recipientUserId: "x") { id } }',
+        undefined,
+        undefined,
+      ),
+    ).toEqual({ kind: 'invalid' });
   });
 });
 
@@ -221,6 +330,84 @@ describe('createAppSyncAuthorizerHandler', () => {
     const result = await handler(
       event({
         queryString: 'subscription { onSomethingElse(documentId: $documentId) { id } }',
+        variables: { documentId: OWNED_DOC },
+      }),
+    );
+    expect(result.isAuthorized).toBe(false);
+  });
+});
+
+/**
+ * Regression tests for the three BROKEN_OBJECT_PROPERTY_AUTHORIZATION vectors.
+ * Each previously let a caller authorize a stream whose argument
+ * does not match what AppSync binds. The authorizer now decides on the parsed,
+ * coerced operation, so each must deny while the matching legitimate request
+ * still authorizes.
+ */
+describe('createAppSyncAuthorizerHandler — argument-binding exploit vectors', () => {
+  const studentRoles: RoleAssignmentRow[] = [{ role: 'Student', scope: null }];
+  const VICTIM = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+  function handlerFor(roles: RoleAssignmentRow[]) {
+    return createAppSyncAuthorizerHandler(async () => ({
+      verifier: fakeVerifier,
+      db: makeDb(roles),
+    }));
+  }
+
+  it('denies an inline-literal victim id when the attacker puts their own id in variables', async () => {
+    // Previously: readStringArg preferred variables[recipientUserId] (self), so
+    // the ownership compare passed while AppSync bound the literal (victim).
+    const handler = handlerFor(studentRoles);
+    const result = await handler(
+      event({
+        queryString: `subscription { onNotification(recipientUserId: "${VICTIM}") { id } }`,
+        variables: { recipientUserId: USER.id },
+      }),
+    );
+    expect(result.isAuthorized).toBe(false);
+  });
+
+  it('denies a comment-decoy own id placed above the real victim argument', async () => {
+    // Previously: the raw-query regex matched the first `recipientUserId: "…"`
+    // (the comment, self) while AppSync bound the real argument (victim).
+    const handler = handlerFor(studentRoles);
+    const query = `
+      subscription {
+        # recipientUserId: "${USER.id}"
+        onNotification(recipientUserId: "${VICTIM}") { id }
+      }
+    `;
+    const result = await handler(event({ queryString: query }));
+    expect(result.isAuthorized).toBe(false);
+  });
+
+  it('denies when operationName selects a victim operation even if the first block is self-owned', async () => {
+    // Previously: resolveSubscriptionType read the first subscription block
+    // (self) while operationName steered AppSync to the second (victim).
+    const handler = handlerFor(studentRoles);
+    const query = `
+      subscription Self { onNotification(recipientUserId: "${USER.id}") { id } }
+      subscription Victim { onNotification(recipientUserId: "${VICTIM}") { id } }
+    `;
+    const denied = await handler(
+      event({ queryString: query, operationName: 'Victim' }),
+    );
+    expect(denied.isAuthorized).toBe(false);
+
+    // The genuinely self-owned operation still authorizes when selected.
+    const allowed = await handler(
+      event({ queryString: query, operationName: 'Self' }),
+    );
+    expect(allowed.isAuthorized).toBe(true);
+  });
+
+  it('denies an inline-literal other document even when an owned documentId is in variables', async () => {
+    // onDebriefReady mirror of the inline-literal vector.
+    const handler = handlerFor(studentRoles);
+    const result = await handler(
+      event({
+        queryString: `subscription { onDebriefReady(documentId: "${OTHER_DOC}") { documentId } }`,
         variables: { documentId: OWNED_DOC },
       }),
     );

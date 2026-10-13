@@ -67,11 +67,15 @@ const TECHNICAL_ADMIN_CAPABILITIES: Capability[] = [
   'usageLimit.configure',
   'usageOverride.grant',
   'user.search',
+  'departmentVisibility.manage',
   'documentType.setAccessState',
   'documentType.manageCatalog',
   'documentType.readConfig',
   'documentType.modifyConfig',
+  'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'analytics.view',
+  'notificationType.manageCatalog',
 ];
 
 const DEPARTMENT_ADMIN_CAPABILITIES: Capability[] = [
@@ -80,6 +84,8 @@ const DEPARTMENT_ADMIN_CAPABILITIES: Capability[] = [
   'documentType.manageCatalog',
   'topic.manage',
   'department.manage',
+  'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageOverride.grant',
@@ -212,6 +218,95 @@ describe('authorizeCapability — DepartmentAdmin (educational ops in administer
       isCapabilityAllowed(
         deptAdmin,
         req('user.search', departmentScope(ADMINISTERED_DEPT)),
+      ),
+    ).toBe(false);
+    expect(
+      isCapabilityAllowed(
+        deptAdmin,
+        req('departmentVisibility.manage', departmentScope(ADMINISTERED_DEPT)),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('authorizeCapability — department management (department.manage)', () => {
+  // `department.manage` (rename/removal) stays DepartmentAdmin-only — a
+  // TechnicalAdmin does NOT hold it. Ask WREN prompt editing is a separate
+  // capability (see below).
+  it('allows a DepartmentAdmin within an administered Department', () => {
+    const deptAdmin = withRoles(['DepartmentAdmin'], {
+      administeredDepartmentIds: [ADMINISTERED_DEPT],
+    });
+    expect(
+      isCapabilityAllowed(deptAdmin, req('department.manage', departmentScope(ADMINISTERED_DEPT))),
+    ).toBe(true);
+  });
+
+  it('DENIES a DepartmentAdmin outside their administered Departments', () => {
+    const deptAdmin = withRoles(['DepartmentAdmin'], {
+      administeredDepartmentIds: [ADMINISTERED_DEPT],
+    });
+    expect(
+      isCapabilityAllowed(deptAdmin, req('department.manage', departmentScope(OTHER_DEPT))),
+    ).toBe(false);
+  });
+
+  it('DENIES a TechnicalAdmin (department.manage is not a platform capability)', () => {
+    const admin = withRoles(['TechnicalAdmin']);
+    expect(
+      isCapabilityAllowed(admin, req('department.manage', departmentScope(ADMINISTERED_DEPT))),
+    ).toBe(false);
+  });
+
+  it('DENIES a Student', () => {
+    const student = withRoles(['Student']);
+    expect(
+      isCapabilityAllowed(student, req('department.manage', departmentScope(ADMINISTERED_DEPT))),
+    ).toBe(false);
+  });
+});
+
+describe('authorizeCapability — department Ask WREN prompt edit path (department.manageAskWrenPrompt)', () => {
+  // The Ask WREN coaching prompt is a shared educational-content surface within
+  // the Technical Admin domain: a DepartmentAdmin edits it scoped to an
+  // administered Department, and a TechnicalAdmin edits it at platform scope.
+  it('allows a DepartmentAdmin within an administered Department', () => {
+    const deptAdmin = withRoles(['DepartmentAdmin'], {
+      administeredDepartmentIds: [ADMINISTERED_DEPT],
+    });
+    expect(
+      isCapabilityAllowed(
+        deptAdmin,
+        req('department.manageAskWrenPrompt', departmentScope(ADMINISTERED_DEPT)),
+      ),
+    ).toBe(true);
+  });
+
+  it('DENIES a DepartmentAdmin outside their administered Departments', () => {
+    const deptAdmin = withRoles(['DepartmentAdmin'], {
+      administeredDepartmentIds: [ADMINISTERED_DEPT],
+    });
+    expect(
+      isCapabilityAllowed(
+        deptAdmin,
+        req('department.manageAskWrenPrompt', departmentScope(OTHER_DEPT)),
+      ),
+    ).toBe(false);
+  });
+
+  it('allows a TechnicalAdmin at platform scope', () => {
+    const admin = withRoles(['TechnicalAdmin']);
+    expect(
+      isCapabilityAllowed(admin, req('department.manageAskWrenPrompt', platformScope)),
+    ).toBe(true);
+  });
+
+  it('DENIES a Student', () => {
+    const student = withRoles(['Student']);
+    expect(
+      isCapabilityAllowed(
+        student,
+        req('department.manageAskWrenPrompt', departmentScope(ADMINISTERED_DEPT)),
       ),
     ).toBe(false);
   });

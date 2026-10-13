@@ -6,15 +6,16 @@ import { FakeDb } from './fakeDb';
 import { deptAdminContext, techAdminContext } from './testContexts';
 import {
   auditConfigEdit,
+  auditDepartmentVisibilityChange,
   auditGuardrailOutcome,
   auditOverrideGrant,
   auditPromptEdit,
   auditRoleOrGrantChange,
 } from './auditRecordingService';
+import { setPseudonymSaltLoader } from './activityLogService';
 
-const ORIGINAL_SALT = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-beforeAll(() => { process.env.WREN_ACTIVITY_PSEUDONYM_SALT = 'test-salt-audit'; });
-afterAll(() => { process.env.WREN_ACTIVITY_PSEUDONYM_SALT = ORIGINAL_SALT; });
+beforeAll(() => { setPseudonymSaltLoader(async () => 'test-salt-audit'); });
+afterAll(() => { setPseudonymSaltLoader(undefined); });
 
 describe('auditConfigEdit (Requirement 23.3)', () => {
   it('records a config edit with actor, Document Type, field, and action', async () => {
@@ -54,6 +55,53 @@ describe('auditConfigEdit (Requirement 23.3)', () => {
     expect(db.activityEvents).toHaveLength(2);
     expect(db.activityEvents[0]!.verb).toBe('config.updated');
     expect(db.activityEvents[1]!.verb).toBe('config.deleted');
+  });
+
+  it('records a Department-scoped lifecycle edit with no Document Type', async () => {
+    const db = new FakeDb();
+    const actor = techAdminContext();
+
+    await auditConfigEdit(
+      actor,
+      { field: 'department', action: 'created', departmentId: 'dept-9', objectType: 'Department' },
+      db,
+    );
+
+    const event = db.activityEvents[0]!;
+    expect(event.verb).toBe('config.created');
+    // objectType override is honored, and object_ref falls back to the
+    // department id when there is no owning Document Type.
+    expect(event.object_type).toBe('Department');
+    expect(event.object_ref).toBe('department:dept-9');
+    expect(event.document_type_id).toBeNull();
+    expect(event.department_id).toBe('dept-9');
+    expect(event.context).toMatchObject({
+      role: 'TechnicalAdmin',
+      field: 'department',
+      action: 'created',
+    });
+  });
+
+  it('prefers the Document Type in object_ref and honors the objectType override', async () => {
+    const db = new FakeDb();
+    const actor = techAdminContext();
+
+    await auditConfigEdit(
+      actor,
+      {
+        field: 'documentType',
+        action: 'deleted',
+        documentTypeId: 'dt-7',
+        objectType: 'DocumentType',
+      },
+      db,
+    );
+
+    const event = db.activityEvents[0]!;
+    expect(event.object_type).toBe('DocumentType');
+    expect(event.object_ref).toBe('documentType:dt-7');
+    expect(event.document_type_id).toBe('dt-7');
+    expect(event.department_id).toBeNull();
   });
 });
 
@@ -96,6 +144,48 @@ describe('auditPromptEdit (Requirement 32.6)', () => {
       scope: 'system',
       guardrailOutcome: 'rejected',
       rejectionReason: 'Contains "suggest a revised version"',
+    });
+  });
+
+  it('records a department Ask WREN prompt edit scoped to the department', async () => {
+    const db = new FakeDb();
+    const actor = deptAdminContext(['dept-1']);
+
+    await auditPromptEdit(actor, {
+      departmentId: 'dept-1',
+      scope: 'department',
+      guardrailOutcome: 'passed',
+    }, db);
+
+    const event = db.activityEvents[0]!;
+    expect(event.verb).toBe('prompt.edited');
+    expect(event.object_type).toBe('Prompt');
+    expect(event.object_ref).toBe('department:dept-1');
+    expect(event.department_id).toBe('dept-1');
+    expect(event.context).toMatchObject({
+      role: 'DepartmentAdmin',
+      scope: 'department',
+      guardrailOutcome: 'passed',
+    });
+  });
+
+  it('records a rejected department Ask WREN prompt edit with the reason', async () => {
+    const db = new FakeDb();
+    const actor = deptAdminContext(['dept-1']);
+
+    await auditPromptEdit(actor, {
+      departmentId: 'dept-1',
+      scope: 'department',
+      guardrailOutcome: 'rejected',
+      rejectionReason: 'Prompt content rejected: ghostwriting instruction',
+    }, db);
+
+    const event = db.activityEvents[0]!;
+    expect(event.object_ref).toBe('department:dept-1');
+    expect(event.context).toMatchObject({
+      scope: 'department',
+      guardrailOutcome: 'rejected',
+      rejectionReason: 'Prompt content rejected: ghostwriting instruction',
     });
   });
 });
@@ -151,6 +241,54 @@ describe('auditRoleOrGrantChange (Requirement 45.2)', () => {
     }, db);
 
     expect(db.activityEvents[0]!.verb).toBe('grant.revoked');
+  });
+});
+
+describe('auditDepartmentVisibilityChange', () => {
+  it('records state transitions without email or other user profile data', async () => {
+    const db = new FakeDb();
+    await auditDepartmentVisibilityChange(
+      techAdminContext(),
+      {
+        action: 'department.visibility.updated',
+        departmentId: 'dept-1',
+        previousState: 'VISIBLE',
+        newState: 'PERMITTED_ONLY',
+      },
+      db,
+    );
+
+    expect(db.activityEvents[0]).toMatchObject({
+      verb: 'department.visibility.updated',
+      object_type: 'Department',
+      object_ref: 'dept-1',
+      department_id: 'dept-1',
+      context: {
+        role: 'TechnicalAdmin',
+        previousState: 'VISIBLE',
+        newState: 'PERMITTED_ONLY',
+      },
+    });
+  });
+
+  it('records grant identity and target user id but no email', async () => {
+    const db = new FakeDb();
+    await auditDepartmentVisibilityChange(
+      techAdminContext(),
+      {
+        action: 'department_visibility_grant.created',
+        departmentId: 'dept-1',
+        grantId: 'grant-1',
+        targetUserId: 'user-1',
+      },
+      db,
+    );
+
+    const event = db.activityEvents[0]!;
+    expect(event.object_type).toBe('DepartmentVisibilityGrant');
+    expect(event.object_ref).toBe('grant-1');
+    expect(event.context).toMatchObject({ targetUserId: 'user-1' });
+    expect(JSON.stringify(event.context)).not.toContain('@');
   });
 });
 

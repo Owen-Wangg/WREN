@@ -1,13 +1,20 @@
 import * as fs from "fs";
 import * as path from "path";
 import YAML from "js-yaml";
-import { Stack, type StackProps, CfnOutput } from "aws-cdk-lib";
+import { Stack, type StackProps, CfnOutput, RemovalPolicy } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
 
-import type { AppConfig } from "../config";
+import { resolveLogRetention, type AppConfig } from "../config";
+import { RegionalApiWafConstruct } from "../constructs/RegionalApiWafConstruct";
+import {
+  CORS_ALLOW_HEADERS,
+  CORS_ALLOW_METHODS,
+  corsPreflightResponseTemplate,
+} from "../corsOrigins";
 
 /**
  * Props for the Api stack. Receives the Lambda function ARNs that the OpenAPI
@@ -25,8 +32,6 @@ export interface ApiStackProps extends StackProps {
   readonly feedbackFunctionArn: string;
   /** ARN of the Admin/Config/Auth/Usage service Lambda. */
   readonly adminFunctionArn: string;
-  /** ARN of the Audit/Activity-Log/Analytics service Lambda. */
-  readonly auditFunctionArn: string;
   /** ARN of the Notification service Lambda. */
   readonly notificationFunctionArn: string;
 }
@@ -34,7 +39,8 @@ export interface ApiStackProps extends StackProps {
 /**
  * `${StackPrefix}-Api` — REST API Gateway (SpecRestApi from OpenAPI spec).
  *
- * - Regional endpoint (fronted by CloudFront in a later stack).
+ * - Regional endpoint with a REGIONAL WAF WebACL (managed rules + per-IP
+ *   rate limit) associated with the stage.
  * - Lambda authorizer (Cognito JWT → app-DB identity + role + scope).
  * - Throttling: 100 req/s sustained, 200 burst.
  * - Logging: ERROR level (raised to INFO for debugging).
@@ -47,6 +53,10 @@ export interface ApiStackProps extends StackProps {
 export class ApiStack extends Stack {
   public readonly api: apigateway.SpecRestApi;
   public readonly apiEndpoint: string;
+  /** Name of the API Gateway access-log group — consumed by the ObservabilityStack security alarms. */
+  public readonly accessLogGroupName: string;
+  /** REGIONAL WAF WebACL associated with the API stage. */
+  public readonly webAcl: RegionalApiWafConstruct;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -71,7 +81,6 @@ export class ApiStack extends Stack {
       DocumentFunctionArn: String(props.documentFunctionArn),
       FeedbackFunctionArn: String(props.feedbackFunctionArn),
       AdminFunctionArn: String(props.adminFunctionArn),
-      AuditFunctionArn: String(props.auditFunctionArn),
       NotificationFunctionArn: String(props.notificationFunctionArn),
     };
 
@@ -99,26 +108,35 @@ export class ApiStack extends Stack {
     const resolvedSpec = resolveSpec(specObject);
 
     // -----------------------------------------------------------------------
-    // Always overwrite CORS OPTIONS on every path (do not skip when OpenAPI
-    // already defines options — handwritten MOCK blocks often omit
-    // requestTemplates and cause API Gateway 500 on preflight).
+    // This is the single source of truth for CORS preflight. openapi.yaml
+    // deliberately declares no `options` methods; one is generated here for
+    // every path. Assign unconditionally — never skip a path that happens to
+    // define `options`, because handwritten MOCK blocks tend to omit
+    // requestTemplates and cause an API Gateway 500 on preflight.
     // security: [] bypasses the Lambda authorizer for OPTIONS.
     // -----------------------------------------------------------------------
-    const allowedOrigins = "*"; // Tighten to Amplify domain in prod
-    // Include PATCH for content-only draft autosave and admin category updates.
-    const allowedMethods = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
+    // Reflect Origin when it is localhost, customDomain, corsAllowedOrigins, or
+    // an Amplify default host. Never `*` — the smoke test requires an exact echo.
     const corsResponseParams = {
-      "method.response.header.Access-Control-Allow-Origin": `'${allowedOrigins}'`,
-      "method.response.header.Access-Control-Allow-Methods": `'${allowedMethods}'`,
-      "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+      "method.response.header.Access-Control-Allow-Methods": `'${CORS_ALLOW_METHODS}'`,
+      "method.response.header.Access-Control-Allow-Headers": `'${CORS_ALLOW_HEADERS}'`,
       "method.response.header.Access-Control-Max-Age": "'86400'",
     };
+    const corsPreflightTemplate = corsPreflightResponseTemplate(config);
 
     if (resolvedSpec.paths) {
       for (const pathValue of Object.values(resolvedSpec.paths as Record<string, any>)) {
         pathValue.options = {
           summary: "CORS preflight",
           security: [],
+          parameters: [
+            {
+              name: "Origin",
+              in: "header",
+              required: false,
+              schema: { type: "string" },
+            },
+          ],
           responses: {
             "200": {
               description: "CORS preflight response",
@@ -127,6 +145,7 @@ export class ApiStack extends Stack {
                 "Access-Control-Allow-Methods": { schema: { type: "string" } },
                 "Access-Control-Allow-Headers": { schema: { type: "string" } },
                 "Access-Control-Max-Age": { schema: { type: "string" } },
+                Vary: { schema: { type: "string" } },
               },
             },
           },
@@ -140,12 +159,38 @@ export class ApiStack extends Stack {
               default: {
                 statusCode: "200",
                 responseParameters: corsResponseParams,
+                responseTemplates: {
+                  "application/json": corsPreflightTemplate,
+                },
               },
             },
           },
         };
       }
     }
+
+    // Defence in depth: the spec no longer contains wildcard ACAO mappings, so
+    // this should find nothing. It stays as a backstop in case one is
+    // reintroduced by hand, so the deployed spec can never publish `*`.
+    function stripWildcardCorsOrigin(obj: unknown): void {
+      if (typeof obj !== "object" || obj === null) return;
+      if (Array.isArray(obj)) {
+        for (const item of obj) stripWildcardCorsOrigin(item);
+        return;
+      }
+      const record = obj as Record<string, unknown>;
+      for (const [key, value] of Object.entries(record)) {
+        if (
+          key === "method.response.header.Access-Control-Allow-Origin" &&
+          value === "'*'"
+        ) {
+          delete record[key];
+          continue;
+        }
+        stripWildcardCorsOrigin(value);
+      }
+    }
+    stripWildcardCorsOrigin(resolvedSpec);
 
     // Remove the global security requirement from the spec — we'll rely on
     // per-method security instead. This prevents API Gateway from applying
@@ -167,6 +212,53 @@ export class ApiStack extends Stack {
       }
     }
 
+    // -----------------------------------------------------------------------
+    // API Gateway access logging (logging review gap 3.1).
+    //
+    // The stage previously had loggingLevel: ERROR and NO access log, so there
+    // was no request-layer audit trail — every request (including 401/403s and
+    // privileged mutations) was invisible to operators. A dedicated access-log
+    // group with a structured JSON format makes each request queryable and
+    // gives the ObservabilityStack security alarms something to filter on.
+    //
+    // Retention follows the shared policy (resolveLogRetention: 90d prod / 30d
+    // non-prod) and the group is RETAINed on teardown, matching the Lambda-log
+    // convention so the audit trail survives stack deletion.
+    //
+    // The format deliberately excludes the Authorization header (and any token
+    // material): only request metadata, the caller principal ($context.authorizer
+    // principalId = the app userId), status, and latency are logged.
+    // -----------------------------------------------------------------------
+    const accessLogGroup = new logs.LogGroup(this, `${id}-AccessLogs`, {
+      logGroupName: `/aws/apigateway/${config.stackPrefix}-api/access`,
+      retention: resolveLogRetention(config),
+      // Security/audit logs: keep the trail even if the stack is torn down.
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    this.accessLogGroupName = accessLogGroup.logGroupName;
+
+    const accessLogFormat = apigateway.AccessLogFormat.custom(
+      JSON.stringify({
+        requestId: "$context.requestId",
+        extendedRequestId: "$context.extendedRequestId",
+        requestTime: "$context.requestTime",
+        sourceIp: "$context.identity.sourceIp",
+        // The authorizer sets principalId to the app userId; NOT a secret.
+        principalId: "$context.authorizer.principalId",
+        userAgent: "$context.identity.userAgent",
+        httpMethod: "$context.httpMethod",
+        resourcePath: "$context.resourcePath",
+        path: "$context.path",
+        status: "$context.status",
+        protocol: "$context.protocol",
+        responseLength: "$context.responseLength",
+        integrationLatency: "$context.integrationLatency",
+        responseLatency: "$context.responseLatency",
+        // Present only when the authorizer denied/failed; useful for auth alarms.
+        authorizerError: "$context.authorizer.error",
+      }),
+    );
+
     this.api = new apigateway.SpecRestApi(this, `${id}-RestApi`, {
       apiDefinition: apigateway.ApiDefinition.fromInline(resolvedSpec),
       restApiName: `${config.stackPrefix}-api`,
@@ -177,6 +269,11 @@ export class ApiStack extends Stack {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.ERROR,
+        // Per-request structured access logging (gap 3.1): request
+        // id, source IP, caller principal, method, resource path, status, and
+        // latency — the security/audit trail (format defined above).
+        accessLogDestination: new apigateway.LogGroupLogDestination(accessLogGroup),
+        accessLogFormat,
         tracingEnabled: true, // X-Ray tracing
         // Cache cluster stays enabled so Control Tower CT.APIGATEWAY.PR.3 can
         // require encryption on the catch-all method setting. Per-method
@@ -199,15 +296,39 @@ export class ApiStack extends Stack {
       cloudWatchRole: true,
     });
 
+    // WAF managed rules and the per-IP rate limit on the stage clients call
+    // directly (the execute-api hostname). The stage ARN follows stage
+    // replacement on OpenAPI changes, so the association is re-pointed with it.
+    this.webAcl = new RegionalApiWafConstruct(this, "ApiWaf", {
+      stackPrefix: config.stackPrefix,
+      resourceArn: this.api.deploymentStage.stageArn,
+      logRetention: resolveLogRetention(config),
+    });
+
+    // Bound the API-Gateway-managed *execution* log group (gap 2.2). API Gateway
+    // creates `API-Gateway-Execution-Logs_{apiId}/{stage}` itself with no expiry
+    // when loggingLevel is set. A LogRetention custom resource upserts a
+    // retention on that service-created group (same pattern as the Lambda log
+    // groups in ObservabilityStack); RETAIN leaves the group in place on teardown.
+    new logs.LogRetention(this, "ExecutionLogRetention", {
+      logGroupName: `API-Gateway-Execution-Logs_${this.api.restApiId}/${config.environmentName}`,
+      retention: resolveLogRetention(config),
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     // CORS on Gateway-generated errors. DEFAULT_4XX / DEFAULT_5XX do NOT cover
     // the specific authorizer/integration types — those responses omit
     // Access-Control-Allow-Origin, so the browser reports a CORS failure
     // instead of the real 401/500 (confirmed on GET /v1/auth/me).
+    //
+    // Gateway responses only support static headers or echoing the request
+    // Origin (they cannot run the OPTIONS allowlist VTL). Preflight is the
+    // actual gate; echoing Origin here keeps 401/403 readable for allowlisted
+    // SPAs without publishing `*`.
     const gatewayCorsHeaders = {
-      "Access-Control-Allow-Origin": `'${allowedOrigins}'`,
-      "Access-Control-Allow-Headers":
-        "'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
-      "Access-Control-Allow-Methods": `'${allowedMethods}'`,
+      "Access-Control-Allow-Origin": "method.request.header.Origin",
+      "Access-Control-Allow-Headers": `'${CORS_ALLOW_HEADERS}'`,
+      "Access-Control-Allow-Methods": `'${CORS_ALLOW_METHODS}'`,
     };
     const gatewayErrorTypes: Array<[string, apigateway.ResponseType]> = [
       ["Default4xx", apigateway.ResponseType.DEFAULT_4XX],
@@ -250,7 +371,6 @@ export class ApiStack extends Stack {
       { id: "DocumentFn", arn: props.documentFunctionArn },
       { id: "FeedbackFn", arn: props.feedbackFunctionArn },
       { id: "AdminFn", arn: props.adminFunctionArn },
-      { id: "AuditFn", arn: props.auditFunctionArn },
       { id: "NotificationFn", arn: props.notificationFunctionArn },
     ];
 
@@ -281,6 +401,11 @@ export class ApiStack extends Stack {
     new CfnOutput(this, "ApiId", {
       value: this.api.restApiId,
       description: "API Gateway REST API ID",
+    });
+
+    new CfnOutput(this, "ApiWebAclArn", {
+      value: this.webAcl.webAcl.attrArn,
+      description: "REGIONAL WAF WebACL ARN associated with the API stage",
     });
   }
 }

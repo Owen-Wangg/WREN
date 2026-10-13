@@ -105,12 +105,94 @@ export function tipTapContentToSegments(content: TipTapNode | null | undefined):
   return out;
 }
 
-/** Word count from TipTap JSON via flatten. */
+/** Count whitespace-delimited words in a plain string. */
+function wordsInText(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Footnote `attrs` keys whose values are rendered verbatim into the Bedrock
+ * prompt by the Feedback Engine (see `footnote_metadata.py`). They must be
+ * measured by the size gate, since large citation metadata is a prompt/cost
+ * amplification vector just like the body.
+ */
+const FOOTNOTE_METADATA_KEYS = ['author', 'title', 'source', 'pinpoint', 'year'] as const;
+
+/**
+ * Collect every footnote's measurable text — flattened body plus rendered
+ * citation metadata — from anywhere in the document.
+ *
+ * This is deliberately broader than {@link extractFootnotes} (which is strict
+ * for prompt assembly: well-formed, sorted, under paragraph/heading only). The
+ * size gate must measure everything that could reach the model, and the Python
+ * engine extractor walks ALL node types and accepts any numeric
+ * `footnoteNumber`. So this walker visits footnotes regardless of the
+ * containing node type and regardless of whether `footnoteNumber` is a valid
+ * positive integer. It also descends into a
+ * footnote's own body to catch nested footnotes.
+ */
+function collectFootnoteMeasurableStrings(
+  node: TipTapNode | null | undefined,
+  out: string[],
+): void {
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'footnote') {
+    const attrs = node.attrs ?? {};
+    const body = attrs.content;
+    if (body && typeof body === 'object') {
+      out.push(collectPlainText(body as TipTapNode));
+      // Nested footnotes inside this body are measured too.
+      collectFootnoteMeasurableStrings(body as TipTapNode, out);
+    }
+    for (const key of FOOTNOTE_METADATA_KEYS) {
+      const value = attrs[key];
+      if (typeof value === 'string' && value.length > 0) out.push(value);
+    }
+    return;
+  }
+  for (const child of node.content ?? []) collectFootnoteMeasurableStrings(child, out);
+}
+
+/**
+ * Authoritative word count from TipTap JSON.
+ *
+ * The paragraph/heading/list/table segment substrate contributes only the
+ * footnote *marker* `[N]` (see {@link collectPlainText}), so footnote bodies
+ * and citation metadata — which the Feedback Engine ships into the Bedrock
+ * prompt — would otherwise go uncounted and let a draft bypass the size gate.
+ * We add the footnote body and
+ * metadata words on top of the segment words so the authoritative count
+ * reflects all content that reaches the model. The segment substrate itself is
+ * intentionally left unchanged so diffing/anchoring/per-paragraph feedback keep
+ * seeing only `[N]`.
+ */
 export function wordCountFromTipTapContent(content: TipTapNode | null | undefined): number {
-  return tipTapContentToSegments(content).reduce(
-    (total, seg) => total + seg.text.split(/\s+/).filter(Boolean).length,
+  const segmentWords = tipTapContentToSegments(content).reduce(
+    (total, seg) => total + wordsInText(seg.text),
     0,
   );
+  const footnoteStrings: string[] = [];
+  collectFootnoteMeasurableStrings(content, footnoteStrings);
+  const footnoteWords = footnoteStrings.reduce((total, s) => total + wordsInText(s), 0);
+  return segmentWords + footnoteWords;
+}
+
+/**
+ * Authoritative character count from TipTap JSON, mirroring
+ * {@link wordCountFromTipTapContent}: the sum of segment-text lengths plus
+ * footnote body and metadata lengths. Used as a defense-in-depth ceiling
+ * alongside the word count so a whitespace-free blob (which measures as one
+ * word) is still bounded.
+ */
+export function charCountFromTipTapContent(content: TipTapNode | null | undefined): number {
+  const segmentChars = tipTapContentToSegments(content).reduce(
+    (total, seg) => total + seg.text.length,
+    0,
+  );
+  const footnoteStrings: string[] = [];
+  collectFootnoteMeasurableStrings(content, footnoteStrings);
+  const footnoteChars = footnoteStrings.reduce((total, s) => total + s.length, 0);
+  return segmentChars + footnoteChars;
 }
 
 /**
@@ -181,7 +263,7 @@ export const CLIENT_TIPTAP_NODE_TYPES = new Set([
   'date',
 ]);
 
-export const TIPTAP_FIELD_MAX_BYTES = 1_048_576;
+export const TIPTAP_FIELD_MAX_BYTES = 8 * 1_048_576;
 
 /** Return the first disallowed node type, or null if the tree is allowed. */
 export function findDisallowedTipTapNodeType(node: TipTapNode): string | null {

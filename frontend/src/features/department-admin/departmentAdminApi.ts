@@ -28,6 +28,30 @@ export async function getDepartment(departmentId: string) {
   return apiClient.request(`/v1/departments/${departmentId}`, { schema: departmentSchema });
 }
 
+/**
+ * Update the Feedback-Engine department prompt. Allowed for DepartmentAdmins of
+ * this department (`department.managePrompt`); guardrail rejections return 400.
+ */
+export async function updateDepartmentPrompt(departmentId: string, prompt: string | null) {
+  return apiClient.request(`/v1/departments/${departmentId}/prompt`, {
+    method: 'PUT',
+    body: { prompt },
+    schema: departmentSchema,
+  });
+}
+
+/** Update the DepartmentAdmin-owned Ask Wren coaching context. */
+export async function updateDepartmentAskWrenPrompt(
+  departmentId: string,
+  askWrenPrompt: string | null,
+) {
+  return apiClient.request(`/v1/departments/${departmentId}/ask-wren-prompt`, {
+    method: 'PUT',
+    body: { askWrenPrompt },
+    schema: departmentSchema,
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Document Types — scoped to department */
 /* -------------------------------------------------------------------------- */

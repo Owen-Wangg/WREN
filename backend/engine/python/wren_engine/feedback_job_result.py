@@ -3,6 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
+from typing import Any, Callable, Optional
+
+logger = logging.getLogger(__name__)
+
+# EMF namespace shared with the other Feedback Engine metrics. Only ``workload``
+# is a dimension: no user, document, draft, or job identifiers.
+JOB_BINDING_EMF_NAMESPACE = "WREN/FeedbackEngine"
+JOB_BINDING_REJECTED_METRIC = "JobBindingRejected"
 
 
 class NonRetryableFeedbackError(Exception):
@@ -11,6 +21,52 @@ class NonRetryableFeedbackError(Exception):
 
 class TruncatedFeedbackError(NonRetryableFeedbackError):
     """Model hit max_tokens; the JSON array is incomplete."""
+
+
+class JobBindingRejectedError(NonRetryableFeedbackError):
+    """SQS message ids failed the DB ownership / draft↔document re-derivation.
+
+    The ids on a rejected message are unverified (possibly forged by a
+    principal with queue-write or DLQ-redrive rights), so they MUST NOT be
+    echoed to any sink — AppSync publish, notifications, or DB writes.
+    Subclasses NonRetryableFeedbackError so callers that only know the parent
+    still treat it as non-retryable; handlers must catch this class first.
+    """
+
+
+def emit_job_binding_rejected_metric(
+    *,
+    workload: str = "feedback_primary",
+    timestamp_ms: Optional[int] = None,
+    sink: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Emit one EMF line counting a rejected (likely forged) feedback job.
+
+    Carries no identifiers. Never raises: telemetry must not break the batch.
+    """
+    out = sink if sink is not None else print
+    event: dict[str, Any] = {
+        "_aws": {
+            "Timestamp": timestamp_ms
+            if timestamp_ms is not None
+            else int(time.time() * 1000),
+            "CloudWatchMetrics": [
+                {
+                    "Namespace": JOB_BINDING_EMF_NAMESPACE,
+                    "Dimensions": [["workload"]],
+                    "Metrics": [
+                        {"Name": JOB_BINDING_REJECTED_METRIC, "Unit": "Count"},
+                    ],
+                }
+            ],
+        },
+        "workload": workload,
+        JOB_BINDING_REJECTED_METRIC: 1,
+    }
+    try:
+        out(json.dumps(event))
+    except Exception:  # noqa: BLE001 — telemetry is best-effort
+        logger.debug("Failed to emit JobBindingRejected EMF event", exc_info=True)
 
 
 def require_complete_feedback_output(stop_reason: str | None, item_count: int) -> None:

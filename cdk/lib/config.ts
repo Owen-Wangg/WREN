@@ -1,5 +1,13 @@
 import type { App } from "aws-cdk-lib";
 import type { Environment } from "aws-cdk-lib";
+import { RetentionDays } from "aws-cdk-lib/aws-logs";
+import { parseAllowedEmailDomains } from "./signupEmailDomains.js";
+
+import {
+  resolveLambdaConcurrency,
+  type LambdaConcurrencyConfig,
+} from "./lambdaConcurrency.js";
+import { parseCorsAllowedOrigins } from "./corsOrigins.js";
 
 /**
  * Single-source defaults for the CDK application.
@@ -36,20 +44,63 @@ export const DEFAULT_ENVIRONMENT_NAME = "dev";
 /**
  * Single-source default for the Bedrock model identifier (REQ-NFR-MODEL-01).
  *
- * Model invocation is model-agnostic (via `langchain-aws`); this is only a
- * *default* and is overridden at synth time with `-c bedrockModelId=...` or at
- * runtime via the SSM parameter published by the `Config` stack. No backend
- * code hardcodes a model id - it is resolved from configuration. Changing the
- * model is therefore a configuration edit, not a code change.
+ * This is only a *default* and is overridden at synth time with
+ * `-c bedrockModelId=...` or at runtime via the SSM parameter published by the
+ * `Config` stack. No backend orchestration code hardcodes a model id; it is
+ * resolved from configuration. The `us.` prefix identifies a US geographic
+ * cross-Region inference profile: prompts and responses may be processed in
+ * US AWS Regions even when the Bedrock endpoint is in `ca-central-1`.
  */
 export const DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-6";
 
 /**
- * Data residency: all persistent stores live in ca-central-1 (design:
- * "all in `ca-central-1`", REQ 46.x). Used as the region fallback when
- * CDK_DEFAULT_REGION is not supplied by the environment.
+ * Default Region for the application data plane and WREN-managed persistent
+ * stores. This is an at-rest storage default, not a guarantee that all request
+ * processing or network transit remains in Canada. Deployers can override it
+ * explicitly with CDK context (`-c region=...`).
  */
 export const DEFAULT_REGION = "ca-central-1";
+
+/**
+ * Prompt-cache configuration (prompt-cache plan §15/§16).
+ *
+ * These drive the runtime cache DECISION layer through Lambda environment
+ * variables (`CACHE_MODE` / `CACHE_TTL` / `CACHE_ENABLED_WORKLOADS`). The safe
+ * production defaults keep explicit caching effectively OFF: `mode=observe`,
+ * `ttl=5m`, and NO workloads enabled — so no explicit cache markers are ever
+ * emitted until an operator opts in per environment. `mode=off` is the tested
+ * rollback that fully disables cache decisions at runtime.
+ */
+export type CacheMode = "off" | "observe" | "explicit";
+
+/**
+ * Enforcement mode for the HMAC-signed authorizer context.
+ * `enforce` (default): service Lambdas reject any request whose authorizer
+ * context is missing or carries an invalid signature. `permissive`: a missing
+ * signature is allowed (an invalid one is still rejected) — used ONLY for the
+ * one-time rollout window where API Gateway may still serve cached authorizer
+ * results minted before signing shipped. Flip back to `enforce` once the
+ * authorizer result cache has turned over.
+ */
+export type AuthContextVerifyMode = "enforce" | "permissive";
+
+/** Secure default: reject forged/unsigned authorizer contexts. */
+export const DEFAULT_AUTH_CONTEXT_VERIFY_MODE: AuthContextVerifyMode = "enforce";
+export type CacheTtl = "5m" | "1h";
+
+/** Plan §14 workload tokens. Canonical (underscore) form used for env output. */
+export const CACHE_WORKLOADS = [
+  "ask_wren",
+  "feedback_primary",
+  "strength_fill",
+  "quote_fill",
+  "resolution_judge",
+] as const;
+export type CacheWorkload = (typeof CACHE_WORKLOADS)[number];
+
+/** Plan §15 initial posture: caching effectively OFF. */
+export const DEFAULT_CACHE_MODE: CacheMode = "observe";
+export const DEFAULT_CACHE_TTL: CacheTtl = "5m";
 
 /**
  * Resolved, immutable configuration shared by every stack in the app.
@@ -73,7 +124,12 @@ export interface AppConfig {
    * backend orchestration logic. Defaults to {@link DEFAULT_BEDROCK_MODEL_ID}.
    */
   readonly bedrockModelId: string;
-  /** Immutable ECR tag used by the Feedback Engine Lambda. */
+  /**
+   * ECR image reference the Feedback Engine Lambda is pinned to, passed to
+   * `Code.fromEcrImage`'s `tagOrDigest`. The deploy workflow supplies the
+   * immutable image **digest** (`sha256:...`) recorded for the deployed
+   * revision; a tag (e.g. `bootstrap`) is accepted for direct-CDK use.
+   */
   readonly feedbackEngineImageTag: string;
   /**
    * Whether Compute creates the audit pseudonym salt or reuses a salt retained
@@ -91,11 +147,68 @@ export interface AppConfig {
    */
   readonly alarmEmail?: string;
   /**
+   * Prompt-cache mode (plan §15). Defaults to {@link DEFAULT_CACHE_MODE}
+   * (`observe`). Propagated to the feedback Lambdas as `CACHE_MODE`. `off` is
+   * the rollback that disables cache decisions at runtime; `explicit` is the
+   * only mode that can ever cache.
+   */
+  readonly cacheMode: CacheMode;
+  /**
+   * Authorizer-context signature enforcement. Defaults to
+   * {@link DEFAULT_AUTH_CONTEXT_VERIFY_MODE} (`enforce`). Propagated to the
+   * service Lambdas as `AUTH_CONTEXT_VERIFY_MODE`.
+   */
+  readonly authContextVerifyMode: AuthContextVerifyMode;
+  /**
+   * Prompt-cache write TTL (plan §7/§10). Defaults to {@link DEFAULT_CACHE_TTL}
+   * (`5m`). Propagated as `CACHE_TTL`.
+   */
+  readonly cacheTtl: CacheTtl;
+  /**
+   * Workloads for which explicit caching is enabled (plan §14/§15). Defaults to
+   * an EMPTY set (no workloads). Propagated as `CACHE_ENABLED_WORKLOADS` (a
+   * comma-separated list; empty string when none). Unknown tokens are rejected
+   * at synth so a typo can never silently mis-configure the runtime.
+   */
+  readonly cacheEnabledWorkloads: readonly CacheWorkload[];
+  /**
    * Prefix that drives all stack/resource naming: `${StackPrefix}-<Concern>`.
    * Defaults to `${projectName}-${environmentName}` when not explicitly
    * provided — it derives from the project name, never from {@link appName}.
    */
   readonly stackPrefix: string;
+  /**
+   * Reserved-concurrency policy for the Compute Lambdas (authorizer throttling
+   * remediation). Floors protect the authorizers on the critical path; caps
+   * bound the long-running feedback-engine/document functions so a burst cannot
+   * starve the shared account concurrency pool. Validated at synth time by
+   * {@link resolveLambdaConcurrency}. See
+   * `docs/authorizer-throttling-remediation.md`.
+   */
+  readonly lambdaConcurrency: LambdaConcurrencyConfig;
+  /**
+   * Optional custom domain (e.g. `example.com`) for the Amplify-hosted
+   * frontend. When present, the Amplify stack maps the production branch to the
+   * domain root and its `www` subdomain. Absent by default, in which case the
+   * frontend is reachable only via the Amplify default `*.amplifyapp.com`
+   * domain. No domain is ever hard-coded.
+   */
+  readonly customDomain?: string;
+  /**
+   * Exact email hostnames allowed for new Cognito self-signups. Set with
+   * `-c allowedEmailDomains=ubc.ca`. An empty list DENIES every new signup
+   * (`npm run deploy` requires a non-empty list). Subdomains are not implied:
+   * `ubc.ca` does not allow `law.ubc.ca`.
+   */
+  readonly allowedEmailDomains: readonly string[];
+  /**
+   * Extra exact browser origins for API/S3 CORS (scheme://host[:port]).
+   * Local Vite (`http://localhost:5173`, `http://127.0.0.1:5173`) and
+   * {@link customDomain} (plus `www`) are always included. Amplify default
+   * hosts are matched separately (`*.amplifyapp.com`). Override with
+   * `-c corsAllowedOrigins=https://a.example,https://b.example`.
+   */
+  readonly corsAllowedOrigins: readonly string[];
   /** Account/region passed to every stack. */
   readonly env: Required<Pick<Environment, "region">> & Environment;
 }
@@ -107,6 +220,72 @@ function readContext(app: App, key: string): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * Resolve the prompt-cache mode from `cacheMode` context, defaulting to the
+ * safe `observe` posture. An unrecognized value is rejected (fail-fast at synth)
+ * so a typo can never silently enable — or fail to disable — caching.
+ */
+function resolveCacheMode(raw: string | undefined): CacheMode {
+  if (raw === undefined) return DEFAULT_CACHE_MODE;
+  const v = raw.toLowerCase();
+  if (v === "off" || v === "observe" || v === "explicit") return v;
+  throw new Error("cacheMode must be one of: off, observe, explicit");
+}
+
+/**
+ * Resolve the authorizer-context verify mode from `authContextVerifyMode`
+ * context, defaulting to the secure `enforce`. An unrecognized value is
+ * rejected at synth so a typo cannot silently weaken enforcement.
+ */
+function resolveAuthContextVerifyMode(
+  raw: string | undefined,
+): AuthContextVerifyMode {
+  if (raw === undefined) return DEFAULT_AUTH_CONTEXT_VERIFY_MODE;
+  const v = raw.toLowerCase();
+  if (v === "enforce" || v === "permissive") return v;
+  throw new Error("authContextVerifyMode must be one of: enforce, permissive");
+}
+
+/** Resolve the cache TTL from `cacheTtl` context, defaulting to `5m`. */
+function resolveCacheTtl(raw: string | undefined): CacheTtl {
+  if (raw === undefined) return DEFAULT_CACHE_TTL;
+  const v = raw.toLowerCase();
+  if (v === "5m" || v === "1h") return v;
+  throw new Error("cacheTtl must be one of: 5m, 1h");
+}
+
+/**
+ * Resolve the enabled-workload allowlist from `cacheEnabledWorkloads` context.
+ *
+ * Accepts a comma/whitespace-separated list; both hyphen (`ask-wren`) and
+ * underscore (`ask_wren`) spellings normalize to the canonical underscore
+ * token. An empty/absent value yields NO workloads (the safe default). Unknown
+ * tokens are rejected at synth — unlike the runtime parser (which fails closed
+ * by ignoring them), infrastructure config fails LOUD so a mistyped workload is
+ * caught before deploy.
+ */
+function resolveCacheEnabledWorkloads(
+  raw: string | undefined,
+): CacheWorkload[] {
+  if (raw === undefined) return [];
+  const result: CacheWorkload[] = [];
+  const known = new Set<string>(CACHE_WORKLOADS);
+  for (const rawToken of raw.split(/[,\s]+/)) {
+    const token = rawToken.trim().toLowerCase().replace(/-/g, "_");
+    if (token.length === 0) continue;
+    if (!known.has(token)) {
+      throw new Error(
+        `cacheEnabledWorkloads contains unknown workload '${rawToken}'. ` +
+          `Allowed: ${CACHE_WORKLOADS.join(", ")}`,
+      );
+    }
+    if (!result.includes(token as CacheWorkload)) {
+      result.push(token as CacheWorkload);
+    }
+  }
+  return result;
 }
 
 /**
@@ -122,7 +301,12 @@ function readContext(app: App, key: string): string | undefined {
  *   - `feedbackEngineImageTag` -> defaults to `bootstrap` for direct-CDK compatibility
  *   - `technicalAdminBootstrapSubject` -> optional exact Cognito sub; absent disables bootstrap
  *   - `alarmEmail`      -> optional SNS email recipient for CloudWatch alarms
+ *   - `cacheMode`       -> `off|observe|explicit`, defaults to `observe`
+ *   - `cacheTtl`        -> `5m|1h`, defaults to `5m`
+ *   - `cacheEnabledWorkloads` -> comma-separated workloads, defaults to none
  *   - `stackPrefix`     -> defaults to `${projectName}-${environmentName}`
+ *   - `corsAllowedOrigins` -> extra exact CORS origins, comma-separated
+ *   - `allowedEmailDomains` -> exact signup email hostnames, comma-separated
  *
  * Override at synth/deploy time, e.g.:
  *   cdk synth -c appName="My Coach" -c environmentName=prod
@@ -131,22 +315,55 @@ function readContext(app: App, key: string): string | undefined {
 export function resolveAppConfig(app: App): AppConfig {
   const appName = readContext(app, "appName") ?? DEFAULT_APP_NAME;
   const projectName = readContext(app, "projectName") ?? DEFAULT_PROJECT_NAME;
-  const environmentName = readContext(app, "environmentName") ?? DEFAULT_ENVIRONMENT_NAME;
-  const bedrockModelId = readContext(app, "bedrockModelId") ?? DEFAULT_BEDROCK_MODEL_ID;
-  const feedbackEngineImageTag = readContext(app, "feedbackEngineImageTag") ?? "bootstrap";
-  const auditPseudonymSaltOwnership = readContext(app, "auditPseudonymSaltOwnership") ?? "managed";
-  if (auditPseudonymSaltOwnership !== "managed" && auditPseudonymSaltOwnership !== "external") {
-    throw new Error("auditPseudonymSaltOwnership must be 'managed' or 'external'");
+  const environmentName =
+    readContext(app, "environmentName") ?? DEFAULT_ENVIRONMENT_NAME;
+  const bedrockModelId =
+    readContext(app, "bedrockModelId") ?? DEFAULT_BEDROCK_MODEL_ID;
+  const feedbackEngineImageTag =
+    readContext(app, "feedbackEngineImageTag") ?? "bootstrap";
+  const auditPseudonymSaltOwnership =
+    readContext(app, "auditPseudonymSaltOwnership") ?? "managed";
+  if (
+    auditPseudonymSaltOwnership !== "managed" &&
+    auditPseudonymSaltOwnership !== "external"
+  ) {
+    throw new Error(
+      "auditPseudonymSaltOwnership must be 'managed' or 'external'",
+    );
   }
-  const technicalAdminBootstrapSubject = readContext(app, "technicalAdminBootstrapSubject");
+  const technicalAdminBootstrapSubject = readContext(
+    app,
+    "technicalAdminBootstrapSubject",
+  );
   const alarmEmail = readContext(app, "alarmEmail");
-  const stackPrefix = readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
+  const cacheMode = resolveCacheMode(readContext(app, "cacheMode"));
+  const authContextVerifyMode = resolveAuthContextVerifyMode(
+    readContext(app, "authContextVerifyMode"),
+  );
+  const cacheTtl = resolveCacheTtl(readContext(app, "cacheTtl"));
+  const cacheEnabledWorkloads = resolveCacheEnabledWorkloads(
+    readContext(app, "cacheEnabledWorkloads"),
+  );
+  const stackPrefix =
+    readContext(app, "stackPrefix") ?? `${projectName}-${environmentName}`;
+  const lambdaConcurrency = resolveLambdaConcurrency((key) =>
+    readContext(app, key),
+  );
+  const customDomain = readContext(app, "customDomain");
+  const allowedEmailDomains = parseAllowedEmailDomains(
+    readContext(app, "allowedEmailDomains"),
+    "allowedEmailDomains",
+  );
+  const corsAllowedOrigins = parseCorsAllowedOrigins(
+    readContext(app, "corsAllowedOrigins"),
+  );
 
-  // Data residency (REQ 46.x): persistent stores MUST live in ca-central-1.
-  // The region is resolved from the `region` context key and otherwise pinned
-  // to ca-central-1 — deliberately NOT read from CDK_DEFAULT_REGION, so a
-  // deployer's ambient AWS profile region can never silently place resources
-  // outside the residency boundary. Override explicitly with `-c region=...`.
+  // Default at-rest location for the application data plane (REQ 46.x).
+  // Resolve only from explicit `region` context and otherwise use
+  // `ca-central-1`; deliberately do NOT read CDK_DEFAULT_REGION, so an ambient
+  // AWS profile cannot silently relocate resources. This setting does not
+  // constrain Bedrock cross-Region inference, global edge traffic, or physical
+  // network transit. Override the data-plane Region with `-c region=...`.
   const region = readContext(app, "region") ?? DEFAULT_REGION;
 
   return {
@@ -156,9 +373,19 @@ export function resolveAppConfig(app: App): AppConfig {
     bedrockModelId,
     feedbackEngineImageTag,
     auditPseudonymSaltOwnership,
-    ...(technicalAdminBootstrapSubject ? { technicalAdminBootstrapSubject } : {}),
+    ...(technicalAdminBootstrapSubject
+      ? { technicalAdminBootstrapSubject }
+      : {}),
     ...(alarmEmail ? { alarmEmail } : {}),
+    cacheMode,
+    authContextVerifyMode,
+    cacheTtl,
+    cacheEnabledWorkloads,
     stackPrefix,
+    lambdaConcurrency,
+    ...(customDomain ? { customDomain } : {}),
+    allowedEmailDomains,
+    corsAllowedOrigins,
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,
       region,
@@ -172,6 +399,31 @@ export function resolveAppConfig(app: App): AppConfig {
  */
 export function stackName(config: AppConfig, concern: string): string {
   return `${config.stackPrefix}-${concern}`;
+}
+
+/**
+ * Resolve the CloudWatch Logs retention/expiry for stack-managed log groups.
+ *
+ * Single source of truth for the project's retention convention: 90 days in
+ * production, 30 days otherwise. Mirrors the policy already applied to Lambda
+ * function logs (ObservabilityStack) and VPC flow logs (NetworkResources) so
+ * every newly-bounded log group (AppSync API logs, API Gateway execution +
+ * access logs, WAF request logs, RDS engine logs) expires on the same schedule
+ * rather than accumulating (and billing) forever.
+ */
+export function resolveLogRetention(config: AppConfig): RetentionDays {
+  return config.environmentName === "prod"
+    ? RetentionDays.THREE_MONTHS
+    : RetentionDays.ONE_MONTH;
+}
+
+/**
+ * Serialize the enabled-workload allowlist to the `CACHE_ENABLED_WORKLOADS`
+ * env value the runtime cache policy reads: a comma-separated list of canonical
+ * tokens, or the empty string when no workloads are enabled (the safe default).
+ */
+export function cacheEnabledWorkloadsEnv(config: AppConfig): string {
+  return config.cacheEnabledWorkloads.join(",");
 }
 
 /**
@@ -226,9 +478,29 @@ export const ssmParameterNames = {
   conversationTableName: (config: AppConfig): string =>
     `/${config.stackPrefix}/storage/conversation-table-name`,
   /** Cognito User Pool ID published by the `Cognito` stack. */
-  userPoolId: (config: AppConfig): string => `/${config.stackPrefix}/auth/user-pool-id`,
+  userPoolId: (config: AppConfig): string =>
+    `/${config.stackPrefix}/auth/user-pool-id`,
   /** Cognito User Pool Client ID published by the `Cognito` stack. */
-  userPoolClientId: (config: AppConfig): string => `/${config.stackPrefix}/auth/client-id`,
+  userPoolClientId: (config: AppConfig): string =>
+    `/${config.stackPrefix}/auth/client-id`,
+  /**
+   * Exact Cognito `sub` armed for first-admin TechnicalAdmin elevation.
+   * Written by the deploy workflow (not CloudFormation) so pipeline synths
+   * can re-pass it after the operator-guided setup.
+   */
+  technicalAdminBootstrapSubject: (config: {
+    readonly stackPrefix: string;
+  }): string => `/${config.stackPrefix}/auth/technical-admin-bootstrap-subject`,
+  /**
+   * Exact Cognito `sub` of the first (bootstrap) TechnicalAdmin, retained as the
+   * permanent source of truth for the first-admin demotion guard. Unlike
+   * {@link technicalAdminBootstrapSubject}, this parameter is NOT removed when
+   * the bootstrap arming is disarmed, so demotion protection outlives the
+   * transient elevation gate.
+   */
+  protectedAdminSubject: (config: {
+    readonly stackPrefix: string;
+  }): string => `/${config.stackPrefix}/auth/protected-admin-subject`,
 } as const;
 
 /**

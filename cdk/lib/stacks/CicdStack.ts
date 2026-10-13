@@ -4,9 +4,38 @@ import * as codepipelineActions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import type { Construct } from "constructs";
 
-import type { AppConfig } from "../config";
+import { bedrockModelIdParameterName, ssmParameterNames, type AppConfig } from "../config";
+
+/**
+ * Service-function name suffixes the `${prefix}-Compute` stack creates
+ * (ComputeStack.ts). Single source of truth for the Lambda ARNs the Compute
+ * deploy role may mutate and invoke.
+ *
+ * These functions are named `${prefix}-<suffix>`, NOT `${prefix}-Compute-*`, so
+ * they are enumerated here rather than matched by a prefix wildcard. A prefix
+ * wildcard (`${prefix}-*`) would also match the Database stack's `${prefix}-migrate`
+ * and `${prefix}-sync-db-passwords` functions, which hold database credentials and
+ * must stay outside the Compute deploy role's reach.
+ *
+ * Adding a new Compute function here is required: omit it and its deploy
+ * surfaces an `AccessDenied` in the CloudFormation stack events — add the
+ * suffix, never widen back to `"*"`.
+ */
+const COMPUTE_FUNCTION_SUFFIXES = [
+  "authorizer",
+  "document",
+  "admin",
+  "sync-cognito-admins",
+  "feedback-orchestrator",
+  "feedback-engine",
+  "diff-anchor-progress",
+  "notification",
+  "appsync-authorizer",
+  "orphan-upload-sweep",
+] as const;
 
 /**
  * Props for the CICD stack.
@@ -36,16 +65,37 @@ export interface ComputeDeployScopes {
   readonly ownedRolePrefix: string;
   /** ARN of the deploy role itself, denied `iam:*` so it cannot mutate itself. */
   readonly deployRoleArn: string;
+  /**
+   * `arn:aws:cloudformation:${region}:${account}:stack/${prefix}-Compute/*` —
+   * the Compute stack ARN pattern used in the deploy role's trust policy
+   * `aws:SourceArn` condition. The trailing `/*` covers the stack's unique id.
+   */
+  readonly computeStackArnPattern: string;
   /** Managed-policy name of the Compute permissions boundary. */
   readonly boundaryName: string;
   /** ARN of {@link boundaryName}. */
   readonly boundaryArn: string;
-  /** `function:${prefix}-*` — covers the nine service functions and the LogRetention provider. */
-  readonly invokableFunctionArn: string;
+  /**
+   * The exact Lambda ARNs the Compute deploy role may mutate and invoke: the
+   * ten `${prefix}-<service>` functions from {@link COMPUTE_FUNCTION_SUFFIXES}
+   * plus `function:${prefix}-Compute-*` for the CFN-auto-named LogRetention
+   * provider. Enumerated rather than `function:${prefix}-*` so the Database
+   * stack's `${prefix}-migrate` / `${prefix}-sync-db-passwords` (which hold DB
+   * credentials) are excluded.
+   */
+  readonly ownedFunctionArns: string[];
   /** `secret:${prefix}/audit/*` — excludes the cicd and database secrets. */
   readonly auditSecretArn: string;
   /** `parameter/${prefix}/notifications/*` — the only parameters Compute writes. */
   readonly notificationParameterArn: string;
+  /**
+   * `arn:aws:kms:${region}:${account}:key/*` — account+region-wide by necessity,
+   * not by choice. The storage CMK is created in the Storage stack and consumed
+   * cross-stack, so its key id is not a synth-time literal here. The two KMS
+   * statements this scopes are bounded by their `kms:ViaService` /
+   * `kms:GrantIsForAWSResource` conditions rather than by this ARN.
+   */
+  readonly storageKeyArnPattern: string;
 }
 
 /**
@@ -66,6 +116,35 @@ export interface ComputeDeployScopes {
 export class CicdStack extends Stack {
   public readonly ecrRepository: ecr.IRepository;
   public readonly pipeline?: codepipeline.Pipeline;
+  /**
+   * Standing, S3-sourced CodeBuild project that builds the Feedback Engine
+   * image from a per-commit source snapshot. Created regardless of
+   * `enablePipeline` — it is deployment infrastructure, not the CI/CD pipeline.
+   */
+  public readonly bootstrapImageBuild: codebuild.Project;
+
+  /** CodeBuild project name the deploy workflow invokes to build the image. */
+  public static bootstrapImageProjectNameFor(stackPrefix: string): string {
+    return `${stackPrefix}-bootstrap-image`;
+  }
+
+  /**
+   * S3 key prefix (in the CDK bootstrap assets bucket) under which the deploy
+   * workflow uploads the per-commit `git archive` snapshot as `<sha>.zip`.
+   */
+  public static bootstrapSourcePrefixFor(stackPrefix: string): string {
+    return `wren-bootstrap-source/${stackPrefix}`;
+  }
+
+  /**
+   * Name of the CDK bootstrap assets bucket the snapshot is uploaded to and the
+   * bootstrap project reads from. Uses the default CDK qualifier
+   * (`hnb659fds`), matching the file-publishing bucket the pipeline already
+   * references elsewhere in this stack.
+   */
+  public static bootstrapAssetsBucketNameFor(account: string, region: string): string {
+    return `cdk-hnb659fds-assets-${account}-${region}`;
+  }
 
   /**
    * Fixed name of the Compute permissions-boundary managed policy this stack owns.
@@ -134,6 +213,12 @@ export class CicdStack extends Stack {
           "ecr:BatchGetImage",
           "ecr:BatchCheckLayerAvailability",
         ],
+        conditions: {
+          StringEquals: { "aws:SourceAccount": this.account },
+          ArnLike: {
+            "aws:SourceArn": `arn:aws:lambda:${config.env.region}:${this.account}:function:${config.stackPrefix}-feedback-engine`,
+          },
+        },
       }));
       this.ecrRepository = repository;
     } else {
@@ -143,6 +228,87 @@ export class CicdStack extends Stack {
         repositoryName,
       );
     }
+
+    // -------------------------------------------------------------------
+    // Bootstrap image build — standing, S3-sourced CodeBuild project.
+    //
+    // This is deployment infrastructure, NOT the ongoing CI/CD pipeline: it is
+    // created unconditionally (before the `enablePipeline` guard below) so a
+    // first-time `npm run deploy` can build the Feedback Engine container image
+    // in AWS instead of on the operator's machine, removing the local Docker
+    // daemon prerequisite. `enableCicd`/`enablePipeline` gates only the
+    // pipeline resources further down.
+    //
+    // Source is an S3 object the deploy workflow uploads per commit
+    // (`git archive <sha>` → `${BOOTSTRAP_SOURCE_PREFIX}/<sha>.zip` in the CDK
+    // bootstrap assets bucket). The concrete key is supplied at build time via
+    // `start-build --source-location-override`, so nothing here depends on the
+    // Feedback Engine image existing — the dependency runs one way:
+    // Cicd → bootstrap build → ECR image → Compute.
+    const bootstrapAssetsBucket = s3.Bucket.fromBucketName(
+      this,
+      "BootstrapAssetsBucket",
+      CicdStack.bootstrapAssetsBucketNameFor(this.account, config.env.region),
+    );
+    this.bootstrapImageBuild = new codebuild.Project(this, "BootstrapImageBuild", {
+      projectName: `${config.stackPrefix}-bootstrap-image`,
+      environment: {
+        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+        computeType: codebuild.ComputeType.MEDIUM,
+        // Docker build runs inside CodeBuild; privileged mode is required.
+        privileged: true,
+      },
+      environmentVariables: {
+        // Overridden per build with the commit-scoped tag (`src-<shortsha>`).
+        // The default is inert — a real deploy always overrides it.
+        IMAGE_TAG: { value: "bootstrap" },
+      },
+      source: codebuild.Source.s3({
+        bucket: bootstrapAssetsBucket,
+        // Placeholder object under the stable prefix. The deploy workflow
+        // overrides the source location per build with the SHA-keyed object,
+        // so this key exists only to satisfy synth-time source config.
+        path: `${CicdStack.bootstrapSourcePrefixFor(config.stackPrefix)}/HEAD.zip`,
+      }),
+      buildSpec: codebuild.BuildSpec.fromObject({
+        version: "0.2",
+        phases: {
+          pre_build: {
+            commands: [
+              // Log in against the ECR registry host only (not the repo path).
+              `aws ecr get-login-password --region ${config.env.region} | docker login --username AWS --password-stdin ${this.account}.dkr.ecr.${config.env.region}.amazonaws.com`,
+            ],
+          },
+          build: {
+            commands: [
+              `docker build -t ${this.ecrRepository.repositoryUri}:$IMAGE_TAG backend/engine/python/`,
+              `docker push ${this.ecrRepository.repositoryUri}:$IMAGE_TAG`,
+              // Keep the mutable `bootstrap` convenience tag current so
+              // CloudFormation can always reference a concrete image. The
+              // authoritative artifact is the digest recorded by the workflow.
+              `docker tag ${this.ecrRepository.repositoryUri}:$IMAGE_TAG ${this.ecrRepository.repositoryUri}:bootstrap`,
+              `docker push ${this.ecrRepository.repositoryUri}:bootstrap`,
+            ],
+          },
+        },
+      }),
+    });
+
+    this.ecrRepository.grantPullPush(this.bootstrapImageBuild);
+    this.bootstrapImageBuild.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ecr:GetAuthorizationToken"],
+      resources: ["*"],
+    }));
+    // Read the SHA-keyed source snapshot from the CDK bootstrap assets bucket.
+    // No `s3:GetObjectVersion`: the snapshot is pinned by object key (the SHA),
+    // never by VersionId, so version-scoped reads are never exercised.
+    this.bootstrapImageBuild.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"],
+      resources: [
+        bootstrapAssetsBucket.bucketArn,
+        `${bootstrapAssetsBucket.bucketArn}/${CicdStack.bootstrapSourcePrefixFor(config.stackPrefix)}/*`,
+      ],
+    }));
 
     if (!props.enablePipeline) return;
     const repositoryOwner = props.repositoryOwner;
@@ -182,16 +348,30 @@ export class CicdStack extends Stack {
           },
           build: {
             commands: [
-              `docker build -t ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION backend/engine/python/`,
-              `docker push ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION`,
+              // Derive a prefixed, human-readable ECR tag (`src-<shortsha>`)
+              // from the resolved commit SHA. Using the raw
+              // $CODEBUILD_RESOLVED_SOURCE_VERSION (a 40-char hex SHA) would
+              // leave the repo tagged with bare hex codes; `src-<shortsha>`
+              // matches the operator deploy path (commitImageTag) so both build
+              // routes tag identically and the tag is legible in the ECR console.
+              "IMAGE_TAG=src-${CODEBUILD_RESOLVED_SOURCE_VERSION:0:12}",
+              `docker build -t ${this.ecrRepository.repositoryUri}:$IMAGE_TAG backend/engine/python/`,
+              `docker push ${this.ecrRepository.repositoryUri}:$IMAGE_TAG`,
               // Also keep bootstrap tag current so CloudFormation can always reference it
-              `docker tag ${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION ${this.ecrRepository.repositoryUri}:bootstrap`,
+              `docker tag ${this.ecrRepository.repositoryUri}:$IMAGE_TAG ${this.ecrRepository.repositoryUri}:bootstrap`,
               `docker push ${this.ecrRepository.repositoryUri}:bootstrap`,
-              `echo "${this.ecrRepository.repositoryUri}:$CODEBUILD_RESOLVED_SOURCE_VERSION" > image-uri.txt`,
+              `echo "${this.ecrRepository.repositoryUri}:$IMAGE_TAG" > image-uri.txt`,
               // Synth with the same stackPrefix/environment as this pipeline so
               // cdk.out/${stackPrefix}-Compute.assets.json actually exists
               // (cdk.json defaults to environmentName=dev otherwise).
-              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c feedbackEngineImageTag=$CODEBUILD_RESOLVED_SOURCE_VERSION -c auditPseudonymSaltOwnership=${config.auditPseudonymSaltOwnership} -c enableCicd=true -c ecrOwnership=${props.ecrOwnership ?? "managed"} -c githubOwner=${repositoryOwner} -c githubRepo=${repositoryNameFromSource} -c githubBranch=${branch} && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
+              // Re-pass the armed first-admin subject when present so a
+              // pipeline Compute update cannot strip TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT
+              // before the candidate's first application login elevates them.
+              `BOOTSTRAP_SUBJECT=$(aws ssm get-parameter --name ${ssmParameterNames.technicalAdminBootstrapSubject(config)} --query Parameter.Value --output text 2>/dev/null || true)`,
+              `if [ "$BOOTSTRAP_SUBJECT" = "None" ] || [ "$BOOTSTRAP_SUBJECT" = "none" ]; then BOOTSTRAP_SUBJECT=""; fi`,
+              `SUBJECT_CONTEXT=""`,
+              `if [ -n "$BOOTSTRAP_SUBJECT" ]; then SUBJECT_CONTEXT="-c technicalAdminBootstrapSubject=$BOOTSTRAP_SUBJECT"; fi`,
+              `cd cdk && npx cdk synth -c environmentName=${config.environmentName} -c projectName=${config.projectName} -c stackPrefix=${config.stackPrefix} -c feedbackEngineImageTag=$IMAGE_TAG -c auditPseudonymSaltOwnership=${config.auditPseudonymSaltOwnership} -c enableCicd=true -c ecrOwnership=${props.ecrOwnership ?? "managed"} -c githubOwner=${repositoryOwner} -c githubRepo=${repositoryNameFromSource} -c githubBranch=${branch} $SUBJECT_CONTEXT && npx cdk-assets publish --path cdk.out/${config.stackPrefix}-Compute.assets.json && cd ..`,
             ],
           },
         },
@@ -223,6 +403,13 @@ export class CicdStack extends Stack {
     buildProject.addToRolePolicy(new iam.PolicyStatement({
       actions: ['sts:AssumeRole'],
       resources: [`arn:aws:iam::${this.account}:role/cdk-*-file-publishing-role-${this.account}-${config.env.region}`],
+    }));
+
+    buildProject.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ssm:GetParameter"],
+      resources: [
+        `arn:aws:ssm:${config.env.region}:${this.account}:parameter/${config.stackPrefix}/auth/technical-admin-bootstrap-subject`,
+      ],
     }));
 
     // -------------------------------------------------------------------
@@ -325,6 +512,18 @@ export class CicdStack extends Stack {
         },
       ],
     });
+
+    // Expire rebuildable pipeline artifacts so the Retain-policy bucket cannot
+    // grow without bound. Mutate the existing auto-created bucket in place —
+    // passing a new artifactBucket would orphan this one.
+    const artifactBucket = this.pipeline.artifactBucket;
+    if (artifactBucket instanceof s3.Bucket) {
+      artifactBucket.addLifecycleRule({
+        id: "ExpirePipelineArtifacts",
+        expiration: Duration.days(90),
+        abortIncompleteMultipartUploadAfter: Duration.days(7),
+      });
+    }
   }
 
   /**
@@ -348,15 +547,27 @@ export class CicdStack extends Stack {
     return {
       ownedRolePrefix: `arn:aws:iam::${account}:role/${prefix}-Compute-*`,
       deployRoleArn: `arn:aws:iam::${account}:role/${prefix}-compute-cfn-deploy`,
+      computeStackArnPattern: `arn:aws:cloudformation:${region}:${account}:stack/${prefix}-Compute/*`,
       boundaryName: CicdStack.boundaryPolicyNameFor(prefix),
       boundaryArn: CicdStack.boundaryPolicyArnFor(account, prefix),
-      // `function:${prefix}-*`, deliberately not `function:${prefix}-Compute-*`:
-      // the nine service functions are explicitly named `${prefix}-<service>`.
-      invokableFunctionArn: `arn:aws:lambda:${region}:${account}:function:${prefix}-*`,
+      // Enumerated owned functions, deliberately NOT `function:${prefix}-*`:
+      // that wildcard also matches the Database stack's `${prefix}-migrate` and
+      // `${prefix}-sync-db-passwords`, which hold DB credentials. The ten named
+      // service functions are listed explicitly; `${prefix}-Compute-*` covers
+      // the CFN-auto-named LogRetention provider.
+      ownedFunctionArns: [
+        ...COMPUTE_FUNCTION_SUFFIXES.map(
+          (suffix) => `arn:aws:lambda:${region}:${account}:function:${prefix}-${suffix}`,
+        ),
+        `arn:aws:lambda:${region}:${account}:function:${prefix}-Compute-*`,
+      ],
       // Audit_Salt_Secret only. Excludes `${prefix}/cicd/` and `${prefix}/database/`.
       // Trailing `*` covers the six-character suffix Secrets Manager appends.
       auditSecretArn: `arn:aws:secretsmanager:${region}:${account}:secret:${prefix}/audit/*`,
       notificationParameterArn: `arn:aws:ssm:${region}:${account}:parameter/${prefix}/notifications/*`,
+      // Shared by the deploy policy's two KMS statements and the boundary's
+      // `Kms` statement, so all three are scoped by one literal.
+      storageKeyArnPattern: `arn:aws:kms:${region}:${account}:key/*`,
     };
   }
 
@@ -496,17 +707,37 @@ export class CicdStack extends Stack {
             ],
           }),
           new iam.PolicyStatement({
-            // Covers the seven `/${prefix}/notifications/*` parameters and
-            // `/${prefix}/config/bedrock-model-id`, which the admin function
-            // reads and writes at runtime.
-            sid: "Parameters",
+            // Reads span the whole `/${prefix}/*` subtree (toast/notification
+            // config, bedrock model id, the bootstrap-subject parameter the
+            // admin function reads for de-elevation protection). Reads cannot
+            // escalate, so the broad scope is intentional headroom.
+            sid: "ParametersRead",
             actions: [
               "ssm:GetParameter",
               "ssm:GetParameters",
               "ssm:GetParametersByPath",
-              "ssm:PutParameter",
             ],
             resources: [`arn:aws:ssm:${region}:${account}:parameter/${prefix}/*`],
+          }),
+          new iam.PolicyStatement({
+            // Documents + reference buckets (Storage stack). The batch
+            // DeleteObjects API authorizes per key as `s3:DeleteObject`; there
+            // is no `s3:DeleteObjects` IAM action, so none is listed here or in
+            // the document function's grant.
+            // `ssm:PutParameter` is scoped to the ONLY parameter a runtime role
+            // writes: `/${prefix}/config/bedrock-model-id` (admin function,
+            // `putBedrockModelIdToSsm`). On the former `/${prefix}/*` scope a
+            // tampered runtime role could overwrite the operator-written
+            // first-admin parameters (`/${prefix}/auth/protected-admin-subject`,
+            // the demotion-guard source of truth, and
+            // `/${prefix}/auth/technical-admin-bootstrap-subject`, the arming
+            // gate) and the rest of the subtree. Those are deploy-time-only
+            // parameters and are intentionally non-writable at runtime.
+            sid: "ParametersWriteBedrockModelOnly",
+            actions: ["ssm:PutParameter"],
+            resources: [
+              `arn:aws:ssm:${region}:${account}:parameter${bedrockModelIdParameterName(config)}`,
+            ],
           }),
           new iam.PolicyStatement({
             // Documents + reference buckets (Storage stack). `s3:DeleteObjects`
@@ -521,7 +752,6 @@ export class CicdStack extends Stack {
               "s3:PutObject",
               "s3:PutObjectTagging",
               "s3:DeleteObject",
-              "s3:DeleteObjects",
               "s3:DeleteObjectTagging",
               "s3:ListBucket",
             ],
@@ -534,6 +764,13 @@ export class CicdStack extends Stack {
             // The storage CMK is consumed cross-stack, so its key id is not a
             // synth-time literal here; account+region scoping is the tightest
             // available. `grantEncryptDecrypt` produces the first four.
+            //
+            // Same literal as the deploy policy's two KMS statements, taken from
+            // `computeDeployScopes` so the boundary cannot drift narrower than
+            // the policy it bounds. Unlike those statements this one carries no
+            // `kms:ViaService` condition: a boundary is an upper bound, and
+            // gating it would make the intersection depend on a key that is
+            // absent for any future direct KMS call a runtime function makes.
             sid: "Kms",
             actions: [
               "kms:Decrypt",
@@ -542,7 +779,7 @@ export class CicdStack extends Stack {
               "kms:GenerateDataKey*",
               "kms:DescribeKey",
             ],
-            resources: [`arn:aws:kms:${region}:${account}:key/*`],
+            resources: [this.computeDeployScopes.storageKeyArnPattern],
           }),
           new iam.PolicyStatement({
             // `${prefix}-ConversationHistory` (Storage stack).
@@ -667,14 +904,31 @@ export class CicdStack extends Stack {
       ownedRolePrefix,
       deployRoleArn,
       boundaryArn,
-      invokableFunctionArn,
+      ownedFunctionArns,
       auditSecretArn,
       notificationParameterArn,
+      storageKeyArnPattern,
+      computeStackArnPattern,
     } = this.computeDeployScopes;
 
     return new iam.Role(this, "ComputeDeployRole", {
       roleName: `${stackPrefix}-compute-cfn-deploy`,
-      assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
+      // Confused-deputy guard. A bare `cloudformation.amazonaws.com` principal
+      // lets any caller in any account that can reach CloudFormation ask it to
+      // assume this role; the two conditions bind use of the role to
+      // CloudFormation acting (a) within THIS account (`aws:SourceAccount`) and
+      // (b) on behalf of the `${prefix}-Compute` stack specifically
+      // (`aws:SourceArn`). CloudFormation populates both keys when it assumes an
+      // execution role. If a legitimate Compute deploy is ever denied by the
+      // ArnLike check (e.g. a stack rename), relax to the `aws:SourceAccount`
+      // condition alone before widening any further — never drop both.
+      assumedBy: new iam.PrincipalWithConditions(
+        new iam.ServicePrincipal("cloudformation.amazonaws.com"),
+        {
+          StringEquals: { "aws:SourceAccount": this.account },
+          ArnLike: { "aws:SourceArn": computeStackArnPattern },
+        },
+      ),
       description: "Scoped CFN execution role for the Compute stack (not account admin).",
       inlinePolicies: {
         ComputeDeploy: new iam.PolicyDocument({
@@ -704,22 +958,40 @@ export class CicdStack extends Stack {
                 "lambda:UpdateFunctionCode",
                 "lambda:UpdateFunctionConfiguration",
               ],
-              resources: ["*"],
+              // Scoped to the enumerated Compute-owned functions
+              // (`ownedFunctionArns`), NOT `"*"`. On `"*"` these mutation
+              // actions reached every Lambda in the account, including the
+              // Database stack's `${prefix}-migrate` and
+              // `${prefix}-sync-db-passwords` — a Compute deploy could then
+              // `UpdateFunctionCode` on them and exfiltrate the RDS admin / per-
+              // role Postgres secrets they are granted, or
+              // `UpdateFunctionConfiguration` on `${prefix}-authorizer` to arm
+              // `TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT` with an attacker's Cognito
+              // sub. Those two Database-stack functions share the `${prefix}-`
+              // prefix, so only an enumerated list excludes them. A new Compute
+              // function must be added to `COMPUTE_FUNCTION_SUFFIXES` or its
+              // deploy surfaces the missing permission in the CFN events — add
+              // the suffix, never restore `"*"`.
+              resources: ownedFunctionArns,
             }),
             new iam.PolicyStatement({
-              // Requirement 5 criteria 1, 4, 6. `function:${prefix}-*` covers
-              // both invocation targets a Compute deploy needs: the nine
-              // explicitly named `${prefix}-<service>` functions, and the
+              // Requirement 5 criteria 1, 4, 6. `ownedFunctionArns` covers both
+              // invocation targets a Compute deploy needs: the ten explicitly
+              // named `${prefix}-<service>` functions and the
               // CloudFormation-auto-named `${prefix}-Compute-LogRetention*`
               // provider that backs the `Custom::LogRetention` resources.
               //
-              // Do NOT narrow this to `function:${prefix}-Compute-*`. That
-              // pattern matches the LogRetention provider but none of the nine
-              // service functions, so it would break the deploy — exactly the
-              // over-narrow scope Requirement 5 criterion 6 forbids.
+              // Do NOT narrow this to `function:${prefix}-Compute-*` alone:
+              // that matches the LogRetention provider but none of the named
+              // service functions, so it would break the deploy. Equally, do
+              // NOT widen it back to `function:${prefix}-*` — that also matches
+              // the Database stack's `${prefix}-migrate` /
+              // `${prefix}-sync-db-passwords`, letting a Compute deploy invoke
+              // credential-bearing functions outside its scope. The enumerated
+              // list is the exact set that satisfies both constraints.
               sid: "LambdaInvokeOwnedFunctions",
               actions: ["lambda:InvokeFunction"],
-              resources: [invokableFunctionArn],
+              resources: ownedFunctionArns,
             }),
             // -----------------------------------------------------------
             // IAM: the former `IamForLambdaRoles` statement, split by
@@ -810,9 +1082,9 @@ export class CicdStack extends Stack {
               // direct `iam:PassRole` call outside a service integration —
               // fails the condition and is implicitly denied.
               //
-              // Exactly two service principals, covering all eleven
+              // Exactly two service principals, covering all twelve
               // PassRole_Targets (Requirement 3 criteria 3, 6; Requirement 6
-              // criterion 1): `lambda.amazonaws.com` for the nine service
+              // criterion 1): `lambda.amazonaws.com` for the ten service
               // function execution roles plus the CDK LogRetention provider
               // role, and `appsync.amazonaws.com` for the AppSync API logs role
               // consumed as `LogConfig.CloudWatchLogsRoleArn`.
@@ -989,16 +1261,82 @@ export class CicdStack extends Stack {
               ],
             }),
             new iam.PolicyStatement({
-              sid: "KmsUseExistingStorageKey",
+              // Finding F-4. The former `KmsUseExistingStorageKey` statement
+              // carried these five actions plus `kms:CreateGrant` on
+              // `Resource: "*"` — use of, and decryption with, every CMK in the
+              // account whose key policy delegates to IAM (which is every CMK
+              // CDK creates, including the ones this repo does not own), in
+              // every region, plus cross-account keys whose policy trusts this
+              // account.
+              //
+              // The resource scope alone does not close that: `key/*` is the
+              // tightest ARN available here, because the storage CMK is created
+              // in the Storage stack and its key id is not a synth-time literal
+              // in this stack. `kms:ViaService` is what actually bounds the
+              // statement — the role can reach a key only when S3 or DynamoDB
+              // calls KMS on its behalf, never as a direct `Decrypt` of
+              // arbitrary ciphertext it has obtained some other way.
+              //
+              // Only those two services appear because they are the only ones
+              // that take a CMK anywhere in this repo (`StorageResources.ts`:
+              // both buckets and `ConversationHistory`). No Compute-stack
+              // resource takes a CMK property today — no `environmentEncryption`
+              // on any function, no CMK on any queue — so this statement is
+              // headroom for a future CMK-bearing resource rather than a
+              // present-day dependency. If one is added in another service, the
+              // CFN events name the key and the missing action; add that
+              // service's `kms:ViaService` value here and nothing wider.
+              sid: "KmsUseStorageKeyViaService",
               actions: [
-                "kms:CreateGrant",
                 "kms:Decrypt",
                 "kms:DescribeKey",
                 "kms:Encrypt",
                 "kms:GenerateDataKey",
                 "kms:GenerateDataKeyWithoutPlaintext",
               ],
-              resources: ["*"],
+              resources: [storageKeyArnPattern],
+              conditions: {
+                StringEquals: {
+                  "kms:ViaService": [
+                    `s3.${this.region}.amazonaws.com`,
+                    `dynamodb.${this.region}.amazonaws.com`,
+                  ],
+                },
+              },
+            }),
+            new iam.PolicyStatement({
+              // `kms:CreateGrant` stands alone, for the same reason
+              // `iam:PassRole` does above: `kms:GrantIsForAWSResource` is
+              // populated only for grant operations and `kms:ViaService` is not
+              // populated for a direct `CreateGrant`, so folding the two
+              // condition sets into one statement would leave one set of
+              // actions permanently unsatisfiable.
+              //
+              // `CreateGrant` is the reason F-4 is not merely an over-broad read
+              // grant. It is a delegation primitive: on an unconditioned
+              // statement the role can mint a grant naming any principal as
+              // grantee on any reachable key, and grants outlive the policy that
+              // created them — revoking the statement later does not revoke
+              // grants already issued under it.
+              //
+              // `GrantIsForAWSResource` admits the only legitimate `CreateGrant`
+              // a CloudFormation execution role ever makes: an AWS service
+              // creating a grant on the caller's behalf while provisioning a
+              // CMK-encrypted resource. Naming an arbitrary grantee is denied.
+              //
+              // `Bool` is outside the operator subset modelled by
+              // `test/support/policyEval.ts`, which throws rather than guessing.
+              // The existing property tests never reach it — `statementMatches`
+              // short-circuits on action and resource before evaluating
+              // conditions, and they generate only `iam:` actions — but any new
+              // assertion that evaluates a `kms:` action through `evaluate()`
+              // must add `Bool` to `SUPPORTED_CONDITION_OPERATORS` first.
+              sid: "KmsCreateGrantForAwsResourcesOnly",
+              actions: ["kms:CreateGrant"],
+              resources: [storageKeyArnPattern],
+              conditions: {
+                Bool: { "kms:GrantIsForAWSResource": "true" },
+              },
             }),
             new iam.PolicyStatement({
               // NotResource denies role mutations outside Owned_Role_Prefix.
@@ -1033,8 +1371,8 @@ export class CicdStack extends Stack {
               // `NotResource: [ownedRolePrefix]` like `DenyOutOfScopeStacks`:
               // the boundary must not be strippable even from an in-prefix
               // role. An in-prefix `DeleteRolePermissionsBoundary` would be the
-              // cheapest way to reopen finding
-              // f-6d6bc078-eeba-4830-bff5-c04d9b96b223 — detach the boundary
+              // cheapest way to reopen the unbounded-role finding — detach
+              // the boundary
               // from a runtime role, and that role's identity policy applies
               // unbounded again.
               //
@@ -1058,8 +1396,8 @@ export class CicdStack extends Stack {
               // IAM resource ARN matching is case-sensitive — `Compute-`
               // versus `compute-`. IAM documents resource matching as
               // case-sensitive, but IAM role *names* are unique
-              // case-insensitively, and the closure of finding
-              // f-6d6bc078-eeba-4830-bff5-c04d9b96b223 should not rest on that
+              // case-insensitively, and the closure of this unbounded-role
+              // finding should not rest on that
               // distinction. This explicit self-Deny removes the dependency on
               // case semantics entirely: no IAM action in this policy can reach
               // the deploy role's own ARN, whatever the matching semantics.

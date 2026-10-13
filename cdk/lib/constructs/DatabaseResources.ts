@@ -21,7 +21,7 @@ import {
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import { APP_DB_ROLES, appDbRolePascal, type AppDbRole } from "../appDbRoles.js";
-import type { AppConfig } from "../config.js";
+import { resolveLogRetention, type AppConfig } from "../config.js";
 
 export interface DatabaseResourcesProps {
   readonly config: AppConfig;
@@ -30,9 +30,8 @@ export interface DatabaseResourcesProps {
 }
 
 /**
- * Relational persistence layer: RDS PostgreSQL 16 (the substrate for
- * `pgvector` embeddings, created at migration time) fronted by an RDS Proxy
- * with TLS required.
+ * Relational persistence layer: RDS PostgreSQL 16 (reference
+ * grounding is full-text) fronted by an RDS Proxy with TLS required.
  *
  * Security / residency posture (REQ-SEC-PII-01, REQ-NFR-RESIDENCY-01, steering):
  *   - Instance + proxy live in the VPC's isolated subnets (no public access).
@@ -78,27 +77,31 @@ export class DatabaseResources extends Construct {
   protected createAppUserSecrets(): Record<AppDbRole, secretsmanager.ISecret> {
     const secrets = {} as Record<AppDbRole, secretsmanager.ISecret>;
     for (const role of APP_DB_ROLES) {
-      secrets[role] = new secretsmanager.Secret(
-        this,
-        `AppUserSecret${appDbRolePascal(role)}`,
-        {
-          secretName: `${this.props.config.stackPrefix}/database/${role}`,
-          description: `RDS Proxy credentials for Postgres role ${role}`,
-          generateSecretString: {
-            secretStringTemplate: JSON.stringify({
-              username: role,
-              port: 5432,
-              dbname: "appdb",
-              engine: "postgres",
-            }),
-            generateStringKey: "password",
-            excludeCharacters: " %+~`#$&*()|[]{}:;<>?!'/@\"\\",
-            passwordLength: 32,
-          },
-        },
-      );
+      secrets[role] = this.createAppUserSecret(role);
     }
     return secrets;
+  }
+
+  private createAppUserSecret(role: AppDbRole): secretsmanager.Secret {
+    return new secretsmanager.Secret(
+      this,
+      `AppUserSecret${appDbRolePascal(role)}`,
+      {
+        secretName: `${this.props.config.stackPrefix}/database/${role}`,
+        description: `RDS Proxy credentials for Postgres role ${role}`,
+        generateSecretString: {
+          secretStringTemplate: JSON.stringify({
+            username: role,
+            port: 5432,
+            dbname: "appdb",
+            engine: "postgres",
+          }),
+          generateStringKey: "password",
+          excludeCharacters: " %+~`#$&*()|[]{}:;<>?!'/@\"\\",
+          passwordLength: 32,
+        },
+      },
+    );
   }
 
   protected createParameterGroup(): ParameterGroup {
@@ -166,6 +169,14 @@ export class DatabaseResources extends Construct {
       removalPolicy: RemovalPolicy.RETAIN,
       monitoringInterval: Duration.seconds(60),
       monitoringRole,
+      // Engine log export. Enhanced Monitoring above only covers
+      // OS-level metrics; export the PostgreSQL engine logs (error / slow-query
+      // / connection) and major-version `upgrade` logs to CloudWatch Logs for
+      // troubleshooting and audit. `cloudwatchLogsRetention` bounds the
+      // auto-created `/aws/rds/instance/{id}/postgresql` group on the project's
+      // 90-day-prod / 30-day-else schedule instead of letting it accrue forever.
+      cloudwatchLogsExports: ["postgresql", "upgrade"],
+      cloudwatchLogsRetention: resolveLogRetention(this.props.config),
     });
   }
 

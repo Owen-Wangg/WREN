@@ -18,6 +18,7 @@ import {
   type AuthorizerDeps,
 } from './authorizer';
 import type { AccessGrantRow, AppUserRow, QueryExecutor, RoleAssignmentRow } from './identityMapping';
+import type { ProvisioningDb } from './provisionUser';
 import type { TokenVerifier } from './tokenVerifier';
 
 const METHOD_ARN =
@@ -44,7 +45,7 @@ const fakeVerifier: TokenVerifier = {
   },
 };
 
-function makeDb(roles: RoleAssignmentRow[], grants: AccessGrantRow[] = [], user: AppUserRow | null = USER): QueryExecutor {
+function makeDb(roles: RoleAssignmentRow[], grants: AccessGrantRow[] = [], user: AppUserRow | null = USER): ProvisioningDb {
   const users = user ? [user] : [];
   const roleRows = [...roles];
   return {
@@ -67,17 +68,26 @@ function makeDb(roles: RoleAssignmentRow[], grants: AccessGrantRow[] = [], user:
         }
         return [] as unknown as Row[];
       }
+      if (text.includes('has_elevated_role')) {
+        // Relink privilege pre-check (provisionUser.ts).
+        return [{
+          has_elevated_role: roleRows.some((r) => r.role !== 'Student' || r.scope !== null),
+          has_access_grant: grants.length > 0,
+          has_visibility_grant: false,
+          roles: [...new Set(roleRows.map((r) => r.role))].sort(),
+        }] as unknown as Row[];
+      }
       if (text.includes('UPDATE app_user') && text.includes('idp_subject')) {
-        const [idpSubject, id] = params as [string, string];
-        const idx = users.findIndex((u) => u.id === id);
-        if (idx >= 0) {
-          users[idx] = { ...users[idx], idp_subject: idpSubject };
-        }
-        return [] as unknown as Row[];
+        // Guarded relink: params [id, newSubject, expectedOldSubject, first, last].
+        const [id, idpSubject, expectedOld] = params as [string, string, string];
+        const idx = users.findIndex((u) => u.id === id && u.idp_subject === expectedOld);
+        if (idx < 0) return [] as unknown as Row[];
+        users[idx] = { ...users[idx], idp_subject: idpSubject };
+        return [{ id }] as unknown as Row[];
       }
       if (text.includes('lower(email)')) {
         const found = users.find((u) => u.email.toLowerCase() === String(params[0]).toLowerCase());
-        return (found ? [{ id: found.id }] : []) as unknown as Row[];
+        return (found ? [{ id: found.id, idp_subject: found.idp_subject }] : []) as unknown as Row[];
       }
       if (text.includes('SELECT id FROM app_user')) {
         const found = users.find((u) => u.idp_subject === params[0]);
@@ -99,17 +109,34 @@ function makeDb(roles: RoleAssignmentRow[], grants: AccessGrantRow[] = [], user:
       }
       throw new Error(`unexpected query: ${text}`);
     },
+    // Mirrors the production DataAccess: the relink path requires a transaction.
+    async transaction<T>(fn: (tx: QueryExecutor) => Promise<T>): Promise<T> {
+      return fn(this);
+    },
   };
 }
 
 const lookupProfile = async () => ({
   email: 'writer@example.com',
+  emailVerified: true,
   firstName: 'Test',
   lastName: 'User',
 });
 
-function depsFor(db: QueryExecutor, verifier: TokenVerifier = fakeVerifier): AuthorizerDeps {
-  return { verifier, db, lookupProfile };
+function depsFor(
+  db: QueryExecutor,
+  verifier: TokenVerifier = fakeVerifier,
+  overrides: Partial<AuthorizerDeps> = {},
+): AuthorizerDeps {
+  return {
+    verifier,
+    db,
+    lookupProfile,
+    // Default: a previously linked subject no longer exists in the pool.
+    isSubjectLive: async () => false,
+    recordActivityEvent: async () => undefined,
+    ...overrides,
+  };
 }
 
 function event(authorizationToken: string): APIGatewayTokenAuthorizerEvent {
@@ -123,12 +150,22 @@ function tokenFor(payload: Record<string, unknown>): string {
 describe('extractBearerToken', () => {
   it('strips a Bearer prefix and trims', () => {
     expect(extractBearerToken('Bearer abc.def.ghi')).toBe('abc.def.ghi');
-    expect(extractBearerToken('  raw-token  ')).toBe('raw-token');
+    expect(extractBearerToken('  bearer   abc.def.ghi  ')).toBe('abc.def.ghi');
   });
   it('returns undefined for missing/empty input', () => {
     expect(extractBearerToken(undefined)).toBeUndefined();
     expect(extractBearerToken('')).toBeUndefined();
     expect(extractBearerToken('Bearer   ')).toBeUndefined();
+    expect(extractBearerToken('Bearer')).toBeUndefined();
+  });
+  it('rejects a bare JWT without the Bearer scheme', () => {
+    expect(extractBearerToken('abc.def.ghi')).toBeUndefined();
+    expect(extractBearerToken('  raw-token  ')).toBeUndefined();
+  });
+  it('rejects other schemes and malformed Bearer values', () => {
+    expect(extractBearerToken('Basic dXNlcjpwYXNz')).toBeUndefined();
+    expect(extractBearerToken('Bearerabc.def.ghi')).toBeUndefined();
+    expect(extractBearerToken('Bearer abc def')).toBeUndefined();
   });
 });
 
@@ -199,6 +236,17 @@ describe('Lambda authorizer', () => {
     await expect(handler(event(''))).rejects.toThrow(UNAUTHORIZED);
   });
 
+  it('rejects a bare JWT sent without the Bearer scheme, before verification', async () => {
+    const verify = jest.fn(fakeVerifier.verify);
+    const deps = depsFor(makeDb([{ role: 'Student', scope: null }]), { verify });
+    const handler = createAuthorizerHandler(async () => deps);
+
+    await expect(
+      handler(event(JSON.stringify({ sub: USER.idp_subject }))),
+    ).rejects.toThrow(UNAUTHORIZED);
+    expect(verify).not.toHaveBeenCalled();
+  });
+
   it('freezes the Lambda event loop so pooled postgres sockets do not race the response', async () => {
     const deps = depsFor(makeDb([{ role: 'Student', scope: null }]));
     const handler = createAuthorizerHandler(async () => deps);
@@ -219,17 +267,83 @@ describe('Lambda authorizer', () => {
     );
   });
 
-  it('relinks an existing app_user row whose email matches but idp_subject does not', async () => {
+  describe('email relink on first login', () => {
     const existing: AppUserRow = {
       id: '44444444-4444-4444-4444-444444444444',
       email: 'writer@example.com',
       idp_subject: 'old-cognito-sub',
     };
-    const deps = depsFor(makeDb([], [], existing));
-    const handler = createAuthorizerHandler(async () => deps);
-    const result = await handler(event(tokenFor({ sub: 'new-cognito-sub' })));
-    expect(result.principalId).toBe(existing.id);
-    expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Allow' });
+
+    it('reclaims an unprivileged row whose previous subject no longer exists, and audits it', async () => {
+      const audits: unknown[] = [];
+      const deps = depsFor(makeDb([{ role: 'Student', scope: null }], [], existing), fakeVerifier, {
+        recordActivityEvent: async (input) => {
+          audits.push(input);
+        },
+      });
+      const handler = createAuthorizerHandler(async () => deps);
+      const result = await handler(event(tokenFor({ sub: 'new-cognito-sub' })));
+      expect(result.principalId).toBe(existing.id);
+      expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Allow' });
+      expect(audits).toEqual([expect.objectContaining({ verb: 'identity.relinked', objectRef: existing.id })]);
+    });
+
+    it('denies (no relink) when the matched row is still bound to a live subject', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const deps = depsFor(makeDb([], [], existing), fakeVerifier, {
+          isSubjectLive: async () => true,
+        });
+        const handler = createAuthorizerHandler(async () => deps);
+        const result = await handler(event(tokenFor({ sub: 'attacker-sub' })));
+        expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Deny' });
+        expect(result.context).toBeUndefined();
+        const lines = warn.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+        expect(lines).toContainEqual(expect.objectContaining({
+          event: 'auth_failure',
+          reason: 'provisioning_refused',
+          detail: 'identity_still_bound',
+          subject: 'attacker-sub',
+        }));
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('denies (no relink) when the matched row holds an admin role', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const deps = depsFor(makeDb([
+          { role: 'Student', scope: null },
+          { role: 'TechnicalAdmin', scope: null },
+        ], [], existing));
+        const handler = createAuthorizerHandler(async () => deps);
+        const result = await handler(event(tokenFor({ sub: 'attacker-sub' })));
+        expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Deny' });
+        expect(result.principalId).toBe('attacker-sub');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('denies first-login provisioning when Cognito reports the email unverified', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const deps = depsFor(makeDb([], [], null), fakeVerifier, {
+          lookupProfile: async () => ({
+            email: 'victim@example.com',
+            emailVerified: false,
+            firstName: 'Test',
+            lastName: 'User',
+          }),
+        });
+        const handler = createAuthorizerHandler(async () => deps);
+        const result = await handler(event(tokenFor({ sub: 'ghost-subject' })));
+        expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Deny' });
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 
   it('provisions a verified subject with no app_user as Student on first login', async () => {
@@ -241,5 +355,179 @@ describe('Lambda authorizer', () => {
     expect(result.policyDocument.Statement[0]).toMatchObject({ Effect: 'Allow' });
     expect(JSON.parse(String(result.context?.roles))).toEqual(['Student']);
     expect(result.context?.email).toBe('writer@example.com');
+  });
+});
+
+/**
+ * First-admin bootstrap for an ALREADY-PROVISIONED candidate (option 2a).
+ *
+ * These exercise the authorizer end-to-end for a user who already has a Student
+ * row — the case the app forces by auto-loading the dashboard on signup.
+ * The verifier returns `groups: []` (as a real Cognito ACCESS token does), so
+ * these also prove the elevation does NOT depend on the `cognito:groups` claim:
+ * the sole gate is the operator-armed exact subject.
+ */
+describe('Lambda authorizer — armed-subject TechnicalAdmin elevation', () => {
+  const SUBJECT = USER.idp_subject;
+  const ORIGINAL_ARMED = process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT;
+
+  /**
+   * DB fake that tracks role rows and the one-shot bootstrap marker precisely,
+   * distinguishing the Student insert from the TechnicalAdmin insert (unlike the
+   * shared makeDb, which always pushes Student). Exposes a `transaction` so the
+   * one-shot grant helper can run.
+   */
+  function makeRoleTrackingDb(
+    initialRoles: RoleAssignmentRow[],
+    opts: { markerPresent?: boolean } = {},
+  ): {
+    db: ProvisioningDb;
+    roles: () => string[];
+    markerPresent: () => boolean;
+  } {
+    const roleRows: RoleAssignmentRow[] = [...initialRoles];
+    let marker = opts.markerPresent ?? false;
+    const db: ProvisioningDb = {
+      async query<Row>(text: string, params: readonly unknown[] = []): Promise<Row[]> {
+        if (text.includes('technical_admin_bootstrap')) {
+          if (text.includes('INSERT')) {
+            marker = true;
+            return [] as unknown as Row[];
+          }
+          return (marker ? [{ one: 1 }] : []) as unknown as Row[];
+        }
+        if (text.includes("'TechnicalAdmin'")) {
+          if (!roleRows.some((r) => r.role === 'TechnicalAdmin')) {
+            roleRows.push({ role: 'TechnicalAdmin', scope: null });
+          }
+          return [] as unknown as Row[];
+        }
+        if (text.includes("'Student'")) {
+          if (!roleRows.some((r) => r.role === 'Student')) {
+            roleRows.push({ role: 'Student', scope: null });
+          }
+          return [] as unknown as Row[];
+        }
+        if (text.includes('SELECT id FROM app_user')) {
+          return (params[0] === SUBJECT ? [{ id: USER.id }] : []) as unknown as Row[];
+        }
+        if (text.includes('FROM app_user')) {
+          return (params[0] === SUBJECT ? [USER] : []) as unknown as Row[];
+        }
+        if (text.includes('FROM role_assignment')) {
+          return roleRows as unknown as Row[];
+        }
+        if (text.includes('FROM access_grant')) {
+          return [] as unknown as Row[];
+        }
+        throw new Error(`unexpected query: ${text}`);
+      },
+      async transaction<T>(fn: (tx: QueryExecutor) => Promise<T>): Promise<T> {
+        return fn(this);
+      },
+    };
+    return { db, roles: () => roleRows.map((r) => r.role), markerPresent: () => marker };
+  }
+
+  afterEach(() => {
+    if (ORIGINAL_ARMED === undefined) delete process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT;
+    else process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = ORIGINAL_ARMED;
+  });
+
+  it('elevates an already-provisioned Student when their exact subject is armed, once, with an audit event', async () => {
+    process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = SUBJECT;
+    const { db, roles, markerPresent } = makeRoleTrackingDb([{ role: 'Student', scope: null }]);
+    const audits: unknown[] = [];
+    const handler = createAuthorizerHandler(async () =>
+      depsFor(db, fakeVerifier, { recordActivityEvent: async (e) => void audits.push(e) }),
+    );
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    // The freshly granted role is reflected in THIS request's context. Compare
+    // order-insensitively: role_assignment has no ORDER BY, so a real DB may
+    // return the rows in any order.
+    expect(JSON.parse(String(result.context?.roles))).toEqual(
+      expect.arrayContaining(['Student', 'TechnicalAdmin']),
+    );
+    expect(JSON.parse(String(result.context?.roles))).toHaveLength(2);
+    expect(roles()).toEqual(expect.arrayContaining(['Student', 'TechnicalAdmin']));
+    expect(roles()).toHaveLength(2);
+    // The one-shot marker is written and exactly one role.assigned is emitted.
+    expect(markerPresent()).toBe(true);
+    expect(audits).toEqual([
+      expect.objectContaining({
+        verb: 'role.assigned',
+        objectType: 'RoleAssignment',
+        objectRef: USER.id,
+        context: expect.objectContaining({ targetRole: 'TechnicalAdmin' }),
+      }),
+    ]);
+  });
+
+  it('does not re-elevate after revocation: role absent but marker present stays revoked and emits nothing', async () => {
+    process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = SUBJECT;
+    // Simulates the state after DELETE /v1/roles: the role row is gone but the
+    // one-shot marker from the original bootstrap remains.
+    const { db, roles, markerPresent } = makeRoleTrackingDb(
+      [{ role: 'Student', scope: null }],
+      { markerPresent: true },
+    );
+    const audits: unknown[] = [];
+    const handler = createAuthorizerHandler(async () =>
+      depsFor(db, fakeVerifier, { recordActivityEvent: async (e) => void audits.push(e) }),
+    );
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student']);
+    expect(roles()).toEqual(['Student']);
+    expect(markerPresent()).toBe(true);
+    expect(audits).toEqual([]);
+  });
+
+  it('does not elevate when no subject is armed', async () => {
+    delete process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT;
+    const { db, roles } = makeRoleTrackingDb([{ role: 'Student', scope: null }]);
+    const handler = createAuthorizerHandler(async () => depsFor(db));
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student']);
+    expect(roles()).toEqual(['Student']);
+  });
+
+  it('does not elevate a different user while another subject is armed', async () => {
+    process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = 'some-other-armed-subject';
+    const { db, roles } = makeRoleTrackingDb([{ role: 'Student', scope: null }]);
+    const handler = createAuthorizerHandler(async () => depsFor(db));
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    expect(JSON.parse(String(result.context?.roles))).toEqual(['Student']);
+    expect(roles()).toEqual(['Student']);
+  });
+
+  it('is idempotent: an armed subject already holding TechnicalAdmin is unchanged and emits nothing', async () => {
+    process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT = SUBJECT;
+    const { db, roles } = makeRoleTrackingDb([
+      { role: 'Student', scope: null },
+      { role: 'TechnicalAdmin', scope: null },
+    ]);
+    const audits: unknown[] = [];
+    const handler = createAuthorizerHandler(async () =>
+      depsFor(db, fakeVerifier, { recordActivityEvent: async (e) => void audits.push(e) }),
+    );
+
+    const result = await handler(event(tokenFor({ sub: SUBJECT })));
+
+    expect(JSON.parse(String(result.context?.roles))).toEqual(
+      expect.arrayContaining(['Student', 'TechnicalAdmin']),
+    );
+    expect(JSON.parse(String(result.context?.roles))).toHaveLength(2);
+    expect(roles()).toEqual(expect.arrayContaining(['Student', 'TechnicalAdmin']));
+    expect(roles()).toHaveLength(2);
+    // The fast-path guard short-circuits before the grant helper runs.
+    expect(audits).toEqual([]);
   });
 });

@@ -13,8 +13,11 @@ import type { Segment } from '@wren/types';
 
 import {
   DEFAULT_SIZE_LIMIT_WORDS,
+  MAX_CHARS_PER_WORD,
+  countChars,
   countWords,
   countWordsInText,
+  effectiveCharLimit,
   enforceSizeLimit,
   enforceSizeLimitForWordCount,
   resolveEffectiveSizeLimitWords,
@@ -120,6 +123,66 @@ describe('enforceSizeLimitForWordCount', () => {
     };
     expect(enforceSizeLimitForWordCount(100, overrides).status).toBe('within-limit');
     expect(enforceSizeLimitForWordCount(101, overrides).status).toBe('over-limit');
+  });
+});
+
+describe('countChars / effectiveCharLimit', () => {
+  it('sums segment text lengths', () => {
+    expect(countChars(segmentsOf('abc', 'de'))).toBe(5);
+    expect(countChars([])).toBe(0);
+  });
+
+  it('derives the char ceiling from the word limit', () => {
+    expect(effectiveCharLimit(100)).toBe(100 * MAX_CHARS_PER_WORD);
+    expect(effectiveCharLimit(DEFAULT_SIZE_LIMIT_WORDS)).toBe(
+      DEFAULT_SIZE_LIMIT_WORDS * MAX_CHARS_PER_WORD,
+    );
+  });
+});
+
+describe('character ceiling (defense-in-depth)', () => {
+  const SMALL: SizeLimitOverrides = { documentTypeSizeLimitWords: 10 };
+  const charLimit = effectiveCharLimit(10); // 160
+
+  it('rejects a whitespace-free blob that is one word but exceeds the char ceiling', () => {
+    const blob = 'x'.repeat(charLimit + 1); // measures as 1 word
+    const result = enforceSizeLimit(segmentsOf(blob), SMALL);
+    expect(result.status).toBe('over-limit');
+    if (result.status === 'over-limit') {
+      expect(result.exceeded).toBe('chars');
+      expect(result.measuredWords).toBe(1);
+      expect(result.measuredChars).toBe(charLimit + 1);
+      expect(result.effectiveLimitChars).toBe(charLimit);
+      expect(result.message).toContain(String(charLimit));
+    }
+  });
+
+  it('accepts content exactly at the char ceiling (boundary)', () => {
+    const blob = 'x'.repeat(charLimit);
+    const result = enforceSizeLimit(segmentsOf(blob), SMALL);
+    expect(result.status).toBe('within-limit');
+  });
+
+  it('reports a word overage before a char overage when both exceed', () => {
+    // 11 single-char words separated by spaces: 11 words (> 10) and 21 chars.
+    const text = Array.from({ length: 11 }, () => 'x').join(' ');
+    const result = enforceSizeLimit(segmentsOf(text), SMALL);
+    expect(result.status).toBe('over-limit');
+    if (result.status === 'over-limit') {
+      expect(result.exceeded).toBe('words');
+    }
+  });
+
+  it('does not apply the char ceiling when no char count is supplied', () => {
+    // Word-count-only entry point: a 1-word count passes regardless of chars.
+    const result = enforceSizeLimitForWordCount(1, SMALL);
+    expect(result.status).toBe('within-limit');
+  });
+
+  it('applies the char ceiling via the word-count entry point when chars are supplied', () => {
+    const result = enforceSizeLimitForWordCount(1, SMALL, charLimit + 1);
+    expect(result.status).toBe('over-limit');
+    if (result.status === 'over-limit') expect(result.exceeded).toBe('chars');
   });
 });
 

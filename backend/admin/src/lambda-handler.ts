@@ -5,7 +5,22 @@
 import type { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { publishNotificationEvent } from '@wren/notification';
-import { listDepartments, getDepartment, createDepartment, updateDepartmentPrompt, setDepartmentAccessState, listDepartmentUsers, archiveDepartment } from './departmentService';
+import {
+  listDepartments,
+  getDepartment,
+  createDepartment,
+  updateDepartmentPrompt,
+  updateDepartmentAskWrenPrompt,
+  setDepartmentAccessState,
+  setDepartmentVisibilityState,
+  listDepartmentUsers,
+  archiveDepartment,
+} from './departmentService';
+import {
+  createDepartmentVisibilityGrant,
+  listDepartmentVisibilityGrants,
+  revokeDepartmentVisibilityGrant,
+} from './departmentVisibilityGrantService';
 import {
   listDocumentTypes,
   listAllDocumentTypes,
@@ -32,12 +47,16 @@ import {
   updatePlatformUsagePolicy,
 } from './lifetimeUsagePolicy';
 import type { QueryExecutor } from './db';
-import { parseAuthContext, wrapHandler, withCors } from './lambda-utils';
-import { AuthorizationError, NotFoundError } from './errors';
+import { parseAuthContext, wrapHandler, withCors, bindCorsOrigin, rejectIfForgedAuthContext } from './lambda-utils';
+import { AuthorizationError, NotFoundError, PromptInjectionError } from './errors';
+import { PromptGuardrailError } from './promptGuardrail';
 import { assertCanListDepartmentUsers, requireCapability } from './capabilityGuard';
 import {
+  auditAccessStateChange,
   auditConfigEdit,
+  auditDepartmentVisibilityChange,
   auditOverrideGrant,
+  auditPlatformPolicyChange,
   auditPromptEdit,
   auditRoleOrGrantChange,
 } from './auditRecordingService';
@@ -45,8 +64,8 @@ import {
   assertCanViewDepartment,
   filterDocumentTypesForActor,
   mustScopeDepartmentCatalog,
+  redactDepartmentPrompt,
 } from './departmentScope';
-import { handler as syncCognitoAdminsHandler } from './scripts/sync-cognito-admins';
 import type { AuthContext } from '@wren/types';
 import { getBedrockModelIdFromSsm, putBedrockModelIdToSsm } from './bedrockModelParameter';
 
@@ -112,12 +131,15 @@ async function assertErrorCategoryParent(
 
 export const handler: APIGatewayProxyHandler = async (event: any, context): Promise<APIGatewayProxyResult> => {
   freezeEventLoopOnReturn(context);
-  // One-shot admin scripts invoked directly via `aws lambda invoke --payload '{"_script":"..."}'`
-  if (event['_script'] === 'sync-cognito-admins') {
-    return syncCognitoAdminsHandler(event);
-  }
-
+  // This function serves API Gateway requests only. Privileged operator scripts
+  // (e.g. sync-cognito-admins) run in their own Lambda
+  // (`lambda-sync-cognito-admins.ts`) so no unauthenticated branch exists here.
+  bindCorsOrigin(event);
   try {
+    // Reject forged/unsigned authorizer contexts (direct-invoke).
+    const forged = await rejectIfForgedAuthContext(event);
+    if (forged) return withCors(forged);
+
     const { httpMethod, resource } = event;
 
     // Route by HTTP method + resource path
@@ -142,8 +164,26 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
     if (resource === '/v1/departments/{departmentId}/prompt' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleUpdateDepartmentPrompt(event));
     }
+    if (resource === '/v1/departments/{departmentId}/ask-wren-prompt' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleUpdateDepartmentAskWrenPrompt(event));
+    }
     if (resource === '/v1/departments/{departmentId}/access-state' && httpMethod === 'PUT') {
       return await wrapHandler(() => handleSetDepartmentAccessState(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/visibility-state' && httpMethod === 'PUT') {
+      return await wrapHandler(() => handleSetDepartmentVisibilityState(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/visibility-grants' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListDepartmentVisibilityGrants(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/visibility-grants' && httpMethod === 'POST') {
+      return await wrapHandler(() => handleCreateDepartmentVisibilityGrant(event));
+    }
+    if (
+      resource === '/v1/departments/{departmentId}/visibility-grants/{grantId}' &&
+      httpMethod === 'DELETE'
+    ) {
+      return await wrapHandler(() => handleRevokeDepartmentVisibilityGrant(event));
     }
     if (resource === '/v1/document-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocumentTypes(event));
@@ -258,14 +298,12 @@ async function handleGetMe(event: any): Promise<APIGatewayProxyResult> {
 async function handleListDepartments(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const departments = await listDepartments(db);
-  // The department `prompt` field is a TechnicalAdmin-authored system instruction
-  // injected into Bedrock prompts. Strip it for non-TechnicalAdmin callers so that
-  // DeptAdmins and Students cannot enumerate another department's prompt content.
-  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
-  const sanitized = departments.map((d: any) =>
-    isTechAdmin ? d : { ...d, prompt: undefined },
-  );
+  const departments = await listDepartments(actor, db);
+  // The department `prompt` field is a Feedback-Engine system instruction
+  // injected into Bedrock prompts. Only TechnicalAdmins and the department's own
+  // DepartmentAdmins may read it; everyone else gets it stripped so Students and
+  // foreign DeptAdmins cannot enumerate another department's prompt content.
+  const sanitized = departments.map((d) => redactDepartmentPrompt(actor, d));
   return {
     statusCode: 200,
     body: JSON.stringify(sanitized),
@@ -281,8 +319,7 @@ async function handleGetDepartment(event: any): Promise<APIGatewayProxyResult> {
   if (!department) {
     throw new NotFoundError(`Department '${departmentId}' not found`);
   }
-  const isTechAdmin = actor.roles.includes('TechnicalAdmin');
-  const response = isTechAdmin ? department : { ...department, prompt: undefined };
+  const response = redactDepartmentPrompt(actor, department);
   return {
     statusCode: 200,
     body: JSON.stringify(response),
@@ -362,8 +399,33 @@ async function handleUpdateDocumentTypeConfig(event: any): Promise<APIGatewayPro
   const db = await getDataAccess();
   const { documentTypeId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
-  const config = await upsertDocumentTypeConfig(actor, documentTypeId, body, db);
+  // Resolve the owning department up front so the rejection audit (below) can
+  // record scope even when the guardrail throws before any DB write.
   const departmentId = await lookupDepartmentId(documentTypeId, db);
+
+  let config;
+  try {
+    config = await upsertDocumentTypeConfig(actor, documentTypeId, body, db);
+  } catch (err) {
+    // Requirement 32.6: record the prompt-edit attempt with its
+    // ACTUAL guardrail outcome even when the content is rejected — previously
+    // this path recorded nothing. The error is rethrown so wrapHandler maps it
+    // to the appropriate 400 (GHOSTWRITING_DETECTED / prompt-injection).
+    if (
+      body.typePromptText !== undefined &&
+      (err instanceof PromptGuardrailError || err instanceof PromptInjectionError)
+    ) {
+      await auditPromptEdit(actor, {
+        documentTypeId,
+        ...(departmentId ? { departmentId } : {}),
+        scope: 'documentType',
+        guardrailOutcome: 'rejected',
+        rejectionReason: err.message,
+      }, db);
+    }
+    throw err;
+  }
+
   for (const field of Object.keys(body)) {
     if (body[field] === undefined) continue;
     await auditConfigEdit(actor, {
@@ -374,6 +436,8 @@ async function handleUpdateDocumentTypeConfig(event: any): Promise<APIGatewayPro
     }, db);
   }
   if (body.typePromptText !== undefined) {
+    // Reached only when upsertDocumentTypeConfig succeeded — i.e. the save-time
+    // guardrail passed, so 'passed' is now recorded conditionally on success.
     await auditPromptEdit(actor, {
       documentTypeId,
       ...(departmentId ? { departmentId } : {}),
@@ -403,6 +467,18 @@ async function handleSetDocumentTypeAccessState(event: any): Promise<APIGatewayP
     };
   }
   const updated = await setDocumentTypeAccessState(actor, documentTypeId, accessState, db);
+  // Audit the access-state flip: gating whether Students may
+  // submit work is a security-relevant configuration change.
+  await auditAccessStateChange(
+    actor,
+    {
+      scope: 'documentType',
+      documentTypeId,
+      departmentId: updated.departmentId,
+      accessState,
+    },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify({ accessState: updated.accessState }),
@@ -425,10 +501,132 @@ async function handleSetDepartmentAccessState(event: any): Promise<APIGatewayPro
     };
   }
   const updated = await setDepartmentAccessState(actor, departmentId, accessState, db);
+  // Audit the access-state flip: gating whether Students may
+  // submit work is a security-relevant configuration change.
+  await auditAccessStateChange(
+    actor,
+    { scope: 'department', departmentId, accessState },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify(updated),
   };
+}
+
+async function handleSetDepartmentVisibilityState(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const result = await db.transaction(async (tx) => {
+    const updated = await setDepartmentVisibilityState(actor, departmentId, body, tx);
+    if (updated.changed) {
+      await auditDepartmentVisibilityChange(
+        actor,
+        {
+          action: 'department.visibility.updated',
+          departmentId,
+          previousState: updated.previousState,
+          newState: updated.department.visibilityState,
+        },
+        tx,
+      );
+    }
+    return updated;
+  });
+  return {
+    statusCode: 200,
+    body: JSON.stringify(result.department),
+  };
+}
+
+function parseOptionalIntegerQuery(
+  raw: unknown,
+  name: string,
+  minimum: number,
+  maximum?: number,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || !/^(0|[1-9]\d*)$/.test(raw)) {
+    throw Object.assign(new Error(`${name} must be an integer`), { statusCode: 400 });
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < minimum || (maximum !== undefined && value > maximum)) {
+    const range = maximum === undefined ? `at least ${minimum}` : `between ${minimum} and ${maximum}`;
+    throw Object.assign(new Error(`${name} must be ${range}`), { statusCode: 400 });
+  }
+  return value;
+}
+
+async function handleListDepartmentVisibilityGrants(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const qs = event.queryStringParameters || {};
+  const limit = parseOptionalIntegerQuery(qs.limit, 'limit', 1, 100);
+  const offset = parseOptionalIntegerQuery(qs.offset, 'offset', 0);
+  const result = await listDepartmentVisibilityGrants(actor, departmentId, db, {
+    q: qs.q,
+    limit,
+    offset,
+  });
+  return { statusCode: 200, body: JSON.stringify(result) };
+}
+
+async function handleCreateDepartmentVisibilityGrant(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  const result = await db.transaction(async (tx) => {
+    const created = await createDepartmentVisibilityGrant(actor, departmentId, body, tx);
+    if (created.changed) {
+      await auditDepartmentVisibilityChange(
+        actor,
+        {
+          action: 'department_visibility_grant.created',
+          departmentId,
+          grantId: created.grant.id,
+          targetUserId: created.grant.userId,
+        },
+        tx,
+      );
+    }
+    return created;
+  });
+  return {
+    statusCode: result.changed ? 201 : 200,
+    body: JSON.stringify(result.grant),
+  };
+}
+
+async function handleRevokeDepartmentVisibilityGrant(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId, grantId } = event.pathParameters || {};
+  const result = await db.transaction(async (tx) => {
+    const revoked = await revokeDepartmentVisibilityGrant(
+      actor,
+      departmentId,
+      grantId,
+      tx,
+    );
+    if (revoked.changed) {
+      await auditDepartmentVisibilityChange(
+        actor,
+        {
+          action: 'department_visibility_grant.revoked',
+          departmentId,
+          grantId: revoked.grant.id,
+          targetUserId: revoked.grant.userId,
+        },
+        tx,
+      );
+    }
+    return revoked;
+  });
+  return { statusCode: 200, body: JSON.stringify(result.grant) };
 }
 
 async function handleSearchUsers(event: any): Promise<APIGatewayProxyResult> {
@@ -464,19 +662,30 @@ async function handleAssignRole(event: any): Promise<APIGatewayProxyResult> {
     departmentId: body.departmentId,
   }, db);
 
-  // Publish department-appointment notification for the user receiving the role.
-  publishNotificationEvent({
-    typeSlug: 'department-appointment',
-    entityId: body.userId,
-    recipientUserId: body.userId,
-    departmentId: body.departmentId,
-    context: {
-      role: body.role,
-      departmentId: body.departmentId ?? '',
-    },
-  }).catch((err) => {
-    console.warn('Failed to publish department-appointment notification:', err);
-  });
+  // Publish the appointment notification for the user receiving the role.
+  // The catalog entry is `new-department-appointment` (0001_baseline.sql seed)
+  // and its template only makes sense for a DepartmentAdmin appointment, so
+  // global role assignments (Student / TechnicalAdmin) do not publish it.
+  // Awaited (errors swallowed) so the publish completes before Lambda freezes;
+  // a notification failure never fails the role assignment itself.
+  if (body.role === 'DepartmentAdmin' && body.departmentId) {
+    try {
+      const department = await getDepartment(body.departmentId, db);
+      await publishNotificationEvent({
+        typeSlug: 'new-department-appointment',
+        entityId: body.userId,
+        recipientUserId: body.userId,
+        departmentId: body.departmentId,
+        context: {
+          role: body.role,
+          departmentId: body.departmentId,
+          departmentName: department?.name ?? 'your department',
+        },
+      });
+    } catch (err) {
+      console.warn('Failed to publish new-department-appointment notification:', err);
+    }
+  }
 
   return {
     statusCode: 200,
@@ -689,6 +898,13 @@ async function handleCreateDepartment(event: any): Promise<APIGatewayProxyResult
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const department = await createDepartment(actor, body, db);
+  // Creating a Department is a privileged tenant-lifecycle mutation; record it
+  // so the audit trail can attribute who provisioned the tenant.
+  await auditConfigEdit(
+    actor,
+    { field: 'department', action: 'created', departmentId: department.id, objectType: 'Department' },
+    db,
+  );
   return {
     statusCode: 201,
     body: JSON.stringify(department),
@@ -700,6 +916,19 @@ async function handleCreateDocumentType(event: any): Promise<APIGatewayProxyResu
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const documentType = await createDocumentType(actor, body, db);
+  // Adding a Document Type to the catalog is a privileged tenant-lifecycle
+  // mutation; record it against the owning Department for attribution.
+  await auditConfigEdit(
+    actor,
+    {
+      field: 'documentType',
+      action: 'created',
+      documentTypeId: documentType.id,
+      departmentId: documentType.departmentId,
+      objectType: 'DocumentType',
+    },
+    db,
+  );
   return {
     statusCode: 201,
     body: JSON.stringify(documentType),
@@ -714,6 +943,13 @@ async function handleDeleteDocumentType(event: any): Promise<APIGatewayProxyResu
   if (!deleted) {
     throw new NotFoundError(`Document Type '${documentTypeId}' not found`);
   }
+  // Removing a Document Type from the catalog is a privileged tenant-lifecycle
+  // mutation; record it only once the deletion actually succeeded.
+  await auditConfigEdit(
+    actor,
+    { field: 'documentType', action: 'deleted', documentTypeId, objectType: 'DocumentType' },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify({ documentTypeId }),
@@ -725,6 +961,13 @@ async function handleDeleteDepartment(event: any): Promise<APIGatewayProxyResult
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
   const department = await archiveDepartment(actor, departmentId, db);
+  // Archiving a Department is a privileged tenant-lifecycle mutation; record it
+  // once the archive succeeded (archiveDepartment throws when absent).
+  await auditConfigEdit(
+    actor,
+    { field: 'department', action: 'deleted', departmentId, objectType: 'Department' },
+    db,
+  );
   return withCors({ statusCode: 200, body: JSON.stringify(department) });
 }
 
@@ -734,10 +977,14 @@ async function handleListDepartmentUsers(event: any): Promise<APIGatewayProxyRes
   const { departmentId } = event.pathParameters || {};
   assertCanListDepartmentUsers(actor, departmentId);
   const qs = event.queryStringParameters || {};
+  // Bound page size (1–100) and reject malformed/negative values with a 400,
+  // matching handleListDepartmentVisibilityGrants.
+  const limit = parseOptionalIntegerQuery(qs.limit, 'limit', 1, 100);
+  const offset = parseOptionalIntegerQuery(qs.offset, 'offset', 0);
   const result = await listDepartmentUsers(departmentId, db, {
     q: qs.q,
-    limit: qs.limit ? parseInt(qs.limit, 10) : undefined,
-    offset: qs.offset ? parseInt(qs.offset, 10) : undefined,
+    limit,
+    offset,
   });
   return { statusCode: 200, body: JSON.stringify(result) };
 }
@@ -747,16 +994,78 @@ async function handleUpdateDepartmentPrompt(event: any): Promise<APIGatewayProxy
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
-  const department = await updateDepartmentPrompt(actor, departmentId, body, db);
-  await auditPromptEdit(actor, {
-    departmentId,
-    scope: 'system',
-    guardrailOutcome: 'passed',
-  }, db);
-  return {
-    statusCode: 200,
-    body: JSON.stringify(department),
-  };
+  try {
+    const department = await updateDepartmentPrompt(actor, departmentId, body, db);
+    await auditPromptEdit(actor, {
+      departmentId,
+      scope: 'system',
+      guardrailOutcome: 'passed',
+    }, db);
+    // Mirror the read paths (handleListDepartments/handleGetDepartment): strip
+    // the confidential Feedback-Engine `prompt` for callers who may not read it.
+    // A no-op for the authorized editor (TechnicalAdmin / administering
+    // DepartmentAdmin), but keeps write and read response shapes consistent.
+    return {
+      statusCode: 200,
+      body: JSON.stringify(redactDepartmentPrompt(actor, department)),
+    };
+  } catch (err) {
+    // Requirement 32.6: record the rejected prompt edit with its
+    // guardrail outcome even when the content is rejected (previously this path
+    // recorded nothing and only ever reported 'passed'). Rethrow so wrapHandler
+    // maps it to the appropriate 400.
+    if (err instanceof PromptGuardrailError || err instanceof PromptInjectionError) {
+      await auditPromptEdit(actor, {
+        departmentId,
+        scope: 'system',
+        guardrailOutcome: 'rejected',
+        rejectionReason: err.message,
+      }, db);
+    }
+    throw err;
+  }
+}
+
+async function handleUpdateDepartmentAskWrenPrompt(
+  event: any,
+): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+
+  try {
+    const department = await updateDepartmentAskWrenPrompt(actor, departmentId, body, db);
+    await auditPromptEdit(
+      actor,
+      { departmentId, scope: 'department', guardrailOutcome: 'passed' },
+      db,
+    );
+    // Mirror the read paths: strip the confidential Feedback-Engine `prompt`
+    // for callers who may not read it. `askWrenPrompt` (the field being edited)
+    // is unaffected; this is a no-op for the authorized editor.
+    return {
+      statusCode: 200,
+      body: JSON.stringify(redactDepartmentPrompt(actor, department)),
+    };
+  } catch (err) {
+    // Requirement 32.6: record the edit attempt with its guardrail outcome even
+    // when the content is rejected. The error is rethrown so wrapHandler maps it
+    // to the appropriate 400 (GHOSTWRITING_DETECTED / prompt-injection).
+    if (err instanceof PromptGuardrailError || err instanceof PromptInjectionError) {
+      await auditPromptEdit(
+        actor,
+        {
+          departmentId,
+          scope: 'department',
+          guardrailOutcome: 'rejected',
+          rejectionReason: err.message,
+        },
+        db,
+      );
+    }
+    throw err;
+  }
 }
 
 async function handleListErrorCategories(event: any): Promise<APIGatewayProxyResult> {
@@ -814,6 +1123,13 @@ async function handleCreateErrorCategory(event: any): Promise<APIGatewayProxyRes
   const { documentTypeId } = event.pathParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
   const category = await createErrorCategory(actor, { ...body, documentTypeId }, db);
+  // The taxonomy's internal guidance feeds the Feedback Engine prompt, so a
+  // taxonomy write is as prompt-relevant as a prompt edit and must be audited.
+  await auditConfigEdit(
+    actor,
+    { field: 'errorCategory', action: 'created', documentTypeId, objectType: 'ErrorCategory' },
+    db,
+  );
   return {
     statusCode: 201,
     body: JSON.stringify(category),
@@ -827,6 +1143,13 @@ async function handleUpdateErrorCategory(event: any): Promise<APIGatewayProxyRes
   await assertErrorCategoryParent(categoryId, documentTypeId, db);
   const body = event.body ? JSON.parse(event.body) : {};
   const category = await updateErrorCategory(actor, categoryId, body, db);
+  // The taxonomy's internal guidance feeds the Feedback Engine prompt, so a
+  // taxonomy write is as prompt-relevant as a prompt edit and must be audited.
+  await auditConfigEdit(
+    actor,
+    { field: 'errorCategory', action: 'updated', documentTypeId, objectType: 'ErrorCategory' },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify(category),
@@ -839,6 +1162,13 @@ async function handleDeleteErrorCategory(event: any): Promise<APIGatewayProxyRes
   const { documentTypeId, categoryId } = event.pathParameters || {};
   await assertErrorCategoryParent(categoryId, documentTypeId, db);
   await deleteErrorCategory(actor, categoryId, db);
+  // The taxonomy's internal guidance feeds the Feedback Engine prompt, so a
+  // taxonomy write is as prompt-relevant as a prompt edit and must be audited.
+  await auditConfigEdit(
+    actor,
+    { field: 'errorCategory', action: 'deleted', documentTypeId, objectType: 'ErrorCategory' },
+    db,
+  );
   return {
     statusCode: 204,
     body: '',
@@ -967,10 +1297,27 @@ async function handleUpdateModelConfig(event: any): Promise<APIGatewayProxyResul
   }
 
   const db = await getDataAccess();
+  // Capture the previous model id so the audit trail records the transition.
+  const prevRows = await db.query<{ bedrock_model_id: string | null }>(
+    'SELECT bedrock_model_id FROM platform_usage_policy WHERE id = 1',
+  );
+  const previousModelId = prevRows[0]?.bedrock_model_id ?? undefined;
   await putBedrockModelIdToSsm(modelId);
   await db.query(
     'UPDATE platform_usage_policy SET bedrock_model_id = $1 WHERE id = 1',
     [modelId],
+  );
+
+  // Audit the model change: a TechnicalAdmin swapping the active
+  // Bedrock model is a privileged platform mutation.
+  await auditPlatformPolicyChange(
+    actor,
+    {
+      change: 'model',
+      newValue: { modelId },
+      ...(previousModelId ? { previousValue: { modelId: previousModelId } } : {}),
+    },
+    db,
   );
 
   return {
@@ -998,6 +1345,13 @@ async function handleUpdateUsageLimits(event: any): Promise<APIGatewayProxyResul
   const db = await getDataAccess();
   const body = event.body ? JSON.parse(event.body) : {};
   const policy = await updatePlatformUsagePolicy(actor, body, db);
+  // Audit the usage-cap change: a TechnicalAdmin altering the
+  // platform lifetime/usage limits is a privileged platform mutation.
+  await auditPlatformPolicyChange(
+    actor,
+    { change: 'usageLimits', newValue: policy as unknown as Record<string, unknown> },
+    db,
+  );
   return {
     statusCode: 200,
     body: JSON.stringify(policy),

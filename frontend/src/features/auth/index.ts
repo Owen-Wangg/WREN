@@ -19,6 +19,7 @@ export { CognitoAuthService } from './cognitoAuthService';
 export {
   loginSchema,
   signupSchema,
+  createSignupSchema,
   type LoginFormValues,
   type SignupFormValues,
 } from './authSchemas';

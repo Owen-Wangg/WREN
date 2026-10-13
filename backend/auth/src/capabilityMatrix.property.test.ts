@@ -46,11 +46,15 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageLimit.configure',
   'usageOverride.grant',
   'user.search',
+  'departmentVisibility.manage',
   'documentType.setAccessState',
   'documentType.manageCatalog',
   'documentType.readConfig',
   'documentType.modifyConfig',
+  'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'analytics.view',
+  'notificationType.manageCatalog',
 ]);
 
 const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
@@ -59,6 +63,8 @@ const DEPARTMENT_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capabilit
   'documentType.manageCatalog',
   'topic.manage',
   'department.manage',
+  'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageOverride.grant',
@@ -106,6 +112,8 @@ const ALL_CAPABILITIES: Capability[] = [
   'documentType.setAccessState',
   'topic.manage',
   'department.manage',
+  'department.manageAskWrenPrompt',
+  'department.managePrompt',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageLimit.configure',
@@ -113,6 +121,7 @@ const ALL_CAPABILITIES: Capability[] = [
   'user.search',
   'user.searchScoped',
   'analytics.view',
+  'notificationType.manageCatalog',
 ];
 
 const actorArb: fc.Arbitrary<AuthContext> = fc.record({

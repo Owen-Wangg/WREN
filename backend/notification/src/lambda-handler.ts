@@ -11,24 +11,27 @@ import type {
   APIGatewayProxyResult,
   SQSEvent,
 } from 'aws-lambda';
-import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
-import { NotificationServiceImpl } from './notificationService';
+import { appendActivityEventRow, freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
+import {
+  authorizeCapability,
+  bindCorsOrigin,
+  rejectIfForgedAuthContext,
+  withCorsHeaders,
+} from '@wren/auth';
+import type { AuthContext } from '@wren/types';
+import { NonRetryableNotificationError, NotificationServiceImpl } from './notificationService';
 import { NotificationTypeCatalogServiceImpl } from './catalogService';
 import { checkOverrideExpiry } from './overrideExpiryHandler';
 import type { NotificationEvent } from './types';
 
-// Shared CORS headers for API Gateway responses.
 function withCors(response: APIGatewayProxyResult): APIGatewayProxyResult {
-  return {
+  return withCorsHeaders({
     ...response,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
       ...response.headers,
     },
-  };
+  });
 }
 
 /** Parse the auth context from the API Gateway event (set by the Lambda authorizer). */
@@ -41,6 +44,54 @@ function parseAuthContext(event: any): { userId: string; roles: string[] } {
     userId: ctx.userId || ctx.principalId,
     roles: ctx.roles ? (typeof ctx.roles === 'string' ? JSON.parse(ctx.roles) : ctx.roles) : [],
   };
+}
+
+/** The Notification_Type catalog is a platform-wide operation (no Department scope). */
+const NOTIFICATION_CATALOG_SCOPE = { kind: 'platform' as const };
+
+/**
+ * Platform-capability guard for the Notification_Type catalog routes. Mirrors
+ * the Admin_Service capability guard: re-check the capability against the
+ * resolved roles via the shared matrix (never a parallel literal-role scheme),
+ * and on denial emit a structured `authz_denial` line — no secrets, only the
+ * actor's app id, roles, the requested capability + scope, and the matrix's
+ * reason — before returning 403. Returns `null` when allowed so the caller
+ * proceeds.
+ *
+ * `authorizeCapability` reads only `roles` and `administeredDepartmentIds` from
+ * the context, so the authorizer's `{ userId, roles }` projection is
+ * sufficient; `administeredDepartmentIds` is irrelevant for a platform-only
+ * capability.
+ */
+function guardNotificationCatalog(
+  auth: { userId: string; roles: string[] },
+): APIGatewayProxyResult | null {
+  const actor = {
+    userId: auth.userId,
+    roles: auth.roles,
+    administeredDepartmentIds: [],
+  } as unknown as AuthContext;
+  const decision = authorizeCapability(actor, {
+    capability: 'notificationType.manageCatalog',
+    scope: NOTIFICATION_CATALOG_SCOPE,
+  });
+  if (!decision.allowed) {
+    console.warn(
+      JSON.stringify({
+        event: 'authz_denial',
+        actorUserId: auth.userId,
+        roles: auth.roles,
+        capability: 'notificationType.manageCatalog',
+        scope: NOTIFICATION_CATALOG_SCOPE,
+        reason: decision.reason,
+      }),
+    );
+    return withCors({
+      statusCode: 403,
+      body: JSON.stringify({ code: 'FORBIDDEN', message: decision.reason }),
+    });
+  }
+  return null;
 }
 
 /**
@@ -73,15 +124,43 @@ async function handleSqsEvent(event: SQSEvent): Promise<void> {
   const service = new NotificationServiceImpl(db);
 
   for (const record of event.Records) {
+    // Parse the SQS/SNS payload on its own. Only a malformed *message body*
+    // is unprocessable on retry; SyntaxErrors raised later (e.g. parsing
+    // DB-sourced catalog JSON inside processEvent) must keep the retry/DLQ path.
+    let notificationEvent: NotificationEvent;
     try {
       // SNS wraps the message in an envelope
       const body = JSON.parse(record.body);
-      const notificationEvent: NotificationEvent = body.Message
-        ? JSON.parse(body.Message)
-        : body;
+      notificationEvent = body.Message ? JSON.parse(body.Message) : body;
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          event: 'notification_event_dropped',
+          reason: 'MalformedMessageBody',
+          message: err instanceof Error ? err.message : String(err),
+          messageId: record.messageId,
+        }),
+      );
+      continue;
+    }
 
+    try {
       await service.processEvent(notificationEvent);
     } catch (err) {
+      // Unknown slugs can never succeed on retry: log and acknowledge instead
+      // of cycling into the DLQ. Everything else (DB, network, bad catalog
+      // rows) is rethrown so SQS retries it and the DLQ alarm fires.
+      if (err instanceof NonRetryableNotificationError) {
+        console.error(
+          JSON.stringify({
+            event: 'notification_event_dropped',
+            reason: err.name,
+            message: err.message,
+            messageId: record.messageId,
+          }),
+        );
+        continue;
+      }
       console.error('Failed to process notification event:', err, 'Record:', record.messageId);
       throw err; // Let SQS retry / DLQ handle it
     }
@@ -114,7 +193,15 @@ async function handleScheduledEvent(): Promise<void> {
 // API Gateway Handler — REST endpoints
 // ---------------------------------------------------------------------------
 async function handleApiEvent(event: any): Promise<APIGatewayProxyResult> {
+  bindCorsOrigin(event);
   try {
+    // Reject forged/unsigned authorizer contexts before any route trusts
+    // `userId`/`roles` (direct invoke, findings f-140e2506 / f-bd8143e2).
+    // Scoped to the API path only: SQS and EventBridge events carry no
+    // authorizer context.
+    const forged = await rejectIfForgedAuthContext(event);
+    if (forged) return withCors(forged);
+
     const { httpMethod, resource } = event;
 
     // --- User-facing notification endpoints ---
@@ -258,13 +345,9 @@ async function handleBulkAction(event: any): Promise<APIGatewayProxyResult> {
 }
 
 async function handleListNotificationTypes(event: any): Promise<APIGatewayProxyResult> {
-  const { roles } = parseAuthContext(event);
-  if (!roles.includes('TechnicalAdmin')) {
-    return withCors({
-      statusCode: 403,
-      body: JSON.stringify({ code: 'FORBIDDEN', message: 'TechnicalAdmin role required' }),
-    });
-  }
+  const auth = parseAuthContext(event);
+  const denied = guardNotificationCatalog(auth);
+  if (denied) return denied;
 
   const db = await getDataAccess();
   const catalog = new NotificationTypeCatalogServiceImpl(db);
@@ -277,19 +360,28 @@ async function handleListNotificationTypes(event: any): Promise<APIGatewayProxyR
 }
 
 async function handleCreateNotificationType(event: any): Promise<APIGatewayProxyResult> {
-  const { roles } = parseAuthContext(event);
-  if (!roles.includes('TechnicalAdmin')) {
-    return withCors({
-      statusCode: 403,
-      body: JSON.stringify({ code: 'FORBIDDEN', message: 'TechnicalAdmin role required' }),
-    });
-  }
+  const auth = parseAuthContext(event);
+  const denied = guardNotificationCatalog(auth);
+  if (denied) return denied;
 
   const db = await getDataAccess();
   const catalog = new NotificationTypeCatalogServiceImpl(db);
   const body = event.body ? JSON.parse(event.body) : {};
 
   const created = await catalog.create(body);
+
+  // Authorship over the content of every user's inbox is a privileged
+  // platform mutation; record it (write-only; structured metadata, no content).
+  await appendActivityEventRow(
+    {
+      actorUserId: auth.userId,
+      verb: 'notification_type.created',
+      objectType: 'NotificationType',
+      objectRef: created.id,
+      context: { role: auth.roles[0], slug: created.slug, action: 'created' },
+    },
+    db,
+  );
 
   return withCors({
     statusCode: 201,
@@ -298,13 +390,9 @@ async function handleCreateNotificationType(event: any): Promise<APIGatewayProxy
 }
 
 async function handleUpdateNotificationType(event: any): Promise<APIGatewayProxyResult> {
-  const { roles } = parseAuthContext(event);
-  if (!roles.includes('TechnicalAdmin')) {
-    return withCors({
-      statusCode: 403,
-      body: JSON.stringify({ code: 'FORBIDDEN', message: 'TechnicalAdmin role required' }),
-    });
-  }
+  const auth = parseAuthContext(event);
+  const denied = guardNotificationCatalog(auth);
+  if (denied) return denied;
 
   const db = await getDataAccess();
   const catalog = new NotificationTypeCatalogServiceImpl(db);
@@ -312,6 +400,19 @@ async function handleUpdateNotificationType(event: any): Promise<APIGatewayProxy
   const body = event.body ? JSON.parse(event.body) : {};
 
   const updated = await catalog.update(id, body);
+
+  // Authorship over the content of every user's inbox is a privileged
+  // platform mutation; record it (write-only; structured metadata, no content).
+  await appendActivityEventRow(
+    {
+      actorUserId: auth.userId,
+      verb: 'notification_type.updated',
+      objectType: 'NotificationType',
+      objectRef: updated.id,
+      context: { role: auth.roles[0], slug: updated.slug, action: 'updated' },
+    },
+    db,
+  );
 
   return withCors({
     statusCode: 200,

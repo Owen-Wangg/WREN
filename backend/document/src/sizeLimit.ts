@@ -37,6 +37,19 @@ import type { Segment } from '@wren/types';
  */
 export const DEFAULT_SIZE_LIMIT_WORDS = 10_000;
 
+/**
+ * Character ceiling per allowed word, used as a defense-in-depth bound
+ * alongside the word count. The word count alone is
+ * bypassable: `countWordsInText` counts whitespace-delimited runs, so a blob
+ * with no whitespace of any length measures as a single word. Bounding total
+ * characters at `effectiveLimitWords * MAX_CHARS_PER_WORD` closes that gap
+ * while staying generous for legitimate prose. 16 chars/word is well above
+ * typical English (~5-6 chars/word incl. spacing); at the 10,000-word default
+ * this allows ~160KB of text, far more than any genuine 45-page document, so
+ * it never rejects real content yet caps multi-megabyte blobs.
+ */
+export const MAX_CHARS_PER_WORD = 16;
+
 /** A word is a maximal run of non-whitespace characters. */
 const WHITESPACE_RUN = /\s+/;
 
@@ -77,6 +90,15 @@ export interface OverSizeLimit {
   readonly measuredWords: number;
   /** A ready-to-surface message stating the limit and the measured size. */
   readonly message: string;
+  /**
+   * Which bound was exceeded. `'words'` is the historical word-count overage;
+   * `'chars'` is the defense-in-depth character ceiling.
+   */
+  readonly exceeded: 'words' | 'chars';
+  /** Present when `exceeded === 'chars'`: the measured character count. */
+  readonly measuredChars?: number;
+  /** Present when `exceeded === 'chars'`: the effective character ceiling. */
+  readonly effectiveLimitChars?: number;
 }
 
 export type SizeLimitResult = WithinSizeLimit | OverSizeLimit;
@@ -102,6 +124,20 @@ export function countWords(segments: readonly Segment[]): number {
 }
 
 /**
+ * Measure the total character count of an ingested document as the sum of its
+ * segment text lengths. Pure. Used alongside {@link countWords} to apply the
+ * character ceiling.
+ */
+export function countChars(segments: readonly Segment[]): number {
+  return segments.reduce((total, segment) => total + segment.text.length, 0);
+}
+
+/** The character ceiling implied by an effective word limit. */
+export function effectiveCharLimit(effectiveLimitWords: number): number {
+  return effectiveLimitWords * MAX_CHARS_PER_WORD;
+}
+
+/**
  * Resolve the effective size limit (in words) for a document, applying the
  * precedence: Document Type override > platform default (Requirement 7.4). A
  * `null` at the Document Type level defers to the platform default.
@@ -123,6 +159,13 @@ function overLimitMessage(measuredWords: number, effectiveLimitWords: number): s
   );
 }
 
+function overCharLimitMessage(measuredChars: number, effectiveLimitChars: number): string {
+  return (
+    `This document has ${measuredChars} characters, which exceeds the ${effectiveLimitChars}-character ` +
+    'limit for this document type. Please shorten it and resubmit.'
+  );
+}
+
 /**
  * Enforce the effective size limit against a measured word count. The document
  * is rejected IFF `measuredWords` strictly exceeds the effective limit; a count
@@ -134,15 +177,34 @@ function overLimitMessage(measuredWords: number, effectiveLimitWords: number): s
 export function enforceSizeLimitForWordCount(
   measuredWords: number,
   overrides: SizeLimitOverrides,
+  measuredChars?: number,
 ): SizeLimitResult {
   const effectiveLimitWords = resolveEffectiveSizeLimitWords(overrides);
   if (measuredWords > effectiveLimitWords) {
     return {
       status: 'over-limit',
+      exceeded: 'words',
       effectiveLimitWords,
       measuredWords,
       message: overLimitMessage(measuredWords, effectiveLimitWords),
     };
+  }
+  // Defense-in-depth character ceiling: a whitespace-free
+  // blob measures as one word but can be arbitrarily large, so bound total
+  // characters when the caller supplies a measured count.
+  if (measuredChars !== undefined) {
+    const effectiveLimitChars = effectiveCharLimit(effectiveLimitWords);
+    if (measuredChars > effectiveLimitChars) {
+      return {
+        status: 'over-limit',
+        exceeded: 'chars',
+        effectiveLimitWords,
+        measuredWords,
+        measuredChars,
+        effectiveLimitChars,
+        message: overCharLimitMessage(measuredChars, effectiveLimitChars),
+      };
+    }
   }
   return { status: 'within-limit', effectiveLimitWords, measuredWords };
 }
@@ -160,5 +222,5 @@ export function enforceSizeLimit(
   segments: readonly Segment[],
   overrides: SizeLimitOverrides,
 ): SizeLimitResult {
-  return enforceSizeLimitForWordCount(countWords(segments), overrides);
+  return enforceSizeLimitForWordCount(countWords(segments), overrides, countChars(segments));
 }

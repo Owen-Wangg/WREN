@@ -5,42 +5,43 @@
  */
 import { FakeDb } from './fakeDb';
 import {
+  derivePseudonym,
   deidentifyEvents,
   listActivityEvents,
   pseudonymForActor,
   recordActivityEvent,
+  setPseudonymSaltLoader,
 } from './activityLogService';
 
-const ORIGINAL_SALT = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
+// Salt loading (Secrets Manager fetch, caching, retry, fail-closed) is tested
+// where it lives: `backend/database/node/src/activityLog.test.ts`.
+const TEST_SALT = 'test-salt-do-not-use-in-prod';
 
-beforeAll(() => {
-  process.env.WREN_ACTIVITY_PSEUDONYM_SALT = 'test-salt-do-not-use-in-prod';
+beforeEach(() => {
+  setPseudonymSaltLoader(async () => TEST_SALT);
 });
 
 afterAll(() => {
-  process.env.WREN_ACTIVITY_PSEUDONYM_SALT = ORIGINAL_SALT;
+  setPseudonymSaltLoader(undefined);
 });
 
 describe('pseudonymForActor', () => {
-  it('is stable: the same userId always yields the same pseudonym', () => {
-    expect(pseudonymForActor('user-1')).toBe(pseudonymForActor('user-1'));
+  it('is stable: the same userId always yields the same pseudonym', async () => {
+    expect(await pseudonymForActor('user-1')).toBe(await pseudonymForActor('user-1'));
   });
 
-  it('differs across distinct userIds', () => {
-    expect(pseudonymForActor('user-1')).not.toBe(pseudonymForActor('user-2'));
+  it('differs across distinct userIds', async () => {
+    expect(await pseudonymForActor('user-1')).not.toBe(await pseudonymForActor('user-2'));
   });
 
-  it('never returns the raw userId (one-way)', () => {
-    const pseudonym = pseudonymForActor('user-1');
+  it('never returns the raw userId (one-way)', async () => {
+    const pseudonym = await pseudonymForActor('user-1');
     expect(pseudonym).not.toBe('user-1');
     expect(pseudonym).not.toContain('user-1');
   });
 
-  it('throws when the pseudonym salt is not configured (fails closed)', () => {
-    const saved = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-    delete process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-    expect(() => pseudonymForActor('user-1')).toThrow(/WREN_ACTIVITY_PSEUDONYM_SALT/);
-    process.env.WREN_ACTIVITY_PSEUDONYM_SALT = saved;
+  it('matches the pure derivation for the loaded salt', async () => {
+    expect(await pseudonymForActor('user-1')).toBe(derivePseudonym(TEST_SALT, 'user-1'));
   });
 });
 
@@ -81,7 +82,7 @@ describe('recordActivityEvent', () => {
       db,
     );
 
-    expect(event.actorPseudonym).toBe(pseudonymForActor('user-42'));
+    expect(event.actorPseudonym).toBe(await pseudonymForActor('user-42'));
     expect(event.actorPseudonym).not.toBe('user-42');
     expect(JSON.stringify(db.activityEvents)).not.toContain('user-42');
   });

@@ -71,6 +71,10 @@ function representativeResource(action: string, resource: unknown): string {
   const byService: Record<string, string> = {
     appsync: `arn:aws:appsync:${region}:${account}:apis/test/types/Mutation/fields/test`,
     logs: `arn:aws:logs:${region}:${account}:log-group:/aws/lambda/${prefix}-test:*`,
+    // The only intrinsic Secrets Manager resource in Compute is the activity
+    // pseudonym salt (`Ref` when managed, a partial-ARN `-??????` join when
+    // external); the per-role DB secret ARNs arrive as literals.
+    secretsmanager: `arn:aws:secretsmanager:${region}:${account}:secret:${prefix}/audit/pseudonym-salt-AbCdEf`,
     sns: `arn:aws:sns:${region}:${account}:${prefix}-notification-events`,
     sqs: `arn:aws:sqs:${region}:${account}:${prefix}-feedback-queue`,
   };
@@ -241,7 +245,9 @@ describe("CicdStack policy properties", () => {
     );
 
     fc.assert(fc.property(service, roleArn, (principal, resource) => {
-      expect(passRoleTargets).toHaveLength(11);
+      // 12 Compute roles, including the operator-only sync-cognito-admins and
+      // scheduled orphan-upload-sweep Lambdas (the unrouted audit Lambda was retired).
+      expect(passRoleTargets).toHaveLength(12);
       for (const target of passRoleTargets) {
         expect(evaluate(deployPolicy, {
           action: "iam:PassRole",
@@ -260,7 +266,7 @@ describe("CicdStack policy properties", () => {
   it("Property 5: amplifier permissions are confined to their designated patterns", () => {
     // Feature: cicd-deploy-role-privilege-escalation-fix, Property 5: Amplifier permissions are confined to their designated patterns
     const serviceFunctions = [
-      "authorizer", "document", "admin", "audit", "feedback-orchestrator",
+      "authorizer", "document", "admin", "feedback-orchestrator",
       "feedback-engine", "diff-anchor-progress", "notification", "appsync-authorizer",
     ].map((name) => `arn:aws:lambda:${region}:${account}:function:${prefix}-${name}`);
     const suffix = fc.stringOf(fc.constantFrom(..."ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), {
@@ -316,6 +322,12 @@ describe("CicdStack policy properties", () => {
       }
       const logRetentionArn = `arn:aws:lambda:${region}:${account}:function:${prefix}-Compute-LogRetentionABC`;
       expect(evaluate(deployPolicy, { action: "lambda:InvokeFunction", resource: logRetentionArn })).toBe("allowed");
+      // The retired `${prefix}-audit` name is outside the deploy role's scope
+      // it can't be re-created, granted, or invoked.
+      const retiredAuditArn = `arn:aws:lambda:${region}:${account}:function:${prefix}-audit`;
+      for (const retiredAction of ["lambda:CreateFunction", "lambda:AddPermission", "lambda:InvokeFunction"]) {
+        expect(evaluate(deployPolicy, { action: retiredAction, resource: retiredAuditArn })).not.toBe("allowed");
+      }
       const databaseSecret = `arn:aws:secretsmanager:${region}:${account}:secret:${prefix}/database/wren_admin-${databaseSuffix}`;
       expect(evaluate(deployPolicy, { action: "secretsmanager:GetSecretValue", resource: databaseSecret })).not.toBe("allowed");
       const expected = matchesArnPattern(designatedPatterns[action]!, resource);
@@ -357,7 +369,7 @@ describe("CicdStack policy properties", () => {
     fc.assert(fc.property(
       fc.shuffledSubarray(computeRoles, { minLength: computeRoles.length, maxLength: computeRoles.length }),
       (roles) => {
-        expect(roles).toHaveLength(11);
+        expect(roles).toHaveLength(12);
         for (const [, role] of roles) {
           expect(role.Properties?.RoleName).toBeUndefined();
           expect(role.Properties?.PermissionsBoundary).toBe(boundaryArn);

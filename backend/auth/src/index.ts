@@ -24,11 +24,20 @@ export {
   type RoleAssignmentRow,
   type AccessGrantRow,
 } from './identityMapping';
-export { ensureAppUser, type ProvisionUserInput } from './provisionUser';
+export {
+  ensureAppUser,
+  IdentityProvisioningRefusedError,
+  type ProvisionUserInput,
+  type ProvisionUserDeps,
+  type ProvisioningDb,
+  type ProvisioningRefusalReason,
+} from './provisionUser';
 export {
   createCognitoProfileLookup,
+  createCognitoSubjectLivenessCheck,
   type CognitoProfile,
   type CognitoProfileLookup,
+  type CognitoSubjectLivenessCheck,
 } from './cognitoProfile';
 export {
   CognitoTokenVerifier,
@@ -50,14 +59,50 @@ export {
   type DocumentTypeAccessInput,
 } from './accessResolution';
 export {
+  checkSubmissionAccess,
+  submissionAccessDeniedResponse,
+  type SubmissionAccessResult,
+  type SubmissionAccessPermitted,
+  type SubmissionAccessDenied,
+  type SubmissionAccessDeniedCode,
+} from './submissionAccess';
+export {
   authorizeCapability,
   isCapabilityAllowed,
 } from './capabilityMatrix';
+export {
+  canDiscoverDepartment,
+  type DepartmentVisibilityInput,
+} from './departmentVisibility';
 export {
   authorizeRoleAssignment,
   isRoleAssignmentAllowed,
   type RoleAssignmentRequest,
 } from './roleAssignment';
+export {
+  bindCorsOrigin,
+  corsResponseHeaders,
+  originFromEvent,
+  resolveAllowedOrigin,
+  withCorsHeaders,
+} from './cors';
+export {
+  signSerializedAuthContext,
+  verifySerializedAuthContext,
+  rejectIfForgedAuthContext,
+  computeAuthContextSignature,
+  loadAuthContextSigningSecret,
+  getAuthContextSigningSecret,
+  resetAuthContextSigningSecretCache,
+  resolveAuthContextVerifyMode,
+  isAuthContextSigningConfigured,
+  ForgedAuthContextError,
+  AUTH_CONTEXT_SIGNING_SECRET_ENV,
+  AUTH_CONTEXT_VERIFY_MODE_ENV,
+  AUTH_CONTEXT_SIG_FIELD,
+  type AuthContextVerifyMode,
+  type VerifyAuthContextOptions,
+} from './authContextSigning';
 
 export type {
   AccessDecision,

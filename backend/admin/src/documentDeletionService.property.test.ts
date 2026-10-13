@@ -16,12 +16,13 @@ import fc from 'fast-check';
 import { FakeDb } from './fakeDb';
 import { deptAdminContext } from './testContexts';
 import { deleteDocument } from './documentDeletionService';
-import { recordActivityEvent } from './activityLogService';
+import { recordActivityEvent, setPseudonymSaltLoader } from './activityLogService';
 import { wrenProperty } from '../../../testing/typescript/property';
 
-const ORIGINAL_SALT = process.env.WREN_ACTIVITY_PSEUDONYM_SALT;
-beforeAll(() => { process.env.WREN_ACTIVITY_PSEUDONYM_SALT = 'test-salt-prop27'; });
-afterAll(() => { process.env.WREN_ACTIVITY_PSEUDONYM_SALT = ORIGINAL_SALT; });
+// No afterAll reset: Jest gives each test file its own module registry, and
+// `wrenProperty` does not await async properties, so their runs can outlive
+// this file's afterAll hook.
+beforeAll(() => { setPseudonymSaltLoader(async () => 'test-salt-prop27'); });
 
 const DEPT = 'dept-1';
 const DT = 'dt-1';

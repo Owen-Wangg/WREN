@@ -63,13 +63,22 @@ const github = {
   repo: ctxOrEnv("githubRepo", "GITHUB_REPO"),
   branch: ctxOrEnv("githubBranch", "GITHUB_BRANCH") ?? "main",
 };
-const enableCicd = boolCtxOrEnv("enableCicd", "WREN_ENABLE_CICD");
-const ecrOwnership = ctxOrEnv("ecrOwnership", "WREN_ECR_OWNERSHIP") ?? "managed";
+// Default ON, matching the deploy workflow (config.ts defaults WREN_ENABLE_CICD
+// to true). cdk.json also sets `enableCicd: true` in context; this explicit
+// fallback keeps a bare `cdk deploy` (no context, no env var) from silently
+// dropping the pipeline. Opt out with `-c enableCicd=false` or WREN_ENABLE_CICD=false.
+const enableCicd = boolCtxOrEnv("enableCicd", "WREN_ENABLE_CICD", true);
+const ecrOwnership =
+  ctxOrEnv("ecrOwnership", "WREN_ECR_OWNERSHIP") ?? "managed";
 if (ecrOwnership !== "managed" && ecrOwnership !== "external") {
-  throw new Error("ecrOwnership/WREN_ECR_OWNERSHIP must be 'managed' or 'external'");
+  throw new Error(
+    "ecrOwnership/WREN_ECR_OWNERSHIP must be 'managed' or 'external'",
+  );
 }
 if (enableCicd && (!github.owner || !github.repo)) {
-  throw new Error("GitHub owner and repository are required when CI/CD is enabled");
+  throw new Error(
+    "GitHub owner and repository are required when CI/CD is enabled",
+  );
 }
 
 // Mandatory deployment prerequisites retain their historical Cicd stack
@@ -135,14 +144,15 @@ const computeStack = new ComputeStack(app, stackName(config, "Compute"), {
   conversationTableName: storageStack.conversationTableName,
   userPoolId: cognitoStack.userPoolId,
   userPoolClientId: cognitoStack.userPoolClientId,
-  promptGuardrailId: configStack.parameters.promptGuardrailIdParameter.stringValue,
+  promptGuardrailId:
+    configStack.parameters.promptGuardrailIdParameter.stringValue,
 });
 
 // The prerequisite stack is always present, so use its real managed-policy
 // reference. This creates a CloudFormation dependency instead of relying on a
 // constructed ARN whose policy may not exist yet.
 iam.PermissionsBoundary.of(computeStack).apply(cicdStack.computeBoundaryPolicy);
-computeStack.addDependency(cicdStack);
+computeStack.addStackDependency(cicdStack);
 
 // API Gateway stack (depends on Compute for Lambda function ARNs).
 // `crossRegionReferences` lets the us-east-1 CloudFront/WAF stack consume this
@@ -155,12 +165,11 @@ const apiStack = new ApiStack(app, stackName(config, "Api"), {
   documentFunctionArn: computeStack.documentFunction.functionArn,
   feedbackFunctionArn: computeStack.feedbackOrchestratorFunction.functionArn,
   adminFunctionArn: computeStack.adminFunction.functionArn,
-  auditFunctionArn: computeStack.auditFunction.functionArn,
   notificationFunctionArn: computeStack.notificationFunction.functionArn,
 });
 
 // Observability stack (CloudWatch, X-Ray, alarms)
-new ObservabilityStack(app, stackName(config, "Observability"), {
+const observabilityStack = new ObservabilityStack(app, stackName(config, "Observability"), {
   env: config.env,
   config,
   functionNames: [
@@ -169,13 +178,28 @@ new ObservabilityStack(app, stackName(config, "Observability"), {
     computeStack.feedbackOrchestratorFunction.functionName,
     computeStack.feedbackEngineFunction.functionName,
     computeStack.adminFunction.functionName,
-    computeStack.auditFunction.functionName,
     computeStack.diffAnchorProgressFunction.functionName,
     computeStack.notificationFunction.functionName,
+    // Construct IDs are index-based (LogRetention{i} / ErrorAlarm{i} /
+    // ThrottleAlarm{i}): append new functions at the end; don't reorder or
+    // remove entries in a deployed environment.
+    computeStack.syncCognitoAdminsFunction.functionName,
   ],
   feedbackQueueName: computeStack.feedbackQueue.queueName,
   feedbackDlqName: computeStack.feedbackDlq.queueName,
+  notificationDlqName: computeStack.notificationDlq.queueName,
+  documentIngestDlqName: computeStack.documentIngestDlq.queueName,
+  authorizerFunctionName: computeStack.authorizerFunction.functionName,
+  // API Gateway access-log group for the security metric filters.
+  apiAccessLogGroupName: apiStack.accessLogGroupName,
+  // CloudTrail caller attribution for the operator-only TechnicalAdmin sync.
+  // Reuses the existing Compute export for this name (no new cross-stack ref).
+  privilegedInvokeFunctionNames: [computeStack.syncCognitoAdminsFunction.functionName],
 });
+// The access-log metric filters reference the ApiStack's log group by name, so
+// that group must exist before Observability deploys. Make the ordering explicit
+// (no CFN output is consumed, so CDK would not otherwise infer it).
+observabilityStack.addDependency(apiStack);
 
 // CloudFront + WAF stack. A CLOUDFRONT-scoped WAF WebACL MUST live in
 // us-east-1, so this stack is pinned there regardless of the app's residency
@@ -211,6 +235,7 @@ if (github.owner && github.repo) {
     cognitoUserPoolId: cognitoStack.userPoolId,
     cognitoClientId: cognitoStack.userPoolClientId,
     appSyncGraphqlUrl: computeStack.appSyncGraphqlUrl,
+    documentsBucketName: storageStack.documentsBucketName,
   });
 } else {
   // eslint-disable-next-line no-console

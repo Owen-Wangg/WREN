@@ -5,8 +5,17 @@
  * after the body image is sliced. Page-number and date tokens in the
  * header/footer TipTap JSON are resolved at draw time.
  */
+import DOMPurify from 'dompurify';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+
+import {
+  isSafeCssColor,
+  isSafeCssFontFamily,
+  isSafeCssFontSize,
+  isSafeImageSrc,
+  isSafeTextAlign,
+} from '@wren/types';
 
 import type { JSONContent } from '@tiptap/react';
 
@@ -30,7 +39,17 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Return `value` when it is a string accepted by `isSafe`, else undefined.
+ * Attribute values come from persisted (client-controlled) TipTap JSON and are
+ * interpolated into HTML attributes, so they are allowlisted *and* escaped.
+ */
+function safeAttr(value: unknown, isSafe: (v: string) => boolean): string | undefined {
+  return typeof value === 'string' && isSafe(value) ? value : undefined;
 }
 
 function markOpen(type: string, attrs?: Record<string, unknown>): string {
@@ -43,14 +62,19 @@ function markOpen(type: string, attrs?: Record<string, unknown>): string {
       return '<u>';
     case 'strike':
       return '<s>';
-    case 'highlight':
-      return `<span style="background-color:${String(attrs?.color ?? '#ffff00')}">`;
+    case 'highlight': {
+      const color = safeAttr(attrs?.color, isSafeCssColor) ?? '#ffff00';
+      return `<span style="${escapeHtml(`background-color:${color}`)}">`;
+    }
     case 'textStyle': {
       const parts: string[] = [];
-      if (attrs?.color) parts.push(`color:${String(attrs.color)}`);
-      if (attrs?.fontSize) parts.push(`font-size:${capInlineFontSize(String(attrs.fontSize))}`);
-      if (attrs?.fontFamily) parts.push(`font-family:${String(attrs.fontFamily)}`);
-      return parts.length ? `<span style="${parts.join(';')}">` : '<span>';
+      const color = safeAttr(attrs?.color, isSafeCssColor);
+      const fontSize = safeAttr(attrs?.fontSize, isSafeCssFontSize);
+      const fontFamily = safeAttr(attrs?.fontFamily, isSafeCssFontFamily);
+      if (color) parts.push(`color:${color}`);
+      if (fontSize) parts.push(`font-size:${capInlineFontSize(fontSize)}`);
+      if (fontFamily) parts.push(`font-family:${fontFamily}`);
+      return parts.length ? `<span style="${escapeHtml(parts.join(';'))}">` : '<span>';
     }
     default:
       return '';
@@ -85,26 +109,40 @@ function renderInline(node: JSONContent): string {
   }
   if (node.type === 'hardBreak') return '<br/>';
   if (node.type === 'image') {
-    const src = typeof node.attrs?.src === 'string' ? node.attrs.src : '';
+    const src = safeAttr(node.attrs?.src, isSafeImageSrc);
     if (!src) return '';
     const alt = typeof node.attrs?.alt === 'string' ? escapeHtml(node.attrs.alt) : '';
-    return `<img src="${src}" alt="${alt}" style="max-width:100%;height:auto;" />`;
+    return `<img src="${escapeHtml(src)}" alt="${alt}" style="max-width:100%;height:auto;" />`;
   }
   return (node.content ?? []).map(renderInline).join('');
 }
 
 function alignStyle(attrs?: Record<string, unknown> | null): string {
-  const align = typeof attrs?.textAlign === 'string' ? attrs.textAlign : 'left';
+  const align = safeAttr(attrs?.textAlign, isSafeTextAlign) ?? 'left';
   const indent =
-    typeof attrs?.indent === 'number' && attrs.indent > 0
+    typeof attrs?.indent === 'number' && Number.isFinite(attrs.indent) && attrs.indent > 0
       ? `margin-left:${attrs.indent * 24}px;`
       : '';
   return `text-align:${align};${indent}`;
 }
 
-/** Render TipTap JSON to an HTML fragment (headings, marks, lists, tables). */
+/** Tags/attributes the renderer emits; anything else is stripped by DOMPurify. */
+const EXPORT_SANITIZE_CONFIG = {
+  ALLOWED_TAGS: [
+    'p', 'h1', 'h2', 'h3', 'strong', 'em', 'u', 's', 'span', 'br', 'img',
+    'ul', 'ol', 'li', 'blockquote', 'table', 'tbody', 'tr', 'th', 'td',
+  ],
+  ALLOWED_ATTR: ['style', 'src', 'alt'],
+};
+
+/**
+ * Render TipTap JSON to an HTML fragment (headings, marks, lists, tables).
+ *
+ * Output is assigned to `innerHTML` by the PDF / page-estimate hosts, so it is
+ * passed through DOMPurify as a second layer behind per-attribute allowlists.
+ */
 export function tiptapContentToHtml(content: JSONContent): string {
-  return renderNode(content);
+  return DOMPurify.sanitize(renderNode(content), EXPORT_SANITIZE_CONFIG);
 }
 
 function renderNode(node: JSONContent): string {
@@ -114,7 +152,8 @@ function renderNode(node: JSONContent): string {
     case 'paragraph':
       return `<p style="${alignStyle(node.attrs)}">${renderInline(node) || '<br/>'}</p>`;
     case 'heading': {
-      const level = Math.min(3, Math.max(1, Number(node.attrs?.level ?? 1)));
+      const rawLevel = Number(node.attrs?.level ?? 1);
+      const level = Number.isFinite(rawLevel) ? Math.min(3, Math.max(1, Math.trunc(rawLevel))) : 1;
       return `<h${level} style="${alignStyle(node.attrs)}">${renderInline(node)}</h${level}>`;
     }
     case 'bulletList':

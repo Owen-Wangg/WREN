@@ -1,25 +1,20 @@
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import type { AuthContext } from '@wren/types';
-import { AuthorizationError, ConflictError, NotFoundError, PromptInjectionError, UsageLimitReachedError } from './errors';
+import { bindCorsOrigin, withCorsHeaders } from '@wren/auth';
+import {
+  AuthorizationError,
+  ConflictError,
+  NotFoundError,
+  PromptGuardrailUnavailableError,
+  PromptInjectionError,
+  UsageLimitReachedError,
+} from './errors';
 import { PromptGuardrailError } from './promptGuardrail';
 
 /** CORS headers required on aws_proxy Lambda responses (API Gateway does not add them). */
-export const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'Content-Type,Accept,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-};
-
-export function withCors(result: APIGatewayProxyResult): APIGatewayProxyResult {
-  return {
-    ...result,
-    headers: {
-      ...CORS_HEADERS,
-      ...(result.headers as Record<string, string> | undefined),
-    },
-  };
-}
+export const withCors = withCorsHeaders;
+export { bindCorsOrigin };
+export { rejectIfForgedAuthContext } from '@wren/auth';
 
 function parseJsonArray(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
@@ -79,6 +74,16 @@ export async function wrapHandler(
       return withCors({
         statusCode: 400,
         body: JSON.stringify({ code: e.code, message: e.message }),
+      });
+    }
+    if (e instanceof PromptGuardrailUnavailableError) {
+      // Fail closed: generic message; config detail stays in logs.
+      return withCors({
+        statusCode: 503,
+        body: JSON.stringify({
+          code: e.code,
+          message: 'Prompt safety screening is unavailable. Please contact an administrator.',
+        }),
       });
     }
     if (e instanceof PromptGuardrailError) {

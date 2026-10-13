@@ -74,6 +74,20 @@ describe("CicdStack", () => {
     );
     expect(stageNames).toEqual(["Source", "Build", "Deploy", "UpdateLambda"]);
   });
+
+  it("expires pipeline artifact objects after 90 days", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({
+            Status: "Enabled",
+            ExpirationInDays: 90,
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+          }),
+        ]),
+      },
+    });
+  });
 });
 
 function grants(statement: PolicyStatement, action: string): boolean {
@@ -268,7 +282,17 @@ describe("CicdStack prerequisite-only modes", () => {
     template.resourceCountIs("AWS::ECR::Repository", 1);
     template.resourceCountIs("AWS::IAM::ManagedPolicy", 1);
     template.resourceCountIs("AWS::CodePipeline::Pipeline", 0);
-    template.resourceCountIs("AWS::CodeBuild::Project", 0);
+    // The standing bootstrap image-build project is present even with the
+    // pipeline disabled; no pipeline-only CodeBuild projects are created.
+    template.resourceCountIs("AWS::CodeBuild::Project", 1);
+    template.hasResourceProperties("AWS::CodeBuild::Project", {
+      Name: `${config.stackPrefix}-bootstrap-image`,
+      Environment: Match.objectLike({
+        PrivilegedMode: true,
+        Image: "aws/codebuild/standard:7.0",
+      }),
+      Source: Match.objectLike({ Type: "S3" }),
+    });
 
     const repositories = Object.values(template.findResources("AWS::ECR::Repository"));
     const lifecyclePolicy = JSON.parse(
@@ -281,6 +305,43 @@ describe("CicdStack prerequisite-only modes", () => {
       countNumber: 30,
       countUnit: "days",
     });
+  });
+
+  it("creates a standing S3-sourced bootstrap image-build project with no GitHub source", () => {
+    const app = new App();
+    const config = synthCicd().config;
+    const stack = new CicdStack(app, "BootstrapOnly", {
+      env: config.env,
+      config,
+      enablePipeline: false,
+      ecrOwnership: "managed",
+    });
+    const template = Template.fromStack(stack);
+
+    const projects = template.findResources("AWS::CodeBuild::Project");
+    const entries = Object.values(projects);
+    expect(entries).toHaveLength(1);
+
+    const project = entries[0]?.Properties as {
+      readonly Source?: { readonly Type?: string; readonly Location?: unknown };
+      readonly Environment?: { readonly PrivilegedMode?: boolean };
+    };
+    // S3 source, never GitHub — the bootstrap build needs no GitHub credential.
+    expect(project.Source?.Type).toBe("S3");
+    expect(JSON.stringify(project.Source ?? {})).not.toContain("GITHUB");
+    expect(project.Environment?.PrivilegedMode).toBe(true);
+
+    // The project's role can pull/push the Feedback Engine ECR repository
+    // (granted against the repo's Fn::GetAtt ARN, not a literal name) and read
+    // the SHA-keyed source snapshot from the CDK bootstrap assets bucket.
+    const policies = template.findResources("AWS::IAM::Policy");
+    const policyText = JSON.stringify(Object.values(policies));
+    expect(policyText).toContain("ecr:GetAuthorizationToken");
+    expect(policyText).toContain("ecr:PutImage");
+    expect(policyText).toContain("FeedbackEngineRepo");
+    expect(policyText).toContain(
+      `${CicdStack.bootstrapSourcePrefixFor(config.stackPrefix)}/*`,
+    );
   });
 
   it("imports an explicitly external ECR repository without creating a conflict", () => {

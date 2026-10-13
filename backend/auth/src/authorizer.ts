@@ -8,13 +8,22 @@
  *      scopes + Access Grants by querying Postgres (the authz source of truth).
  *   3. If no app_user exists yet, provision one (default Student role) using
  *      Cognito profile attributes for email/name — still never using IdP groups.
+ *      Provisioning requires a Cognito-verified email, and an email match may
+ *      only reclaim an unclaimed, unprivileged row (see provisionUser.ts);
+ *      refusals return Deny with `reason: "provisioning_refused"`.
  *   4. Emit a stage-wide IAM Allow plus authorization context (roles,
  *      administered Departments, grants) that downstream services consume and
  *      RE-CHECK against the specific operation (dual enforcement).
  *
- * The only group-based exception is a default-off first-login bootstrap: an
- * exact configured Cognito subject must also carry SystemAdmin, and the app
- * user must be genuinely new. Existing and email-relinked users cannot escalate.
+ * The only escalation exception is a default-off first-admin bootstrap gated on
+ * an exact configured Cognito subject (`TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT`),
+ * armed by the guided deploy. For a genuinely new user it runs inside
+ * first-login provisioning (and additionally requires the SystemAdmin group
+ * claim). Because the app auto-loads the dashboard on signup — so the intended
+ * admin usually already has a Student row before the subject is armed — the
+ * same armed-subject gate is also re-evaluated after provisioning, elevating in
+ * place on that user's first authenticated application request. No user whose
+ * exact subject is not armed can ever escalate.
  *
  * The authorizer produces a COARSE stage-wide allow; REST authorizer caching is
  * disabled in `cdk/lib/openapi.yaml`, so roles/grants are loaded from the DB on
@@ -38,18 +47,35 @@ import type { AuthContext } from '@wren/types';
 import { resolveCognitoVerifierConfig } from './config';
 import {
   createCognitoProfileLookup,
+  createCognitoSubjectLivenessCheck,
   type CognitoProfileLookup,
+  type CognitoSubjectLivenessCheck,
 } from './cognitoProfile';
-import { mapSubjectToAuthContext, type QueryExecutor } from './identityMapping';
-import { ensureAppUser } from './provisionUser';
+import { mapSubjectToAuthContext } from './identityMapping';
+import {
+  getAuthContextSigningSecret,
+  isAuthContextSigningConfigured,
+  signSerializedAuthContext,
+} from './authContextSigning';
+import {
+  ensureAppUser,
+  grantTechnicalAdminBootstrapOnce,
+  IdentityProvisioningRefusedError,
+  type ProvisioningDb,
+  type ProvisionUserDeps,
+} from './provisionUser';
 import type { TokenVerifier } from './tokenVerifier';
 
 /** Collaborators the authorizer needs; injectable for testing. */
 export interface AuthorizerDeps {
   readonly verifier: TokenVerifier;
-  readonly db: QueryExecutor;
-  /** Resolves email/name from Cognito for first-login provisioning. */
+  readonly db: ProvisioningDb;
+  /** Resolves email/name/email_verified from Cognito for first-login provisioning. */
   readonly lookupProfile: CognitoProfileLookup;
+  /** Whether a previously linked subject still exists (guards email relinks). */
+  readonly isSubjectLive: CognitoSubjectLivenessCheck;
+  /** Durable, INSERT-only audit writer for identity relinks (`appendActivityEventRow`). */
+  readonly recordActivityEvent: ProvisionUserDeps['recordActivityEvent'];
 }
 
 /** Async provider so real deps can be built lazily (and cached) at runtime. */
@@ -58,19 +84,43 @@ export type DepsProvider = () => Promise<AuthorizerDeps>;
 /** Sentinel error mapped by API Gateway to a 401 response for a TOKEN authorizer. */
 export const UNAUTHORIZED = 'Unauthorized';
 
-/** Strip an optional `Bearer ` prefix and return the raw JWT (or `undefined`). */
+/**
+ * Emit a single structured, machine-queryable log line for an authentication
+ * failure or deny decision. Previously the authorizer threw/denied
+ * with no log line, so 401/403s at the request layer were invisible to
+ * operators and unalarmable. Deliberately logs NO secrets: never the token or
+ * Authorization header — only the reason, the route (methodArn), and the
+ * verified subject when one is already known. Uses the stable
+ * `event: "auth_failure"` key so a CloudWatch metric filter can count it.
+ */
+function logAuthFailure(detail: {
+  reason: 'missing_token' | 'token_verification_failed' | 'provisioning_failed' | 'provisioning_refused';
+  methodArn?: string;
+  subject?: string;
+  /** Machine-readable sub-reason, e.g. the provisioning refusal reason. */
+  detail?: string;
+}): void {
+  console.warn(
+    JSON.stringify({
+      event: 'auth_failure',
+      reason: detail.reason,
+      ...(detail.methodArn ? { methodArn: detail.methodArn } : {}),
+      ...(detail.subject ? { subject: detail.subject } : {}),
+      ...(detail.detail ? { detail: detail.detail } : {}),
+    }),
+  );
+}
+
+/**
+ * Return the JWT from an `Authorization: Bearer <token>` header (RFC 6750 §2.1),
+ * or `undefined`. The `Bearer` scheme is REQUIRED: a bare JWT, another scheme,
+ * or a lone `Bearer` keyword is rejected so only the documented credential
+ * shape is accepted on the REST API.
+ */
 export function extractBearerToken(authorizationToken: string | undefined): string | undefined {
   if (!authorizationToken) return undefined;
-  const trimmed = authorizationToken.trim();
-  if (trimmed.length === 0) return undefined;
-  const match = /^Bearer\s+(.+)$/i.exec(trimmed);
-  if (match) {
-    const token = match[1].trim();
-    return token.length > 0 ? token : undefined;
-  }
-  // A lone "Bearer" keyword carries no token; anything else is a raw token.
-  if (/^Bearer$/i.test(trimmed)) return undefined;
-  return trimmed;
+  const match = /^Bearer\s+(\S+)$/i.exec(authorizationToken.trim());
+  return match ? match[1] : undefined;
 }
 
 /**
@@ -140,11 +190,13 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
 
     const token = extractBearerToken(event.authorizationToken);
     if (!token) {
+      logAuthFailure({ reason: 'missing_token', methodArn: event.methodArn });
       throw new Error(UNAUTHORIZED);
     }
 
     try {
-      const { verifier, db, lookupProfile } = await depsProvider();
+      const { verifier, db, lookupProfile, isSubjectLive, recordActivityEvent } =
+        await depsProvider();
 
       let subject: string;
       let groups: readonly string[];
@@ -156,8 +208,12 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         username = identity.username;
       } catch {
         // Any verification error (signature, issuer, expiry) is a 401.
+        logAuthFailure({ reason: 'token_verification_failed', methodArn: event.methodArn });
         throw new Error(UNAUTHORIZED);
       }
+
+      const armedSubject =
+        process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT?.trim() || undefined;
 
       // Authorization is resolved ENTIRELY from the app DB using only the verified
       // subject — never from token claims (Requirement 37.2, 37.3).
@@ -166,18 +222,44 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
       let context = await mapSubjectToAuthContext(subject, db);
       if (!context) {
         const profile = await lookupProfile(subject, username);
-        await ensureAppUser(db, {
-          idpSubject: subject,
-          email: profile.email,
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-          groups,
-          technicalAdminBootstrapSubject:
-            process.env.TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT?.trim() || undefined,
-        });
+        try {
+          await ensureAppUser(
+            db,
+            {
+              idpSubject: subject,
+              email: profile.email,
+              emailVerified: profile.emailVerified,
+              firstName: profile.firstName,
+              lastName: profile.lastName,
+              groups,
+              technicalAdminBootstrapSubject: armedSubject,
+            },
+            { isSubjectLive, recordActivityEvent },
+          );
+        } catch (error) {
+          if (!(error instanceof IdentityProvisioningRefusedError)) throw error;
+          // Deliberate fail-closed refusal (unverified email, or an email match
+          // against a live / privileged identity). Nothing was written; deny
+          // rather than 5xx so the client does not retry indefinitely.
+          logAuthFailure({
+            reason: 'provisioning_refused',
+            methodArn: event.methodArn,
+            subject,
+            detail: error.reason,
+          });
+          return {
+            principalId: subject,
+            policyDocument: policy('Deny', stageWildcardResource(event.methodArn)),
+          };
+        }
         context = await mapSubjectToAuthContext(subject, db);
         if (!context) {
           // Provisioning failed unexpectedly — deny rather than allow without identity.
+          logAuthFailure({
+            reason: 'provisioning_failed',
+            methodArn: event.methodArn,
+            subject,
+          });
           const resource = stageWildcardResource(event.methodArn);
           return {
             principalId: subject,
@@ -185,11 +267,39 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
           };
         }
       }
+      if (armedSubject === subject && !context.roles.includes('TechnicalAdmin')) {
+        // First-admin bootstrap on the candidate's authenticated application
+        // request. Access tokens do not reliably carry `cognito:groups`, so
+        // ensureAppUser's group check may not elevate; this path is gated
+        // solely on the operator-armed exact-subject match. The grant runs at
+        // most once per subject (a one-shot marker records it) and emits a
+        // role.assigned event; a role revoked afterwards is not re-granted.
+        // Re-read context only when a grant was actually made so this request
+        // reflects it.
+        const { granted } = await grantTechnicalAdminBootstrapOnce(
+          db,
+          { userId: context.userId, idpSubject: subject },
+          { recordActivityEvent },
+        );
+        if (granted) {
+          context = (await mapSubjectToAuthContext(subject, db)) ?? context;
+        }
+      }
 
+      // Sign the context so downstream service Lambdas can prove it was
+      // minted here and not forged on a direct invoke.
+      // Only when a signing secret is configured (always true in deployed
+      // environments via CDK); unconfigured local/test runs emit the context
+      // unsigned, which the service verifiers accept only in permissive mode.
+      let authorizerContext = serializeAuthContext(context);
+      if (isAuthContextSigningConfigured()) {
+        const signingSecret = await getAuthContextSigningSecret();
+        authorizerContext = signSerializedAuthContext(authorizerContext, signingSecret);
+      }
       return {
         principalId: context.userId,
         policyDocument: policy('Allow', stageWildcardResource(event.methodArn)),
-        context: serializeAuthContext(context),
+        context: authorizerContext,
       };
     } catch (error) {
       if (error instanceof Error && error.message === UNAUTHORIZED) {
@@ -214,7 +324,7 @@ let cachedDeps: AuthorizerDeps | undefined;
  */
 async function defaultDepsProvider(): Promise<AuthorizerDeps> {
   if (cachedDeps) return cachedDeps;
-  const [{ getDataAccess }, { CognitoTokenVerifier }] = await Promise.all([
+  const [{ getDataAccess, appendActivityEventRow }, { CognitoTokenVerifier }] = await Promise.all([
     import('@wren/db-node'),
     import('./tokenVerifier.js'),
   ]);
@@ -222,7 +332,15 @@ async function defaultDepsProvider(): Promise<AuthorizerDeps> {
   const cognitoConfig = resolveCognitoVerifierConfig();
   const verifier = new CognitoTokenVerifier(cognitoConfig);
   const lookupProfile = createCognitoProfileLookup(cognitoConfig.userPoolId);
-  cachedDeps = { verifier, db, lookupProfile };
+  const isSubjectLive = createCognitoSubjectLivenessCheck(cognitoConfig.userPoolId);
+  cachedDeps = {
+    verifier,
+    db,
+    lookupProfile,
+    isSubjectLive,
+    // INSERT-only writer: wren_authorizer cannot read the activity log.
+    recordActivityEvent: appendActivityEventRow,
+  };
   return cachedDeps;
 }
 

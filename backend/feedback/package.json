@@ -17,6 +17,7 @@
     "@aws-sdk/client-ssm": "^3",
     "@aws-sdk/lib-dynamodb": "^3.515.0",
     "@wren/admin": "*",
+    "@wren/auth": "*",
     "@wren/db-node": "*",
     "@wren/notification": "*",
     "@wren/types": "*",

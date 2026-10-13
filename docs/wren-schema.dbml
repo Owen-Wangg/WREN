@@ -1,0 +1,448 @@
+// WREN Writing Coach — RDS PostgreSQL schema (DBML)
+//
+// Source of truth: backend/database/migrations/0001_baseline.sql
+// Paste into https://dbdiagram.io to render the ER diagram, then drag the
+// table boxes to tidy the layout and export PNG/SVG into docs/.
+//
+// Types mirror the baseline DDL. Relationships are the actual FK constraints;
+// delete behavior (cascade / restrict / set null) is noted per ref.
+// The DynamoDB Ask WREN conversation store is intentionally not modeled here
+// (it is not a relational table).
+
+Project wren_writing_coach {
+  database_type: 'PostgreSQL'
+  Note: 'WREN Writing Coach relational schema (RDS PostgreSQL 16). V4 terminology (department, document_type).'
+}
+
+//
+// Core user and auth
+//
+
+Table app_user {
+  id uuid [pk]
+  email text [not null, unique]
+  first_name text [not null]
+  last_name text [not null]
+  idp_subject text [not null, unique, note: 'Cognito sub — authentication mapping only']
+  created_at timestamptz [not null]
+}
+
+Table role_assignment {
+  id uuid [pk]
+  user_id uuid [not null]
+  role text [not null, note: 'Student | DepartmentAdmin | TechnicalAdmin']
+  scope jsonb [note: 'e.g. { departmentIds: [...] } for Department Admin']
+  granted_by uuid
+  granted_at timestamptz [not null]
+}
+
+Table access_grant {
+  id uuid [pk]
+  user_id uuid [not null]
+  document_type_id uuid [not null]
+  granted_by uuid
+  granted_at timestamptz [not null]
+  revoked_at timestamptz [note: 'Null while active']
+}
+
+Table user_identities {
+  user_id uuid [pk]
+  email varchar(255) [not null, unique]
+  cognito_subject varchar(500) [not null, unique]
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table user_roles {
+  user_role_id uuid [pk]
+  user_id uuid [not null]
+  role varchar(50) [not null]
+  scope_kind varchar(50)
+  scope_id uuid
+  assigned_at timestamp
+  assigned_by uuid
+}
+
+//
+// Department and document-type catalog
+//
+
+Table department {
+  id uuid [pk]
+  name text [not null]
+  prompt text
+  access_state text [not null, note: 'OPEN | LOCKED']
+  visibility_state text [not null, note: 'VISIBLE | PERMITTED_ONLY']
+  ask_wren_prompt text
+  archived_at timestamptz [note: 'Soft-delete; null = active']
+  created_at timestamptz [not null]
+}
+
+Table department_visibility_grant {
+  id uuid [pk]
+  department_id uuid [not null]
+  user_id uuid [not null]
+  granted_by uuid
+  granted_at timestamptz [not null]
+  revoked_at timestamptz [note: 'Null while active']
+}
+
+Table document_type {
+  id uuid [pk]
+  department_id uuid [not null]
+  name text [not null]
+  access_state text [not null, note: 'OPEN | LOCKED']
+  size_limit_words integer [note: 'null = inherit']
+  created_at timestamptz [not null]
+}
+
+Table document_type_config {
+  document_type_id uuid [pk]
+  tone text
+  density text
+  category_priority jsonb [not null]
+  type_prompt_text text
+  tone_description text
+  density_description text
+  structure_description text
+  restrictions_description text
+  notes_description text
+  citation_config jsonb
+  updated_at timestamptz [not null]
+}
+
+Table error_category {
+  id uuid [pk]
+  document_type_id uuid [not null]
+  name text [not null, note: 'Unique per document type']
+  internal_guidance text [note: 'Never shown to students']
+  created_at timestamptz [not null]
+}
+
+Table content_type {
+  id uuid [pk]
+  document_type_id uuid [not null]
+  label text [not null]
+  created_at timestamptz [not null]
+}
+
+Table custom_metadata_field {
+  id uuid [pk]
+  document_type_id uuid [not null]
+  label text [not null]
+  required boolean [not null]
+  created_at timestamptz [not null]
+}
+
+Table topic {
+  id uuid [pk]
+  department_id uuid [not null]
+  name text [not null]
+  created_at timestamptz [not null]
+}
+
+Table reference_material {
+  id uuid [pk]
+  tier text [not null, note: 'department | type (legacy org/domain CHECK fixed in migration 0004)']
+  department_id uuid [note: 'Set for department-tier rows']
+  document_type_id uuid [note: 'Set for type-tier rows']
+  title text [not null]
+  section text
+  content_kind text [not null, note: 'file | text | html']
+  s3_key text
+  inline_content text
+  created_at timestamptz [not null]
+}
+
+//
+// Document, draft, ingest
+//
+
+Table document {
+  id uuid [pk]
+  owner_user_id uuid [not null]
+  document_type_id uuid [not null]
+  content_type_id uuid
+  name text [not null]
+  metadata jsonb [not null]
+  status text [not null, note: 'Still Drafting | Polishing (application enum)']
+  debrief_generation_count integer [not null]
+  draft_create_count integer [not null]
+  created_at timestamptz [not null]
+}
+
+Table draft {
+  id uuid [pk]
+  document_id uuid [not null]
+  version_number integer [not null, note: 'Unique per document; immutable']
+  s3_key text [not null, note: 'Immutable']
+  segments jsonb [not null, note: 'Immutable — diff/anchor substrate']
+  word_count integer [not null]
+  content jsonb [note: 'TipTap JSON body']
+  header jsonb
+  footer jsonb
+  content_updated_at timestamptz
+  ocr_confidence "numeric(5,2)"
+  created_at timestamptz [not null]
+}
+
+Table document_ingest_job {
+  id uuid [pk]
+  document_id uuid [not null]
+  s3_key text [not null]
+  file_name text [not null]
+  status text [not null, note: 'queued | processing | completed | failed']
+  error_message text
+  draft_id uuid [note: 'Resulting draft when complete']
+  ocr_engine text [not null, note: "default 'textract'"]
+  comparison jsonb
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+//
+// Feedback and resolution
+//
+
+Table feedback_item {
+  id uuid [pk]
+  document_id uuid [not null]
+  error_category_id uuid [not null]
+  kind text [not null, note: 'inline | structural | strength']
+  question_text text [not null]
+  quoted_text text
+  positive_note text
+  current_anchor_id uuid
+  citation_reference_id uuid
+  source_draft_id uuid [not null]
+  created_at timestamptz [not null]
+}
+
+Table anchor {
+  id uuid [pk]
+  feedback_item_id uuid [not null]
+  draft_id uuid [not null]
+  paragraph_index integer [not null]
+  start_offset integer [not null]
+  end_offset integer [not null]
+  content_fingerprint text [not null]
+  state text [not null, note: 'active | removed']
+  created_at timestamptz [not null]
+}
+
+Table resolution_status_history {
+  id uuid [pk]
+  feedback_item_id uuid [not null]
+  draft_id uuid [not null]
+  status text [not null, note: 'resolved | partially_resolved | still_unresolved | removed | unchanged']
+  evaluated_at timestamptz [not null]
+
+  indexes {
+    (feedback_item_id, draft_id) [unique]
+  }
+}
+
+Table feedback_helpfulness_rating {
+  id uuid [pk]
+  document_id uuid [not null]
+  draft_id uuid
+  document_type_id uuid [not null, note: 'Denormalized for admin analytics']
+  helpful boolean [not null]
+  comment text
+  created_at timestamptz [not null]
+
+  indexes {
+    (document_id, draft_id) [unique]
+  }
+}
+
+Table debrief_section_applicability {
+  id uuid [pk]
+  document_id uuid [not null]
+  draft_id uuid [not null]
+  error_category_id uuid [not null]
+  applicable boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (document_id, draft_id, error_category_id) [unique]
+  }
+}
+
+//
+// Usage and policy
+//
+
+Table platform_usage_policy {
+  id integer [pk, note: 'Always 1 (CHECK)']
+  message_limit integer [not null]
+  debrief_generation_limit integer [not null]
+  document_upload_limit integer [not null]
+  drafts_per_document_limit integer [not null]
+  bedrock_model_id text
+  updated_at timestamptz [not null]
+}
+
+Table user_lifetime_usage {
+  user_id uuid [pk]
+  document_upload_count integer [not null]
+}
+
+Table usage_limit {
+  id uuid [pk]
+  scope_kind text [not null, note: 'platform | documentType']
+  scope_id uuid
+  limit_value integer [not null]
+  period text [not null]
+  created_at timestamptz [not null]
+}
+
+Table usage_counter {
+  id uuid [pk]
+  scope_kind text [not null, note: 'platform | documentType']
+  scope_id uuid
+  period_start timestamptz [not null]
+  consumed integer [not null]
+
+  indexes {
+    (scope_kind, scope_id, period_start) [unique]
+  }
+}
+
+Table override {
+  id uuid [pk]
+  user_id uuid [not null]
+  document_type_id uuid [not null]
+  bounds jsonb [not null]
+  reason text [not null]
+  granted_by uuid
+  expires_at timestamptz [not null]
+  created_at timestamptz [not null]
+}
+
+//
+// Audit and analytics (no FK to document/draft/feedback_item by design)
+//
+
+Table activity_event {
+  id uuid [pk]
+  actor_pseudonym text [not null]
+  verb text [not null, note: 'e.g. guardrail.passed']
+  object_type text [not null]
+  object_ref text [not null]
+  document_type_id uuid [note: 'Optional; set null on type delete']
+  department_id uuid [note: 'Optional; set null on delete']
+  timestamp timestamptz [not null]
+  context jsonb [not null, note: 'Not raw draft text']
+}
+
+Table aggregate_counter {
+  id uuid [pk]
+  scope_kind text [not null]
+  scope_id uuid
+  metric text [not null]
+  window_start timestamptz [not null]
+  value bigint [not null]
+
+  indexes {
+    (scope_kind, scope_id, metric, window_start) [unique]
+  }
+}
+
+//
+// Notifications
+//
+
+Table notification_type {
+  id uuid [pk]
+  slug varchar(100) [not null, unique]
+  label varchar(255) [not null]
+  display_template text [not null]
+  action_url_template text
+  target_roles jsonb [not null]
+  dedup_strategy jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table notification {
+  id uuid [pk]
+  notification_type_id uuid [not null]
+  recipient_user_id uuid [not null]
+  state varchar(20) [not null, note: 'unread | read | dismissed']
+  rendered_content text [not null]
+  action_url text
+  dedup_key varchar(512)
+  context jsonb
+  created_at timestamptz [not null]
+  read_at timestamptz
+  dismissed_at timestamptz
+}
+
+//
+// Relationships (FK constraints from 0001_baseline.sql)
+//
+
+// app_user references
+Ref: role_assignment.user_id > app_user.id [delete: cascade]
+Ref: role_assignment.granted_by > app_user.id [delete: set null]
+Ref: access_grant.user_id > app_user.id [delete: cascade]
+Ref: access_grant.granted_by > app_user.id [delete: set null]
+Ref: document.owner_user_id > app_user.id [delete: cascade]
+Ref: user_lifetime_usage.user_id > app_user.id [delete: cascade]
+Ref: notification.recipient_user_id > app_user.id [delete: cascade]
+Ref: override.user_id > app_user.id [delete: cascade]
+Ref: override.granted_by > app_user.id [delete: set null]
+Ref: department_visibility_grant.user_id > app_user.id [delete: cascade]
+Ref: department_visibility_grant.granted_by > app_user.id [delete: set null]
+
+// user_identities / user_roles (separate mapping, not app_user)
+Ref: user_roles.user_id > user_identities.user_id [delete: cascade]
+Ref: user_roles.assigned_by > user_identities.user_id
+
+// department references
+Ref: document_type.department_id > department.id [delete: cascade]
+Ref: topic.department_id > department.id [delete: cascade]
+Ref: reference_material.department_id > department.id [delete: cascade]
+Ref: department_visibility_grant.department_id > department.id [delete: cascade]
+Ref: activity_event.department_id > department.id [delete: set null]
+
+// document_type references
+Ref: access_grant.document_type_id > document_type.id [delete: cascade]
+Ref: document_type_config.document_type_id > document_type.id [delete: cascade]
+Ref: error_category.document_type_id > document_type.id [delete: cascade]
+Ref: content_type.document_type_id > document_type.id [delete: cascade]
+Ref: custom_metadata_field.document_type_id > document_type.id [delete: cascade]
+Ref: reference_material.document_type_id > document_type.id [delete: cascade]
+Ref: document.document_type_id > document_type.id [delete: restrict]
+Ref: override.document_type_id > document_type.id [delete: cascade]
+Ref: feedback_helpfulness_rating.document_type_id > document_type.id
+Ref: activity_event.document_type_id > document_type.id [delete: set null]
+
+// document references
+Ref: document.content_type_id > content_type.id [delete: set null]
+Ref: draft.document_id > document.id [delete: cascade]
+Ref: feedback_item.document_id > document.id [delete: cascade]
+Ref: document_ingest_job.document_id > document.id [delete: cascade]
+Ref: feedback_helpfulness_rating.document_id > document.id [delete: cascade]
+Ref: debrief_section_applicability.document_id > document.id [delete: cascade]
+
+// draft references
+Ref: document_ingest_job.draft_id > draft.id [delete: set null]
+Ref: anchor.draft_id > draft.id [delete: cascade]
+Ref: resolution_status_history.draft_id > draft.id [delete: cascade]
+Ref: feedback_item.source_draft_id > draft.id [delete: cascade]
+
+// feedback_item references
+Ref: anchor.feedback_item_id > feedback_item.id [delete: cascade]
+Ref: resolution_status_history.feedback_item_id > feedback_item.id [delete: cascade]
+Ref: feedback_item.error_category_id > error_category.id [delete: restrict]
+Ref: feedback_item.citation_reference_id > reference_material.id [delete: set null]
+Ref: feedback_item.current_anchor_id > anchor.id [delete: set null]
+
+// error_category reference from section applicability
+Ref: debrief_section_applicability.error_category_id > error_category.id [delete: cascade]
+
+// notification references
+Ref: notification.notification_type_id > notification_type.id

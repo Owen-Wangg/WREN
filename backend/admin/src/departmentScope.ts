@@ -40,6 +40,33 @@ export function assertCanViewDepartment(actor: AuthContext, departmentId: string
   }
 }
 
+/**
+ * Whether the actor may read a Department's Feedback-Engine `prompt` field.
+ *
+ * TechnicalAdmins see every department's prompt. DepartmentAdmins see it for
+ * the departments they administer (they can also edit it there, via the
+ * `department.managePrompt` capability in `updateDepartmentPrompt`). Everyone
+ * else, including DepartmentAdmins looking at a foreign department, gets it
+ * stripped.
+ */
+export function canReadDepartmentPrompt(actor: AuthContext, departmentId: string): boolean {
+  if (isTechnicalAdmin(actor)) return true;
+  return isDepartmentAdmin(actor) && actor.administeredDepartmentIds.includes(departmentId);
+}
+
+/**
+ * Strip privileged prompt fields (`prompt` and `askWrenPrompt`) from a
+ * Department DTO when the actor may not read them.
+ */
+export function redactDepartmentPrompt<T extends { id: string }>(
+  actor: AuthContext,
+  department: T,
+): T {
+  return canReadDepartmentPrompt(actor, department.id)
+    ? department
+    : { ...department, prompt: undefined, askWrenPrompt: undefined };
+}
+
 export function filterDepartmentsForActor<T extends { id: string }>(
   actor: AuthContext,
   departments: readonly T[],

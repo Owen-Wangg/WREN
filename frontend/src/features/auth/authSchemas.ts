@@ -3,6 +3,12 @@
  * them (frontend steering §9: "validation schemas live alongside the form").
  */
 import { z } from 'zod';
+import {
+  isSignupEmailDomainAllowed,
+  signupEmailDomainRestrictionMessage,
+} from '@wren/types';
+
+import { appConfig } from '@/config/env';
 
 export const loginSchema = z.object({
   email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
@@ -12,7 +18,7 @@ export const loginSchema = z.object({
 export type LoginFormValues = z.infer<typeof loginSchema>;
 
 export const PASSWORD_REQUIREMENTS = {
-  minLength: 8,
+  minLength: 10,
   requireUppercase: true,
   requireLowercase: true,
   requireNumbers: true,
@@ -27,18 +33,34 @@ const passwordSchema = z
   .refine((pwd) => !PASSWORD_REQUIREMENTS.requireNumbers || /\d/.test(pwd), 'Must contain at least one number.')
   .refine((pwd) => !PASSWORD_REQUIREMENTS.requireSpecialChars || /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd), 'Must contain at least one special character.');
 
-export const signupSchema = z
-  .object({
-    firstName: z.string().min(1, 'First name is required.'),
-    lastName: z.string().min(1, 'Last name is required.'),
-    email: z.string().min(1, 'Email is required.').email('Enter a valid email address.'),
-    password: passwordSchema,
-    confirmPassword: z.string().min(1, 'Confirm your password.'),
-  })
-  .refine((values) => values.password === values.confirmPassword, {
-    message: 'Passwords do not match.',
-    path: ['confirmPassword'],
-  });
+export function createSignupSchema(allowedEmailDomains: readonly string[] = []) {
+  return z
+    .object({
+      firstName: z.string().min(1, 'First name is required.'),
+      lastName: z.string().min(1, 'Last name is required.'),
+      email: z
+        .string()
+        .min(1, 'Email is required.')
+        .email('Enter a valid email address.')
+        // UX hint only; Cognito's PreSignUp trigger is the real gate. With no
+        // list configured (e.g. local mock mode) skip the check and let the
+        // server decide.
+        .refine(
+          (email) =>
+            allowedEmailDomains.length === 0 ||
+            isSignupEmailDomainAllowed(email, allowedEmailDomains),
+          { message: signupEmailDomainRestrictionMessage(allowedEmailDomains) },
+        ),
+      password: passwordSchema,
+      confirmPassword: z.string().min(1, 'Confirm your password.'),
+    })
+    .refine((values) => values.password === values.confirmPassword, {
+      message: 'Passwords do not match.',
+      path: ['confirmPassword'],
+    });
+}
+
+export const signupSchema = createSignupSchema(appConfig.allowedEmailDomains);
 
 export type SignupFormValues = z.infer<typeof signupSchema>;
 

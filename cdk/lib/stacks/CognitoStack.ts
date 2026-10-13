@@ -1,8 +1,12 @@
 import { Stack, type StackProps, Duration } from "aws-cdk-lib";
+import * as path from "path";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import type { Construct } from "constructs";
 
+import { allowedEmailDomainsEnv } from "../signupEmailDomains.js";
 import { ssmParameterNames, type AppConfig } from "../config.js";
 
 export interface CognitoStackProps extends StackProps {
@@ -12,9 +16,12 @@ export interface CognitoStackProps extends StackProps {
 /**
  * `${StackPrefix}-Cognito` — Amazon Cognito user authentication.
  *
- * Instantiates a User Pool (email sign-in, SRP + password auth, self-signup enabled)
- * and a User Pool Client (public client for SPA, no secret). Both are published to
- * SSM Parameter Store so downstream Lambdas and the frontend can resolve them.
+ * Instantiates a User Pool (email sign-in, SRP auth, self-signup enabled)
+ * and a User Pool Client (public client for SPA, no secret, OAuth hosted-UI
+ * disabled). A PreSignUp Lambda enforces an exact email-domain allowlist for
+ * new accounts only; an empty list denies every new signup. Admin
+ * USER_PASSWORD_AUTH / `AdminInitiateAuth` is not enabled on this client.
+ * Pool and client IDs are published to SSM for Lambdas and the frontend.
  */
 export class CognitoStack extends Stack {
   public readonly userPool: cognito.UserPool;
@@ -36,12 +43,20 @@ export class CognitoStack extends Stack {
       signInAliases: {
         email: true,
       },
+      // Explicit (matches the CDK default for an email alias): email must be
+      // verified by code. Required by `keepOriginal` below.
+      autoVerify: { email: true },
+      // A changed email does not take effect (and `email_verified` stays true
+      // for the original) until the user verifies the new address. Without
+      // this, UpdateUserAttributes immediately stores an unverified email,
+      // including one already used by another app identity.
+      keepOriginal: { email: true },
       passwordPolicy: {
-        minLength: 8,
+        minLength: 10,
         requireLowercase: true,
         requireUppercase: true,
         requireDigits: true,
-        requireSymbols: false,
+        requireSymbols: true,
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       mfa: cognito.Mfa.OPTIONAL,
@@ -83,8 +98,19 @@ export class CognitoStack extends Stack {
       generateSecret: false,
       authFlows: {
         userSrp: true,
-        userPassword: true,
+        userPassword: false,
+        adminUserPassword: false,
       },
+      disableOAuth: true,
+      // Least privilege: the SPA only writes these at SignUp (see
+      // cognitoAuthService.signUp). Without an explicit list Cognito lets users
+      // UpdateUserAttributes on every standard attribute. `email` stays
+      // writable for signup; changes are gated by `keepOriginal` above.
+      writeAttributes: new cognito.ClientAttributes().withStandardAttributes({
+        email: true,
+        givenName: true,
+        familyName: true,
+      }),
       accessTokenValidity: Duration.hours(1),
       idTokenValidity: Duration.hours(1),
       refreshTokenValidity: Duration.days(30),
@@ -92,6 +118,35 @@ export class CognitoStack extends Stack {
 
     this.userPoolId = this.userPool.userPoolId;
     this.userPoolClientId = this.userPoolClient.userPoolClientId;
+
+    // -----------------------------------------------------------------------
+    // PreSignUp email-domain allowlist (new accounts only)
+    // -----------------------------------------------------------------------
+    // Always attached so changing the list is an env change rather than adding
+    // or removing the trigger. Fail closed: an empty ALLOWED_EMAIL_DOMAINS
+    // denies every new signup. `npm run deploy` refuses to run without a list.
+    // No VPC or database: this is a hostname check only.
+    const monorepoRoot = path.join(__dirname, "../../..");
+    const preSignUp = new lambdaNodejs.NodejsFunction(this, "PreSignUpFn", {
+      functionName: `${config.stackPrefix}-pre-signup`,
+      entry: path.join(monorepoRoot, "backend/auth/src/preSignUp.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 128,
+      timeout: Duration.seconds(5),
+      projectRoot: monorepoRoot,
+      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
+      environment: {
+        ALLOWED_EMAIL_DOMAINS: allowedEmailDomainsEnv(config.allowedEmailDomains),
+        NODE_OPTIONS: "--enable-source-maps",
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        target: "node22",
+      },
+    });
+    this.userPool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignUp);
 
     // -----------------------------------------------------------------------
     // Cognito Groups

@@ -17,6 +17,14 @@
  * `documentTypeId` is safe to keep (it identifies scope, not detection
  * guidance).
  *
+ * **Save-time prompt-injection guardrail**: because `internalGuidance` is
+ * folded into the Feedback Engine's trusted (undelimited) Document-Type
+ * configuration block, every write to it is screened by
+ * {@link assertPromptInjectionFree} BEFORE the database is touched. A flagged
+ * value throws and the write does not happen — the same "deny with no
+ * mutation" posture used for the capability checks and for the sibling prompt
+ * fields in {@link upsertDocumentTypeConfig}.
+ *
  * Every mutation re-checks the `documentType.modifyConfig` capability
  * BEFORE touching the database and denies with no mutation when disallowed
  * (Requirements 36.2, 36.3). Adding/removing/renaming a category updates the
@@ -36,6 +44,7 @@ import {
 import { requireCapability } from './capabilityGuard';
 import type { QueryExecutor } from './db';
 import { NotFoundError } from './errors';
+import { assertPromptInjectionFree } from './promptGuardrail';
 
 /** Raw `error_category` row (snake_case columns from PostgreSQL). */
 interface ErrorCategoryRow {
@@ -119,6 +128,13 @@ export async function createErrorCategory(
     scope: { kind: 'documentType', documentTypeId, departmentId },
   });
 
+  // Screen the prompt-bearing fields before any DB write (deny-with-no-mutation).
+  // `name` is rendered into the trusted Document-Type block too.
+  await assertPromptInjectionFree(name);
+  if (typeof internalGuidance === 'string' && internalGuidance.trim().length > 0) {
+    await assertPromptInjectionFree(internalGuidance);
+  }
+
   const rows = await db.query<ErrorCategoryRow>(
     `INSERT INTO error_category (document_type_id, name, internal_guidance)
      VALUES ($1, $2, $3) RETURNING ${RETURNING}`,
@@ -178,6 +194,15 @@ export async function updateErrorCategory(
     capability: 'documentType.modifyConfig',
     scope: { kind: 'documentType', documentTypeId: scope.documentTypeId, departmentId: scope.departmentId },
   });
+
+  // Screen the prompt-bearing fields before any DB write (deny-with-no-mutation).
+  // `name` is rendered into the trusted Document-Type block too.
+  if (typeof patch.name === 'string' && patch.name.trim().length > 0) {
+    await assertPromptInjectionFree(patch.name);
+  }
+  if (typeof patch.internalGuidance === 'string' && patch.internalGuidance.trim().length > 0) {
+    await assertPromptInjectionFree(patch.internalGuidance);
+  }
 
   const assignments: string[] = [];
   const params: unknown[] = [id];

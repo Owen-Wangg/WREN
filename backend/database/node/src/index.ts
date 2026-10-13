@@ -25,7 +25,31 @@ export {
   type LambdaCallbackContext,
 } from './pool';
 export {
+  ConnectionGuard,
+  ConnectionGuardOpenError,
+  classifyConnectionError,
+  INVALID_PASSWORD_SQLSTATE,
+  DEFAULT_OPEN_MS,
+  MAX_OPEN_MS,
+  type FailureClass,
+  type GuardEvent,
+  type GuardDeps,
+} from './connectionGuard';
+export {
   runMigrations,
   listMigrationFiles,
   DEFAULT_MIGRATIONS_DIR,
 } from './migrate';
+export {
+  ACTIVITY_EVENT_COLUMNS,
+  appendActivityEventRow,
+  derivePseudonym,
+  loadPseudonymSaltFromSecretsManager,
+  pseudonymForActor,
+  recordActivityEventRow,
+  setPseudonymSaltLoader,
+  type PseudonymSaltLoader,
+  type ActivityEventRow,
+  type ActivityLogQueryExecutor,
+  type RecordActivityEventInput,
+} from './activityLog';

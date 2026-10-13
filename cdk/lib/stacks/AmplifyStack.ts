@@ -1,22 +1,30 @@
 import { Stack, type StackProps, CfnOutput, SecretValue } from "aws-cdk-lib";
-import * as amplify from "@aws-cdk/aws-amplify-alpha";
+import * as amplify_cfn from "aws-cdk-lib/aws-amplify";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import type { Construct } from "constructs";
 
+import { buildAmplifyCustomHeadersYaml } from "../amplifySecurityHeaders";
 import type { AppConfig } from "../config";
 
 /**
  * Props for the Amplify stack.
+ *
+ * NOTE: this app's GitHub connection was originally established with a
+ * classic access token (`repositoryCloneMethod: TOKEN`), not the Amplify
+ * GitHub App connector. AWS Amplify requires a token be resupplied on every
+ * CloudFormation create/update for a token-connected app — omitting it fails
+ * with "You should at least provide one valid token" even on unrelated
+ * changes. `githubTokenSecretName` is required for that reason.
  */
 export interface AmplifyStackProps extends StackProps {
   readonly config: AppConfig;
-  /** GitHub repository owner (e.g. "Jovank99"). */
+  /** GitHub repository owner (e.g. "UBC-CIC"). */
   readonly repositoryOwner: string;
   /** GitHub repository name (e.g. "WREN"). */
   readonly repositoryName: string;
   /** Source branch hosted as the production branch. */
   readonly branch: string;
-  /** GitHub OAuth token secret name in Secrets Manager. */
+  /** Secrets Manager secret name holding the GitHub PAT (`WREN_GITHUB_TOKEN`). */
   readonly githubTokenSecretName: string;
   /** The API endpoint URL for the frontend to connect to. */
   readonly apiEndpoint: string;
@@ -26,6 +34,8 @@ export interface AmplifyStackProps extends StackProps {
   readonly cognitoClientId: string;
   /** AppSync GraphQL endpoint for real-time debrief subscriptions. */
   readonly appSyncGraphqlUrl: string;
+  /** Documents bucket the SPA uploads to via presigned POST (CSP connect-src). */
+  readonly documentsBucketName: string;
 }
 
 /**
@@ -35,32 +45,34 @@ export interface AmplifyStackProps extends StackProps {
  * - Auto-build on push to main and feature branches.
  * - Environment variables injected for API endpoint and app name.
  * - Node 22 build image for Vite compatibility.
+ * - Repository access via a GitHub PAT stored in Secrets Manager (required
+ *   because this app's connection predates the Amplify GitHub App connector).
  *
  * The frontend is a React 19 / Vite / Tailwind / shadcn/ui SPA per the
  * frontend.md steering. Amplify serves the built static assets and handles
  * SPA routing (rewrites all paths to index.html).
  */
 export class AmplifyStack extends Stack {
-  public readonly amplifyApp: amplify.App;
-  public readonly productionBranch: amplify.Branch;
+  public readonly amplifyApp: amplify_cfn.CfnApp;
+  public readonly productionBranch: amplify_cfn.CfnBranch;
 
   constructor(scope: Construct, id: string, props: AmplifyStackProps) {
     super(scope, id, props);
 
     const { config } = props;
+    const region = config.env.region || "ca-central-1";
 
     // -------------------------------------------------------------------
-    // Amplify App
+    // Amplify App — L1 construct.
     // -------------------------------------------------------------------
-    this.amplifyApp = new amplify.App(this, "AmplifyApp", {
-      appName: `${config.stackPrefix}-frontend`,
-      sourceCodeProvider: new amplify.GitHubSourceCodeProvider({
-        owner: props.repositoryOwner,
-        repository: props.repositoryName,
-        oauthToken: SecretValue.secretsManager(props.githubTokenSecretName),
-      }),
+    this.amplifyApp = new amplify_cfn.CfnApp(this, "AmplifyApp", {
+      name: `${config.stackPrefix}-frontend`,
+      repository: `https://github.com/${props.repositoryOwner}/${props.repositoryName}`,
+      accessToken: SecretValue.secretsManager(props.githubTokenSecretName).unsafeUnwrap(),
+      // No iamServiceRole — only needed when builds access AWS secrets/params;
+      // all env vars are passed directly below.
       buildSpec: codebuild.BuildSpec.fromObjectToYaml({
-        version: "1.0",
+        version: 1,
         applications: [
           {
             appRoot: "frontend",
@@ -88,38 +100,90 @@ export class AmplifyStack extends Stack {
             },
           },
         ],
+      }).toBuildSpec(),
+      environmentVariables: [
+        { name: "VITE_API_BASE_URL",           value: props.apiEndpoint },
+        { name: "VITE_APP_NAME",               value: config.appName },
+        { name: "VITE_ENVIRONMENT",            value: config.environmentName },
+        { name: "VITE_USE_LIVE_API",           value: "true" },
+        { name: "VITE_COGNITO_USER_POOL_ID",   value: props.cognitoUserPoolId },
+        { name: "VITE_COGNITO_CLIENT_ID",      value: props.cognitoClientId },
+        { name: "VITE_AWS_REGION",             value: region },
+        { name: "VITE_APPSYNC_URL",            value: props.appSyncGraphqlUrl },
+        { name: "VITE_ALLOWED_EMAIL_DOMAINS",  value: config.allowedEmailDomains.join(",") },
+        { name: "NODE_VERSION",                value: "22" },
+      ],
+      // SPA rewrite: all unmatched paths → index.html.
+      customRules: [
+        { source: "/<*>", target: "/index.html", status: "404-200" },
+      ],
+      // HSTS, CSP, X-Frame-Options, nosniff, and Referrer-Policy on every path.
+      customHeaders: buildAmplifyCustomHeadersYaml({
+        apiEndpoint: props.apiEndpoint,
+        appSyncGraphqlUrl: props.appSyncGraphqlUrl,
+        documentsBucketName: props.documentsBucketName,
+        region,
       }),
-      environmentVariables: {
-        // Frontend config (frontend/src/config/env.ts reads these)
-        VITE_API_BASE_URL: props.apiEndpoint,
-        VITE_APP_NAME: config.appName,
-        VITE_ENVIRONMENT: config.environmentName,
-        VITE_USE_LIVE_API: "true",
-        VITE_COGNITO_USER_POOL_ID: props.cognitoUserPoolId,
-        VITE_COGNITO_CLIENT_ID: props.cognitoClientId,
-        VITE_AWS_REGION: config.env.region || "ca-central-1",
-        VITE_APPSYNC_URL: props.appSyncGraphqlUrl,
-        // Build config
-        NODE_VERSION: "22",
-      },
     });
 
-    // SPA rewrite rule: all paths → index.html (except /api/* and assets).
-    this.amplifyApp.addCustomRule(amplify.CustomRule.SINGLE_PAGE_APPLICATION_REDIRECT);
+    // Pin the logical IDs to what CloudFormation already has deployed (from
+    // the original @aws-cdk/aws-amplify-alpha L2 construct, before the
+    // switch to a direct CfnApp/CfnBranch). Without this, CDK's default
+    // logical-ID hashing for the new L1 constructs differs from the old L2's
+    // nested-child hashing, so CloudFormation sees a *different* resource and
+    // tries to delete the live, working app/branches and create new ones from
+    // scratch — which fails immediately since a brand-new CreateApp call has
+    // no token to authenticate with.
+    this.amplifyApp.overrideLogicalId("AmplifyApp6046A70F");
 
     // -------------------------------------------------------------------
     // Production branch follows the configured GitHub source branch.
     // -------------------------------------------------------------------
-    this.productionBranch = this.amplifyApp.addBranch(props.branch, {
-      autoBuild: true,
+    this.productionBranch = new amplify_cfn.CfnBranch(this, "ProductionBranch", {
+      appId: this.amplifyApp.attrAppId,
+      branchName: props.branch,
+      enableAutoBuild: true,
       stage: "PRODUCTION",
     });
+    this.productionBranch.overrideLogicalId("AmplifyAppmainB68AA376");
 
-    // Keep develop previews only when it is not already the production branch.
-    if (props.branch !== "develop") {
-      this.amplifyApp.addBranch("develop", {
-        autoBuild: true,
+    // Keep the `development` branch as a DEVELOPMENT stage preview, unless it
+    // is already the configured production branch.
+    if (props.branch !== "development") {
+      const developmentBranch = new amplify_cfn.CfnBranch(this, "DevelopmentBranch", {
+        appId: this.amplifyApp.attrAppId,
+        branchName: "development",
+        enableAutoBuild: true,
         stage: "DEVELOPMENT",
+      });
+      developmentBranch.overrideLogicalId("AmplifyAppdevelopmentDBFFEBF1");
+    }
+
+    // -------------------------------------------------------------------
+    // Optional custom domain.
+    //
+    // When `config.customDomain` is set, map the production branch to the
+    // domain root and its `www` subdomain. Amplify provisions the ACM
+    // certificate and — when the domain's hosted zone lives in this AWS
+    // account — creates the DNS records automatically; otherwise it surfaces
+    // verification records to add manually in whatever DNS provider hosts the
+    // zone. No Route 53 or ACM resources are created here, so the feature stays
+    // account/provider-agnostic. When unset, the frontend is reachable only via
+    // the Amplify default domain and nothing below is synthesized.
+    // -------------------------------------------------------------------
+    if (config.customDomain) {
+      new amplify_cfn.CfnDomain(this, "CustomDomain", {
+        appId: this.amplifyApp.attrAppId,
+        domainName: config.customDomain,
+        subDomainSettings: [
+          { branchName: props.branch, prefix: "" },
+          { branchName: props.branch, prefix: "www" },
+        ],
+      });
+
+      new CfnOutput(this, "CustomDomainUrl", {
+        value: `https://${config.customDomain}`,
+        description: "Custom domain URL for the frontend (root)",
       });
     }
 
@@ -127,11 +191,11 @@ export class AmplifyStack extends Stack {
     // Outputs
     // -------------------------------------------------------------------
     new CfnOutput(this, "AmplifyAppId", {
-      value: this.amplifyApp.appId,
+      value: this.amplifyApp.attrAppId,
       description: "Amplify App ID",
     });
     new CfnOutput(this, "AmplifyDefaultDomain", {
-      value: `${props.branch}.${this.amplifyApp.defaultDomain}`,
+      value: `${props.branch}.${this.amplifyApp.attrDefaultDomain}`,
       description: `Amplify default domain for the ${props.branch} branch`,
     });
   }
