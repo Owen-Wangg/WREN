@@ -157,14 +157,6 @@ export async function processIngestQueueMessage(
     // gate on the client-content path in lambda-handler.ts.
     const bodyWords = storedContent ? wordCountFromTipTapContent(storedContent) : countWords(segments);
     const bodyChars = storedContent ? charCountFromTipTapContent(storedContent) : countChars(segments);
-    const sizeResult = enforceSizeLimit(segments, {
-      documentTypeSizeLimitWords: limits.sizeLimitWords,
-      platformSizeLimitWords: limits.platformSizeLimitWords,
-    });
-    if (sizeResult.status === 'over-limit') {
-      await markIngestJobFailed(db, message.jobId, sizeResult.message);
-      return;
-    }
 
     // Include header and footer in the total — they are stored in the draft
     // and fed to AI prompts just like body content. Gate on BOTH the word
