@@ -140,7 +140,7 @@ describe('countChars / effectiveCharLimit', () => {
   });
 });
 
-describe('character ceiling (defense-in-depth, finding f-ca2d70a5)', () => {
+describe('character ceiling (defense-in-depth)', () => {
   const SMALL: SizeLimitOverrides = { documentTypeSizeLimitWords: 10 };
   const charLimit = effectiveCharLimit(10); // 160
 

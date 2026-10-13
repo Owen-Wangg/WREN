@@ -51,7 +51,7 @@ import {
 import type { QueryExecutor } from './db';
 
 // The pseudonymization and the append-only writer now live in the shared
-// `@wren/db-node` layer (Issue #187) so Admin and Document record events
+// `@wren/db-node` layer so Admin and Document record events
 // through ONE algorithm/salt and produce correlatable pseudonyms. The salt is
 // fetched from Secrets Manager at runtime by that layer (never injected into
 // the Lambda environment). Re-export them here so existing importers of this

@@ -322,7 +322,7 @@ def _extract_footnotes_from_content(content: Any) -> list[FootnoteMetadata]:
             # Validate: must have a content field and a footnoteNumber that is a
             # positive integer within the sane magnitude bound. Bounding the
             # magnitude keeps a rendered number from expanding to hundreds of
-            # digits (finding f-b4f8ddb1); real footnote numbers are small.
+            # digits; real footnote numbers are small.
             if (
                 fn_num is not None
                 and isinstance(fn_num, (int, float))

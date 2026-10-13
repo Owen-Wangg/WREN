@@ -157,6 +157,22 @@ export async function processIngestQueueMessage(
     // gate on the client-content path in lambda-handler.ts.
     const bodyWords = storedContent ? wordCountFromTipTapContent(storedContent) : countWords(segments);
     const bodyChars = storedContent ? charCountFromTipTapContent(storedContent) : countChars(segments);
+    const sizeResult = enforceSizeLimit(segments, {
+      documentTypeSizeLimitWords: limits.sizeLimitWords,
+      platformSizeLimitWords: limits.platformSizeLimitWords,
+    });
+    if (sizeResult.status === 'over-limit') {
+      await markIngestJobFailed(db, message.jobId, sizeResult.message);
+      return;
+    }
+
+    // Include header and footer in the total — they are stored in the draft
+    // and fed to AI prompts just like body content. Gate on BOTH the word
+    // count and the defense-in-depth character ceiling: a whitespace-free blob
+    // in the header/footer measures as a few words but can be arbitrarily
+    // large, so the word-only check would let oversized content through.
+    // Mirrors the body char ceiling in enforceSizeLimit and the
+    // header/footer char gate in lambda-handler.ts.
     const headerFooterWords =
       (ingestResult.header ? wordCountFromTipTapContent(ingestResult.header as TipTapDoc) : 0) +
       (ingestResult.footer ? wordCountFromTipTapContent(ingestResult.footer as TipTapDoc) : 0);

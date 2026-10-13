@@ -101,7 +101,7 @@ describe("DatabaseStack", () => {
     }
   });
 
-  it("provisions nothing for the retired wren_audit role (finding f-71876844)", () => {
+  it("provisions nothing for the retired wren_audit role", () => {
     const json = JSON.stringify(template.toJSON());
     expect(json).not.toContain("wren_audit");
     expect(json).not.toContain("WrenAudit");

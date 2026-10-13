@@ -114,7 +114,7 @@ function wordsInText(text: string): number {
  * Footnote `attrs` keys whose values are rendered verbatim into the Bedrock
  * prompt by the Feedback Engine (see `footnote_metadata.py`). They must be
  * measured by the size gate, since large citation metadata is a prompt/cost
- * amplification vector just like the body (finding f-4d906a98).
+ * amplification vector just like the body.
  */
 const FOOTNOTE_METADATA_KEYS = ['author', 'title', 'source', 'pinpoint', 'year'] as const;
 
@@ -128,7 +128,7 @@ const FOOTNOTE_METADATA_KEYS = ['author', 'title', 'source', 'pinpoint', 'year']
  * engine extractor walks ALL node types and accepts any numeric
  * `footnoteNumber`. So this walker visits footnotes regardless of the
  * containing node type and regardless of whether `footnoteNumber` is a valid
- * positive integer (findings f-208621e4, f-4d906a98). It also descends into a
+ * positive integer. It also descends into a
  * footnote's own body to catch nested footnotes.
  */
 function collectFootnoteMeasurableStrings(
@@ -159,8 +159,8 @@ function collectFootnoteMeasurableStrings(
  * The paragraph/heading/list/table segment substrate contributes only the
  * footnote *marker* `[N]` (see {@link collectPlainText}), so footnote bodies
  * and citation metadata — which the Feedback Engine ships into the Bedrock
- * prompt — would otherwise go uncounted and let a draft bypass the size gate
- * (findings f-ca2d70a5, f-4d906a98, f-208621e4). We add the footnote body and
+ * prompt — would otherwise go uncounted and let a draft bypass the size gate.
+ * We add the footnote body and
  * metadata words on top of the segment words so the authoritative count
  * reflects all content that reaches the model. The segment substrate itself is
  * intentionally left unchanged so diffing/anchoring/per-paragraph feedback keep
@@ -182,7 +182,7 @@ export function wordCountFromTipTapContent(content: TipTapNode | null | undefine
  * {@link wordCountFromTipTapContent}: the sum of segment-text lengths plus
  * footnote body and metadata lengths. Used as a defense-in-depth ceiling
  * alongside the word count so a whitespace-free blob (which measures as one
- * word) is still bounded (finding f-ca2d70a5).
+ * word) is still bounded.
  */
 export function charCountFromTipTapContent(content: TipTapNode | null | undefined): number {
   const segmentChars = tipTapContentToSegments(content).reduce(

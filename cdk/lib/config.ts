@@ -74,7 +74,7 @@ export const DEFAULT_REGION = "ca-central-1";
 export type CacheMode = "off" | "observe" | "explicit";
 
 /**
- * Enforcement mode for the HMAC-signed authorizer context (finding f-140e2506).
+ * Enforcement mode for the HMAC-signed authorizer context.
  * `enforce` (default): service Lambdas reject any request whose authorizer
  * context is missing or carries an invalid signature. `permissive`: a missing
  * signature is allowed (an invalid one is still rejected) — used ONLY for the
@@ -154,7 +154,7 @@ export interface AppConfig {
    */
   readonly cacheMode: CacheMode;
   /**
-   * Authorizer-context signature enforcement (finding f-140e2506). Defaults to
+   * Authorizer-context signature enforcement. Defaults to
    * {@link DEFAULT_AUTH_CONTEXT_VERIFY_MODE} (`enforce`). Propagated to the
    * service Lambdas as `AUTH_CONTEXT_VERIFY_MODE`.
    */

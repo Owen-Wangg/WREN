@@ -77,7 +77,7 @@ export async function wrapHandler(
       });
     }
     if (e instanceof PromptGuardrailUnavailableError) {
-      // Fail closed (Issue #181): generic message; config detail stays in logs.
+      // Fail closed: generic message; config detail stays in logs.
       return withCors({
         statusCode: 503,
         body: JSON.stringify({

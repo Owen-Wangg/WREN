@@ -1371,8 +1371,8 @@ export class CicdStack extends Stack {
               // `NotResource: [ownedRolePrefix]` like `DenyOutOfScopeStacks`:
               // the boundary must not be strippable even from an in-prefix
               // role. An in-prefix `DeleteRolePermissionsBoundary` would be the
-              // cheapest way to reopen finding
-              // f-6d6bc078-eeba-4830-bff5-c04d9b96b223 — detach the boundary
+              // cheapest way to reopen the unbounded-role finding — detach
+              // the boundary
               // from a runtime role, and that role's identity policy applies
               // unbounded again.
               //
@@ -1396,8 +1396,8 @@ export class CicdStack extends Stack {
               // IAM resource ARN matching is case-sensitive — `Compute-`
               // versus `compute-`. IAM documents resource matching as
               // case-sensitive, but IAM role *names* are unique
-              // case-insensitively, and the closure of finding
-              // f-6d6bc078-eeba-4830-bff5-c04d9b96b223 should not rest on that
+              // case-insensitively, and the closure of this unbounded-role
+              // finding should not rest on that
               // distinction. This explicit self-Deny removes the dependency on
               // case semantics entirely: no IAM action in this policy can reach
               // the deploy role's own ARN, whatever the matching semantics.

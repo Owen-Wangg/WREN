@@ -338,8 +338,8 @@ describe('createAppSyncAuthorizerHandler', () => {
 });
 
 /**
- * Regression tests for the three BROKEN_OBJECT_PROPERTY_AUTHORIZATION vectors
- * (f-5fc7184a). Each previously let a caller authorize a stream whose argument
+ * Regression tests for the three BROKEN_OBJECT_PROPERTY_AUTHORIZATION vectors.
+ * Each previously let a caller authorize a stream whose argument
  * does not match what AppSync binds. The authorizer now decides on the parsed,
  * coerced operation, so each must deny while the matching legitimate request
  * still authorizes.
