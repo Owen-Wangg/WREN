@@ -199,6 +199,51 @@ export async function extractWithTextract(
   input: ExtractTextractInput,
 ): Promise<TextractOcrResult> {
   const started = Date.now();
+  const blocks = await analyzeTextractBlocks(input);
+  return resultFromBlocks(blocks, started);
+}
+
+/** Block page number (sync single-page AnalyzeDocument omits `Page`). */
+function blockPage(block: Block): number {
+  return typeof block.Page === 'number' ? block.Page : 1;
+}
+
+/** Running header / footer / page-number layouts, dropped from page groups. */
+const PAGE_FURNITURE_LAYOUTS = new Set(['LAYOUT_HEADER', 'LAYOUT_FOOTER', 'LAYOUT_PAGE_NUMBER']);
+
+export interface TextractPageGroupResult {
+  /** One TipTap doc per requested page group, in the same order. */
+  readonly groups: readonly TipTapDoc[];
+  /** Confidence over all requested pages. */
+  readonly ocrConfidence: number;
+}
+
+/**
+ * Convert only the requested pages of a Textract analysis.
+ *
+ * Used for mixed digital / scanned PDFs: each group is a run of consecutive
+ * OCR pages, converted separately so it can be spliced between digital pages.
+ * Running headers / footers / page numbers are dropped from groups (the
+ * digital pages own document furniture).
+ */
+export function convertTextractPageGroups(
+  blocks: readonly Block[],
+  pageGroups: ReadonlyArray<ReadonlyArray<number>>,
+): TextractPageGroupResult {
+  const wanted = new Set(pageGroups.flat());
+  const scoped = blocks.filter((b) => wanted.has(blockPage(b)));
+  const groups = pageGroups.map((group) => {
+    const pages = new Set(group);
+    const groupBlocks = scoped.filter(
+      (b) => pages.has(blockPage(b)) && !PAGE_FURNITURE_LAYOUTS.has(b.BlockType ?? ''),
+    );
+    return convertTextractBlocks(groupBlocks).document;
+  });
+  return { groups, ocrConfidence: convertTextractBlocks(scoped).documentConfidence };
+}
+
+/** Run Textract analysis and return its raw blocks. */
+export async function analyzeTextractBlocks(input: ExtractTextractInput): Promise<Block[]> {
   const client = getClient();
 
   try {
@@ -217,8 +262,7 @@ export async function extractWithTextract(
       if (!start.JobId) {
         throw new TextractOcrError('Textract did not return a job id', 'FAILED');
       }
-      const blocks = await collectAsyncAnalysisBlocks(client, start.JobId);
-      return resultFromBlocks(blocks, started);
+      return await collectAsyncAnalysisBlocks(client, start.JobId);
     }
 
     if (!input.bytes || input.bytes.length === 0) {
@@ -231,7 +275,7 @@ export async function extractWithTextract(
         FeatureTypes: [...ANALYSIS_FEATURES],
       }),
     );
-    return resultFromBlocks(analyzed.Blocks, started);
+    return analyzed.Blocks ?? [];
   } catch (error) {
     if (error instanceof TextractOcrError) throw error;
     mapAwsError(error);

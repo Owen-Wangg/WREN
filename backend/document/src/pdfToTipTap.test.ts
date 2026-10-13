@@ -1,4 +1,5 @@
 import { spatialPagesToTipTap, type SpatialPage } from './pdfToTipTap';
+import { polishPdfTipTapNodes } from './promotePdfHeadings';
 import type { TipTapNode } from '@wren/types';
 
 describe('spatialPagesToTipTap', () => {
@@ -149,8 +150,9 @@ describe('spatialPagesToTipTap', () => {
         ],
       },
     ];
+    // Stitching runs in the shared polish step (after heading promotion).
     const doc = spatialPagesToTipTap(pages);
-    const blocks = (doc.content as TipTapNode[] | undefined) ?? [];
+    const blocks = polishPdfTipTapNodes((doc.content as TipTapNode[] | undefined) ?? []);
     const text = blocks
       .map((b) => b.content?.map((n) => n.text ?? '').join('') ?? '')
       .join('\n');

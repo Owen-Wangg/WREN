@@ -28,7 +28,6 @@ import {
   type PageMetrics,
   type MergedParagraph,
 } from './textractLines.js';
-import { stitchWrappedParagraphs } from './stitchWrappedParagraphs.js';
 import { buildBlockIndex } from './textractBlockIndex.js';
 import {
   inferInlineFormatting,
@@ -43,7 +42,7 @@ import {
   computePageConfidence,
   computeDocumentConfidence,
 } from './textractConfidence.js';
-import { looksLikeStandaloneHeading } from './pdfHeadingHeuristics.js';
+import { isCanliiOverlayStamp, looksLikeStandaloneHeading } from './pdfHeadingHeuristics.js';
 import { polishPdfTipTapNodes } from './promotePdfHeadings.js';
 
 const SKIP_LAYOUT = new Set([
@@ -72,6 +71,27 @@ function percentile(sorted: number[], p: number): number {
   const upper = Math.ceil(index);
   if (lower === upper) return sorted[lower]!;
   return sorted[lower]! + (sorted[upper]! - sorted[lower]!) * (index - lower);
+}
+
+/** A rotated line's axis-aligned box is much taller than wide. */
+const ROTATED_LINE_ASPECT = 2;
+/** Short tokens ("I", "1.") can be taller than wide while horizontal. */
+const ROTATED_LINE_MIN_CHARS = 4;
+
+/**
+ * True for LINE blocks that are margin overlays rather than body text:
+ * CanLII-style stamps and vertically rotated lines.
+ */
+export function isMarginOverlayLine(line: Block): boolean {
+  const text = line.Text?.trim() ?? '';
+  if (text && isCanliiOverlayStamp(text)) return true;
+  const bbox = line.Geometry?.BoundingBox;
+  if (!bbox || typeof bbox.Width !== 'number' || typeof bbox.Height !== 'number') return false;
+  if (bbox.Width <= 0) return false;
+  return (
+    text.replace(/\s+/g, '').length >= ROTATED_LINE_MIN_CHARS &&
+    bbox.Height > ROTATED_LINE_ASPECT * bbox.Width
+  );
 }
 
 /**
@@ -610,6 +630,9 @@ function enrichedPipeline(
   for (const block of allBlocks) {
     const page = block.Page ?? 1;
     if (block.BlockType === 'LINE') {
+      // Margin stamps / rotated text would stretch content bounds and break
+      // center / right alignment inference.
+      if (isMarginOverlayLine(block)) continue;
       if (!lineBlocksByPage.has(page)) lineBlocksByPage.set(page, []);
       lineBlocksByPage.get(page)!.push(block);
     } else if (block.BlockType === 'WORD') {
@@ -743,7 +766,20 @@ function enrichedPipeline(
     // For other LAYOUT_TEXT blocks: apply the enriched paragraph pipeline
     const page = block.Page ?? 1;
     const metrics = pageMetricsMap.get(page) ?? computePageMetricsForPage(page, [], []);
-    const childLineBlocks = collectChildLineBlocks(block, byId);
+    const allChildLineBlocks = collectChildLineBlocks(block, byId);
+    const childLineBlocks = allChildLineBlocks.filter((l) => !isMarginOverlayLine(l));
+
+    if (allChildLineBlocks.length > 0 && childLineBlocks.length === 0) {
+      // Block holds only margin / rotated text. Drop stamps; keep any other
+      // rotated text as plain paragraphs outside column detection.
+      for (const line of allChildLineBlocks) {
+        const text = line.Text?.trim() ?? '';
+        if (text && !isCanliiOverlayStamp(text)) nodes.push(paragraphNode(text));
+      }
+      if (block.Id) consumedLayoutIds.add(block.Id);
+      markDescendantLayoutsConsumed(block);
+      continue;
+    }
 
     if (childLineBlocks.length === 0) {
       // No LINE children: try collecting text directly
@@ -789,8 +825,8 @@ function enrichedPipeline(
   }
 
   // --- Step 10: Page-level confidence warnings ---
-  const stitched = stitchWrappedParagraphs(nodes);
-  const finalNodes = applyPageConfidenceWarnings(stitched, pageLineConfidences);
+  // Wrap stitching runs later in polishPdfTipTapNodes, after heading promotion.
+  const finalNodes = applyPageConfidenceWarnings(nodes, pageLineConfidences);
 
   // Ensure non-empty document
   if (finalNodes.length === 0) {

@@ -81,7 +81,78 @@ describe('stitchWrappedParagraphs', () => {
     const result = stitchWrappedParagraphs(nodes);
     expect(tipTapPlainText(result[0]!)).toBe('wrongdoings.');
   });
+
+  it('keeps the first paragraph layout attrs when joining', () => {
+    const result = stitchWrappedParagraphs([
+      aligned('the franchisee is not liable for the', { indent: 2 }),
+      para('wrongdoings.', 5),
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.attrs).toEqual({ indent: 2 });
+  });
+
+  it('does not join centered title-page lines or lines under a different alignment', () => {
+    const result = stitchWrappedParagraphs([
+      aligned('Plaintiff', { textAlign: 'right' }),
+      para('And'),
+      aligned('James Douglas Pearman and Christine Sheila Kuramoto', { textAlign: 'center' }),
+      aligned('Defendants', { textAlign: 'right' }),
+      aligned('Before: The Honourable Justice K. Loo', { textAlign: 'center' }),
+    ]);
+    expect(result.map(tipTapPlainText)).toEqual([
+      'Plaintiff',
+      'And',
+      'James Douglas Pearman and Christine Sheila Kuramoto',
+      'Defendants',
+      'Before: The Honourable Justice K. Loo',
+    ]);
+  });
+
+  it('does not join a label line ending in ":" onto the next value', () => {
+    const result = stitchWrappedParagraphs([
+      para('Counsel for the Plaintiff:'),
+      para('G.A. Phillips'),
+    ]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('does not snowball once a joined paragraph passes the length rule', () => {
+    const result = stitchWrappedParagraphs([
+      para('The parties to this application both cited the decision in'),
+      para('Bergen v. Bergen as the leading case'),
+      para('Reasons'),
+      para('Counsel for the Defendant'),
+    ]);
+    // Hanging "in" joins line 2; the short joined fragment must not drag in the rest.
+    expect(result.map(tipTapPlainText)).toEqual([
+      'The parties to this application both cited the decision in Bergen v. Bergen as the leading case',
+      'Reasons',
+      'Counsel for the Defendant',
+    ]);
+  });
+
+  it('still joins long full-width OCR lines that share a layout', () => {
+    const result = stitchWrappedParagraphs([
+      para('Ms. Kuramoto contends that the Deceased made an irrevocable gift to her of'),
+      para('Both a joint interest in the Property and the right of survivorship by way'),
+      para('Of certain documents signed and delivered in 2008.'),
+    ]);
+    expect(result).toHaveLength(1);
+  });
+
+  it('does not stitch across a column separator when layouts differ', () => {
+    const result = stitchWrappedParagraphs([
+      para("the franchisee's"),
+      para(''),
+      para('wrongdoings.', 4),
+    ]);
+    expect(result).toHaveLength(3);
+  });
 });
+
+function aligned(text: string, attrs: Record<string, unknown>): TipTapNode {
+  return { type: 'paragraph', attrs, content: [{ type: 'text', text }] };
+}
 
 describe('isWrapContinuation', () => {
   it('requires a lowercase start or capital wrap signal', () => {

@@ -59,6 +59,7 @@ import { useDraftAutosave } from '@/features/editor/useDraftAutosave';
 import { resolveEffectiveWordLimit, totalDraftWordCount } from '@/features/editor/wordLimit';
 import { useWritingTypes } from '@/features/dashboard/useDashboard';
 import {
+  sanitizeOptionsForDraft,
   sanitizeTipTapContent,
   tipTapContentNeedsSanitization,
 } from '@/features/editor/sanitizeLoadedContent';
@@ -325,18 +326,27 @@ export function DocumentEditorPage() {
   const draftContent = useMemo(() => {
     if (!draftQuery.data) return null;
     if (isTipTapDoc(draftQuery.data.content)) {
-      return sanitizeTipTapContent(draftQuery.data.content as JSONContent);
+      return sanitizeTipTapContent(
+        draftQuery.data.content as JSONContent,
+        sanitizeOptionsForDraft(draftQuery.data),
+      );
     }
     return segmentsToTiptapContent(draftQuery.data.segments);
   }, [draftQuery.data]);
 
   const draftHeader = useMemo(() => {
     if (!isTipTapDoc(draftQuery.data?.header)) return null;
-    return sanitizeTipTapContent(draftQuery.data!.header as JSONContent);
+    return sanitizeTipTapContent(
+      draftQuery.data!.header as JSONContent,
+      sanitizeOptionsForDraft(draftQuery.data),
+    );
   }, [draftQuery.data]);
   const draftFooter = useMemo(() => {
     if (!isTipTapDoc(draftQuery.data?.footer)) return null;
-    return sanitizeTipTapContent(draftQuery.data!.footer as JSONContent);
+    return sanitizeTipTapContent(
+      draftQuery.data!.footer as JSONContent,
+      sanitizeOptionsForDraft(draftQuery.data),
+    );
   }, [draftQuery.data]);
 
   // One-shot persist when stored JSON still has pre-fix ingest artifacts.
@@ -359,15 +369,16 @@ export function DocumentEditorPage() {
       return;
     }
 
-    const sanitizedBody = sanitizeTipTapContent(rawBody);
+    const sanitizeOptions = sanitizeOptionsForDraft(draftQuery.data);
+    const sanitizedBody = sanitizeTipTapContent(rawBody, sanitizeOptions);
     const rawHeader = isTipTapDoc(draftQuery.data.header)
       ? (draftQuery.data.header as JSONContent)
       : null;
     const rawFooter = isTipTapDoc(draftQuery.data.footer)
       ? (draftQuery.data.footer as JSONContent)
       : null;
-    const sanitizedHeader = rawHeader ? sanitizeTipTapContent(rawHeader) : null;
-    const sanitizedFooter = rawFooter ? sanitizeTipTapContent(rawFooter) : null;
+    const sanitizedHeader = rawHeader ? sanitizeTipTapContent(rawHeader, sanitizeOptions) : null;
+    const sanitizedFooter = rawFooter ? sanitizeTipTapContent(rawFooter, sanitizeOptions) : null;
 
     const needsPersist =
       tipTapContentNeedsSanitization(rawBody, sanitizedBody) ||
@@ -560,7 +571,9 @@ export function DocumentEditorPage() {
       }
       const draft = result.draft;
       if (isTipTapDoc(draft.content)) {
-        setCurrentContent(sanitizeTipTapContent(draft.content as JSONContent));
+        setCurrentContent(
+          sanitizeTipTapContent(draft.content as JSONContent, sanitizeOptionsForDraft(draft)),
+        );
       }
       void queryClient.invalidateQueries({ queryKey: ['document-draft', envId] });
       setFeedbackGenerationError(undefined);
@@ -625,14 +638,15 @@ export function DocumentEditorPage() {
           try {
             const draft = await fetchLatestDraft(apiClient, envId);
             if (cancelled) return;
+            const sanitizeOptions = sanitizeOptionsForDraft(draft);
             if (isTipTapDoc(draft.content)) {
-              setCurrentContent(sanitizeTipTapContent(draft.content as JSONContent));
+              setCurrentContent(sanitizeTipTapContent(draft.content as JSONContent, sanitizeOptions));
             }
             if (isTipTapDoc(draft.header)) {
-              setCurrentHeader(sanitizeTipTapContent(draft.header as JSONContent));
+              setCurrentHeader(sanitizeTipTapContent(draft.header as JSONContent, sanitizeOptions));
             }
             if (isTipTapDoc(draft.footer)) {
-              setCurrentFooter(sanitizeTipTapContent(draft.footer as JSONContent));
+              setCurrentFooter(sanitizeTipTapContent(draft.footer as JSONContent, sanitizeOptions));
             }
           } catch {
             // Draft query invalidate will still refresh when available.
