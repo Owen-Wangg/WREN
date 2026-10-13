@@ -174,6 +174,76 @@ describe('sweepOrphanUploads', () => {
     expect(s3.send.mock.calls.some(([c]) => c instanceof DeleteObjectTaggingCommand)).toBe(false);
   });
 
+  it('retries a transiently failing tag restore until it succeeds', async () => {
+    const tags: Record<string, { Key: string; Value: string }[]> = {
+      [uploadKey(1)]: [{ Key: 'other', Value: 'x' }],
+    };
+    const referenced = new Set<string>();
+    const s3 = fakeS3([{ Key: uploadKey(1), LastModified: OLD }], tags);
+    const base = s3.send.getMockImplementation()!;
+    let puts = 0;
+    s3.send.mockImplementation(async (command: unknown) => {
+      if (command instanceof PutObjectTaggingCommand) {
+        puts += 1;
+        // Puts 2 and 3 are restore attempts; fail them with a throttle.
+        if (puts === 2 || puts === 3) throw new Error('SlowDown');
+      }
+      const out = await base(command);
+      if (command instanceof PutObjectTaggingCommand && puts === 1) referenced.add(uploadKey(1));
+      return out;
+    });
+    const sleep = jest.fn(async () => {});
+
+    const result = await sweepOrphanUploads({
+      s3,
+      bucket: BUCKET,
+      db: fakeDb(referenced),
+      now: () => NOW,
+      sleep,
+      random: () => 0.5,
+    });
+
+    expect(result).toMatchObject({ restored: 1, errors: 0 });
+    expect(tags[uploadKey(1)]).toEqual([{ Key: 'other', Value: 'x' }]);
+    expect(puts).toBe(4);
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it('emits a dedicated metric when the tag restore is exhausted', async () => {
+    const tags: Record<string, { Key: string; Value: string }[]> = {};
+    const referenced = new Set<string>();
+    const s3 = fakeS3([{ Key: uploadKey(1), LastModified: OLD }], tags);
+    const base = s3.send.getMockImplementation()!;
+    let puts = 0;
+    s3.send.mockImplementation(async (command: unknown) => {
+      if (command instanceof PutObjectTaggingCommand) {
+        puts += 1;
+        if (puts > 1) throw new Error('SlowDown');
+      }
+      const out = await base(command);
+      if (command instanceof PutObjectTaggingCommand) referenced.add(uploadKey(1));
+      return out;
+    });
+    const log = console.log as jest.Mock;
+
+    const result = await sweepOrphanUploads({
+      s3,
+      bucket: BUCKET,
+      db: fakeDb(referenced),
+      now: () => NOW,
+      sleep: async () => {},
+      restoreMaxAttempts: 3,
+    });
+
+    expect(result).toMatchObject({ restored: 0, errors: 1 });
+    expect(puts).toBe(4); // 1 tag write + 3 restore attempts
+    const metricLines = log.mock.calls
+      .map(([line]) => JSON.parse(line as string) as Record<string, unknown>)
+      .filter((m) => m.OrphanSweepRestoreFailure === 1);
+    expect(metricLines).toHaveLength(1);
+    expect(metricLines[0]).toMatchObject({ key: uploadKey(1), attempts: 3 });
+  });
+
   it('never tags a page whose reference check fails', async () => {
     const tags: Record<string, { Key: string; Value: string }[]> = {};
     const s3 = fakeS3([{ Key: uploadKey(1), LastModified: OLD }], tags);

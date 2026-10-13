@@ -23,7 +23,7 @@ import {
 } from './ingestJob.js';
 import { MammothDocxExtractor } from './docxExtractor.js';
 import { createPdfExtractor } from './ocrFactory.js';
-import { countChars, effectiveCharLimit, enforceSizeLimit } from './sizeLimit.js';
+import { countChars, countWords, enforceSizeLimitForWordCount } from './sizeLimit.js';
 
 const docxExtractor = new MammothDocxExtractor();
 
@@ -147,6 +147,16 @@ export async function processIngestQueueMessage(
     const segments = storedContent
       ? tipTapContentToSegments(storedContent)
       : ingestResult.segments;
+    // Measure everything that is stored in the draft and fed to AI prompts:
+    // the body (footnote-aware when TipTap content is available — segments
+    // carry only the `[N]` footnote marker, so footnote bodies and citation
+    // metadata would otherwise go uncounted, f-cf16db12) plus header and
+    // footer. Gate on BOTH the word count and the defense-in-depth character
+    // ceiling unconditionally: a whitespace-free blob measures as a few words
+    // but can be arbitrarily large (f-c5f5a972). Mirrors the footnote-aware
+    // gate on the client-content path in lambda-handler.ts.
+    const bodyWords = storedContent ? wordCountFromTipTapContent(storedContent) : countWords(segments);
+    const bodyChars = storedContent ? charCountFromTipTapContent(storedContent) : countChars(segments);
     const sizeResult = enforceSizeLimit(segments, {
       documentTypeSizeLimitWords: limits.sizeLimitWords,
       platformSizeLimitWords: limits.platformSizeLimitWords,
@@ -169,33 +179,18 @@ export async function processIngestQueueMessage(
     const headerFooterChars =
       (ingestResult.header ? charCountFromTipTapContent(ingestResult.header as TipTapDoc) : 0) +
       (ingestResult.footer ? charCountFromTipTapContent(ingestResult.footer as TipTapDoc) : 0);
-    if (headerFooterWords > 0 || headerFooterChars > 0) {
-      const effectiveLimit = sizeResult.effectiveLimitWords;
-      const effectiveLimitChars = effectiveCharLimit(effectiveLimit);
-      const bodyWords = storedContent
-        ? wordCountFromTipTapContent(storedContent)
-        : sizeResult.measuredWords;
-      const bodyChars = storedContent
-        ? charCountFromTipTapContent(storedContent)
-        : countChars(segments);
-      const totalWords = bodyWords + headerFooterWords;
-      const totalChars = bodyChars + headerFooterChars;
-      if (totalWords > effectiveLimit) {
-        await markIngestJobFailed(
-          db,
-          message.jobId,
-          `Document exceeds the ${effectiveLimit}-word limit (${totalWords} words including header and footer).`,
-        );
-        return;
-      }
-      if (totalChars > effectiveLimitChars) {
-        await markIngestJobFailed(
-          db,
-          message.jobId,
-          `Document exceeds the ${effectiveLimitChars}-character limit (${totalChars} characters including header and footer).`,
-        );
-        return;
-      }
+    const totalWords = bodyWords + headerFooterWords;
+    const sizeResult = enforceSizeLimitForWordCount(
+      totalWords,
+      {
+        documentTypeSizeLimitWords: limits.sizeLimitWords,
+        platformSizeLimitWords: limits.platformSizeLimitWords,
+      },
+      bodyChars + headerFooterChars,
+    );
+    if (sizeResult.status === 'over-limit') {
+      await markIngestJobFailed(db, message.jobId, sizeResult.message);
+      return;
     }
 
     const draftRepo = new DbDraftRepository(db);
@@ -203,10 +198,7 @@ export async function processIngestQueueMessage(
       {
         documentId: job.documentId,
         segments,
-        wordCount:
-          (storedContent
-            ? wordCountFromTipTapContent(storedContent)
-            : sizeResult.measuredWords) + headerFooterWords,
+        wordCount: totalWords,
         s3Key: job.s3Key,
         ...(storedContent ? { content: storedContent } : {}),
         ...(ingestResult.header ? { header: ingestResult.header } : {}),
