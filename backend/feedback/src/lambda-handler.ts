@@ -7,12 +7,19 @@ import { freezeEventLoopOnReturn, getDataAccess } from '@wren/db-node';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { v4 as uuid } from 'uuid';
 import { publishNotificationEvent } from '@wren/notification';
-import { bindCorsOrigin, withCorsHeaders, rejectIfForgedAuthContext } from '@wren/auth';
+import {
+  bindCorsOrigin,
+  checkSubmissionAccess,
+  rejectIfForgedAuthContext,
+  submissionAccessDeniedResponse,
+  withCorsHeaders,
+} from '@wren/auth';
 
 import {
   appendAskWrenTurn,
   buildSessionId,
   loadDocumentConversation,
+  MAX_ASK_WREN_MESSAGE_LENGTH,
   type DocumentTypeContext,
 } from './askWren.js';
 import {
@@ -22,7 +29,6 @@ import {
 import { parseUuidParam } from './uuidParam.js';
 import { resolveQuotedTextForItem } from './quoteResolution.js';
 import {
-  getPlatformUsagePolicy,
   reserveDebriefGeneration,
   UsageLimitReachedError,
 } from '@wren/admin/lifetimeUsagePolicy';
@@ -86,14 +92,35 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>, event?: any
         body: JSON.stringify({ code: error.code, message: error.message }),
       });
     }
+    // Only surface messages for intentional 4xx errors. Anything else (driver,
+    // AWS SDK, unexpected exceptions) is logged above and returned generically
+    // so internal schema/infrastructure details never reach the client.
+    const candidateStatus = typeof error?.statusCode === 'number' ? error.statusCode : 500;
+    const statusCode =
+      Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus < 600
+        ? candidateStatus
+        : 500;
+    const code =
+      statusCode === 403 ? 'PERMISSION_DENIED'
+        : statusCode === 404 ? 'NOT_FOUND'
+          : statusCode >= 500 ? 'INTERNAL_ERROR'
+            : 'BAD_REQUEST';
+    const message =
+      statusCode < 500 && typeof error?.message === 'string' && error.message
+        ? error.message
+        : 'Internal server error';
     return withCors({
-      statusCode: error.statusCode || 500,
-      body: JSON.stringify({
-        code: error.statusCode === 403 ? 'PERMISSION_DENIED' : error.statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR',
-        message: error.message || 'Internal server error',
-      }),
+      statusCode,
+      body: JSON.stringify({ code, message }),
     });
   }
+}
+
+function documentNotFound(): APIGatewayProxyResult {
+  return {
+    statusCode: 404,
+    body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+  };
 }
 
 function toIsoDateTime(value: unknown): string {
@@ -163,7 +190,7 @@ export const handler: APIGatewayProxyHandler = async (event, context): Promise<A
   freezeEventLoopOnReturn(context);
   bindCorsOrigin(event);
   try {
-    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    // Reject forged/unsigned authorizer contexts
     const forged = await rejectIfForgedAuthContext(event);
     if (forged) return withCors(forged);
 
@@ -215,7 +242,9 @@ export const handler: APIGatewayProxyHandler = async (event, context): Promise<A
 async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { documentId } = event.pathParameters || {};
+  // Reject non-UUID ids before they reach a uuid column (avoids 22P02 errors).
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
+  if (!documentId) return documentNotFound();
   // UI uses the sentinel "none" when no draft exists; never bind that to uuid.
   const requestedDraftId = parseUuidParam(event.queryStringParameters?.draftId);
 
@@ -473,7 +502,9 @@ async function handleGetFeedback(event: any): Promise<APIGatewayProxyResult> {
 async function handleGetFeedbackHistory(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { documentId } = event.pathParameters || {};
+  // Reject non-UUID ids before they reach a uuid column (avoids 22P02 errors).
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
+  if (!documentId) return documentNotFound();
 
   const docQuery = `
     SELECT owner_user_id FROM document WHERE id = $1
@@ -521,7 +552,9 @@ async function handleGetFeedbackHistory(event: any): Promise<APIGatewayProxyResu
 async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { documentId } = event.pathParameters || {};
+  // Reject non-UUID ids before they reach a uuid column (avoids 22P02 errors).
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
+  if (!documentId) return documentNotFound();
 
   const docQuery = `
     SELECT owner_user_id, document_type_id, name FROM document WHERE id = $1
@@ -546,6 +579,16 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
       body: JSON.stringify({ code: 'BAD_REQUEST', message: 'No draft found' }),
     };
   }
+
+  // Submission access gate: a debrief is a paid submission, so LOCK / grant
+  // revocation / archive must stop it even for an existing Document. Runs
+  // before the reservation so a denied request consumes no debrief slot.
+  const access = await checkSubmissionAccess(
+    db,
+    actor.userId,
+    String(docRows[0].document_type_id),
+  );
+  if (!access.ok) return submissionAccessDeniedResponse(access);
 
   const draft = draftRows[0];
   const jobId = uuid();
@@ -583,9 +626,11 @@ async function handleRequestFeedback(event: any): Promise<APIGatewayProxyResult>
     console.warn('Failed to publish ai-debrief-ready notification:', err);
   });
 
+  // draftId is the owner's own (server-selected) draft. The SPA uses it to
+  // ignore debriefReady events that are not for the job it just queued.
   return {
     statusCode: 202,
-    body: JSON.stringify({ jobId, status: 'queued' }),
+    body: JSON.stringify({ jobId, status: 'queued', draftId: String(draft.id) }),
   };
 }
 
@@ -598,7 +643,10 @@ async function handleRecordFeedbackHelpfulness(event: any): Promise<APIGatewayPr
   }
 
   const body = event.body ? JSON.parse(event.body) : {};
-  const { environmentId, draftId, helpful, comment } = body;
+  // Reject non-UUID environmentId before it reaches the uuid column document.id
+  // (avoids a 22P02 cast error that wrapHandler would surface as a generic 500).
+  const environmentId = parseUuidParam(body.environmentId);
+  const { draftId, helpful, comment } = body;
 
   if (!environmentId || typeof helpful !== 'boolean') {
     return withCors({ statusCode: 400, body: JSON.stringify({ code: 'BAD_REQUEST', message: 'environmentId and helpful are required' }) });
@@ -641,7 +689,9 @@ async function handleRecordFeedbackHelpfulness(event: any): Promise<APIGatewayPr
 async function handleGetFeedbackStatus(event: any): Promise<APIGatewayProxyResult> {
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
-  const { documentId } = event.pathParameters || {};
+  // Reject non-UUID ids before they reach a uuid column (avoids 22P02 errors).
+  const documentId = parseUuidParam(event.pathParameters?.documentId);
+  if (!documentId) return documentNotFound();
 
   const docQuery = `
     SELECT owner_user_id FROM document WHERE id = $1
@@ -914,8 +964,35 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
+  if (text.length > MAX_ASK_WREN_MESSAGE_LENGTH) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: 'text exceeds the maximum allowed length',
+      }),
+    };
+  }
+
   const draft = await loadDraftSegments(documentId, draftId, actor.userId);
   if (!draft.ok) return draft.response;
+
+  // Submission access gate: each Ask WREN turn is a paid Bedrock call, so it
+  // must stop once the department is LOCKED / archived or the grant revoked.
+  // Reading past conversation history (GET) stays ungated.
+  const gateDb = await getDataAccess();
+  const typeRows = await gateDb.query<{ document_type_id: string }>(
+    'SELECT document_type_id FROM document WHERE id = $1 AND owner_user_id = $2',
+    [documentId, actor.userId],
+  );
+  if (!typeRows[0]) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ code: 'NOT_FOUND', message: 'Document not found' }),
+    };
+  }
+  const access = await checkSubmissionAccess(gateDb, actor.userId, typeRows[0].document_type_id);
+  if (!access.ok) return submissionAccessDeniedResponse(access);
 
   // Ensure prior turns from older draft-scoped sessions are migrated before append.
   const legacyDraftIds = await listDraftIdsForDocument(documentId);
@@ -928,7 +1005,6 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
 
   const db = await getDataAccess();
   const userMessageCount = (conversation?.messages ?? []).filter((m) => m.role === 'user').length;
-  const policy = await getPlatformUsagePolicy(db);
 
   const [documentTypeContext, departmentAskWrenContext] = await Promise.all([
     loadDocumentTypeContext(documentId),
@@ -950,7 +1026,7 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
     documentTypeContext,
     departmentAskWrenContext,
     modelId,
-    messageLimit: policy.messageLimit,
+    db,
   });
 
   // Transition status to 'Polishing' on the student's first Ask WREN message.

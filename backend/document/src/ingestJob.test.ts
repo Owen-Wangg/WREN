@@ -1,14 +1,13 @@
 import { isPdfFileName, shouldIngestPdfAsync } from './ingestJob';
 
 describe('shouldIngestPdfAsync', () => {
-  it('queues PDF uploads without client TipTap', () => {
-    expect(shouldIngestPdfAsync('memo.pdf', false)).toBe(true);
-    expect(shouldIngestPdfAsync('Memo.PDF', false)).toBe(true);
+  it('always queues PDF uploads off the request path', () => {
+    expect(shouldIngestPdfAsync('memo.pdf')).toBe(true);
+    expect(shouldIngestPdfAsync('Memo.PDF')).toBe(true);
   });
 
-  it('keeps DOCX and client-parsed content on the sync path', () => {
-    expect(shouldIngestPdfAsync('memo.docx', false)).toBe(false);
-    expect(shouldIngestPdfAsync('memo.pdf', true)).toBe(false);
+  it('keeps DOCX on the sync path', () => {
+    expect(shouldIngestPdfAsync('memo.docx')).toBe(false);
   });
 
   it('detects pdf extension', () => {

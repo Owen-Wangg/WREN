@@ -72,4 +72,84 @@ describe('tiptapContentToHtml', () => {
     expect(html).toContain('<ol>');
     expect(html).toContain('First');
   });
+
+  // Persisted attrs must not break out of
+  // src="…" / style="…" in the innerHTML-rendered export host.
+  describe('attribute injection', () => {
+    const BREAKOUT = 'x" onerror="alert(1)';
+
+    function render(content: JSONContent['content']): HTMLElement {
+      const host = document.createElement('div');
+      host.innerHTML = tiptapContentToHtml({ type: 'doc', content });
+      return host;
+    }
+
+    it('drops images with an unsafe src and keeps safe ones', () => {
+      const host = render([
+        { type: 'image', attrs: { src: BREAKOUT } },
+        { type: 'image', attrs: { src: 'javascript:alert(1)' } },
+        { type: 'image', attrs: { src: 'data:image/png;base64,AAAA', alt: 'a" onload="x' } },
+      ]);
+      const images = host.querySelectorAll('img');
+      expect(images).toHaveLength(1);
+      expect(images[0]!.getAttribute('src')).toBe('data:image/png;base64,AAAA');
+      expect(images[0]!.getAttribute('alt')).toBe('a" onload="x');
+      expect(host.querySelector('[onerror],[onload]')).toBeNull();
+    });
+
+    it('ignores unsafe mark attrs instead of interpolating them into style', () => {
+      const host = render([
+        {
+          type: 'paragraph',
+          attrs: { textAlign: 'center;background:url(https://x)' },
+          content: [
+            { type: 'text', text: 'a', marks: [{ type: 'highlight', attrs: { color: BREAKOUT } }] },
+            {
+              type: 'text',
+              text: 'b',
+              marks: [
+                {
+                  type: 'textStyle',
+                  attrs: { color: BREAKOUT, fontFamily: BREAKOUT, fontSize: BREAKOUT },
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      expect(host.querySelector('[onerror]')).toBeNull();
+      const html = host.innerHTML;
+      expect(html).not.toContain('alert');
+      expect(html).not.toContain('url(');
+      expect(html).toContain('background-color:#ffff00');
+    });
+
+    it('keeps legitimate styles, including quoted font stacks', () => {
+      const host = render([
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: 'styled',
+              marks: [
+                {
+                  type: 'textStyle',
+                  attrs: {
+                    color: '#b91c1c',
+                    fontSize: '18pt',
+                    fontFamily: '"Times New Roman", Times, serif',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      const span = host.querySelector('span')!;
+      expect(span.style.color).toBe('rgb(185, 28, 28)');
+      expect(span.style.fontSize).toBe('18pt');
+      expect(span.style.fontFamily).toContain('Times New Roman');
+    });
+  });
 });

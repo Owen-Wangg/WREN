@@ -77,27 +77,31 @@ export class DatabaseResources extends Construct {
   protected createAppUserSecrets(): Record<AppDbRole, secretsmanager.ISecret> {
     const secrets = {} as Record<AppDbRole, secretsmanager.ISecret>;
     for (const role of APP_DB_ROLES) {
-      secrets[role] = new secretsmanager.Secret(
-        this,
-        `AppUserSecret${appDbRolePascal(role)}`,
-        {
-          secretName: `${this.props.config.stackPrefix}/database/${role}`,
-          description: `RDS Proxy credentials for Postgres role ${role}`,
-          generateSecretString: {
-            secretStringTemplate: JSON.stringify({
-              username: role,
-              port: 5432,
-              dbname: "appdb",
-              engine: "postgres",
-            }),
-            generateStringKey: "password",
-            excludeCharacters: " %+~`#$&*()|[]{}:;<>?!'/@\"\\",
-            passwordLength: 32,
-          },
-        },
-      );
+      secrets[role] = this.createAppUserSecret(role);
     }
     return secrets;
+  }
+
+  private createAppUserSecret(role: AppDbRole): secretsmanager.Secret {
+    return new secretsmanager.Secret(
+      this,
+      `AppUserSecret${appDbRolePascal(role)}`,
+      {
+        secretName: `${this.props.config.stackPrefix}/database/${role}`,
+        description: `RDS Proxy credentials for Postgres role ${role}`,
+        generateSecretString: {
+          secretStringTemplate: JSON.stringify({
+            username: role,
+            port: 5432,
+            dbname: "appdb",
+            engine: "postgres",
+          }),
+          generateStringKey: "password",
+          excludeCharacters: " %+~`#$&*()|[]{}:;<>?!'/@\"\\",
+          passwordLength: 32,
+        },
+      },
+    );
   }
 
   protected createParameterGroup(): ParameterGroup {

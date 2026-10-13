@@ -2,6 +2,7 @@ import {
   isSignupEmailDomainAllowed,
   parseAllowedEmailDomains,
 } from "../../lib/signupEmailDomains.js";
+import { parseCorsAllowedOrigins } from "../../lib/corsOrigins.js";
 
 import {
   CACHE_WORKLOADS,
@@ -54,6 +55,23 @@ export interface DeploymentConfig {
    * are not implied.
    */
   readonly allowedEmailDomains: readonly string[];
+  /**
+   * Optional email recipient subscribed to the CloudWatch alarm SNS topics
+   * (security metric-filter alarms, CloudTrail privileged-invoke alarms, DLQ
+   * depth, error/throttle). This is an operations/alerting recipient, not a
+   * signup identity, so it is intentionally NOT restricted to
+   * {@link allowedEmailDomains}; a shared ops mailbox or distribution list on
+   * any domain is valid. Absent by default, in which case the alarm topics
+   * have no email subscriber.
+   */
+  readonly alarmEmail?: string;
+  /**
+   * Extra exact CORS origins (scheme://host[:port], no wildcard/path) applied
+   * to API Gateway, Lambda responses, and the documents (PII) S3 bucket.
+   * Pinning at least one exact origin drops the broad `https://*.amplifyapp.com`
+   * S3 fallback. Empty by default.
+   */
+  readonly corsAllowedOrigins: readonly string[];
   readonly adminEmail?: string;
   readonly adminAlreadyConfigured: boolean;
   readonly dryRun: boolean;
@@ -124,6 +142,12 @@ function validateImageTag(tag: string | undefined): void {
 function validateEmail(email: string | undefined): void {
   if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error("WREN_ADMIN_EMAIL must be a valid email address.");
+  }
+}
+
+function validateAlarmEmail(email: string | undefined): void {
+  if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("WREN_ALARM_EMAIL must be a valid email address.");
   }
 }
 
@@ -229,11 +253,16 @@ export function parseDeploymentConfig(
     !nonInteractive,
   );
   const adminEmail = value(env, "WREN_ADMIN_EMAIL");
+  const alarmEmail = value(env, "WREN_ALARM_EMAIL");
   const engineImageTag = value(env, "WREN_ENGINE_IMAGE_TAG");
   const customDomain = value(env, "WREN_CUSTOM_DOMAIN");
   const allowedEmailDomains = parseAllowedEmailDomains(
     value(env, "WREN_ALLOWED_EMAIL_DOMAINS"),
     "WREN_ALLOWED_EMAIL_DOMAINS",
+  );
+  // Throws on wildcard/path entries so a bad origin fails before any AWS call.
+  const corsAllowedOrigins = parseCorsAllowedOrigins(
+    value(env, "WREN_CORS_ALLOWED_ORIGINS"),
   );
 
   validateAccountId(expectedAccountId);
@@ -242,6 +271,7 @@ export function parseDeploymentConfig(
   validateName(environmentName, "WREN_ENVIRONMENT");
   validateImageTag(engineImageTag);
   validateEmail(adminEmail);
+  validateAlarmEmail(alarmEmail);
   validateCustomDomain(customDomain);
   if (
     allowedEmailDomains.length > 0 &&
@@ -305,6 +335,8 @@ export function parseDeploymentConfig(
     ),
     ...(customDomain ? { customDomain } : {}),
     allowedEmailDomains,
+    corsAllowedOrigins,
+    ...(alarmEmail ? { alarmEmail } : {}),
     ...(adminEmail ? { adminEmail } : {}),
     adminAlreadyConfigured: parseBoolean(
       env,
@@ -354,6 +386,8 @@ export function publicDeploymentConfig(
     customDomain: config.customDomain ?? "(amplify default)",
     allowedEmailDomains:
       config.allowedEmailDomains.join(",") || "(none: signup denied)",
+    alarmEmail: config.alarmEmail ?? "(none: alarms have no subscriber)",
+    corsAllowedOrigins: config.corsAllowedOrigins.join(",") || "(none)",
     adminConfiguredOverride: config.adminAlreadyConfigured,
     dryRun: config.dryRun,
     nonInteractive: config.nonInteractive,

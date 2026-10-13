@@ -34,9 +34,17 @@ export function isPdfFileName(fileName: string): boolean {
   return fileName.toLowerCase().endsWith('.pdf');
 }
 
-/** True when this upload should run off the HTTP request path. */
-export function shouldIngestPdfAsync(fileName: string, hasClientTipTap: boolean): boolean {
-  return isPdfFileName(fileName) && !hasClientTipTap;
+/**
+ * True when this upload should run off the HTTP request path.
+ *
+ * The decision is based SOLELY on the server-known file type: every PDF is
+ * ingested asynchronously via the SQS worker. A client-supplied field must
+ * never be able to force in-request OCR — doing so previously let a crafted
+ * request flip a PDF onto the synchronous branch, holding a Lambda slot for the
+ * ~120s Textract poll loop and discarding the paid OCR result.
+ */
+export function shouldIngestPdfAsync(fileName: string): boolean {
+  return isPdfFileName(fileName);
 }
 
 export async function insertQueuedIngestJob(

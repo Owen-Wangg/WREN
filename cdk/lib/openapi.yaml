@@ -1097,6 +1097,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       responses:
         "200":
           description: Document with drafts
@@ -1123,6 +1125,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       responses:
         "200":
           description: Document deleted
@@ -1161,6 +1165,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       responses:
         "200":
           description: Ingest job status
@@ -1200,6 +1206,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       responses:
         "200":
           description: Latest draft
@@ -1226,6 +1234,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       requestBody:
         required: true
         content:
@@ -1318,6 +1328,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       requestBody:
         required: true
         content:
@@ -1370,6 +1382,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
         - name: draftId
           in: query
           required: false
@@ -1424,6 +1438,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       responses:
         "202":
           description: Feedback job queued
@@ -1436,6 +1452,9 @@ paths:
                     type: string
                   status:
                     type: string
+                  draftId:
+                    type: string
+                    description: Draft the job was queued for; debriefReady events for other drafts should be ignored
         "400":
           description: Validation error
           content:
@@ -1471,6 +1490,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       responses:
         "200":
           description: Past debrief versions ordered by generation time
@@ -1516,6 +1537,8 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       responses:
         "200":
           description: Feedback job status
@@ -1627,6 +1650,9 @@ paths:
                 text:
                   type: string
                   minLength: 1
+                  # Must stay in sync with MAX_ASK_WREN_MESSAGE_LENGTH in
+                  # backend/feedback/src/askWren.ts
+                  maxLength: 4000
       responses:
         "200":
           description: Socratic reply from Ask WREN

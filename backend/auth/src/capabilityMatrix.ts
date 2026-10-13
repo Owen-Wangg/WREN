@@ -68,6 +68,9 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   // DepartmentAdmin for administered Departments (see below).
   'department.managePrompt',
   'analytics.view',
+  // The Notification_Type catalog is platform-wide authorship over every
+  // user's inbox, so it is TechnicalAdmin-only at platform scope.
+  'notificationType.manageCatalog',
 ]);
 
 /**

@@ -84,6 +84,13 @@ class TestProperty15AnchorFingerprintStabilityWithPlaceholders:
     ):
         """Case normalization (matches()) works for text around placeholders."""
         assume(word.lower() != word.upper())  # skip pure-numeric/symbol text
+        # matches() compares casefolded text (anchor_service._normalize). For a
+        # few Unicode letters .lower() and .upper() do not converge under
+        # casefold (e.g. dotless-i U+0131: 'ı'.casefold() != 'I'.casefold()),
+        # so case-insensitive equality genuinely does not hold. Restrict to
+        # words whose cases agree under casefold — the precondition matches()
+        # can actually satisfy.
+        assume(word.lower().casefold() == word.upper().casefold())
         text_lower = f"{word.lower()}.[{num}]"
         text_upper = f"{word.upper()}.[{num}]"
         fp1 = compute_fingerprint(text_lower, 0, len(text_lower))

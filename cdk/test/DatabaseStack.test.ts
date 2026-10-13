@@ -86,10 +86,11 @@ describe("DatabaseStack", () => {
   });
 
   it("generates DB credentials into Secrets Manager (never inlined)", () => {
-    template.resourceCountIs("AWS::SecretsManager::Secret", 9);
+    // dbadmin + 7 app roles.
+    template.resourceCountIs("AWS::SecretsManager::Secret", 8);
     const proxies = template.findResources("AWS::RDS::DBProxy");
     const auth = Object.values(proxies)[0]?.Properties?.Auth as unknown[];
-    expect(auth).toHaveLength(9);
+    expect(auth).toHaveLength(8);
     // The instance's MasterUserPassword must resolve from the secret, not a
     // plaintext literal — regardless of whether CDK emits a resolve token
     // string or an intrinsic Join.
@@ -98,6 +99,12 @@ describe("DatabaseStack", () => {
       const password = instance.Properties?.MasterUserPassword;
       expect(JSON.stringify(password)).toContain("secretsmanager");
     }
+  });
+
+  it("provisions nothing for the retired wren_audit role", () => {
+    const json = JSON.stringify(template.toJSON());
+    expect(json).not.toContain("wren_audit");
+    expect(json).not.toContain("WrenAudit");
   });
 
   it("matches the synthesized template snapshot", () => {

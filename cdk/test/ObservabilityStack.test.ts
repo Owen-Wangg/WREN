@@ -23,12 +23,13 @@ describe("ObservabilityStack", () => {
     template.resourceCountIs("AWS::SNS::Subscription", 0);
     // 5 baseline alarms + 3 prompt-cache alarms + 1 account-concurrency
     // saturation alarm + 4 authorizer DB/auth-failure alarms (Runtime.ExitError,
-    // DB guard open, Postgres 28P01, Postgres 42501) + 5 security alarms
-    // (Issue #187: auth failures, authz denials, admin/document audit-write
-    // failures; Issue #181: prompt guardrail skipped). The 2 access-log
-    // security alarms are NOT created here because this synth passes no
+    // DB guard open, Postgres 28P01, Postgres 42501) + 6 security alarms
+    // (auth failures, authz denials, admin/document audit-write
+    // failures; prompt guardrail skipped; feedback job-binding
+    // rejections — forged/mis-bound SQS messages). The 2 access-log security
+    // alarms are NOT created here because this synth passes no
     // apiAccessLogGroupName.
-    template.resourceCountIs("AWS::CloudWatch::Alarm", 18);
+    template.resourceCountIs("AWS::CloudWatch::Alarm", 19);
   });
 
   it("creates an email subscription only when an alarm recipient is configured", () => {
@@ -176,9 +177,9 @@ describe("ObservabilityStack — authorizer throttling remediation (Task 6)", ()
 
   it("creates metric filters on the authorizer log group for the failure signatures", () => {
     const template = synth();
-    // 4 authorizer failure-signature filters + 5 security filters (Issue #187:
-    // auth failures on the authorizer log, authz denials on the admin log, and
-    // audit-write failures on the admin + document logs; Issue #181: prompt
+    // 4 authorizer failure-signature filters + 5 security filters (auth
+    // failures on the authorizer log, authz denials on the admin log, and
+    // audit-write failures on the admin + document logs; prompt
     // guardrail skipped on the admin log). The 2 access-log security filters
     // are not created here (no apiAccessLogGroupName).
     template.resourceCountIs("AWS::Logs::MetricFilter", 9);
@@ -216,7 +217,7 @@ describe("ObservabilityStack — authorizer throttling remediation (Task 6)", ()
     }
   });
 
-  it("alarms on any skipped admin prompt-injection guardrail scan (Issue #181)", () => {
+  it("alarms on any skipped admin prompt-injection guardrail scan", () => {
     const template = synth();
     const topics = template.findResources("AWS::SNS::Topic");
     const topicLogicalId = Object.keys(topics)[0]!;

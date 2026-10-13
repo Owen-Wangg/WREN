@@ -16,6 +16,11 @@ DDL. They are applied in lexical filename order. Summary:
 | `0005_document_activity_event_grant.sql` | Document-deletion audit remediation: grants `wren_document` SELECT/INSERT on `activity_event` (plus CONNECT/USAGE) so destructive document deletions can be recorded in the independent activity log. |
 | `0006_activity_event_append_only_repair.sql` | Activity-log tamper-resistance remediation: makes `activity_event` append-only via the `reject_activity_event_mutation()` trigger and strips the excess UPDATE/DELETE from `wren_admin` (re-asserting SELECT/INSERT only). Forward-only fix for environments provisioned before these protections were folded into the baseline. |
 | `0007_authorizer_identity_relink_audit_grants.sql` | First-login relink hardening: grants `wren_authorizer` SELECT on `departmentSELECT on `department_visibility_grant` (privilege check before an email relink) and INSERT only on `activity_event` (append-only `identity.relinked` audit record, written without `RETURNING` so the authorizer cannot read the log). |
+| `0008_notification_activity_event_grant.sql` | Notification_Type catalog audit remediation: grants `wren_notification` INSERT only on `activity_event` (plus CONNECT/USAGE) so a TechnicalAdmin create/update of a Notification_Type records an append-only `notification_type.created` / `notification_type.updated` event, written without `RETURNING` so the service cannot read the log. |
+| `0009_feedback_orch_access_grant_select.sql` | Submission access gate remediation: grants `wren_feedback_orch` SELECT only on `access_grant` (plus CONNECT/USAGE) so `checkSubmissionAccess` can evaluate grants on Ask WREN and debrief requests. Fixes Postgres 42501 (permission denied for `access_grant`) surfacing as HTTP 500 on `POST /v1/documents/{documentId}/ask-wren`. |
+| `0010_document_ask_message_count.sql` | Ask WREN lifetime message-cap durability remediation: adds the durable `document.ask_message_count` column (`integer DEFAULT 0 NOT NULL`, `>= 0` CHECK) so the per-document Ask WREN message cap lives in Postgres like `debrief_generation_count`/`draft_create_count` instead of on the 30-day-TTL'd DynamoDB session item, where it reset to 0 on expiry. No new grants — `wren_feedback_orch` already holds table-level SELECT/UPDATE on `document`. |
+| `0011_drop_orphaned_wren_audit_role.sql` | Orphaned-role cleanup: forward REVOKE-all of the database-level grants, then `DROP OWNED BY wren_audit` (clears residual object-level grants / owned objects) and `DROP ROLE wren_audit`, all guarded by a `pg_roles` existence check. Removes the retired `wren_audit` LOGIN role — used only by the removed, unrouted audit Lambda, now with no secret in rotation — from databases provisioned before it was folded out of the baseline. Idempotent; a clean no-op on fresh DBs (which never create the role). |
+| `0012_retighten_admin_student_work_grants.sql` | Admin least-privilege remediation: `REVOKE SELECT` of the whole-table privilege on `document`, `draft` and `feedback_item` from `wren_admin`, then re-issues the baseline column-level `SELECT` grants (counts/joins/aggregates only — never student prose, generated feedback text, or document titles). Guarded by a `pg_roles` existence check. Forward-only convergence for databases provisioned before the column-level retightening was folded into the baseline; a no-op on fresh DBs (whole-table SELECT was never granted, column grants are re-asserted identically). |
 
 Filenames are applied in **lexical order**. Do not edit an already-applied file — add a new numbered migration instead.
 
@@ -31,6 +36,12 @@ Filenames are applied in **lexical order**. Do not edit an already-applied file 
 > `0001_baseline.sql` in `schema_migrations` will not re-run the rewritten file,
 > so consolidation must be paired with rebuilding such environments (or applying
 > the folded statements out of band).
+>
+> The `wren_audit` role (used only by the removed, unrouted audit Lambda) was
+> deleted from the baseline in the same way, so fresh databases never create it.
+> For databases provisioned before that fold-out — which still carried the live
+> role and its residual grants — migration `0011_drop_orphaned_wren_audit_role.sql`
+> now drops the role (and its leftover grants) as a forward, idempotent repair.
 
 ## Naming
 

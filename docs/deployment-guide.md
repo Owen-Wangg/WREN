@@ -17,6 +17,7 @@ This guide deploys the WREN writing coach into an AWS account.
     - [Step 2 — Start the deploy (run #1)](#step-2--start-the-deploy-run-1)
     - [Step 3 — Create the admin account, then rerun (run #2)](#step-3--create-the-admin-account-then-rerun-run-2)
     - [Step 4 — Sign in to become Technical Admin](#step-4--sign-in-to-become-technical-admin)
+    - [Step 5 — Disarm the bootstrap](#step-5--disarm-the-bootstrap)
     - [Deployment workflow implementation](#deployment-workflow-implementation)
     - [Variables for the standard deployment](#variables-for-the-standard-deployment)
     - [Advanced deployment configuration](#advanced-deployment-configuration)
@@ -210,6 +211,18 @@ No further `npm run deploy` is required. The account is not `TechnicalAdmin` yet
 2. Sign in as `WREN_ADMIN_EMAIL` with the password you set at sign-up.
 3. That authenticated request grants `TechnicalAdmin`. You can then assign roles to other users from within the app.
 
+The grant happens **once per armed subject**: the authorizer records it in the `technical_admin_bootstrap` marker table and writes a `role.assigned` entry to the append-only `activity_event` audit log, in the same transaction as the role insert. Because the marker is independent of the role itself, a later `DELETE /v1/roles` on this account sticks — the bootstrap does not re-grant on the next request.
+
+### Step 5 — Disarm the bootstrap
+
+Once the admin account holds `TechnicalAdmin`, remove the arming so the one-time setup input does not remain standing privilege:
+
+```bash
+npm run disarm
+```
+
+This removes the armed-subject SSM parameter (`/${stackPrefix}/auth/technical-admin-bootstrap-subject`) and redeploys the Compute stack without it, so the authorizer environment no longer carries `TECHNICAL_ADMIN_BOOTSTRAP_SUBJECT` and the CI/CD pipeline cannot re-arm the gate on a later synth. Before removing it, disarm copies the first admin's subject to a permanent parameter (`/${stackPrefix}/auth/protected-admin-subject`) that the admin service reads as the source of truth for the first-admin demotion guard — so disarming the bootstrap never makes the founding `TechnicalAdmin` demotable. The command is idempotent and keeps the Feedback Engine pinned to its current image. After disarm, further `TechnicalAdmin` grants go through the normal in-app role assignment (`POST /v1/roles`).
+
 If a deploy run stops with exit code 3 or an error, read the printed instruction, complete that one action, and rerun `npm run deploy`. See [Troubleshooting](#troubleshooting) for specific messages.
 
 ---
@@ -283,6 +296,8 @@ Do not commit GitHub personal access tokens to source control. The deployment wo
 | `WREN_ENABLE_AMPLIFY` | `true` | Running an API-only deployment with `false`. GitHub owner/repository variables become optional only when both Amplify and CI/CD are disabled. |
 | `WREN_CUSTOM_DOMAIN` | unset | Serving the frontend on your own domain instead of only the Amplify default. Set a bare hostname such as `example.com`; the production branch is mapped to the root and `www`. When unset, the frontend is reachable only via the Amplify default `*.amplifyapp.com` domain. No domain is hard-coded. See [Serving the frontend on a custom domain](#serving-the-frontend-on-a-custom-domain). |
 | `WREN_ALLOWED_EMAIL_DOMAINS` | **required** | Exact email hostnames allowed to create **new** accounts (for example `example.ca`). `npm run deploy` fails when this is unset or empty; an empty list denies every sign-up. Existing accounts can always sign in. See [Restricting signup to email domains](#restricting-signup-to-email-domains). |
+| `WREN_ALARM_EMAIL` | unset | Delivering CloudWatch security and operational alarms. Set the email address subscribed to the `${stackPrefix}-alarms` SNS topics (metric-filter, CloudTrail, DLQ, error/throttle, latency). When unset, the topics have no subscriber and alarms reach nobody. This is an operations recipient (a shared mailbox or distribution list is fine) and is **not** restricted to `WREN_ALLOWED_EMAIL_DOMAINS`. Persist it so later deploys do not drop the subscription. See [Monitoring and Operational Ownership](#monitoring-and-operational-ownership). |
+| `WREN_CORS_ALLOWED_ORIGINS` | unset | Pinning the browser origins allowed by API Gateway, Lambda responses, and the documents (PII) S3 bucket. Comma-separated exact origins (`scheme://host[:port]`, no wildcard or path). Setting at least one exact origin drops the broad `https://*.amplifyapp.com` S3 fallback. See [Pinning CORS origins](#pinning-cors-origins). |
 | `WREN_ENABLE_CICD` | `true` | Skipping the CodePipeline CI/CD pipeline with `false`. Enabled by default, so the standard path builds it and needs `WREN_GITHUB_TOKEN` on first setup; the `Cicd` prerequisite stack is created regardless. |
 | `WREN_ECR_OWNERSHIP` | `managed` | Reusing a verified pre-existing repository by setting `external`. New deployments should keep `managed`; ownership is never silently adopted. |
 | `WREN_ENGINE_IMAGE_TAG` | commit-scoped `src-<shortsha>` | Forcing a specific ECR image tag instead of the commit-derived one. By default the workflow builds the image under `src-<first 12 of the commit sha>` and pins the deployed Lambda to the resulting immutable **digest**; leave this unset for that commit-safe behavior. Setting it bypasses commit-scoping, so safe reuse then relies on the checkpoint's recorded source commit matching the revision being deployed. See [How the Feedback Engine image is built](#how-the-feedback-engine-image-is-built). |
@@ -307,6 +322,19 @@ There are two DNS paths, and WREN supports both because it only creates the Ampl
 - **DNS elsewhere (manual verification).** If the zone is in a different AWS account or with an external provider (Cloudflare, GoDaddy, etc.), Amplify surfaces certificate-validation and CNAME records that you add by hand in that provider. Open **AWS Console → Amplify → your app → Domain management** to copy the exact records.
 
 In both cases the certificate and domain association can take several minutes (occasionally longer) to become live. Until then the Amplify default domain keeps working, and the deploy workflow automatically falls back to it if the custom domain is not yet reachable.
+
+#### Pinning CORS origins
+
+The documents (PII) S3 bucket, API Gateway, and Lambda responses share a frontend-origin allowlist. `localhost` and any `WREN_CUSTOM_DOMAIN` (plus `www`) are always included. S3 cannot evaluate the Amplify default-host pattern that API Gateway uses, so when no exact production origin is known at synth time the bucket falls back to the broad `https://*.amplifyapp.com` wildcard.
+
+A deployment that relies on the Amplify default host (`https://<branch>.<app-id>.amplifyapp.com`) without a custom domain should pin that exact host so the bucket drops the wildcard:
+
+```bash
+export WREN_CORS_ALLOWED_ORIGINS=https://main.d123abc.amplifyapp.com   # PowerShell: $env:WREN_CORS_ALLOWED_ORIGINS = "https://main.d123abc.amplifyapp.com"
+npm run deploy
+```
+
+The host is generated at deploy time, so run the first deploy, read the Amplify default domain from the stack output, then set `WREN_CORS_ALLOWED_ORIGINS` and redeploy to pin it. Provide comma-separated exact origins (`scheme://host[:port]`); wildcards and paths are rejected before any AWS call. Setting a `WREN_CUSTOM_DOMAIN` also drops the wildcard, so this knob is mainly for the Amplify-default-host case. A direct `cdk deploy` accepts the same value via `-c corsAllowedOrigins=…`.
 
 #### Restricting signup to email domains
 
@@ -379,9 +407,18 @@ The Cognito PreSignUp trigger is the authoritative gate. The Amplify frontend re
 
 ## Monitoring and Operational Ownership
 
-The `Observability` stack creates CloudWatch alarms and publishes every alarm to the SNS topic `${stackPrefix}-alarms`. By default, that topic has no recipient. Set the optional `alarmEmail` CDK context during deployment to create an email subscription. AWS sends a confirmation link to that address; alarms are not delivered until the recipient accepts it.
+The `Observability` stack creates CloudWatch alarms and publishes every alarm to the SNS topic `${stackPrefix}-alarms`. By default, that topic has no recipient. AWS sends a confirmation link to the subscribed address; alarms are not delivered until the recipient accepts it.
 
-This setup is portable to another AWS account. Replace the profile, stack prefix, Region, and email below with values for that deployment. Do not copy the `wren-dev` identifiers unless that is actually the new environment.
+For the guided workflow (`npm run deploy`), set `WREN_ALARM_EMAIL` so the orchestrator passes the subscriber on every deploy:
+
+```bash
+export WREN_ALARM_EMAIL=oncall@example.com    # PowerShell: $env:WREN_ALARM_EMAIL = "oncall@example.com"
+npm run deploy
+```
+
+Persist it as a user environment variable so every orchestrated deploy keeps the subscription. If a later deploy omits the value, CloudFormation removes the managed email subscription and alarms silently stop reaching anyone. Because it is an alerting recipient rather than a signup identity, `WREN_ALARM_EMAIL` is not constrained to `WREN_ALLOWED_EMAIL_DOMAINS` — a shared ops mailbox or distribution list on any domain is valid.
+
+A direct `cdk deploy` of just the `Observability` stack is also supported via the `alarmEmail` context. This setup is portable to another AWS account. Replace the profile, stack prefix, Region, and email below with values for that deployment. Do not copy the `wren-dev` identifiers unless that is actually the new environment.
 
 ```powershell
 $Profile = "my-aws-profile"
@@ -397,7 +434,7 @@ npx cdk deploy "$StackPrefix-Observability" `
   -c alarmEmail=$AlarmEmail
 ```
 
-Keep `alarmEmail` in the deployment pipeline or pass it on every future `Observability` deployment. If a later synth omits the context value, CloudFormation will remove the managed email subscription.
+Keep `alarmEmail` in the deployment pipeline or pass it on every future `Observability` deployment (via `WREN_ALARM_EMAIL` for `npm run deploy`, or `-c alarmEmail=…` for a direct `cdk deploy`). If a later synth omits the value, CloudFormation will remove the managed email subscription.
 
 The configured alarms are:
 

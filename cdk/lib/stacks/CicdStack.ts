@@ -29,12 +29,12 @@ const COMPUTE_FUNCTION_SUFFIXES = [
   "document",
   "admin",
   "sync-cognito-admins",
-  "audit",
   "feedback-orchestrator",
   "feedback-engine",
   "diff-anchor-progress",
   "notification",
   "appsync-authorizer",
+  "orphan-upload-sweep",
 ] as const;
 
 /**
@@ -720,15 +720,19 @@ export class CicdStack extends Stack {
             resources: [`arn:aws:ssm:${region}:${account}:parameter/${prefix}/*`],
           }),
           new iam.PolicyStatement({
+            // Documents + reference buckets (Storage stack). The batch
+            // DeleteObjects API authorizes per key as `s3:DeleteObject`; there
+            // is no `s3:DeleteObjects` IAM action, so none is listed here or in
+            // the document function's grant.
             // `ssm:PutParameter` is scoped to the ONLY parameter a runtime role
             // writes: `/${prefix}/config/bedrock-model-id` (admin function,
             // `putBedrockModelIdToSsm`). On the former `/${prefix}/*` scope a
-            // tampered runtime role could overwrite
-            // `/${prefix}/auth/technical-admin-bootstrap-subject` — the
-            // operator-armed first-admin gate the admin function treats as the
-            // source of truth for protected subjects — and the rest of the
-            // subtree. Those are deploy-time-only parameters and are
-            // intentionally non-writable at runtime.
+            // tampered runtime role could overwrite the operator-written
+            // first-admin parameters (`/${prefix}/auth/protected-admin-subject`,
+            // the demotion-guard source of truth, and
+            // `/${prefix}/auth/technical-admin-bootstrap-subject`, the arming
+            // gate) and the rest of the subtree. Those are deploy-time-only
+            // parameters and are intentionally non-writable at runtime.
             sid: "ParametersWriteBedrockModelOnly",
             actions: ["ssm:PutParameter"],
             resources: [
@@ -748,7 +752,6 @@ export class CicdStack extends Stack {
               "s3:PutObject",
               "s3:PutObjectTagging",
               "s3:DeleteObject",
-              "s3:DeleteObjects",
               "s3:DeleteObjectTagging",
               "s3:ListBucket",
             ],
@@ -1079,9 +1082,9 @@ export class CicdStack extends Stack {
               // direct `iam:PassRole` call outside a service integration —
               // fails the condition and is implicitly denied.
               //
-              // Exactly two service principals, covering all eleven
+              // Exactly two service principals, covering all twelve
               // PassRole_Targets (Requirement 3 criteria 3, 6; Requirement 6
-              // criterion 1): `lambda.amazonaws.com` for the nine service
+              // criterion 1): `lambda.amazonaws.com` for the ten service
               // function execution roles plus the CDK LogRetention provider
               // role, and `appsync.amazonaws.com` for the AppSync API logs role
               // consumed as `LogConfig.CloudWatchLogsRoleArn`.
@@ -1368,8 +1371,8 @@ export class CicdStack extends Stack {
               // `NotResource: [ownedRolePrefix]` like `DenyOutOfScopeStacks`:
               // the boundary must not be strippable even from an in-prefix
               // role. An in-prefix `DeleteRolePermissionsBoundary` would be the
-              // cheapest way to reopen finding
-              // f-6d6bc078-eeba-4830-bff5-c04d9b96b223 — detach the boundary
+              // cheapest way to reopen the unbounded-role finding — detach
+              // the boundary
               // from a runtime role, and that role's identity policy applies
               // unbounded again.
               //
@@ -1393,8 +1396,8 @@ export class CicdStack extends Stack {
               // IAM resource ARN matching is case-sensitive — `Compute-`
               // versus `compute-`. IAM documents resource matching as
               // case-sensitive, but IAM role *names* are unique
-              // case-insensitively, and the closure of finding
-              // f-6d6bc078-eeba-4830-bff5-c04d9b96b223 should not rest on that
+              // case-insensitively, and the closure of this unbounded-role
+              // finding should not rest on that
               // distinction. This explicit self-Deny removes the dependency on
               // case semantics entirely: no IAM action in this policy can reach
               // the deploy role's own ARN, whatever the matching semantics.

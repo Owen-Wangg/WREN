@@ -16,13 +16,14 @@
     "cdk": "cdk",
     "deploy:orchestrator": "tsx scripts/deploy.ts",
     "undeploy:orchestrator": "tsx scripts/undeploy.ts",
+    "disarm:orchestrator": "tsx scripts/disarm.ts",
     "redrive:dlq": "tsx scripts/redrive-dlq.ts"
   },
   "devDependencies": {
     "@types/node": "~26.0.1",
     "aws-cdk": "2.1138.0",
     "esbuild": "^0.28.1",
-    "js-yaml": "^5.2.1",
+    "js-yaml": "^5.4.1",
     "tsx": "~4.22.4",
     "typescript": "~6.0.3"
   },

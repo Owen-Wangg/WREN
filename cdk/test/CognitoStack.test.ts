@@ -40,7 +40,7 @@ describe("CognitoStack app client", () => {
   });
 });
 
-describe("CognitoStack email attribute integrity (finding f-4531f8e7)", () => {
+describe("CognitoStack email attribute integrity", () => {
   function synth() {
     const config = testConfig();
     const stack = new CognitoStack(new App(), `${config.stackPrefix}-Cognito`, {

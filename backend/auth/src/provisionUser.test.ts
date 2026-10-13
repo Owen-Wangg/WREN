@@ -2,7 +2,9 @@ import type { RecordActivityEventInput } from '@wren/db-node';
 
 import type { QueryExecutor } from './identityMapping';
 import {
+  BOOTSTRAP_AUDIT_ACTOR,
   ensureAppUser,
+  grantTechnicalAdminBootstrapOnce,
   IdentityProvisioningRefusedError,
   PROVISIONING_AUDIT_ACTOR,
   type ProvisioningDb,
@@ -45,14 +47,16 @@ interface DbSetup {
   readonly transactional?: boolean;
 }
 
-function makeDb(setup: DbSetup = {}): {
+function makeDb(setup: DbSetup & { bootstrapMarkerPresent?: boolean } = {}): {
   readonly db: ProvisioningDb;
   readonly roles: ProvisionedRole[];
   readonly calls: string[];
   readonly relinkParams: unknown[][];
   readonly transactions: { count: number };
+  readonly bootstrapMarker: () => boolean;
 } {
   let inserted = false;
+  let bootstrapMarker = setup.bootstrapMarkerPresent ?? false;
   const roles: ProvisionedRole[] = [];
   const calls: string[] = [];
   const relinkParams: unknown[][] = [];
@@ -63,6 +67,13 @@ function makeDb(setup: DbSetup = {}): {
     params: readonly unknown[] = [],
   ): Promise<Row[]> => {
     calls.push(text);
+    if (text.includes('technical_admin_bootstrap')) {
+      if (text.includes('INSERT')) {
+        bootstrapMarker = true;
+        return [] as Row[];
+      }
+      return (bootstrapMarker ? [{ one: 1 }] : []) as Row[];
+    }
     if (text.includes('SELECT id FROM app_user WHERE idp_subject')) {
       const id =
         setup.existingSubjectId ??
@@ -101,7 +112,7 @@ function makeDb(setup: DbSetup = {}): {
       }
     : { query };
 
-  return { db, roles, calls, relinkParams, transactions };
+  return { db, roles, calls, relinkParams, transactions, bootstrapMarker: () => bootstrapMarker };
 }
 
 function makeDeps(overrides: Partial<ProvisionUserDeps> = {}): {
@@ -220,9 +231,111 @@ describe('ensureAppUser — TechnicalAdmin bootstrap', () => {
     expect(userId).toBe(NEW_USER_ID);
     expect(roles).toEqual(['Student']);
   });
+
+  it('writes the one-shot marker and a role.assigned audit event on first-login bootstrap', async () => {
+    const { db, roles, bootstrapMarker } = makeDb();
+    const { deps, audits } = makeDeps();
+
+    await ensureAppUser(db, input({
+      groups: ['Student', 'SystemAdmin'],
+      technicalAdminBootstrapSubject: SUBJECT,
+    }), deps);
+
+    expect(roles).toEqual(['Student', 'TechnicalAdmin']);
+    expect(bootstrapMarker()).toBe(true);
+    expect(audits).toEqual([
+      {
+        actorUserId: BOOTSTRAP_AUDIT_ACTOR,
+        verb: 'role.assigned',
+        objectType: 'RoleAssignment',
+        objectRef: NEW_USER_ID,
+        context: {
+          action: 'role.assigned',
+          targetUserId: NEW_USER_ID,
+          targetRole: 'TechnicalAdmin',
+          source: 'authorizer-bootstrap',
+        },
+      },
+    ]);
+  });
+
+  it('does not re-grant or re-audit when the one-shot marker already exists', async () => {
+    const { db, roles, bootstrapMarker } = makeDb({
+      existingSubjectId: EXISTING_USER_ID,
+      bootstrapMarkerPresent: true,
+    });
+    const { deps, audits } = makeDeps();
+
+    await ensureAppUser(db, input({
+      groups: ['SystemAdmin'],
+      technicalAdminBootstrapSubject: SUBJECT,
+    }), deps);
+
+    // Student is still ensured, but the TechnicalAdmin grant is skipped.
+    expect(roles).toEqual(['Student']);
+    expect(bootstrapMarker()).toBe(true);
+    expect(audits).toEqual([]);
+  });
 });
 
-describe('ensureAppUser — email relink hardening (finding f-4531f8e7)', () => {
+describe('grantTechnicalAdminBootstrapOnce', () => {
+  const GRANT = { userId: EXISTING_USER_ID, idpSubject: SUBJECT };
+
+  it('grants the role, writes the marker, and emits exactly one role.assigned when no marker exists', async () => {
+    const { db, roles, bootstrapMarker } = makeDb();
+    const { deps, audits } = makeDeps();
+
+    const result = await grantTechnicalAdminBootstrapOnce(db, GRANT, {
+      recordActivityEvent: deps.recordActivityEvent,
+    });
+
+    expect(result).toEqual({ granted: true });
+    expect(roles).toEqual(['TechnicalAdmin']);
+    expect(bootstrapMarker()).toBe(true);
+    expect(audits).toEqual([
+      {
+        actorUserId: BOOTSTRAP_AUDIT_ACTOR,
+        verb: 'role.assigned',
+        objectType: 'RoleAssignment',
+        objectRef: EXISTING_USER_ID,
+        context: {
+          action: 'role.assigned',
+          targetUserId: EXISTING_USER_ID,
+          targetRole: 'TechnicalAdmin',
+          source: 'authorizer-bootstrap',
+        },
+      },
+    ]);
+  });
+
+  it('is a no-op (no role, no marker write, no audit) when the marker already exists', async () => {
+    const { db, roles, bootstrapMarker } = makeDb({ bootstrapMarkerPresent: true });
+    const { deps, audits } = makeDeps();
+
+    const result = await grantTechnicalAdminBootstrapOnce(db, GRANT, {
+      recordActivityEvent: deps.recordActivityEvent,
+    });
+
+    expect(result).toEqual({ granted: false });
+    expect(roles).toEqual([]);
+    expect(bootstrapMarker()).toBe(true);
+    expect(audits).toEqual([]);
+  });
+
+  it('fails closed without a transactional data-access handle', async () => {
+    const { db } = makeDb({ transactional: false });
+    const { deps, audits } = makeDeps();
+
+    await expect(
+      grantTechnicalAdminBootstrapOnce(db, GRANT, {
+        recordActivityEvent: deps.recordActivityEvent,
+      }),
+    ).rejects.toThrow(/transactional/);
+    expect(audits).toEqual([]);
+  });
+});
+
+describe('ensureAppUser — email relink hardening', () => {
   it('refuses to provision or match anything when the email is unverified', async () => {
     const { db, calls, roles } = makeDb({ emailMatches: [staleMatch] });
     const { deps, audits, logs } = makeDeps();

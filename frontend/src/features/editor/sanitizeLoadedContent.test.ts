@@ -164,6 +164,62 @@ describe('sanitizeTipTapContent (digital / typed drafts)', () => {
   });
 });
 
+describe('sanitizeTipTapContent (attribute allowlist)', () => {
+  const unsafe = doc(
+    {
+      type: 'paragraph',
+      attrs: { textAlign: 'center;background:url(x)', indent: 2 },
+      content: [
+        {
+          type: 'text',
+          text: 'Facts',
+          marks: [
+            {
+              type: 'textStyle',
+              attrs: { fontFamily: 'x;}body{display:none', fontSize: '12pt' },
+            },
+          ],
+        },
+      ],
+    },
+    { type: 'image', attrs: { src: 'javascript:alert(1)' } },
+  );
+
+  it.each([
+    ['digital', {}],
+    ['OCR', OCR],
+  ])('strips unsafe attribute values on %s drafts', (_label, options) => {
+    const fixed = sanitizeTipTapContent(unsafe, options);
+    expect(fixed.content).toHaveLength(1);
+    const block = fixed.content?.[0];
+    expect(block?.attrs?.textAlign ?? null).toBeNull();
+    expect(block?.attrs?.indent).toBe(2);
+    const mark = block?.content?.[0]?.marks?.[0];
+    expect(mark?.attrs).toEqual({ fontSize: '12pt' });
+  });
+
+  it('keeps PDF-import fonts and layout attrs on digital drafts', () => {
+    const raw = doc({
+      type: 'paragraph',
+      attrs: { textAlign: 'center', indent: 1 },
+      content: [
+        {
+          type: 'text',
+          text: 'Supreme Court of British Columbia',
+          marks: [
+            { type: 'bold' },
+            {
+              type: 'textStyle',
+              attrs: { fontFamily: '"Times New Roman", serif', fontSize: '14pt' },
+            },
+          ],
+        },
+      ],
+    });
+    expect(sanitizeTipTapContent(raw)).toEqual(raw);
+  });
+});
+
 describe('sanitizeOptionsForDraft', () => {
   it('flags only drafts with an OCR confidence score', () => {
     expect(sanitizeOptionsForDraft({ ocrConfidence: 91.2 })).toEqual({ isOcr: true });

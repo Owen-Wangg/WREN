@@ -92,7 +92,6 @@ export class ComputeStack extends Stack {
   public readonly adminFunction: lambda.Function;
   /** Operator-only TechnicalAdmin sync; never wired to API Gateway. */
   public readonly syncCognitoAdminsFunction: lambda.Function;
-  public readonly auditFunction: lambda.Function;
   public readonly feedbackOrchestratorFunction: lambda.Function;
   public readonly feedbackEngineFunction: lambda.Function;
   public readonly diffAnchorProgressFunction: lambda.Function;
@@ -176,8 +175,8 @@ export class ComputeStack extends Stack {
       WREN_ACTIVITY_PSEUDONYM_SALT_SECRET_ID: activityPseudonymSaltName,
     };
 
-    // HMAC key binding the API Gateway authorizer context to this deployment
-    // (finding f-140e2506). The authorizer signs the context it mints; the
+    // HMAC key binding the API Gateway authorizer context to this deployment.
+    // The authorizer signs the context it mints; the
     // service Lambdas verify the signature and reject forged contexts from a
     // direct `lambda:InvokeFunction`. Like the pseudonym salt, only the secret
     // NAME is passed to the functions — the value is fetched with
@@ -238,9 +237,9 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_authorizer),
         // First-login identity relinks write a pseudonymized `identity.relinked`
-        // activity_event (finding f-4531f8e7). Secret NAME only (grant below).
+        // activity_event. Secret NAME only (grant below).
         ...activitySaltEnv,
-        // Signs the authorizer context it mints (finding f-140e2506).
+        // Signs the authorizer context it mints.
         ...authContextSigningEnv,
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
@@ -275,10 +274,10 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_document),
         ...corsEnv,
-        // Verifies the authorizer-context signature (finding f-140e2506).
+        // Verifies the authorizer-context signature.
         ...authContextSigningEnv,
         ...authContextVerifyEnv,
-        // Document deletion records an activity_event (Issue #187); the shared
+        // Document deletion records an activity_event; the shared
         // writer needs the same pseudonym salt as Admin/Audit so an actor's
         // pseudonym is correlatable across services. Only the secret's name
         // is passed; the value is fetched at runtime (grant below).
@@ -331,8 +330,8 @@ export class ComputeStack extends Stack {
     // -----------------------------------------------------------------------
     // Admin / Config / Auth / Usage Service Lambda (Node 22)
     // -----------------------------------------------------------------------
-    // The admin prompt-injection scan fails closed without a guardrail id
-    // (Issue #181). Catch a literally-empty id at synth; the normal value is an
+    // The admin prompt-injection scan fails closed without a guardrail id.
+    // Catch a literally-empty id at synth; the normal value is an
     // unresolved SSM token. CDK must NEVER set PROMPT_GUARDRAIL_SKIP (dev/test
     // bypass only).
     if (!Token.isUnresolved(props.promptGuardrailId) && props.promptGuardrailId.trim() === "") {
@@ -356,7 +355,7 @@ export class ComputeStack extends Stack {
         ...dbEnv(secrets.wren_admin),
         ...corsEnv,
         ...activitySaltEnv,
-        // Verifies the authorizer-context signature (finding f-140e2506).
+        // Verifies the authorizer-context signature.
         ...authContextSigningEnv,
         ...authContextVerifyEnv,
         REFERENCE_BUCKET_NAME: props.referenceBucketName,
@@ -395,28 +394,6 @@ export class ComputeStack extends Stack {
         // Each grant writes a pseudonymized activity_event (same salt as Admin).
         ...activitySaltEnv,
         COGNITO_USER_POOL_ID: props.userPoolId,
-      },
-      bundling: sharedBundling,
-    });
-
-    // -----------------------------------------------------------------------
-    // Audit / Activity-Log / Analytics Service Lambda (Node 22)
-    // -----------------------------------------------------------------------
-    this.auditFunction = new lambdaNodejs.NodejsFunction(this, "AuditFn", {
-      functionName: `${config.stackPrefix}-audit`,
-      entry: path.join(monorepoRoot, "backend/admin/src/lambda-audit.ts"),
-      handler: "handler",
-      runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 256,
-      timeout: Duration.seconds(15),
-      vpc,
-      vpcSubnets: privateSubnets,
-      projectRoot: monorepoRoot,
-      depsLockFilePath: path.join(monorepoRoot, "package-lock.json"),
-      environment: {
-        ...dbEnv(secrets.wren_audit),
-        ...corsEnv,
-        ...activitySaltEnv,
       },
       bundling: sharedBundling,
     });
@@ -461,7 +438,7 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_feedback_orch),
         ...corsEnv,
-        // Verifies the authorizer-context signature (finding f-140e2506).
+        // Verifies the authorizer-context signature.
         ...authContextSigningEnv,
         ...authContextVerifyEnv,
         FEEDBACK_QUEUE_URL: this.feedbackQueue.queueUrl,
@@ -562,6 +539,10 @@ export class ComputeStack extends Stack {
       environment: {
         ...dbEnv(secrets.wren_notification),
         ...corsEnv,
+        ...activitySaltEnv,
+        // Verifies the authorizer-context signature (findings f-140e2506 / f-bd8143e2).
+        ...authContextSigningEnv,
+        ...authContextVerifyEnv,
         NOTIFICATION_TOPIC_ARN: notificationInfra.topic.topicArn,
         OVERRIDE_EXPIRY_WARNING_HOURS: "24",
       },
@@ -667,28 +648,30 @@ export class ComputeStack extends Stack {
     this.grantDatabaseAccess(this.documentFunction, secrets.wren_document);
     this.grantDatabaseAccess(this.adminFunction, secrets.wren_admin);
     this.grantDatabaseAccess(this.syncCognitoAdminsFunction, secrets.wren_admin);
-    this.grantDatabaseAccess(this.auditFunction, secrets.wren_audit);
     this.grantDatabaseAccess(this.feedbackOrchestratorFunction, secrets.wren_feedback_orch);
     this.grantDatabaseAccess(this.feedbackEngineFunction, secrets.wren_feedback_engine);
     this.grantDatabaseAccess(this.notificationFunction, secrets.wren_notification);
 
     // Activity-log pseudonym salt: read at runtime by the shared
     // @wren/db-node activity-log writer in every function that receives
-    // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins, Authorizer; Document
-    // records its deletion events through the same writer, Issue #187). Every
+    // `activitySaltEnv` (Admin, Audit, Document, sync-cognito-admins, Authorizer,
+    // Notification; Document records its deletion events through the same
+    // writer). Every
     // such function MUST be granted here — the CDK test enforces it. grantRead
     // scopes GetSecretValue/DescribeSecret to this one secret and, for
     // fromSecretNameV2 ("external" mode), appends the `-??????` suffix
     // wildcard that a hand-written statement on `secretArn` would miss.
     activityPseudonymSalt.grantRead(this.adminFunction);
-    activityPseudonymSalt.grantRead(this.auditFunction);
     activityPseudonymSalt.grantRead(this.documentFunction);
     // sync-cognito-admins writes a pseudonymized activity_event per grant.
     activityPseudonymSalt.grantRead(this.syncCognitoAdminsFunction);
-    // Authorizer audits first-login identity relinks (finding f-4531f8e7).
+    // Authorizer audits first-login identity relinks.
     activityPseudonymSalt.grantRead(this.authorizerFunction);
+    // Notification records a pseudonymized activity_event per Notification_Type
+    // catalog create/update.
+    activityPseudonymSalt.grantRead(this.notificationFunction);
 
-    // Auth-context signing key (finding f-140e2506): the authorizer signs; the
+    // Auth-context signing key: the authorizer signs; the
     // three API Gateway service Lambdas verify. grantRead scopes
     // GetSecretValue/DescribeSecret to this one secret (and, in "external"
     // mode, appends the `-??????` suffix wildcard). All four reads fall under
@@ -697,6 +680,7 @@ export class ComputeStack extends Stack {
     authContextSigningSecret.grantRead(this.adminFunction);
     authContextSigningSecret.grantRead(this.documentFunction);
     authContextSigningSecret.grantRead(this.feedbackOrchestratorFunction);
+    authContextSigningSecret.grantRead(this.notificationFunction);
 
     // Authorizer: look up Cognito email/name/email_verified when auto-provisioning
     // app_user on first login, and check whether a previously linked subject
@@ -709,8 +693,10 @@ export class ComputeStack extends Stack {
     }));
 
     // Document Lambda: S3 read/write for document uploads + presigned URLs.
-    // The batch delete API (DeleteObjects) authorizes as s3:DeleteObject, so
-    // there is no separate "s3:DeleteObjects" IAM action (IAM_review F-9).
+    // Batch deletes (DeleteObjectsCommand) authorize per key as s3:DeleteObject;
+    // there is no s3:DeleteObjects IAM action. Keys are deleted without a
+    // VersionId, so s3:DeleteObjectVersion is not needed either.
+    // https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObjects.html
     this.documentFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: [
         "s3:GetObject",
@@ -865,10 +851,13 @@ export class ComputeStack extends Stack {
       resources: [bedrockModelParamArn],
     }));
     // Read-only: the first admin's Cognito sub, so revokeRole can refuse to
-    // demote them. Written by the deploy workflow, not this stack.
+    // demote them. Written by the deploy workflow, not this stack. The admin
+    // function reads the permanent protected-admin parameter and falls back to
+    // the legacy bootstrap-arming parameter, so it needs read on both.
     this.adminFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["ssm:GetParameter"],
       resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter${ssmParameterNames.protectedAdminSubject(config)}`,
         `arn:aws:ssm:${this.region}:${this.account}:parameter${ssmParameterNames.technicalAdminBootstrapSubject(config)}`,
       ],
     }));
@@ -912,9 +901,6 @@ export class ComputeStack extends Stack {
     new CfnOutput(this, "SyncCognitoAdminsFunctionName", {
       value: this.syncCognitoAdminsFunction.functionName,
       description: "Operator-only: aws lambda invoke --payload '{\"_script\":\"sync-cognito-admins\"}'",
-    });
-    new CfnOutput(this, "AuditFunctionArn", {
-      value: this.auditFunction.functionArn,
     });
     new CfnOutput(this, "FeedbackOrchestratorFunctionArn", {
       value: this.feedbackOrchestratorFunction.functionArn,

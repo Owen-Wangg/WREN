@@ -2,6 +2,7 @@
  * Repair PDF-ingest artifacts in persisted TipTap JSON when a draft loads.
  *
  * Fixes already-uploaded documents without requiring re-upload:
+ * - Attribute values outside the shared allowlist (all drafts; see `tiptapAttrSafety`)
  * - Oversized letterhead fontSize marks (all drafts)
  * - OCR drafts only: false center/right alignment on body paragraphs,
  *   mid-sentence wrap fragments, glued words, missing spaces, and
@@ -12,6 +13,7 @@ import {
   cleanOcrInlineContent,
   PAGE_NUMBER_RE,
   shouldStitchParagraphs,
+  stripUnsafeTipTapAttrs,
   type TipTapNode,
 } from '@wren/types';
 
@@ -236,7 +238,8 @@ function sanitizeTopLevelBlocks(nodes: JSONContent[], isOcr: boolean): JSONConte
 /**
  * Sanitize a TipTap document for display (and optional one-shot persist).
  *
- * All drafts: cap oversized inline font sizes.
+ * All drafts: drop attribute values outside the shared allowlist, and cap
+ * oversized inline font sizes.
  * OCR drafts only: glued-word / scattered-mark repair, mis-inferred
  * alignment stripping, page-number removal, and wrap stitching.
  */
@@ -245,13 +248,16 @@ export function sanitizeTipTapContent(
   options: SanitizeOptions = {},
 ): JSONContent {
   const isOcr = options.isOcr === true;
-  if (doc.type !== 'doc' || !Array.isArray(doc.content)) {
-    return sanitizeNode(doc, isOcr);
+  // Drop attribute values the document API would reject (legacy drafts).
+  // Runs for every draft, OCR or not, before any other repair.
+  const safe = stripUnsafeTipTapAttrs(doc as TipTapNode) as JSONContent;
+  if (safe.type !== 'doc' || !Array.isArray(safe.content)) {
+    return sanitizeNode(safe, isOcr);
   }
 
   return {
-    ...doc,
-    content: sanitizeTopLevelBlocks(doc.content, isOcr),
+    ...safe,
+    content: sanitizeTopLevelBlocks(safe.content, isOcr),
   };
 }
 

@@ -44,8 +44,10 @@ jest.mock('@wren/auth', () => ({
   resolveAccess: jest.fn(async () => 'OPEN'),
   bindCorsOrigin: jest.fn(),
   withCorsHeaders: (res: unknown) => res,
-  // Signed-context guard (finding f-140e2506): allow through in this unit test.
+  // Signed-context guard: allow through in this unit test.
   rejectIfForgedAuthContext: jest.fn(async () => null),
+  // Real submission gate so it runs against the DB seam below.
+  ...jest.requireActual<object>('../../auth/src/submissionAccess'),
 }));
 
 // --- S3 seam: capture commands so we can assert no GetObject and a re-tag PUT.
@@ -133,8 +135,8 @@ describe('create-draft sync file path: reserve before OCR', () => {
       if (sql.includes('SELECT owner_user_id, document_type_id FROM document')) {
         return [{ owner_user_id: 'user-1', document_type_id: 'dt-1' }];
       }
-      if (sql.includes('size_limit_words FROM document_type')) {
-        return [{ size_limit_words: null }];
+      if (sql.includes('FROM document_type dt')) {
+        return [{ id: 'dt-1', access_state: 'OPEN', size_limit_words: null, archived_at: null }];
       }
       return [];
     });

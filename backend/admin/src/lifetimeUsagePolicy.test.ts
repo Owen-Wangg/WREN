@@ -8,6 +8,7 @@ import {
   assertDraftCreateAllowed,
   getPlatformUsagePolicy,
   getPlatformUsagePolicyForAdmin,
+  reserveAskMessage,
   reserveDebriefGeneration,
   reserveDocumentUpload,
   reserveDraftCreate,
@@ -153,5 +154,40 @@ describe('platform lifetime usage policy', () => {
     await expect(reserveDebriefGeneration('doc-1', db)).rejects.toBeInstanceOf(
       UsageLimitReachedError,
     );
+  });
+
+  it('reserves Ask WREN messages atomically until the lifetime cap', async () => {
+    const db = new FakeDb();
+    db.seedPlatformUsagePolicy({ message_limit: 2 });
+    db.seedDocument({
+      id: 'doc-1',
+      owner_user_id: 'student-1',
+      document_type_id: 'dt-1',
+      ask_message_count: 0,
+    });
+    expect(await reserveAskMessage('doc-1', db)).toBe(1);
+    expect(await reserveAskMessage('doc-1', db)).toBe(2);
+    await expect(reserveAskMessage('doc-1', db)).rejects.toBeInstanceOf(
+      UsageLimitReachedError,
+    );
+  });
+
+  it('does not mutate the Ask WREN counter once the lifetime cap is reached', async () => {
+    const db = new FakeDb();
+    db.seedPlatformUsagePolicy({ message_limit: 1 });
+    db.seedDocument({
+      id: 'doc-1',
+      owner_user_id: 'student-1',
+      document_type_id: 'dt-1',
+      ask_message_count: 1,
+    });
+    const before = db.mutationCount;
+    await expect(reserveAskMessage('doc-1', db)).rejects.toBeInstanceOf(
+      UsageLimitReachedError,
+    );
+    // The capped UPDATE matched no row, so the counter is unchanged.
+    expect(await getPlatformUsagePolicy(db)).toMatchObject({ messageLimit: 1 });
+    // A capped reservation still issues one (no-op) UPDATE; the count stays at 1.
+    expect(db.mutationCount).toBe(before + 1);
   });
 });

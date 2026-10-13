@@ -35,7 +35,7 @@ export interface ObservabilityStackProps extends StackProps {
    */
   readonly authorizerFunctionName?: string;
   /**
-   * Name of the API Gateway access-log group (Issue #187). When provided, the
+   * Name of the API Gateway access-log group. When provided, the
    * security observability adds metric filters/alarms over the structured
    * access log (unauthorized responses, privileged deletes). Omitted in unit
    * tests that synth the stack in isolation.
@@ -285,7 +285,7 @@ export class ObservabilityStack extends Stack {
     );
 
     // -------------------------------------------------------------------
-    // Security observability (Issue #187): surface authentication failures,
+    // Security observability: surface authentication failures,
     // authorization denials, privileged mutations, and audit-write failures as
     // CloudWatch metrics + alarms so security-critical events are no longer
     // invisible at the request/auth layer.
@@ -320,6 +320,34 @@ export class ObservabilityStack extends Stack {
       alarmDescription: "Feedback queue depth > 50 — possible degradation",
     });
     queueDepthAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
+
+    // -------------------------------------------------------------------
+    // Feedback job binding rejections (security signal)
+    // The Feedback Engine emits JobBindingRejected (EMF, WREN/FeedbackEngine)
+    // when a queue message's ids fail the DB ownership / draft↔document check.
+    // The REST producer always sends server-derived ids, so any rejection
+    // means a bug or a principal writing forged messages to the queue / DLQ.
+    // -------------------------------------------------------------------
+    const jobBindingRejectedMetric = new cloudwatch.Metric({
+      namespace: "WREN/FeedbackEngine",
+      metricName: "JobBindingRejected",
+      dimensionsMap: { workload: "feedback_primary" },
+      statistic: "Sum",
+      period: Duration.minutes(5),
+    });
+
+    const jobBindingRejectedAlarm = new cloudwatch.Alarm(this, "FeedbackJobBindingRejectedAlarm", {
+      alarmName: `${config.stackPrefix}-feedback-job-binding-rejected`,
+      metric: jobBindingRejectedMetric,
+      threshold: 0,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription:
+        "Feedback Engine rejected a queue message whose ids failed ownership/binding checks — possible forged SQS message",
+    });
+    jobBindingRejectedAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.alarmTopic));
 
     // -------------------------------------------------------------------
     // DLQ alarms (poison messages — needs investigation). Feedback has always
@@ -608,7 +636,7 @@ export class ObservabilityStack extends Stack {
   }
 
   /**
-   * Security metric filters + alarms (Issue #187). Turns the structured log
+   * Security metric filters + alarms. Turns the structured log
    * lines the application now emits into countable metrics and alarms:
    *
    *   - Authentication failures  — authorizer `event: "auth_failure"`.
@@ -733,7 +761,7 @@ export class ObservabilityStack extends Stack {
 
     // ---- Prompt-injection guardrail skipped (admin log) --------------------
     // The admin prompt-injection scan fails closed when PROMPT_GUARDRAIL_ID is
-    // unset and logs `prompt_guardrail_skipped` (Issue #181). Deployed
+    // unset and logs `prompt_guardrail_skipped`. Deployed
     // environments always have the id and never set the dev bypass, so ANY
     // occurrence alarms.
     addLogSignal({

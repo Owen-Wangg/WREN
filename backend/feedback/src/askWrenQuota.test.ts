@@ -1,24 +1,26 @@
 /**
- * Ask WREN per-document quota regression tests (findings f-9051b431, f-038c167b).
+ * Ask WREN per-document lifetime-quota regression tests.
  *
- * These lock in the fix for the lost-update that let concurrent requests defeat
- * `platform_usage_policy.message_limit`:
- *   - `appendAskWrenTurn` reserves a slot with an atomic conditional increment
- *     (`reserveAskMessageSlot`) and persists the turn by APPENDING messages only
- *     (`appendMessagesToSession`) — never by rewriting the whole item (which used
- *     to reset `messageCount` from a stale pre-reservation read and clobber turns
- *     a concurrent request committed in between).
- *   - `loadDocumentConversation`'s legacy-session migration SEEDS the document
- *     session with a create-only conditional Put (`saveSessionIfAbsent`), so a
- *     racing reservation's authoritative `messageCount` is never clobbered.
+ * The per-document Ask WREN message cap (`platform_usage_policy.message_limit`)
+ * is now enforced against a DURABLE Postgres counter (`document.ask_message_count`)
+ * reserved by `reserveAskMessage` BEFORE the paid Bedrock call — not the
+ * `messageCount` attribute that used to live on the 30-day-TTL'd DynamoDB session
+ * item. These tests lock in:
+ *   - the lifetime cap is enforced via the Postgres counter and rejects before
+ *     any Bedrock call once reached (`reserve-before-paid-call` ordering);
+ *   - the DynamoDB session item carries ONLY the transcript — no `messageCount`;
+ *   - the regression: with the DynamoDB item ABSENT (TTL-expiry
+ *     simulation) the cap still holds when the Postgres count is at the limit, so
+ *     the "lifetime" allowance can no longer be reset by letting the item expire;
+ *   - `loadDocumentConversation`'s legacy-session migration seeds the transcript
+ *     with a create-only conditional Put and never clobbers an existing transcript.
  *
  * No live AWS: we spy on `DynamoDBDocumentClient.prototype.send` with an in-memory
- * item store that emulates the reservation UpdateCommand (atomic increment + the
- * `< :limit` condition), the append UpdateCommand (`list_append`, no count write),
- * the conditional create PutCommand (`attribute_not_exists(sessionId)`), and the
- * GetCommand used by loadSession/loadDocumentConversation. The Bedrock seam
- * (`BedrockRuntimeClient.prototype.send`) is stubbed with a canned Anthropic
- * response, matching the *.prototype.send style of askWrenCaching.test.ts.
+ * item store that emulates the transcript append UpdateCommand (`list_append`), the
+ * conditional-create PutCommand (`attribute_not_exists(sessionId)`), and the
+ * GetCommand used by loadSession/loadDocumentConversation. The Postgres quota is a
+ * tiny in-memory `QueryExecutor` fake; the Bedrock seam is stubbed with a canned
+ * Anthropic response.
  */
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
@@ -31,6 +33,7 @@ import {
   type ChatMessage,
   type ConversationSession,
 } from './askWren';
+import type { QueryExecutor } from './db';
 import { UsageLimitReachedError } from '@wren/admin/lifetimeUsagePolicy';
 
 const USER_ID = 'user-123';
@@ -43,11 +46,52 @@ let store: Map<string, Record<string, unknown>>;
 let savedTable: string | undefined;
 
 /**
- * Minimal single-item DynamoDB emulation keyed by sessionId. Because the Jest
- * event loop runs each `send` callback synchronously to completion, the
- * read-modify-write below is atomic per command — the same guarantee DynamoDB
- * gives a single-item Update/Put — so concurrent reservations serialize exactly
- * as they would against the real table.
+ * Minimal in-memory Postgres `QueryExecutor` emulating the two statements the
+ * Ask WREN quota path runs: `getPlatformUsagePolicy`'s policy SELECT and
+ * `reserveAskMessage`'s capped `UPDATE document ... RETURNING ask_message_count`.
+ * `count()` exposes the authoritative durable counter for assertions.
+ */
+function makeQuotaDb(limit: number, initialCount = 0) {
+  const state = { count: initialCount };
+  const db: QueryExecutor & { count: () => number } = {
+    count: () => state.count,
+    async query<Row = Record<string, unknown>>(
+      text: string,
+      params?: readonly unknown[],
+    ): Promise<Row[]> {
+      if (text.includes('FROM platform_usage_policy WHERE id = 1')) {
+        return [
+          {
+            message_limit: limit,
+            debrief_generation_limit: 15,
+            document_upload_limit: 30,
+            drafts_per_document_limit: 15,
+            max_upload_file_size_bytes: 31457280,
+            max_word_count: 10000,
+          },
+        ] as unknown as Row[];
+      }
+      if (
+        text.includes('UPDATE document') &&
+        text.includes('ask_message_count = ask_message_count + 1')
+      ) {
+        const lim = params?.[1] as number;
+        if (state.count >= lim) return [] as unknown as Row[];
+        state.count += 1;
+        return [{ ask_message_count: state.count }] as unknown as Row[];
+      }
+      throw new Error(`Unexpected SQL in quota fake: ${text}`);
+    },
+  };
+  return db;
+}
+
+/**
+ * Minimal single-item DynamoDB emulation keyed by sessionId. The item carries
+ * only the transcript (`messages`, `ttl`, ids) — the quota counter is NOT stored
+ * here anymore. Each `send` callback runs synchronously to completion, so the
+ * read-modify-write is atomic per command, matching DynamoDB's single-item
+ * guarantee.
  */
 function stubDynamo(): void {
   jest
@@ -87,32 +131,7 @@ function stubDynamo(): void {
         const expr = String(input.UpdateExpression);
         const existing = store.get(key);
 
-        // Reservation: atomic conditional increment of messageCount.
-        if (input.ConditionExpression && expr.includes('messageCount')) {
-          const hasCount = !!existing && typeof existing.messageCount === 'number';
-          const base = hasCount ? (existing!.messageCount as number) : vals[':current'];
-          if (!(base < vals[':limit'])) {
-            return Promise.reject(
-              Object.assign(new Error('The conditional request failed'), {
-                name: 'ConditionalCheckFailedException',
-              }),
-            ) as never;
-          }
-          const prevItem = existing ?? {};
-          store.set(key, {
-            ...prevItem,
-            sessionId: key,
-            messageCount: base + vals[':one'],
-            userId: prevItem.userId ?? vals[':uid'],
-            documentId: prevItem.documentId ?? vals[':did'],
-            draftId: vals[':draftId'],
-            ttl: prevItem.ttl ?? vals[':ttl'],
-            messages: prevItem.messages ?? vals[':empty'],
-          });
-          return Promise.resolve({}) as never;
-        }
-
-        // Append: list_append of new messages, never writes messageCount.
+        // Append: list_append of new messages (transcript only).
         if (expr.includes('list_append')) {
           const prevItem = existing ?? { sessionId: key };
           const prevMsgs = Array.isArray(prevItem.messages)
@@ -163,7 +182,7 @@ function currentItem(): ConversationSession | undefined {
     | undefined;
 }
 
-function callTurn() {
+function callTurn(db: QueryExecutor) {
   return appendAskWrenTurn({
     userId: USER_ID,
     documentId: DOCUMENT_ID,
@@ -171,7 +190,7 @@ function callTurn() {
     userText: 'Is my argument clear?',
     draftSegments: [{ index: 0, text: 'The tribunal must consider all relevant evidence.' }],
     modelId: MODEL_ID,
-    messageLimit: 100,
+    db,
   });
 }
 
@@ -215,32 +234,35 @@ afterAll(() => {
   else process.env.CONVERSATION_TABLE_NAME = savedTable;
 });
 
-describe('appendAskWrenTurn — quota is not reset by the final persist', () => {
-  it('two sequential turns leave messageCount at 2 and accumulate all four messages', async () => {
-    await callTurn();
-    await callTurn();
+describe('appendAskWrenTurn — durable Postgres quota, transcript-only DynamoDB item', () => {
+  it('advances the durable counter per turn and accumulates all messages', async () => {
+    const db = makeQuotaDb(100);
+    await callTurn(db);
+    await callTurn(db);
 
+    expect(db.count()).toBe(2);
     const item = currentItem();
-    expect(item?.messageCount).toBe(2);
     expect(item?.messages).toHaveLength(4);
+    // The quota counter is NOT persisted on the session item.
+    expect(item).not.toHaveProperty('messageCount');
     expect(bedrockSendSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('concurrent turns advance messageCount by the number of successful reservations', async () => {
+  it('reserves exactly once per successful turn under concurrency', async () => {
+    const db = makeQuotaDb(100);
     const CONCURRENCY = 4;
-    await Promise.all(Array.from({ length: CONCURRENCY }, () => callTurn()));
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => callTurn(db)));
 
-    const item = currentItem();
-    // The bug reset the counter to 1 regardless of concurrency; the fix keeps the
-    // reservation authoritative, so every committed turn is counted exactly once.
-    expect(item?.messageCount).toBe(CONCURRENCY);
-    expect(item?.messages).toHaveLength(CONCURRENCY * 2);
+    expect(db.count()).toBe(CONCURRENCY);
+    expect(currentItem()?.messages).toHaveLength(CONCURRENCY * 2);
     expect(bedrockSendSpy).toHaveBeenCalledTimes(CONCURRENCY);
   });
 });
 
-describe('appendAskWrenTurn — limit is enforced before any paid call', () => {
-  it('rejects with UsageLimitReachedError and makes no Bedrock call once the limit is reached', async () => {
+describe('appendAskWrenTurn — lifetime cap is enforced before any paid call', () => {
+  it('rejects with UsageLimitReachedError and makes no Bedrock call once the cap is reached', async () => {
+    // Counter already at the cap; a transcript exists for the document.
+    const db = makeQuotaDb(2, 2);
     const sessionId = buildSessionId(USER_ID, DOCUMENT_ID);
     store.set(sessionId, {
       sessionId,
@@ -248,7 +270,6 @@ describe('appendAskWrenTurn — limit is enforced before any paid call', () => {
       documentId: DOCUMENT_ID,
       draftId: DRAFT_ID,
       ttl: Math.floor(Date.now() / 1000) + 3600,
-      messageCount: 2,
       messages: [
         { id: 'u1', role: 'user', text: 'q1', createdAt: '2024-01-01T00:00:00.000Z' },
         { id: 'r1', role: 'wren', text: 'a1', createdAt: '2024-01-01T00:00:01.000Z' },
@@ -257,29 +278,32 @@ describe('appendAskWrenTurn — limit is enforced before any paid call', () => {
       ],
     });
 
-    await expect(
-      appendAskWrenTurn({
-        userId: USER_ID,
-        documentId: DOCUMENT_ID,
-        draftId: DRAFT_ID,
-        userText: 'One more?',
-        draftSegments: [{ index: 0, text: 'A draft paragraph.' }],
-        modelId: MODEL_ID,
-        messageLimit: 2,
-      }),
-    ).rejects.toBeInstanceOf(UsageLimitReachedError);
-
+    await expect(callTurn(db)).rejects.toBeInstanceOf(UsageLimitReachedError);
     expect(bedrockSendSpy).not.toHaveBeenCalled();
-    // The rejected attempt leaves the stored count untouched.
-    expect(currentItem()?.messageCount).toBe(2);
+    // The rejected attempt leaves the durable counter untouched.
+    expect(db.count()).toBe(2);
+  });
+
+  it('the cap holds even when the session item has expired (is absent)', async () => {
+    // Durable Postgres count is at the cap, but the DynamoDB session item is GONE
+    // (30-day TTL fired). Pre-fix, the DynamoDB-only counter restarted at 0 and
+    // handed out a fresh allowance; now the Postgres counter still blocks.
+    const db = makeQuotaDb(100, 100);
+    expect(store.size).toBe(0);
+
+    await expect(callTurn(db)).rejects.toBeInstanceOf(UsageLimitReachedError);
+    expect(bedrockSendSpy).not.toHaveBeenCalled();
+    expect(db.count()).toBe(100);
+    // No transcript item was created by the rejected attempt.
+    expect(store.size).toBe(0);
   });
 });
 
-describe('loadDocumentConversation — legacy migration never clobbers the live counter', () => {
+describe('loadDocumentConversation — legacy migration seeds transcript without clobbering', () => {
   const NEW_DRAFT = 'draft-new';
   const LEGACY_DRAFT = 'draft-legacy';
 
-  it('seeds a brand-new document session from legacy history (create path)', async () => {
+  it('seeds a brand-new document session transcript from legacy history (create path)', async () => {
     const legacyId = buildLegacyDraftSessionId(USER_ID, DOCUMENT_ID, LEGACY_DRAFT);
     store.set(legacyId, {
       sessionId: legacyId,
@@ -287,7 +311,6 @@ describe('loadDocumentConversation — legacy migration never clobbers the live 
       documentId: DOCUMENT_ID,
       draftId: LEGACY_DRAFT,
       ttl: Math.floor(Date.now() / 1000) + 3600,
-      messageCount: 3,
       messages: legacyMessages(3),
     });
 
@@ -298,16 +321,14 @@ describe('loadDocumentConversation — legacy migration never clobbers the live 
       legacyDraftIds: [LEGACY_DRAFT],
     });
 
-    expect(result?.messageCount).toBe(3);
     expect(result?.messages).toHaveLength(6);
-    // Persisted under the document-scoped key.
-    expect(currentItem()?.messageCount).toBe(3);
+    // Persisted under the document-scoped key, transcript only (no counter).
     expect(currentItem()?.messages).toHaveLength(6);
+    expect(currentItem()).not.toHaveProperty('messageCount');
   });
 
-  it('does NOT lower an existing reservation counter when it loses the create race', async () => {
-    // A bare reservation already created the document session: messageCount=1,
-    // messages still empty (the reservation initializes messages to []).
+  it('does NOT overwrite an existing transcript when it loses the create race', async () => {
+    // A concurrent turn already created the document session with its transcript.
     const sessionId = buildSessionId(USER_ID, DOCUMENT_ID);
     store.set(sessionId, {
       sessionId,
@@ -315,12 +336,11 @@ describe('loadDocumentConversation — legacy migration never clobbers the live 
       documentId: DOCUMENT_ID,
       draftId: NEW_DRAFT,
       ttl: Math.floor(Date.now() / 1000) + 3600,
-      messageCount: 1,
-      messages: [],
+      messages: [
+        { id: 'live-u', role: 'user', text: 'live question', createdAt: '2024-02-01T00:00:00.000Z' },
+      ],
     });
 
-    // Legacy history with MORE user turns than the live counter — a full-item
-    // Put would recompute messageCount down/across to 3 and clobber the live 1.
     const legacyId = buildLegacyDraftSessionId(USER_ID, DOCUMENT_ID, LEGACY_DRAFT);
     store.set(legacyId, {
       sessionId: legacyId,
@@ -328,7 +348,6 @@ describe('loadDocumentConversation — legacy migration never clobbers the live 
       documentId: DOCUMENT_ID,
       draftId: LEGACY_DRAFT,
       ttl: Math.floor(Date.now() / 1000) + 3600,
-      messageCount: 3,
       messages: legacyMessages(3),
     });
 
@@ -339,12 +358,9 @@ describe('loadDocumentConversation — legacy migration never clobbers the live 
       legacyDraftIds: [LEGACY_DRAFT],
     });
 
-    // Stored counter is left authoritative — NOT overwritten by the migration.
-    expect(currentItem()?.messageCount).toBe(1);
-    expect(currentItem()?.messages).toEqual([]);
-    // The returned view surfaces legacy history in-memory for context/display,
-    // while keeping the authoritative count.
-    expect(result?.messageCount).toBe(1);
-    expect(result?.messages).toHaveLength(6);
+    // Stored transcript is left authoritative — NOT overwritten by the migration.
+    expect(currentItem()?.messages).toHaveLength(1);
+    // The live item already had messages, so that authoritative item is returned.
+    expect(result?.messages).toHaveLength(1);
   });
 });

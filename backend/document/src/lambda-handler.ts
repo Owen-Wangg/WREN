@@ -9,8 +9,14 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { v4 as uuid } from 'uuid';
-import { resolveAccess, bindCorsOrigin, withCorsHeaders, rejectIfForgedAuthContext } from '@wren/auth';
-import type { AccessGrant, CustomMetadataField, TipTapDoc } from '@wren/types';
+import {
+  bindCorsOrigin,
+  checkSubmissionAccess,
+  rejectIfForgedAuthContext,
+  submissionAccessDeniedResponse,
+  withCorsHeaders,
+} from '@wren/auth';
+import type { CustomMetadataField, TipTapDoc } from '@wren/types';
 import {
   createDocumentInputSchema,
   isTipTapDoc,
@@ -19,6 +25,7 @@ import {
   wordCountFromTipTapContent,
   charCountFromTipTapContent,
   findDisallowedTipTapNodeType,
+  findUnsafeTipTapAttr,
   serializedTipTapBytes,
   TIPTAP_FIELD_MAX_BYTES,
 } from '@wren/types';
@@ -44,8 +51,8 @@ import {
   shouldIngestPdfAsync,
 } from './ingestJob.js';
 import {
+  parseIngestQueueMessage,
   processIngestQueueMessage,
-  type IngestQueueMessage,
 } from './ingestWorker.js';
 import {
   assertDocumentUploadAllowed,
@@ -305,6 +312,18 @@ function rejectUnsafeTipTap(
       }),
     };
   }
+  // Node-type allowlisting does not constrain attribute values that the
+  // client renderer interpolates into style/src (stored-XSS vector).
+  const unsafeAttr = findUnsafeTipTapAttr(doc);
+  if (unsafeAttr) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        code: 'BAD_REQUEST',
+        message: `Unsupported TipTap attribute value '${unsafeAttr}' in ${field}`,
+      }),
+    };
+  }
   if (serializedTipTapBytes(doc) > TIPTAP_FIELD_MAX_BYTES) {
     return {
       statusCode: 400,
@@ -406,15 +425,19 @@ export const handler = async (
   // SQS async PDF ingest (Textract OCR) — not an API Gateway event.
   if (Array.isArray(event?.Records) && event.Records[0]?.eventSource === 'aws:sqs') {
     for (const record of event.Records) {
-      const body = JSON.parse(record.body) as IngestQueueMessage;
-      await processIngestQueueMessage(body, readS3ObjectBytes);
+      const trigger = parseIngestQueueMessage(record.body);
+      if (!trigger) {
+        console.warn('Dropping ingest queue message with invalid body');
+        continue;
+      }
+      await processIngestQueueMessage(trigger, readS3ObjectBytes);
     }
     return;
   }
 
   bindCorsOrigin(event);
   try {
-    // Reject forged/unsigned authorizer contexts (direct-invoke, finding f-140e2506).
+    // Reject forged/unsigned authorizer contexts (direct-invoke).
     const forged = await rejectIfForgedAuthContext(event);
     if (forged) return withCors(forged);
 
@@ -487,56 +510,45 @@ async function handleListDocuments(event: any): Promise<APIGatewayProxyResult> {
   };
 }
 
-function normalizeGrants(raw: unknown): AccessGrant[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((g) => {
-      if (!g || typeof g !== 'object') return null;
-      const row = g as Record<string, unknown>;
-      const id = typeof row.id === 'string' ? row.id : null;
-      const userId = typeof row.userId === 'string' ? row.userId : null;
-      const documentTypeId =
-        typeof row.documentTypeId === 'string' ? row.documentTypeId : null;
-      const grantedBy = typeof row.grantedBy === 'string' ? row.grantedBy : '';
-      const grantedAt =
-        typeof row.grantedAt === 'string' ? row.grantedAt : new Date().toISOString();
-      if (!id || !userId || !documentTypeId) return null;
-      return {
-        id,
-        userId,
-        documentTypeId,
-        grantedBy,
-        grantedAt,
-        ...(typeof row.revokedAt === 'string' ? { revokedAt: row.revokedAt } : {}),
-      } satisfies AccessGrant;
-    })
-    .filter((g): g is AccessGrant => g !== null);
-}
-
 /**
- * Reload the relevant active grant inside the Document service. The REST
- * authorizer also loads grants on every request, but this local query preserves
- * dual enforcement and prevents stale or forged authorizer context from
- * authorizing submission to a locked Department.
+ * Submission access gate shared by every Document route that creates or
+ * modifies a Draft (create document, create draft, autosave). Re-reads the
+ * department's archived/OPEN-LOCKED state and the caller's active grants from
+ * the database on every request — never from the authorizer context or UI —
+ * so LOCKED, revoked grants and archived departments bind existing Documents
+ * too. The decision is routed through `gateSubmission`
+ * per the submissionGating contract: callers MUST NOT proceed unless `ok`.
  */
-async function loadActiveSubmissionGrants(
+async function enforceSubmissionAccess(
+  db: Awaited<ReturnType<typeof getDataAccess>>,
   userId: string,
   documentTypeId: string,
-  db: Awaited<ReturnType<typeof getDataAccess>>,
-): Promise<AccessGrant[]> {
-  const rows = await db.query<Record<string, unknown>>(
-    `SELECT id,
-            user_id AS "userId",
-            document_type_id AS "documentTypeId",
-            granted_by AS "grantedBy",
-            granted_at::text AS "grantedAt"
-     FROM access_grant
-     WHERE user_id = $1
-       AND document_type_id = $2
-       AND revoked_at IS NULL`,
-    [userId, documentTypeId],
+): Promise<
+  | { ok: true; sizeLimitWords: number | null }
+  | { ok: false; response: APIGatewayProxyResult }
+> {
+  const access = await checkSubmissionAccess(db, userId, documentTypeId);
+  if (!access.ok) {
+    return { ok: false, response: submissionAccessDeniedResponse(access) };
+  }
+  const gate = await gateSubmission(
+    { resolveAccess: async () => access.decision },
+    userId,
+    documentTypeId,
   );
-  return normalizeGrants(rows);
+  if (gate.status !== 'permitted') {
+    return {
+      ok: false,
+      response: submissionAccessDeniedResponse({
+        ok: false,
+        statusCode: 403,
+        code: 'ACCESS_REQUEST_REQUIRED',
+        message: 'This department is locked. Request access from a department admin.',
+        documentTypeId,
+      }),
+    };
+  }
+  return { ok: true, sizeLimitWords: access.sizeLimitWords };
 }
 
 async function readS3ObjectBytes(key: string): Promise<Buffer> {
@@ -598,64 +610,13 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     };
   }
 
-  const dtRows = await db.query(
-    `SELECT dt.id, d.access_state AS access_state, dt.size_limit_words, d.archived_at
-     FROM document_type dt
-     INNER JOIN department d ON d.id = dt.department_id
-     WHERE dt.id = $1`,
-    [documentTypeId],
-  );
-  if (dtRows.length === 0) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        code: 'BAD_REQUEST',
-        message: `Document type '${documentTypeId}' was not found`,
-      }),
-    };
-  }
-
-  if (dtRows[0].archived_at) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        code: 'DEPARTMENT_ARCHIVED',
-        message: 'This department is no longer accepting submissions.',
-      }),
-    };
-  }
-
-  const documentType = {
-    id: dtRows[0].id as string,
-    accessState: dtRows[0].access_state as 'OPEN' | 'LOCKED',
-  };
-  const sizeLimitWords =
-    typeof dtRows[0].size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  // Submission access gate (archived / OPEN-LOCKED / active grant). Shared with
+  // every other submission path — see enforceSubmissionAccess.
+  const access = await enforceSubmissionAccess(db, actor.userId, documentTypeId);
+  if (!access.ok) return access.response;
+  const sizeLimitWords = access.sizeLimitWords;
   const createDocPolicy = await getPlatformUsagePolicy(db);
   const platformWordLimit = createDocPolicy.maxWordCount;
-
-  const grants = await loadActiveSubmissionGrants(actor.userId, documentTypeId, db);
-  const submissionGate = await gateSubmission(
-    {
-      resolveAccess: async (_userId, dtId) =>
-        resolveAccess({
-          documentType: { id: dtId, accessState: documentType.accessState },
-          grants,
-        }),
-    },
-    actor.userId,
-    documentTypeId,
-  );
-  if (submissionGate.status === 'requires-access-request') {
-    return {
-      statusCode: 403,
-      body: JSON.stringify({
-        code: 'ACCESS_REQUEST_REQUIRED',
-        message: 'This department is locked. Request access from a department admin.',
-        documentTypeId: submissionGate.documentTypeId,
-      }),
-    };
-  }
 
   const metadataRows = await db.query<{
     id: string;
@@ -783,7 +744,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
     // every success path clears again after commit.
     await clearOrphanUploadTag(key);
     // PDF OCR can exceed API Gateway ~29s — enqueue and return immediately.
-    if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
+    if (shouldIngestPdfAsync(fileName)) {
       asyncPdf = { key, fileName };
     } else {
       // Reserve the lifetime upload slot BEFORE fetching bytes or running paid
@@ -929,7 +890,7 @@ async function handleCreateDocument(event: any): Promise<APIGatewayProxyResult> 
   // them in the total word/char counts and enforce the same size cap.
   // Body counts are footnote-aware when a TipTap doc is the source so footnote
   // bodies (which reach the Bedrock prompt) cannot bypass the gate; when the
-  // source is raw ingest segments, measure the segments directly (f-ca2d70a5).
+  // source is raw ingest segments, measure the segments directly.
   const bodyWords = storedContent
     ? wordCountFromTipTapContent(storedContent)
     : countWords(segments);
@@ -1185,7 +1146,7 @@ async function handleDeleteDocument(event: any): Promise<APIGatewayProxyResult> 
     }
   }
 
-  // Audit the destructive deletion (Issue #187 / Requirement 44). The
+  // Audit the destructive deletion (Requirement 44). The
   // activity_event table holds NO foreign key to document/draft/feedback_item,
   // so this record survives the deletion it describes. Best-effort and
   // non-fatal: an audit-write failure must never turn a successful deletion
@@ -1303,13 +1264,12 @@ async function handlePatchCurrentDraft(event: any): Promise<APIGatewayProxyResul
     };
   }
 
+  // Re-check submission access on every autosave: an existing Document does
+  // not keep write access after LOCK / grant revocation / archive.
   const documentTypeId = docRows[0].document_type_id as string;
-  const dtRows = await db.query(
-    `SELECT size_limit_words FROM document_type WHERE id = $1`,
-    [documentTypeId],
-  );
-  const sizeLimitWords =
-    typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const access = await enforceSubmissionAccess(db, actor.userId, documentTypeId);
+  if (!access.ok) return access.response;
+  const sizeLimitWords = access.sizeLimitWords;
   const patchPolicy = await getPlatformUsagePolicy(db);
 
   const cleaned = stripAiMarksFromTipTapContent(tipTapContent) as TipTapDoc;
@@ -1413,13 +1373,12 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     };
   }
 
+  // Resubmission is a submission: run the same access gate as document
+  // creation BEFORE any S3 read, OCR, slot reservation or draft write.
   const documentTypeId = docRows[0].document_type_id as string;
-  const dtRows = await db.query(
-    `SELECT size_limit_words FROM document_type WHERE id = $1`,
-    [documentTypeId],
-  );
-  const sizeLimitWords =
-    typeof dtRows[0]?.size_limit_words === 'number' ? dtRows[0].size_limit_words : null;
+  const access = await enforceSubmissionAccess(db, actor.userId, documentTypeId);
+  if (!access.ok) return access.response;
+  const sizeLimitWords = access.sizeLimitWords;
   const createDraftPolicy = await getPlatformUsagePolicy(db);
   const draftPlatformWordLimit = createDraftPolicy.maxWordCount;
 
@@ -1427,7 +1386,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
   let normalizedSegments: Array<{ index: number; text: string }>;
   let wordCount: number;
   // Authoritative character count (footnote-aware for TipTap sources), used for
-  // the defense-in-depth character ceiling alongside wordCount (f-ca2d70a5).
+  // the defense-in-depth character ceiling alongside wordCount.
   let charCount: number;
   let storedContent: TipTapDoc | undefined = tipTapContent;
   let storedHeader: TipTapDoc | undefined;
@@ -1482,7 +1441,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
       // and every success path clears again after commit.
       await clearOrphanUploadTag(key);
 
-      if (shouldIngestPdfAsync(fileName, !!tipTapContent)) {
+      if (shouldIngestPdfAsync(fileName)) {
         // Any throw out of the transaction (ownership 404, reservation 429,
         // insert or commit failure) means it rolled back and this request
         // references nothing, so re-tag the upload.
@@ -1656,7 +1615,7 @@ async function handleCreateDraft(event: any): Promise<APIGatewayProxyResult> {
     // Segments write branch: body.segments is taken directly and is NOT passed
     // through rejectUnsafeTipTap, so the 8MB-per-field TipTap bound does not
     // apply here. Enforce a serialized-bytes cap on the raw payload plus the
-    // word/char ceiling BEFORE reserving a draft slot (f-ca2d70a5).
+    // word/char ceiling BEFORE reserving a draft slot.
     const segmentBytes = serializedTipTapBytes(segments);
     if (segmentBytes > TIPTAP_FIELD_MAX_BYTES) {
       return {

@@ -37,7 +37,7 @@ describe('overSizeLimitHttpResponse (PATCH autosave)', () => {
     expect(overSizeLimitHttpResponse(1, 50)).toBeNull();
   });
 
-  it('rejects on the char ceiling when a char count is supplied (finding f-ca2d70a5)', () => {
+  it('rejects on the char ceiling when a char count is supplied', () => {
     const charLimit = effectiveCharLimit(50);
     const result = overSizeLimitHttpResponse(1, 50, null, charLimit + 1);
     expect(result).not.toBeNull();

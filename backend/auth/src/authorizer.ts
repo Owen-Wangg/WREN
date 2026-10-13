@@ -59,7 +59,7 @@ import {
 } from './authContextSigning';
 import {
   ensureAppUser,
-  ensureTechnicalAdminForArmedSubject,
+  grantTechnicalAdminBootstrapOnce,
   IdentityProvisioningRefusedError,
   type ProvisioningDb,
   type ProvisionUserDeps,
@@ -86,7 +86,7 @@ export const UNAUTHORIZED = 'Unauthorized';
 
 /**
  * Emit a single structured, machine-queryable log line for an authentication
- * failure or deny decision (Issue #187). Previously the authorizer threw/denied
+ * failure or deny decision. Previously the authorizer threw/denied
  * with no log line, so 401/403s at the request layer were invisible to
  * operators and unalarmable. Deliberately logs NO secrets: never the token or
  * Authorization header — only the reason, the route (methodArn), and the
@@ -271,14 +271,23 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
         // First-admin bootstrap on the candidate's authenticated application
         // request. Access tokens do not reliably carry `cognito:groups`, so
         // ensureAppUser's group check may not elevate; this path is gated
-        // solely on the operator-armed exact-subject match. Re-read context
-        // so this same request is authorized with the freshly granted role.
-        await ensureTechnicalAdminForArmedSubject(db, context.userId);
-        context = (await mapSubjectToAuthContext(subject, db)) ?? context;
+        // solely on the operator-armed exact-subject match. The grant runs at
+        // most once per subject (a one-shot marker records it) and emits a
+        // role.assigned event; a role revoked afterwards is not re-granted.
+        // Re-read context only when a grant was actually made so this request
+        // reflects it.
+        const { granted } = await grantTechnicalAdminBootstrapOnce(
+          db,
+          { userId: context.userId, idpSubject: subject },
+          { recordActivityEvent },
+        );
+        if (granted) {
+          context = (await mapSubjectToAuthContext(subject, db)) ?? context;
+        }
       }
 
       // Sign the context so downstream service Lambdas can prove it was
-      // minted here and not forged on a direct invoke (finding f-140e2506).
+      // minted here and not forged on a direct invoke.
       // Only when a signing secret is configured (always true in deployed
       // environments via CDK); unconfigured local/test runs emit the context
       // unsigned, which the service verifiers accept only in permissive mode.

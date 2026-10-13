@@ -38,8 +38,8 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-# Defense-in-depth caps on footnote text appended to the Bedrock prompt
-# (findings f-ca2d70a5, f-4d906a98). The Node write gate now counts footnote
+# Defense-in-depth caps on footnote text appended to the Bedrock prompt.
+# The Node write gate now counts footnote
 # bodies and metadata, but the engine must not assume the gate was applied: a
 # stored draft could predate the fix. We bound each footnote body and the
 # aggregate, each citation metadata field, and the number of footnotes rendered
@@ -48,13 +48,13 @@ logger = logging.getLogger(__name__)
 # for the body values.
 MAX_FOOTNOTE_CONTENT_CHARS = 2_000
 # Aggregate ceiling on ALL attacker-controlled footnote text — bodies AND
-# citation metadata values combined — charged against a single running budget
-# (finding f-de6a04f5). Without charging metadata here, per-field caps alone let
+# citation metadata values combined — charged against a single running budget.
+# Without charging metadata here, per-field caps alone let
 # ~500 footnotes × 5 fields × 500 chars reach the prompt; this bounds the total.
 MAX_FOOTNOTES_TOTAL_CHARS = 12_000
 # Each citation metadata field (author/title/source/pinpoint/year) is rendered
-# verbatim; cap each one so a single field cannot amplify the prompt
-# (f-4d906a98). The aggregate budget above bounds the sum across all fields.
+# verbatim; cap each one so a single field cannot amplify the prompt.
+# The aggregate budget above bounds the sum across all fields.
 MAX_FOOTNOTE_METADATA_FIELD_CHARS = 500
 # Upper bound on how many footnotes are rendered into the block at all, so the
 # footnote COUNT cannot amplify the prompt even when each one is small.
@@ -63,7 +63,7 @@ MAX_FOOTNOTES_RENDERED = 500
 # integers; a stored draft could carry a huge numeric ``footnoteNumber`` (e.g.
 # a ~309-digit value from a float round-trip) that is rendered verbatim as
 # decimal digits, so bound the magnitude to keep each rendered number to a few
-# digits (finding f-b4f8ddb1). Footnotes outside ``(0, MAX_FOOTNOTE_NUMBER]``
+# digits. Footnotes outside ``(0, MAX_FOOTNOTE_NUMBER]``
 # are dropped from the rendered block.
 MAX_FOOTNOTE_NUMBER = 100_000
 
@@ -124,7 +124,7 @@ def _cap_footnotes(
 ) -> tuple[list[tuple[FootnoteMetadata, str]], int, int, int]:
     """Cap footnote bodies AND citation metadata for prompt rendering.
 
-    Caps applied (findings f-ca2d70a5, f-4d906a98, f-de6a04f5):
+    Caps applied:
       - at most ``MAX_FOOTNOTES_RENDERED`` footnotes are rendered; the rest are
         dropped;
       - each body is trimmed to ``MAX_FOOTNOTE_CONTENT_CHARS``;
@@ -141,8 +141,8 @@ def _cap_footnotes(
     ``dropped_count`` is the number of whole footnotes dropped by the count cap.
     """
     # Drop footnotes whose NUMBER is out of the sane range before anything else,
-    # so an absurd numeric id cannot be rendered as hundreds of digits
-    # (finding f-b4f8ddb1). This bounds each rendered number to <= 6 digits.
+    # so an absurd numeric id cannot be rendered as hundreds of digits.
+    # This bounds each rendered number to <= 6 digits.
     def _valid_number(fn: FootnoteMetadata) -> bool:
         return 0 < fn.footnote_number <= MAX_FOOTNOTE_NUMBER
 
@@ -172,7 +172,7 @@ def _cap_footnotes(
         capped_meta = {}
         for field in ("author", "title", "source", "pinpoint", "year"):
             # Each field is bounded by its own cap AND by the shared aggregate
-            # budget (finding f-de6a04f5), so total metadata cannot blow past
+            # budget, so total metadata cannot blow past
             # MAX_FOOTNOTES_TOTAL_CHARS regardless of field or footnote count.
             field_limit = min(MAX_FOOTNOTE_METADATA_FIELD_CHARS, max(remaining, 0))
             capped, cut = _truncate_field(getattr(fn, field), field_limit)
@@ -275,7 +275,7 @@ def build_footnotes_untrusted_content(
 
     Footnote bodies are capped per footnote and in aggregate
     (``MAX_FOOTNOTE_CONTENT_CHARS`` / ``MAX_FOOTNOTES_TOTAL_CHARS``) as a
-    defense-in-depth bound on prompt size (finding f-ca2d70a5); when any body
+    defense-in-depth bound on prompt size; when any body
     is trimmed, a warning and one EMF metric are emitted. Bodies within the
     caps are emitted byte-for-byte, so the no-oversize case is unchanged.
     """

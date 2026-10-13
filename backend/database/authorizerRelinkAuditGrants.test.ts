@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * Guard for the first-login relink hardening grants (finding f-4531f8e7).
+ * Guard for the first-login relink hardening grants.
  * The hardened ensureAppUser checks department_visibility_grant before a relink
  * and writes an append-only `identity.relinked` activity_event.
  */

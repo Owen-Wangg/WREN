@@ -9,6 +9,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
 
 import { resolveLogRetention, type AppConfig } from "../config";
+import { RegionalApiWafConstruct } from "../constructs/RegionalApiWafConstruct";
 import {
   CORS_ALLOW_HEADERS,
   CORS_ALLOW_METHODS,
@@ -31,8 +32,6 @@ export interface ApiStackProps extends StackProps {
   readonly feedbackFunctionArn: string;
   /** ARN of the Admin/Config/Auth/Usage service Lambda. */
   readonly adminFunctionArn: string;
-  /** ARN of the Audit/Activity-Log/Analytics service Lambda. */
-  readonly auditFunctionArn: string;
   /** ARN of the Notification service Lambda. */
   readonly notificationFunctionArn: string;
 }
@@ -40,7 +39,8 @@ export interface ApiStackProps extends StackProps {
 /**
  * `${StackPrefix}-Api` — REST API Gateway (SpecRestApi from OpenAPI spec).
  *
- * - Regional endpoint (fronted by CloudFront in a later stack).
+ * - Regional endpoint with a REGIONAL WAF WebACL (managed rules + per-IP
+ *   rate limit) associated with the stage.
  * - Lambda authorizer (Cognito JWT → app-DB identity + role + scope).
  * - Throttling: 100 req/s sustained, 200 burst.
  * - Logging: ERROR level (raised to INFO for debugging).
@@ -53,8 +53,10 @@ export interface ApiStackProps extends StackProps {
 export class ApiStack extends Stack {
   public readonly api: apigateway.SpecRestApi;
   public readonly apiEndpoint: string;
-  /** Name of the API Gateway access-log group (Issue #187) — consumed by the ObservabilityStack security alarms. */
+  /** Name of the API Gateway access-log group — consumed by the ObservabilityStack security alarms. */
   public readonly accessLogGroupName: string;
+  /** REGIONAL WAF WebACL associated with the API stage. */
+  public readonly webAcl: RegionalApiWafConstruct;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -79,7 +81,6 @@ export class ApiStack extends Stack {
       DocumentFunctionArn: String(props.documentFunctionArn),
       FeedbackFunctionArn: String(props.feedbackFunctionArn),
       AdminFunctionArn: String(props.adminFunctionArn),
-      AuditFunctionArn: String(props.auditFunctionArn),
       NotificationFunctionArn: String(props.notificationFunctionArn),
     };
 
@@ -212,7 +213,7 @@ export class ApiStack extends Stack {
     }
 
     // -----------------------------------------------------------------------
-    // API Gateway access logging (Issue #187, logging review gap 3.1).
+    // API Gateway access logging (logging review gap 3.1).
     //
     // The stage previously had loggingLevel: ERROR and NO access log, so there
     // was no request-layer audit trail — every request (including 401/403s and
@@ -268,7 +269,7 @@ export class ApiStack extends Stack {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.ERROR,
-        // Per-request structured access logging (Issue #187, gap 3.1): request
+        // Per-request structured access logging (gap 3.1): request
         // id, source IP, caller principal, method, resource path, status, and
         // latency — the security/audit trail (format defined above).
         accessLogDestination: new apigateway.LogGroupLogDestination(accessLogGroup),
@@ -293,6 +294,15 @@ export class ApiStack extends Stack {
         },
       },
       cloudWatchRole: true,
+    });
+
+    // WAF managed rules and the per-IP rate limit on the stage clients call
+    // directly (the execute-api hostname). The stage ARN follows stage
+    // replacement on OpenAPI changes, so the association is re-pointed with it.
+    this.webAcl = new RegionalApiWafConstruct(this, "ApiWaf", {
+      stackPrefix: config.stackPrefix,
+      resourceArn: this.api.deploymentStage.stageArn,
+      logRetention: resolveLogRetention(config),
     });
 
     // Bound the API-Gateway-managed *execution* log group (gap 2.2). API Gateway
@@ -361,7 +371,6 @@ export class ApiStack extends Stack {
       { id: "DocumentFn", arn: props.documentFunctionArn },
       { id: "FeedbackFn", arn: props.feedbackFunctionArn },
       { id: "AdminFn", arn: props.adminFunctionArn },
-      { id: "AuditFn", arn: props.auditFunctionArn },
       { id: "NotificationFn", arn: props.notificationFunctionArn },
     ];
 
@@ -392,6 +401,11 @@ export class ApiStack extends Stack {
     new CfnOutput(this, "ApiId", {
       value: this.api.restApiId,
       description: "API Gateway REST API ID",
+    });
+
+    new CfnOutput(this, "ApiWebAclArn", {
+      value: this.webAcl.webAcl.attrArn,
+      description: "REGIONAL WAF WebACL ARN associated with the API stage",
     });
   }
 }

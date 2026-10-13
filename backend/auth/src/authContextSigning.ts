@@ -1,7 +1,7 @@
 /**
  * HMAC signing/verification for the API Gateway authorizer context.
  *
- * Why this exists (finding f-140e2506): service Lambdas take their caller
+ * Why this exists: service Lambdas take their caller
  * identity entirely from `event.requestContext.authorizer`, which only API
  * Gateway populates on the authenticated path. A principal able to invoke a
  * service function directly (`lambda:InvokeFunction`) can hand-build an event
@@ -57,16 +57,18 @@ const SIGNED_FIELDS = [
 export type AuthContextVerifyMode = 'enforce' | 'permissive';
 
 /**
- * Runtime default is `permissive`: it flips to `enforce` only when
- * `AUTH_CONTEXT_VERIFY_MODE=enforce` is set. Production always sets it
- * explicitly from CDK (whose config default is `enforce`), so deployed service
- * Lambdas enforce; an unset env (local runs, unit tests) stays permissive so a
- * missing signing secret does not hard-fail every request.
+ * Fail closed: the runtime default is `enforce`. Only an explicit
+ * `AUTH_CONTEXT_VERIFY_MODE=permissive` relaxes verification; an unset, empty,
+ * or unrecognized value enforces. This way a service Lambda that is missing the
+ * env var (e.g. a new function that forgot the CDK spread) rejects unsigned
+ * contexts instead of silently trusting a caller-built identity. Local runs
+ * and unit tests that need the relaxed behavior must
+ * opt in via the env var or `VerifyAuthContextOptions.mode`.
  */
 export function resolveAuthContextVerifyMode(
   env: NodeJS.ProcessEnv = process.env,
 ): AuthContextVerifyMode {
-  return env[AUTH_CONTEXT_VERIFY_MODE_ENV] === 'enforce' ? 'enforce' : 'permissive';
+  return env[AUTH_CONTEXT_VERIFY_MODE_ENV] === 'permissive' ? 'permissive' : 'enforce';
 }
 
 /** True when a signing secret is configured for this function (i.e. the env var is set). */
@@ -149,11 +151,26 @@ export async function loadAuthContextSigningSecret(
   return response.SecretString;
 }
 
-/** Container-cached accessor for the signing secret. */
+/**
+ * Container-cached accessor for the signing secret. A rejected fetch is evicted
+ * from the cache so a transient Secrets Manager failure on cold start does not
+ * poison the container for its lifetime; the next call retries the fetch.
+ */
 export function getAuthContextSigningSecret(
   client?: Pick<SecretsManagerClient, 'send'>,
 ): Promise<string> {
-  return (secretPromise ??= loadAuthContextSigningSecret(client));
+  if (secretPromise === undefined) {
+    const pending = loadAuthContextSigningSecret(client);
+    pending.catch(() => {
+      // Evict the rejected promise so a later invocation can retry, but only if
+      // it is still the cached one (avoid clobbering a newer successful fetch).
+      if (secretPromise === pending) {
+        secretPromise = undefined;
+      }
+    });
+    secretPromise = pending;
+  }
+  return secretPromise;
 }
 
 /** Test seam: drop the cached secret so the next call re-fetches. */

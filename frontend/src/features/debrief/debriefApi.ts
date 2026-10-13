@@ -148,14 +148,26 @@ export async function fetchDebriefHistory(
  * DocumentEditorPage's polling fallback handles the case where AppSync is
  * unavailable during the transition period.
  */
+export interface RegenerateDebriefResult {
+  /** Draft the job was queued for; null when an older backend omits it. */
+  readonly draftId: string | null;
+}
+
 export async function regenerateDebrief(
   client: HttpClient,
   environmentId: string,
-): Promise<void> {
-  await client.request(feedbackPath(environmentId), {
+): Promise<RegenerateDebriefResult> {
+  const res = await client.request(feedbackPath(environmentId), {
     method: 'POST',
-    schema: z.object({ jobId: z.string().optional(), status: z.string().optional() }).passthrough(),
+    schema: z
+      .object({
+        jobId: z.string().optional(),
+        status: z.string().optional(),
+        draftId: z.string().optional(),
+      })
+      .passthrough(),
   });
+  return { draftId: res.draftId ?? null };
 }
 
 /** Records an applicable/not-applicable vote for one debrief section (upsert). */

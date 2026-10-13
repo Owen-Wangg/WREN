@@ -128,7 +128,9 @@ export async function createErrorCategory(
     scope: { kind: 'documentType', documentTypeId, departmentId },
   });
 
-  // Screen the prompt-bearing field before any DB write (deny-with-no-mutation).
+  // Screen the prompt-bearing fields before any DB write (deny-with-no-mutation).
+  // `name` is rendered into the trusted Document-Type block too.
+  await assertPromptInjectionFree(name);
   if (typeof internalGuidance === 'string' && internalGuidance.trim().length > 0) {
     await assertPromptInjectionFree(internalGuidance);
   }
@@ -193,7 +195,11 @@ export async function updateErrorCategory(
     scope: { kind: 'documentType', documentTypeId: scope.documentTypeId, departmentId: scope.departmentId },
   });
 
-  // Screen the prompt-bearing field before any DB write (deny-with-no-mutation).
+  // Screen the prompt-bearing fields before any DB write (deny-with-no-mutation).
+  // `name` is rendered into the trusted Document-Type block too.
+  if (typeof patch.name === 'string' && patch.name.trim().length > 0) {
+    await assertPromptInjectionFree(patch.name);
+  }
   if (typeof patch.internalGuidance === 'string' && patch.internalGuidance.trim().length > 0) {
     await assertPromptInjectionFree(patch.internalGuidance);
   }

@@ -892,7 +892,8 @@ export type ErrorCategory = z.infer<typeof errorCategorySchema>;
 export const createErrorCategoryInputSchema = z
   .object({
     documentTypeId: idSchema,
-    name: z.string().min(1),
+    // Capped: the name is rendered into the trusted Feedback Engine prompt.
+    name: z.string().min(1).max(200),
     internalGuidance: z.string().nullable().optional(),
   })
   .strict();
@@ -904,7 +905,7 @@ export type CreateErrorCategoryInput = z.infer<typeof createErrorCategoryInputSc
  */
 export const updateErrorCategoryInputSchema = z
   .object({
-    name: z.string().min(1).optional(),
+    name: z.string().min(1).max(200).optional(),
     internalGuidance: z.string().nullable().optional(),
   })
   .strict();

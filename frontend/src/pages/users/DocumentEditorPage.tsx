@@ -68,6 +68,7 @@ import {
   isTipTapDoc,
   asTipTapDoc,
   stripAiMarksFromTipTapContent,
+  stripUnsafeTipTapAttrs,
   tipTapContentToSegments,
   wordCountFromTipTapContent,
 } from '@wren/types';
@@ -545,7 +546,7 @@ export function DocumentEditorPage() {
       const { key } = presign;
 
       const cleaned = tipTap
-        ? asTipTapDoc(stripAiMarksFromTipTapContent(tipTap))
+        ? asTipTapDoc(stripUnsafeTipTapAttrs(stripAiMarksFromTipTapContent(tipTap)))
         : undefined;
       const result = await createDraftFromSource(
         apiClient,
