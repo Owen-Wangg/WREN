@@ -14,7 +14,7 @@ import {
   setDepartmentAccessState,
   setDepartmentVisibilityState,
   listDepartmentUsers,
-  archiveDepartment,
+  deleteDepartment,
 } from './departmentService';
 import {
   createDepartmentVisibilityGrant,
@@ -843,11 +843,21 @@ async function handleGetAnalyticsSummary(event: any): Promise<APIGatewayProxyRes
        ${docTypeIds.length > 0 ? `WHERE doc.document_type_id = ANY($1)` : ''}`,
       docTypeIds.length > 0 ? [docTypeIds] : [],
     ),
-    db.query<{ count: string }>(
-      `SELECT COUNT(DISTINCT ra.user_id) AS count
-       FROM role_assignment ra
-       WHERE ra.role = 'Student'`,
-    ),
+    // Department-scoped: distinct users with at least one document in the
+    // department (same definition as the department card / user list).
+    // Platform-wide (no departmentId): all users holding the Student role.
+    departmentId
+      ? db.query<{ count: string }>(
+          `SELECT COUNT(DISTINCT owner_user_id) AS count
+           FROM document
+           WHERE document_type_id = ANY($1)`,
+          [docTypeIds],
+        )
+      : db.query<{ count: string }>(
+          `SELECT COUNT(DISTINCT ra.user_id) AS count
+           FROM role_assignment ra
+           WHERE ra.role = 'Student'`,
+        ),
     db.query<{ scope_id: string; value: string }>(
       `SELECT scope_id, SUM(value)::int AS value
        FROM aggregate_counter
@@ -960,9 +970,9 @@ async function handleDeleteDepartment(event: any): Promise<APIGatewayProxyResult
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
-  const department = await archiveDepartment(actor, departmentId, db);
-  // Archiving a Department is a privileged tenant-lifecycle mutation; record it
-  // once the archive succeeded (archiveDepartment throws when absent).
+  const department = await deleteDepartment(actor, departmentId, db);
+  // Deleting a Department is a privileged tenant-lifecycle mutation; record it
+  // once the delete succeeded (deleteDepartment throws when absent).
   await auditConfigEdit(
     actor,
     { field: 'department', action: 'deleted', departmentId, objectType: 'Department' },

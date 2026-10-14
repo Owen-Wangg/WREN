@@ -56,22 +56,35 @@ export interface ActiveDepartmentContextValue {
 const ActiveDepartmentContext = createContext<ActiveDepartmentContextValue | null>(null);
 
 export function ActiveDepartmentProvider({ children }: { readonly children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const userId = user?.userId ?? '';
-  const isTechnicalAdmin = user?.roles.includes('TechnicalAdmin') ?? false;
-  const administeredIds = user?.administeredDepartmentIds ?? [];
+  const administeredIdsKey = (user?.administeredDepartmentIds ?? []).join(',');
+
+  // The signed-in identity is fetched once at login; Department Admin
+  // appointments made since then would otherwise be invisible here until a
+  // full reload. Re-sync on entering the Department Admin area.
+  useEffect(() => {
+    void refreshUser();
+  }, [refreshUser]);
 
   const { data: allDepartments = [], isLoading } = useQuery({
     queryKey: ['dept-admin-departments'],
     queryFn: () => listDepartments(),
+    // Departments created or re-scoped elsewhere (System Admin) must show up
+    // as soon as the Department Admin area is opened.
+    refetchOnMount: 'always',
   });
 
-  // Defensive client filter — API already scopes DeptAdmins; TechAdmin sees all.
+  // The Department Admin area only ever shows departments the user is
+  // appointed to as DepartmentAdmin. `/v1/departments` returns the full
+  // catalog (Students need it to self-select), so this filter is what keeps
+  // foreign departments out of this area. TechnicalAdmins are not exempt:
+  // platform-wide department management lives in the System Admin area.
+  // No appointments means no departments, never "fall back to everything".
   const departments = useMemo(() => {
-    if (isTechnicalAdmin) return allDepartments;
-    if (administeredIds.length === 0) return allDepartments;
-    return allDepartments.filter((d) => administeredIds.includes(d.id));
-  }, [allDepartments, administeredIds, isTechnicalAdmin]);
+    const allowed = new Set(administeredIdsKey ? administeredIdsKey.split(',') : []);
+    return allDepartments.filter((d) => allowed.has(d.id));
+  }, [allDepartments, administeredIdsKey]);
 
   const [activeDepartmentId, setActiveIdState] = useState<string | null>(null);
 

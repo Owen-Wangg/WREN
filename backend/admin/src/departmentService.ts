@@ -134,7 +134,12 @@ export async function listDepartments(
 ): Promise<Department[]> {
   const rows = await db.query<DepartmentRow>(
     `SELECT d.id, d.name, d.prompt, d.ask_wren_prompt, d.access_state, d.visibility_state, d.archived_at,
-            COALESCE(ac.value, 0)::int AS active_user_count,
+            -- Computed live (distinct document owners in the department) so it
+            -- always matches listDepartmentUsers. The aggregate_counter
+            -- 'active_users' row drifts because only the student create/delete
+            -- paths maintain it (admin deletions, user removal, document-type
+            -- changes and pre-existing data are not reflected).
+            COALESCE(au.active_user_count, 0)::int AS active_user_count,
             CASE
               WHEN d.visibility_state = 'VISIBLE' THEN true
               WHEN $2::boolean THEN true
@@ -149,11 +154,12 @@ export async function listDepartments(
               ELSE false
             END AS viewer_can_discover
      FROM department d
-     LEFT JOIN aggregate_counter ac
-       ON  ac.scope_kind    = 'department'
-       AND ac.scope_id      = d.id
-       AND ac.metric        = 'active_users'
-       AND ac.window_start  = '-infinity'::timestamptz
+     LEFT JOIN (
+       SELECT dt.department_id, COUNT(DISTINCT doc.owner_user_id) AS active_user_count
+       FROM document doc
+       JOIN document_type dt ON dt.id = doc.document_type_id
+       GROUP BY dt.department_id
+     ) au ON au.department_id = d.id
      WHERE d.archived_at IS NULL
      ORDER BY d.name ASC`,
     [
@@ -446,14 +452,24 @@ export async function setDepartmentVisibilityState(
 }
 
 /**
- * Archive a Department (soft-delete). Sets `archived_at` to NOW() so the
- * department is invisible to students and blocks new submissions, but all
- * child data (document types, documents, student feedback) is preserved.
+ * Permanently delete a Department, regardless of how many Document Types or
+ * Documents it still has.
  *
- * TechnicalAdmin only — archiving is a platform-level operation.
- * Returns the archived Department DTO, or throws {@link NotFoundError}.
+ * The `department` row delete cascades at the DB level (migration 0013):
+ * document types → documents → drafts / feedback / anchors / resolution
+ * history, plus reference material, topics and visibility grants.
+ * Activity-log events are untouched (no FK) and keep the original ids.
+ *
+ * `role_assignment.scope` is JSONB with no FK, so DepartmentAdmin
+ * appointments scoped to this Department are removed in the SAME statement
+ * (data-modifying CTE) — they would otherwise linger as dangling scopes. A
+ * legacy multi-department `{departmentIds: [...]}` row is only removed when
+ * this was its sole department, so other appointments are never revoked.
+ *
+ * TechnicalAdmin only — a platform-level operation.
+ * Returns the deleted Department DTO, or throws {@link NotFoundError}.
  */
-export async function archiveDepartment(
+export async function deleteDepartment(
   actor: AuthContext,
   id: string,
   db: QueryExecutor,
@@ -463,13 +479,24 @@ export async function archiveDepartment(
   }
 
   const rows = await db.query<DepartmentRow>(
-    `UPDATE department SET archived_at = now() WHERE id = $1 AND archived_at IS NULL RETURNING ${RETURNING}`,
-    [id],
+    `WITH deleted_department AS (
+       DELETE FROM department WHERE id = $1 RETURNING ${RETURNING}
+     ), removed_department_admins AS (
+       DELETE FROM role_assignment
+       WHERE role = 'DepartmentAdmin'
+         AND EXISTS (SELECT 1 FROM deleted_department)
+         AND (
+           scope ->> 'departmentId' = $2
+           OR scope -> 'departmentIds' = jsonb_build_array($2::text)
+         )
+     )
+     SELECT ${RETURNING} FROM deleted_department`,
+    [id, id],
   );
 
   const row = rows[0];
   if (!row) {
-    throw new NotFoundError(`Department '${id}' not found or already archived`);
+    throw new NotFoundError(`Department '${id}' not found`);
   }
   return toDepartment(row);
 }

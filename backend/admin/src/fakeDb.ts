@@ -262,6 +262,39 @@ function applyAssignments(
 }
 
 export class FakeDb implements QueryExecutor {
+  /**
+   * Emulate `DELETE FROM document_type` with the 0013 FK actions: catalog
+   * children and Documents (plus their drafts / feedback / anchors /
+   * resolution history) cascade. Activity events and aggregate counters are
+   * left untouched. Returns whether the Document Type existed.
+   */
+  private cascadeDeleteDocumentType(id: string): boolean {
+    if (!this.documentTypes.delete(id)) return false;
+    const removeWhere = <V>(map: Map<string, V>, pred: (v: V) => boolean) => {
+      for (const [k, v] of map) if (pred(v)) map.delete(k);
+    };
+    removeWhere(this.contentTypes, (r) => r.document_type_id === id);
+    removeWhere(this.customMetadataFields, (r) => r.document_type_id === id);
+    removeWhere(this.accessGrants, (r) => r.document_type_id === id);
+    const docIds = new Set<string>();
+    for (const [docId, doc] of this.documents) {
+      if (doc.document_type_id === id) docIds.add(docId);
+    }
+    if (docIds.size === 0) return true;
+    const draftIds = new Set<string>();
+    for (const [draftId, d] of this.drafts) if (docIds.has(d.document_id)) draftIds.add(draftId);
+    const itemIds = new Set<string>();
+    for (const [itemId, f] of this.feedbackItems) {
+      if (docIds.has(f.document_id)) itemIds.add(itemId);
+    }
+    removeWhere(this.resolutionStatusHistory, (r) => itemIds.has(r.feedback_item_id) || draftIds.has(r.draft_id));
+    removeWhere(this.anchors, (r) => itemIds.has(r.feedback_item_id) || draftIds.has(r.draft_id));
+    removeWhere(this.feedbackItems, (r) => docIds.has(r.document_id));
+    removeWhere(this.drafts, (r) => docIds.has(r.document_id));
+    removeWhere(this.documents, (r) => docIds.has(r.id));
+    return true;
+  }
+
   public readonly departments = new Map<string, DepartmentRow>();
   public readonly documentTypes = new Map<string, DocumentTypeRow>();
   public readonly contentTypes = new Map<string, ContentTypeRow>();
@@ -811,13 +844,27 @@ export class FakeDb implements QueryExecutor {
       return rows as unknown as Row[];
     }
 
-    // Archive: UPDATE department SET archived_at = now() WHERE id = $1 AND archived_at IS NULL
-    if (sql.startsWith('UPDATE department SET archived_at = now()')) {
+    // Hard delete + DepartmentAdmin scope cleanup in one data-modifying CTE
+    // (departmentService.deleteDepartment). Mirrors the DB cascade from 0013.
+    if (sql.startsWith('WITH deleted_department AS ( DELETE FROM department WHERE id = $1')) {
       const id = params[0] as string;
       const row = this.departments.get(id);
-      if (!row || row.archived_at !== null) return [] as unknown as Row[];
+      if (!row) return [] as unknown as Row[];
       this.mutationCount += 1;
-      row.archived_at = new Date().toISOString();
+      this.departments.delete(id);
+      for (const [dtId, dt] of this.documentTypes) {
+        if (dt.department_id === id) this.cascadeDeleteDocumentType(dtId);
+      }
+      for (const [raId, ra] of this.roleAssignments) {
+        if (ra.role !== 'DepartmentAdmin' || !ra.scope) continue;
+        const legacy = ra.scope.departmentIds;
+        if (
+          ra.scope.departmentId === id ||
+          (Array.isArray(legacy) && legacy.length === 1 && legacy[0] === id)
+        ) {
+          this.roleAssignments.delete(raId);
+        }
+      }
       return [projectDepartmentRow(row, sql)] as unknown as Row[];
     }
 
@@ -949,7 +996,7 @@ export class FakeDb implements QueryExecutor {
 
     if (sql.startsWith('DELETE FROM document_type WHERE id = $1')) {
       const id = params[0] as string;
-      const existed = this.documentTypes.delete(id);
+      const existed = this.cascadeDeleteDocumentType(id);
       if (existed) this.mutationCount += 1;
       return (existed ? [{ id }] : []) as unknown as Row[];
     }

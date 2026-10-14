@@ -17,6 +17,7 @@ function getServerErrorMessage(error: unknown, fallback: string): string {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
+import { purgeDeletedCatalogCaches } from '@/hooks/purgeDeletedCatalog';
 import {
   assignRole,
   createDepartmentVisibilityGrant,
@@ -126,6 +127,7 @@ export function DepartmentDetailPage() {
     mutationFn: () => deleteDepartment(departmentId!),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+      void purgeDeletedCatalogCaches(queryClient);
       navigate('/system-admin');
     },
   });
@@ -483,7 +485,7 @@ export function DepartmentDetailPage() {
                         : 'text-gray-700 hover:bg-gray-200'
                     }`}
                   >
-                    Manage Ask Wren Prompt
+                    Manage Ask WREN Prompt
                   </button>
                 )}
 
@@ -516,7 +518,7 @@ export function DepartmentDetailPage() {
             className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
           >
             <Trash2 className="h-4 w-4" />
-            Archive department
+            Delete department
           </button>
         </div>
 
@@ -526,14 +528,14 @@ export function DepartmentDetailPage() {
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
               <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-                <h2 className="text-lg font-semibold text-gray-900">Archive department?</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Delete department?</h2>
 
                 <p className="mt-2 text-sm text-gray-600">
-                  <strong>{department?.name}</strong> will be archived — it will no longer appear to students and will not accept new submissions. All existing student documents, feedback, and configuration are preserved and can be accessed by administrators.
+                  <strong>{department?.name}</strong> will be permanently deleted, along with all of its document types and every student document, draft, and piece of feedback in them. Department Admin appointments for it are removed. This cannot be undone.
                 </p>
                 {hasDocuments && (
                   <p className="mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    This department has active student submissions. Archiving will not affect existing work.
+                    This department has active student submissions. Their work will be deleted too.
                   </p>
                 )}
 
@@ -558,7 +560,7 @@ export function DepartmentDetailPage() {
                     disabled={deleteMutation.isPending}
                     className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
                   >
-                    {deleteMutation.isPending ? 'Archiving…' : 'Yes, archive'}
+                    {deleteMutation.isPending ? 'Deleting…' : 'Yes, delete'}
                   </button>
                 </div>
               </div>
@@ -961,17 +963,17 @@ export function DepartmentDetailPage() {
             </div>
           )}
 
-          {/* Manage Ask Wren Prompt Tab */}
+          {/* Manage Ask WREN Prompt Tab */}
           {activeTab === 'ask-wren' && canManageAskWrenPrompt && (
             <div>
-              <h2 className="mb-6 text-3xl font-bold text-gray-900">Ask Wren Prompt</h2>
+              <h2 className="mb-6 text-3xl font-bold text-gray-900">Ask WREN Prompt</h2>
 
               <div className="rounded-lg border border-gray-200 bg-white p-8 max-w-4xl space-y-6">
                 <p className="text-sm text-gray-600">
-                  Add department-specific context for Ask Wren, the Socratic writing coach students
-                  chat with about their draft. This shapes how Ask Wren frames its coaching questions
+                  Add department-specific context for Ask WREN, the Socratic writing coach students
+                  chat with about their draft. This shapes how Ask WREN frames its coaching questions
                   across every document type in this department. It does not change automated feedback
-                  generation, and it never overrides Ask Wren's core coaching rules (it will still
+                  generation, and it never overrides Ask WREN's core coaching rules (it will still
                   never rewrite student text).
                 </p>
 
@@ -980,11 +982,11 @@ export function DepartmentDetailPage() {
                     htmlFor="ask-wren-prompt"
                     className="block text-sm font-semibold text-gray-900 mb-1"
                   >
-                    Ask Wren Coaching Context
+                    Ask WREN Coaching Context
                   </label>
                   <p className="text-xs text-gray-500 mb-2">
                     Who are the writers, what discipline are they in, and what conventions should Ask
-                    Wren keep in mind when asking guiding questions?
+                    WREN keep in mind when asking guiding questions?
                   </p>
                   <textarea
                     id="ask-wren-prompt"
@@ -1001,7 +1003,7 @@ export function DepartmentDetailPage() {
                     disabled={askWrenPromptMutation.isPending}
                     className="rounded-lg bg-gray-900 px-6 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {askWrenPromptMutation.isPending ? 'Saving...' : 'Save Ask Wren Prompt'}
+                    {askWrenPromptMutation.isPending ? 'Saving...' : 'Save Ask WREN Prompt'}
                   </button>
                   <button
                     onClick={() => setAskWrenPromptText('')}
@@ -1016,7 +1018,7 @@ export function DepartmentDetailPage() {
                     <p role="alert" className="text-sm font-medium text-red-600">
                       {getServerErrorMessage(
                         askWrenPromptMutation.error,
-                        'Error saving Ask Wren prompt — please try again.',
+                        'Error saving Ask WREN prompt — please try again.',
                       )}
                     </p>
                   )}

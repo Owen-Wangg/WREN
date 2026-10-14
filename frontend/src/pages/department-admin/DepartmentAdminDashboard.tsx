@@ -13,6 +13,7 @@ import {
   updateDepartmentPrompt,
 } from '@/features/department-admin/departmentAdminApi';
 import { DepartmentPromptEditor } from '@/features/department-admin/DepartmentPromptEditor';
+import { purgeDeletedCatalogCaches } from '@/hooks/purgeDeletedCatalog';
 import { ApiError } from '@/services';
 
 function createErrorMessage(error: unknown): string {
@@ -38,9 +39,6 @@ function deleteErrorMessage(error: unknown): string {
       const msg = (details as { message?: unknown }).message;
       if (typeof msg === 'string' && msg.trim()) return msg;
     }
-    if (error.status === 409) {
-      return 'This document type cannot be deleted while documents still use it. Delete those documents first.';
-    }
     if (error.status === 403) {
       return 'You do not have permission to delete this document type.';
     }
@@ -48,6 +46,27 @@ function deleteErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return 'Failed to delete document type. Please try again.';
 }
+
+function listErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 403 || error.status === 404) {
+      return 'Document types for this department could not be loaded: your account is not recognised as an admin of it. Sign out and back in, or ask a System Admin to check your appointment.';
+    }
+    const details = error.details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+  }
+  return 'Document types could not be loaded. Please try again.';
+}
+
+type PromptTabId = 'department' | 'ask-wren';
+
+const PROMPT_TABS: ReadonlyArray<{ id: PromptTabId; label: string }> = [
+  { id: 'department', label: 'Department Prompt' },
+  { id: 'ask-wren', label: 'Ask WREN Prompt' },
+];
 
 function promptErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -61,7 +80,7 @@ function promptErrorMessage(error: unknown): string {
     }
   }
   if (error instanceof Error) return error.message;
-  return 'Failed to save the Ask Wren prompt. Please try again.';
+  return 'Failed to save the Ask WREN prompt. Please try again.';
 }
 
 export function DepartmentAdminDashboard() {
@@ -78,6 +97,8 @@ export function DepartmentAdminDashboard() {
   const [newDocTypeName, setNewDocTypeName] = useState('');
   const [docTypeToDelete, setDocTypeToDelete] = useState<{ id: string; name: string } | null>(null);
   const [askWrenPrompt, setAskWrenPrompt] = useState('');
+  const [activePromptTab, setActivePromptTab] = useState<PromptTabId>('department');
+  const [promptsExpanded, setPromptsExpanded] = useState(true);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -102,6 +123,7 @@ export function DepartmentAdminDashboard() {
       void queryClient.invalidateQueries({
         queryKey: ['dept-admin-document-types', activeDepartment?.id],
       });
+      void purgeDeletedCatalogCaches(queryClient);
       setDocTypeToDelete(null);
     },
   });
@@ -117,7 +139,13 @@ export function DepartmentAdminDashboard() {
     },
   });
 
-  const { data: documentTypes = [], isLoading: typesLoading } = useQuery({
+  const {
+    data: documentTypes = [],
+    isLoading: typesLoading,
+    isError: typesIsError,
+    error: typesError,
+    refetch: refetchTypes,
+  } = useQuery({
     queryKey: ['dept-admin-document-types', activeDepartment?.id],
     queryFn: () =>
       activeDepartment?.id ? listDocumentTypes(activeDepartment.id) : Promise.resolve([]),
@@ -142,8 +170,10 @@ export function DepartmentAdminDashboard() {
     );
   }
 
-  // Both department prompts (Feedback-Engine + Ask Wren) are editable by a
-  // DepartmentAdmin appointed to this department; the backend re-checks scope.
+  // Both department prompts (Feedback-Engine + Ask WREN) are shown only to a
+  // DepartmentAdmin appointed to this department. TechnicalAdmins edit any
+  // department's prompts from the System Admin area. The backend re-checks
+  // scope on save.
   const canManageDepartmentPrompts = Boolean(
     user?.roles.includes('DepartmentAdmin') &&
     user.administeredDepartmentIds.includes(activeDepartment.id),
@@ -188,34 +218,111 @@ export function DepartmentAdminDashboard() {
         </p>
       </div>
 
-      {/* Department-level Feedback-Engine prompt */}
+      {/* Department prompts — one tabbed card instead of two stacked editors */}
       {canManageDepartmentPrompts && (
-        <section className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-          <h1 className="mb-4 text-2xl font-bold text-gray-900">Department Prompt</h1>
-          <DepartmentPromptEditor
-            departmentId={activeDepartment.id}
-            prompt={activeDepartment.prompt}
-            save={updateDepartmentPrompt}
-            onSaved={() => {
-              void queryClient.invalidateQueries({ queryKey: ['dept-admin-departments'] });
-            }}
-          />
-        </section>
-      )}
+        <section
+          aria-labelledby="department-prompts-heading"
+          className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white shadow-sm"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-6 py-4">
+            <h2 id="department-prompts-heading" className="text-lg font-semibold text-gray-900">
+              Prompts
+            </h2>
+            <div className="flex items-center gap-2">
+              <div
+                role="tablist"
+                aria-label="Department prompts"
+                className="inline-flex rounded-lg bg-gray-100 p-1"
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                  event.preventDefault();
+                  const index = PROMPT_TABS.findIndex((t) => t.id === activePromptTab);
+                  const delta = event.key === 'ArrowRight' ? 1 : -1;
+                  const next = PROMPT_TABS[(index + delta + PROMPT_TABS.length) % PROMPT_TABS.length]!;
+                  setActivePromptTab(next.id);
+                  setPromptsExpanded(true);
+                  document.getElementById(`prompt-tab-${next.id}`)?.focus();
+                }}
+              >
+                {PROMPT_TABS.map((tab) => {
+                  const selected = activePromptTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      id={`prompt-tab-${tab.id}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      aria-controls={`prompt-panel-${tab.id}`}
+                      tabIndex={selected ? 0 : -1}
+                      onClick={() => {
+                        setActivePromptTab(tab.id);
+                        setPromptsExpanded(true);
+                      }}
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${
+                        selected && promptsExpanded
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setPromptsExpanded((open) => !open)}
+                aria-expanded={promptsExpanded}
+                aria-controls={`prompt-panel-${activePromptTab}`}
+                aria-label={promptsExpanded ? 'Collapse prompts' : 'Expand prompts'}
+                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+              >
+                <ChevronDown
+                  size={18}
+                  aria-hidden="true"
+                  className={`transition-transform ${promptsExpanded ? 'rotate-180' : ''}`}
+                />
+              </button>
+            </div>
+          </div>
 
-      {/* Department-level Ask Wren coaching context */}
-      {canManageDepartmentPrompts && (
-        <section className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-bold text-gray-900">Ask Wren Prompt</h1>
+          {/* Panels stay mounted (hidden) so unsaved edits survive tab switches. */}
+          <div
+            id="prompt-panel-department"
+            role="tabpanel"
+            aria-labelledby="prompt-tab-department"
+            hidden={!promptsExpanded || activePromptTab !== 'department'}
+            className="p-6"
+          >
+            <h3 className="mb-4 text-xl font-bold text-gray-900">Department Prompt</h3>
+            <DepartmentPromptEditor
+              departmentId={activeDepartment.id}
+              prompt={activeDepartment.prompt}
+              save={updateDepartmentPrompt}
+              onSaved={() => {
+                void queryClient.invalidateQueries({ queryKey: ['dept-admin-departments'] });
+              }}
+            />
+          </div>
+
+          <div
+            id="prompt-panel-ask-wren"
+            role="tabpanel"
+            aria-labelledby="prompt-tab-ask-wren"
+            hidden={!promptsExpanded || activePromptTab !== 'ask-wren'}
+            className="p-6"
+          >
+        <h3 className="text-xl font-bold text-gray-900">Ask WREN Prompt</h3>
         <p className="mt-2 text-sm text-gray-600">
-          Add department-specific context for Ask Wren's Socratic coaching questions across
+          Add department-specific context for Ask WREN's Socratic coaching questions across
           every document type in {activeDepartment.name}. Core coaching safeguards still apply.
         </p>
         <label
           htmlFor="department-ask-wren-prompt"
           className="mt-5 block text-sm font-semibold text-gray-900"
         >
-          Ask Wren coaching context
+          Ask WREN coaching context
         </label>
         <textarea
           id="department-ask-wren-prompt"
@@ -234,7 +341,7 @@ export function DepartmentAdminDashboard() {
             disabled={askWrenPromptMutation.isPending}
             className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {askWrenPromptMutation.isPending ? 'Saving…' : 'Save Ask Wren Prompt'}
+            {askWrenPromptMutation.isPending ? 'Saving…' : 'Save Ask WREN Prompt'}
           </button>
           <button
             type="button"
@@ -258,6 +365,7 @@ export function DepartmentAdminDashboard() {
             {promptErrorMessage(askWrenPromptMutation.error)}
           </p>
         )}
+          </div>
         </section>
       )}
 
@@ -279,6 +387,22 @@ export function DepartmentAdminDashboard() {
         <p className="mb-6 font-semibold text-gray-900">
           My Document Types ({documentTypes.length})
         </p>
+
+        {typesIsError && (
+          <div
+            role="alert"
+            className="mb-6 flex items-center justify-between gap-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            <span>{listErrorMessage(typesError)}</span>
+            <button
+              type="button"
+              onClick={() => void refetchTypes()}
+              className="shrink-0 rounded-lg border border-red-300 px-3 py-1 font-semibold hover:bg-red-100"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         <div className="mb-6">
           <input
@@ -344,9 +468,9 @@ export function DepartmentAdminDashboard() {
             <h2 className="mb-4 text-xl font-semibold text-gray-900">Delete Document Type</h2>
             <p className="mb-4 text-sm text-gray-600">
               Are you sure you want to delete{' '}
-              <span className="font-semibold">{docTypeToDelete.name}</span>? This action cannot be
-              undone. Types that still have submitted documents cannot be deleted until those
-              documents are removed.
+              <span className="font-semibold">{docTypeToDelete.name}</span>? Every student
+              document of this type, including drafts in progress and their feedback, will be
+              permanently deleted. This action cannot be undone.
             </p>
             {deleteDocTypeMutation.isError && (
               <p className="mb-4 text-sm text-red-600">

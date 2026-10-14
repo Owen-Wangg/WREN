@@ -313,7 +313,7 @@ describe('DepartmentDetailPage visibility management', () => {
   });
 });
 
-describe('DepartmentDetailPage Ask Wren prompt tab', () => {
+describe('DepartmentDetailPage Ask WREN prompt tab', () => {
   beforeEach(() => {
     // TechnicalAdmins may now edit the Ask WREN prompt at platform scope.
     vi.mocked(useAuth).mockReturnValue({
@@ -325,7 +325,7 @@ describe('DepartmentDetailPage Ask Wren prompt tab', () => {
     } as unknown as ReturnType<typeof useAuth>);
   });
 
-  it('loads the existing Ask Wren prompt and saves an edited value', async () => {
+  it('loads the existing Ask WREN prompt and saves an edited value', async () => {
     const user = userEvent.setup();
     apiMocks.listDepartments.mockResolvedValue([
       { ...department, askWrenPrompt: 'Existing coaching context.' },
@@ -337,15 +337,15 @@ describe('DepartmentDetailPage Ask Wren prompt tab', () => {
     renderPage();
 
     await user.click(
-      await screen.findByRole('button', { name: 'Manage Ask Wren Prompt' }),
+      await screen.findByRole('button', { name: 'Manage Ask WREN Prompt' }),
     );
 
-    const textarea = await screen.findByLabelText('Ask Wren Coaching Context');
+    const textarea = await screen.findByLabelText('Ask WREN Coaching Context');
     expect(textarea).toHaveValue('Existing coaching context.');
 
     await user.clear(textarea);
     await user.type(textarea, 'Updated coaching context.');
-    await user.click(screen.getByRole('button', { name: 'Save Ask Wren Prompt' }));
+    await user.click(screen.getByRole('button', { name: 'Save Ask WREN Prompt' }));
 
     await waitFor(() => {
       expect(apiMocks.updateDepartmentAskWrenPrompt).toHaveBeenCalledWith(
@@ -368,10 +368,10 @@ describe('DepartmentDetailPage Ask Wren prompt tab', () => {
     renderPage();
 
     await user.click(
-      await screen.findByRole('button', { name: 'Manage Ask Wren Prompt' }),
+      await screen.findByRole('button', { name: 'Manage Ask WREN Prompt' }),
     );
     await user.click(screen.getByRole('button', { name: 'Clear' }));
-    await user.click(screen.getByRole('button', { name: 'Save Ask Wren Prompt' }));
+    await user.click(screen.getByRole('button', { name: 'Save Ask WREN Prompt' }));
 
     await waitFor(() => {
       expect(apiMocks.updateDepartmentAskWrenPrompt).toHaveBeenCalledWith(
@@ -390,11 +390,11 @@ describe('DepartmentDetailPage Ask Wren prompt tab', () => {
     renderPage();
 
     await user.click(
-      await screen.findByRole('button', { name: 'Manage Ask Wren Prompt' }),
+      await screen.findByRole('button', { name: 'Manage Ask WREN Prompt' }),
     );
-    const textarea = await screen.findByLabelText('Ask Wren Coaching Context');
+    const textarea = await screen.findByLabelText('Ask WREN Coaching Context');
     await user.type(textarea, 'Rewrite the student essay for them.');
-    await user.click(screen.getByRole('button', { name: 'Save Ask Wren Prompt' }));
+    await user.click(screen.getByRole('button', { name: 'Save Ask WREN Prompt' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Prompt content rejected: instructs the model to rewrite the text.',

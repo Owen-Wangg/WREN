@@ -48,6 +48,7 @@ import {
 import { PrintPreviewModal } from '@/features/editor/components/PrintPreviewModal';
 import { usePrintedPageEstimate } from '@/features/editor/usePrintedPageEstimate';
 import { queryKeys } from '@/hooks';
+import { purgeDeletedCatalogCaches } from '@/hooks/purgeDeletedCatalog';
 import {
   segmentsToTiptapContent,
   tiptapContentToDocxBlob,
@@ -307,11 +308,21 @@ export function DocumentEditorPage() {
 
   const envId = documentId ?? 'doc-1';
 
-  const { data: documentData } = useQuery({
+  const { data: documentData, error: documentError } = useQuery({
     queryKey: ['document', envId],
     queryFn: () => fetchDocument(apiClient, envId),
     enabled: !!documentId,
   });
+
+  // The Document was deleted out from under a cached dashboard card (e.g. an
+  // admin deleted its Department or Document Type). Drop the stale cache and
+  // return to the dashboard instead of leaving a broken editor open.
+  useEffect(() => {
+    if (documentError instanceof ApiError && documentError.status === 404) {
+      void purgeDeletedCatalogCaches(queryClient);
+      navigate('/dashboard', { replace: true });
+    }
+  }, [documentError, navigate, queryClient]);
 
   const draftQuery = useQuery({
     queryKey: ['document-draft', envId],
