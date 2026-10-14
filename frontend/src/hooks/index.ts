@@ -10,6 +10,7 @@
 
 // Query keys factory
 export { queryKeys } from './queryKeys';
+export { purgeDeletedCatalogCaches } from './purgeDeletedCatalog';
 
 // Document hooks
 export {

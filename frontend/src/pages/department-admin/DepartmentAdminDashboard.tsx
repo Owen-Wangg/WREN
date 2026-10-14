@@ -13,6 +13,7 @@ import {
   updateDepartmentPrompt,
 } from '@/features/department-admin/departmentAdminApi';
 import { DepartmentPromptEditor } from '@/features/department-admin/DepartmentPromptEditor';
+import { purgeDeletedCatalogCaches } from '@/hooks/purgeDeletedCatalog';
 import { ApiError } from '@/services';
 
 function createErrorMessage(error: unknown): string {
@@ -122,6 +123,7 @@ export function DepartmentAdminDashboard() {
       void queryClient.invalidateQueries({
         queryKey: ['dept-admin-document-types', activeDepartment?.id],
       });
+      void purgeDeletedCatalogCaches(queryClient);
       setDocTypeToDelete(null);
     },
   });

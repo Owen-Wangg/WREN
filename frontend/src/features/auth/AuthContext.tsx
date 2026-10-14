@@ -242,6 +242,10 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
     } catch {
       // ignore
     }
+    // Same identity, so keep the cache, but mark it stale: changes made under
+    // the previous persona (e.g. an admin deleting a Department) must show up
+    // in the new view instead of serving cached cards.
+    void queryClient.invalidateQueries();
   };
 
   const value: AuthContextValue = {

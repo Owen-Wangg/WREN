@@ -5,6 +5,7 @@ import { Trash2, ChevronDown } from 'lucide-react';
 
 import { listDepartments, getAnalytics, getModelConfig, updateModelConfig, createDepartment, deleteDepartment, getPlatformUsageLimits, updatePlatformUsageLimits } from '@/features/system-admin/systemAdminApi';
 import { ApiError } from '@/services/apiClient';
+import { purgeDeletedCatalogCaches } from '@/hooks/purgeDeletedCatalog';
 import { SystemUsageLimitsForm } from '@/features/system-admin/components/SystemUsageLimitsForm';
 import type { UsageLimits } from '@/features/system-admin/systemAdminSchemas';
 
@@ -59,12 +60,14 @@ export function SystemAdminDashboard() {
     mutationFn: (id: string) => deleteDepartment(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+      void purgeDeletedCatalogCaches(queryClient);
       setDeletingDeptId(null);
     },
     onError: (err) => {
       // 404 means already deleted — treat as success and refresh the list
       if (err instanceof ApiError && err.status === 404) {
         void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+        void purgeDeletedCatalogCaches(queryClient);
         setDeletingDeptId(null);
       }
     },

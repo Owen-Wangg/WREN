@@ -17,6 +17,7 @@ function getServerErrorMessage(error: unknown, fallback: string): string {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
+import { purgeDeletedCatalogCaches } from '@/hooks/purgeDeletedCatalog';
 import {
   assignRole,
   createDepartmentVisibilityGrant,
@@ -126,6 +127,7 @@ export function DepartmentDetailPage() {
     mutationFn: () => deleteDepartment(departmentId!),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
+      void purgeDeletedCatalogCaches(queryClient);
       navigate('/system-admin');
     },
   });

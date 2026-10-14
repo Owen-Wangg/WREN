@@ -458,7 +458,7 @@ export async function setDepartmentVisibilityState(
  * The `department` row delete cascades at the DB level (migration 0013):
  * document types → documents → drafts / feedback / anchors / resolution
  * history, plus reference material, topics and visibility grants.
- * Activity-log events keep their row with `department_id` set to NULL.
+ * Activity-log events are untouched (no FK) and keep the original ids.
  *
  * `role_assignment.scope` is JSONB with no FK, so DepartmentAdmin
  * appointments scoped to this Department are removed in the SAME statement

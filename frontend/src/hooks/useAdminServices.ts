@@ -6,6 +6,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from './queryKeys';
+import { purgeDeletedCatalogCaches } from './purgeDeletedCatalog';
 import {
   createDocumentType,
   deleteDocumentType,
@@ -55,6 +56,7 @@ export function useDeleteDocumentType() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.documentTypes(),
       });
+      void purgeDeletedCatalogCaches(queryClient);
     },
   });
 }
