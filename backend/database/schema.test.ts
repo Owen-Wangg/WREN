@@ -222,9 +222,9 @@ describe('deletion retention partitioning (Requirement 45.x)', () => {
       );
     });
 
-    it('defers the error_category check to end of statement so the cascade can finish', () => {
+    it('defers the error_category check to commit so sibling cascades can finish', () => {
       expect(cascadeSql).toMatch(
-        /ADD CONSTRAINT feedback_item_error_category_id_fkey FOREIGN KEY \(error_category_id\)\s+REFERENCES public\.error_category\(id\) ON DELETE NO ACTION/i,
+        /ADD CONSTRAINT feedback_item_error_category_id_fkey FOREIGN KEY \(error_category_id\)\s+REFERENCES public\.error_category\(id\) ON DELETE NO ACTION\s+DEFERRABLE INITIALLY DEFERRED/i,
       );
     });
 
