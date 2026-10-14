@@ -56,14 +56,24 @@ export interface ActiveDepartmentContextValue {
 const ActiveDepartmentContext = createContext<ActiveDepartmentContextValue | null>(null);
 
 export function ActiveDepartmentProvider({ children }: { readonly children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const userId = user?.userId ?? '';
   const isTechnicalAdmin = user?.roles.includes('TechnicalAdmin') ?? false;
   const administeredIds = user?.administeredDepartmentIds ?? [];
 
+  // The signed-in identity is fetched once at login; Department Admin
+  // appointments made since then would otherwise be invisible here until a
+  // full reload. Re-sync on entering the Department Admin area.
+  useEffect(() => {
+    void refreshUser();
+  }, [refreshUser]);
+
   const { data: allDepartments = [], isLoading } = useQuery({
     queryKey: ['dept-admin-departments'],
     queryFn: () => listDepartments(),
+    // Departments created or re-scoped elsewhere (System Admin) must show up
+    // as soon as the Department Admin area is opened.
+    refetchOnMount: 'always',
   });
 
   // Defensive client filter — API already scopes DeptAdmins; TechAdmin sees all.

@@ -49,6 +49,13 @@ function deleteErrorMessage(error: unknown): string {
   return 'Failed to delete document type. Please try again.';
 }
 
+type PromptTabId = 'department' | 'ask-wren';
+
+const PROMPT_TABS: ReadonlyArray<{ id: PromptTabId; label: string }> = [
+  { id: 'department', label: 'Department Prompt' },
+  { id: 'ask-wren', label: 'Ask WREN Prompt' },
+];
+
 function promptErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     const details = error.details;
@@ -78,6 +85,8 @@ export function DepartmentAdminDashboard() {
   const [newDocTypeName, setNewDocTypeName] = useState('');
   const [docTypeToDelete, setDocTypeToDelete] = useState<{ id: string; name: string } | null>(null);
   const [askWrenPrompt, setAskWrenPrompt] = useState('');
+  const [activePromptTab, setActivePromptTab] = useState<PromptTabId>('department');
+  const [promptsExpanded, setPromptsExpanded] = useState(true);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -143,10 +152,15 @@ export function DepartmentAdminDashboard() {
   }
 
   // Both department prompts (Feedback-Engine + Ask Wren) are editable by a
-  // DepartmentAdmin appointed to this department; the backend re-checks scope.
+  // TechnicalAdmin (platform scope) or a DepartmentAdmin appointed to this
+  // department — mirroring `department.managePrompt` /
+  // `department.manageAskWrenPrompt` in the capability matrix. The backend
+  // re-checks scope on save.
   const canManageDepartmentPrompts = Boolean(
-    user?.roles.includes('DepartmentAdmin') &&
-    user.administeredDepartmentIds.includes(activeDepartment.id),
+    user &&
+    (user.roles.includes('TechnicalAdmin') ||
+      (user.roles.includes('DepartmentAdmin') &&
+        user.administeredDepartmentIds.includes(activeDepartment.id))),
   );
   const filteredDocumentTypes = documentTypes.filter((docType) =>
     docType.name.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -188,25 +202,102 @@ export function DepartmentAdminDashboard() {
         </p>
       </div>
 
-      {/* Department-level Feedback-Engine prompt */}
+      {/* Department prompts — one tabbed card instead of two stacked editors */}
       {canManageDepartmentPrompts && (
-        <section className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-          <h1 className="mb-4 text-2xl font-bold text-gray-900">Department Prompt</h1>
-          <DepartmentPromptEditor
-            departmentId={activeDepartment.id}
-            prompt={activeDepartment.prompt}
-            save={updateDepartmentPrompt}
-            onSaved={() => {
-              void queryClient.invalidateQueries({ queryKey: ['dept-admin-departments'] });
-            }}
-          />
-        </section>
-      )}
+        <section
+          aria-labelledby="department-prompts-heading"
+          className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white shadow-sm"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-6 py-4">
+            <h2 id="department-prompts-heading" className="text-lg font-semibold text-gray-900">
+              Prompts
+            </h2>
+            <div className="flex items-center gap-2">
+              <div
+                role="tablist"
+                aria-label="Department prompts"
+                className="inline-flex rounded-lg bg-gray-100 p-1"
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                  event.preventDefault();
+                  const index = PROMPT_TABS.findIndex((t) => t.id === activePromptTab);
+                  const delta = event.key === 'ArrowRight' ? 1 : -1;
+                  const next = PROMPT_TABS[(index + delta + PROMPT_TABS.length) % PROMPT_TABS.length]!;
+                  setActivePromptTab(next.id);
+                  setPromptsExpanded(true);
+                  document.getElementById(`prompt-tab-${next.id}`)?.focus();
+                }}
+              >
+                {PROMPT_TABS.map((tab) => {
+                  const selected = activePromptTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      id={`prompt-tab-${tab.id}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      aria-controls={`prompt-panel-${tab.id}`}
+                      tabIndex={selected ? 0 : -1}
+                      onClick={() => {
+                        setActivePromptTab(tab.id);
+                        setPromptsExpanded(true);
+                      }}
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${
+                        selected && promptsExpanded
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setPromptsExpanded((open) => !open)}
+                aria-expanded={promptsExpanded}
+                aria-controls={`prompt-panel-${activePromptTab}`}
+                aria-label={promptsExpanded ? 'Collapse prompts' : 'Expand prompts'}
+                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+              >
+                <ChevronDown
+                  size={18}
+                  aria-hidden="true"
+                  className={`transition-transform ${promptsExpanded ? 'rotate-180' : ''}`}
+                />
+              </button>
+            </div>
+          </div>
 
-      {/* Department-level Ask Wren coaching context */}
-      {canManageDepartmentPrompts && (
-        <section className="mb-12 max-w-4xl rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-bold text-gray-900">Ask Wren Prompt</h1>
+          {/* Panels stay mounted (hidden) so unsaved edits survive tab switches. */}
+          <div
+            id="prompt-panel-department"
+            role="tabpanel"
+            aria-labelledby="prompt-tab-department"
+            hidden={!promptsExpanded || activePromptTab !== 'department'}
+            className="p-6"
+          >
+            <h3 className="mb-4 text-xl font-bold text-gray-900">Department Prompt</h3>
+            <DepartmentPromptEditor
+              departmentId={activeDepartment.id}
+              prompt={activeDepartment.prompt}
+              save={updateDepartmentPrompt}
+              onSaved={() => {
+                void queryClient.invalidateQueries({ queryKey: ['dept-admin-departments'] });
+              }}
+            />
+          </div>
+
+          <div
+            id="prompt-panel-ask-wren"
+            role="tabpanel"
+            aria-labelledby="prompt-tab-ask-wren"
+            hidden={!promptsExpanded || activePromptTab !== 'ask-wren'}
+            className="p-6"
+          >
+        <h3 className="text-xl font-bold text-gray-900">Ask Wren Prompt</h3>
         <p className="mt-2 text-sm text-gray-600">
           Add department-specific context for Ask Wren's Socratic coaching questions across
           every document type in {activeDepartment.name}. Core coaching safeguards still apply.
@@ -258,6 +349,7 @@ export function DepartmentAdminDashboard() {
             {promptErrorMessage(askWrenPromptMutation.error)}
           </p>
         )}
+          </div>
         </section>
       )}
 

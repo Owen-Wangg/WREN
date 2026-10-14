@@ -17,7 +17,7 @@
  * persona UI (Student / Department Admin / System Admin) without changing DB
  * assignments. Route guards use database roles; RoleContext uses `activeRole`.
  */
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { authService } from './defaultAuthService';
@@ -83,6 +83,12 @@ export interface AuthContextValue {
   readonly signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
   readonly signOut: () => Promise<void>;
   readonly getAccessToken: () => Promise<string | null>;
+  /**
+   * Re-fetch `/v1/auth/me` so role / department-admin appointments made after
+   * sign-in are reflected without a full reload. Keeps the current user on
+   * transient failures.
+   */
+  readonly refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -189,6 +195,37 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
     return authService.getAccessToken();
   };
 
+  const refreshUser = useCallback(async (): Promise<void> => {
+    try {
+      const accessToken = await authService.getAccessToken();
+      if (!accessToken) return;
+      const userFromDb = await fetchUserIdentity(apiBaseUrl, accessToken);
+      if (!userFromDb) return;
+      // Only swap the object when something changed, so consumers that
+      // depend on `user` identity do not re-render on every refresh.
+      setUser((prev) =>
+        prev && JSON.stringify(prev) === JSON.stringify(userFromDb) ? prev : userFromDb,
+      );
+    } catch (error) {
+      console.error('Failed to refresh user identity:', error);
+    }
+  }, [apiBaseUrl]);
+
+  // Roles and department-admin appointments can change while the tab is open
+  // (e.g. a System Admin appoints this user). Re-sync when the tab regains focus.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshUser();
+    };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [isAuthenticated, refreshUser]);
+
   const dbRoles = user?.roles ?? [];
   // Ignore a stale localStorage override that is not actually assigned.
   const effectiveOverride =
@@ -221,6 +258,7 @@ export function AuthProvider({ children, apiBaseUrl }: AuthProviderProps) {
     signUp,
     signOut,
     getAccessToken,
+    refreshUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

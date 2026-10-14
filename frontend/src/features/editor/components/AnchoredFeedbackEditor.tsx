@@ -179,11 +179,37 @@ export function AnchoredFeedbackEditor({
     // Comment activation handler preserved for future margin-card linkage.
   };
 
+  // Parents pass `onHighlightFailed` inline and `anchors` may be a fresh array
+  // each render. Read them through refs so the highlight effect below only
+  // re-runs when the *selected quote* changes. Otherwise every re-render
+  // (content updates from the mark dispatch itself, TOC updates on scroll)
+  // re-applies the mark and yanks the scroll position back to the quote.
+  const onHighlightFailedRef = useRef(onHighlightFailed);
+  const anchorsRef = useRef(anchors);
+  useEffect(() => {
+    onHighlightFailedRef.current = onHighlightFailed;
+    anchorsRef.current = anchors;
+  });
+
+  const highlightedAnchor = highlightedAnchorId
+    ? anchors.find((a) => a.id === highlightedAnchorId)
+    : undefined;
+  // Primitive keys: stable across renders unless the target actually changes
+  // (including the anchor arriving after feedback data loads).
+  const highlightedAnchorKey = highlightedAnchor
+    ? `${highlightedAnchor.paragraphIndex}:${highlightedAnchor.startOffset}:${highlightedAnchor.endOffset}`
+    : '';
+  const resolvedHighlightKey = highlightedResolvedHighlight
+    ? `${highlightedResolvedHighlight.paragraphIndex}:${highlightedResolvedHighlight.startOffset}:${highlightedResolvedHighlight.endOffset}`
+    : '';
+
   // When student clicks a quote in AI Debrief, scroll to and keep it highlighted
   // until they clear the selection (click again) or pick another quote.
   useEffect(() => {
     const editor = editorRef.current?.getEditor();
     if (!editor) return;
+    const onHighlightFailed = onHighlightFailedRef.current;
+    const anchors = anchorsRef.current;
 
     const markType = editor.schema.marks.highlight;
     if (markType) {
@@ -242,7 +268,8 @@ export function AnchoredFeedbackEditor({
         scrollRangeIntoView(editor, from);
       });
     });
-  }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, highlightedResolvedHighlight, anchors, onHighlightFailed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on primitive highlight keys; callback/anchors read via refs
+  }, [highlightedAnchorId, highlightedQuotedText, highlightedLocationHint, resolvedHighlightKey, highlightedAnchorKey]);
 
   return (
     <div className={['flex h-full min-h-0 flex-1 flex-col gap-0', className].filter(Boolean).join(' ')}>
