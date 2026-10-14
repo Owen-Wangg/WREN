@@ -151,16 +151,13 @@ export function DepartmentAdminDashboard() {
     );
   }
 
-  // Both department prompts (Feedback-Engine + Ask Wren) are editable by a
-  // TechnicalAdmin (platform scope) or a DepartmentAdmin appointed to this
-  // department — mirroring `department.managePrompt` /
-  // `department.manageAskWrenPrompt` in the capability matrix. The backend
-  // re-checks scope on save.
+  // Both department prompts (Feedback-Engine + Ask Wren) are shown only to a
+  // DepartmentAdmin appointed to this department. TechnicalAdmins edit any
+  // department's prompts from the System Admin area. The backend re-checks
+  // scope on save.
   const canManageDepartmentPrompts = Boolean(
-    user &&
-    (user.roles.includes('TechnicalAdmin') ||
-      (user.roles.includes('DepartmentAdmin') &&
-        user.administeredDepartmentIds.includes(activeDepartment.id))),
+    user?.roles.includes('DepartmentAdmin') &&
+    user.administeredDepartmentIds.includes(activeDepartment.id),
   );
   const filteredDocumentTypes = documentTypes.filter((docType) =>
     docType.name.toLowerCase().includes(searchTerm.toLowerCase()),
