@@ -40,7 +40,7 @@ export async function updateDepartmentPrompt(departmentId: string, prompt: strin
   });
 }
 
-/** Update the DepartmentAdmin-owned Ask Wren coaching context. */
+/** Update the DepartmentAdmin-owned Ask WREN coaching context. */
 export async function updateDepartmentAskWrenPrompt(
   departmentId: string,
   askWrenPrompt: string | null,

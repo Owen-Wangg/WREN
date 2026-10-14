@@ -80,7 +80,7 @@ function promptErrorMessage(error: unknown): string {
     }
   }
   if (error instanceof Error) return error.message;
-  return 'Failed to save the Ask Wren prompt. Please try again.';
+  return 'Failed to save the Ask WREN prompt. Please try again.';
 }
 
 export function DepartmentAdminDashboard() {
@@ -170,7 +170,7 @@ export function DepartmentAdminDashboard() {
     );
   }
 
-  // Both department prompts (Feedback-Engine + Ask Wren) are shown only to a
+  // Both department prompts (Feedback-Engine + Ask WREN) are shown only to a
   // DepartmentAdmin appointed to this department. TechnicalAdmins edit any
   // department's prompts from the System Admin area. The backend re-checks
   // scope on save.
@@ -313,16 +313,16 @@ export function DepartmentAdminDashboard() {
             hidden={!promptsExpanded || activePromptTab !== 'ask-wren'}
             className="p-6"
           >
-        <h3 className="text-xl font-bold text-gray-900">Ask Wren Prompt</h3>
+        <h3 className="text-xl font-bold text-gray-900">Ask WREN Prompt</h3>
         <p className="mt-2 text-sm text-gray-600">
-          Add department-specific context for Ask Wren's Socratic coaching questions across
+          Add department-specific context for Ask WREN's Socratic coaching questions across
           every document type in {activeDepartment.name}. Core coaching safeguards still apply.
         </p>
         <label
           htmlFor="department-ask-wren-prompt"
           className="mt-5 block text-sm font-semibold text-gray-900"
         >
-          Ask Wren coaching context
+          Ask WREN coaching context
         </label>
         <textarea
           id="department-ask-wren-prompt"
@@ -341,7 +341,7 @@ export function DepartmentAdminDashboard() {
             disabled={askWrenPromptMutation.isPending}
             className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {askWrenPromptMutation.isPending ? 'Saving…' : 'Save Ask Wren Prompt'}
+            {askWrenPromptMutation.isPending ? 'Saving…' : 'Save Ask WREN Prompt'}
           </button>
           <button
             type="button"

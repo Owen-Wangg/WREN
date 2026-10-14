@@ -485,7 +485,7 @@ export function DepartmentDetailPage() {
                         : 'text-gray-700 hover:bg-gray-200'
                     }`}
                   >
-                    Manage Ask Wren Prompt
+                    Manage Ask WREN Prompt
                   </button>
                 )}
 
@@ -963,17 +963,17 @@ export function DepartmentDetailPage() {
             </div>
           )}
 
-          {/* Manage Ask Wren Prompt Tab */}
+          {/* Manage Ask WREN Prompt Tab */}
           {activeTab === 'ask-wren' && canManageAskWrenPrompt && (
             <div>
-              <h2 className="mb-6 text-3xl font-bold text-gray-900">Ask Wren Prompt</h2>
+              <h2 className="mb-6 text-3xl font-bold text-gray-900">Ask WREN Prompt</h2>
 
               <div className="rounded-lg border border-gray-200 bg-white p-8 max-w-4xl space-y-6">
                 <p className="text-sm text-gray-600">
-                  Add department-specific context for Ask Wren, the Socratic writing coach students
-                  chat with about their draft. This shapes how Ask Wren frames its coaching questions
+                  Add department-specific context for Ask WREN, the Socratic writing coach students
+                  chat with about their draft. This shapes how Ask WREN frames its coaching questions
                   across every document type in this department. It does not change automated feedback
-                  generation, and it never overrides Ask Wren's core coaching rules (it will still
+                  generation, and it never overrides Ask WREN's core coaching rules (it will still
                   never rewrite student text).
                 </p>
 
@@ -982,11 +982,11 @@ export function DepartmentDetailPage() {
                     htmlFor="ask-wren-prompt"
                     className="block text-sm font-semibold text-gray-900 mb-1"
                   >
-                    Ask Wren Coaching Context
+                    Ask WREN Coaching Context
                   </label>
                   <p className="text-xs text-gray-500 mb-2">
                     Who are the writers, what discipline are they in, and what conventions should Ask
-                    Wren keep in mind when asking guiding questions?
+                    WREN keep in mind when asking guiding questions?
                   </p>
                   <textarea
                     id="ask-wren-prompt"
@@ -1003,7 +1003,7 @@ export function DepartmentDetailPage() {
                     disabled={askWrenPromptMutation.isPending}
                     className="rounded-lg bg-gray-900 px-6 py-2 font-semibold text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {askWrenPromptMutation.isPending ? 'Saving...' : 'Save Ask Wren Prompt'}
+                    {askWrenPromptMutation.isPending ? 'Saving...' : 'Save Ask WREN Prompt'}
                   </button>
                   <button
                     onClick={() => setAskWrenPromptText('')}
@@ -1018,7 +1018,7 @@ export function DepartmentDetailPage() {
                     <p role="alert" className="text-sm font-medium text-red-600">
                       {getServerErrorMessage(
                         askWrenPromptMutation.error,
-                        'Error saving Ask Wren prompt — please try again.',
+                        'Error saving Ask WREN prompt — please try again.',
                       )}
                     </p>
                   )}
