@@ -134,7 +134,12 @@ export async function listDepartments(
 ): Promise<Department[]> {
   const rows = await db.query<DepartmentRow>(
     `SELECT d.id, d.name, d.prompt, d.ask_wren_prompt, d.access_state, d.visibility_state, d.archived_at,
-            COALESCE(ac.value, 0)::int AS active_user_count,
+            -- Computed live (distinct document owners in the department) so it
+            -- always matches listDepartmentUsers. The aggregate_counter
+            -- 'active_users' row drifts because only the student create/delete
+            -- paths maintain it (admin deletions, user removal, document-type
+            -- changes and pre-existing data are not reflected).
+            COALESCE(au.active_user_count, 0)::int AS active_user_count,
             CASE
               WHEN d.visibility_state = 'VISIBLE' THEN true
               WHEN $2::boolean THEN true
@@ -149,11 +154,12 @@ export async function listDepartments(
               ELSE false
             END AS viewer_can_discover
      FROM department d
-     LEFT JOIN aggregate_counter ac
-       ON  ac.scope_kind    = 'department'
-       AND ac.scope_id      = d.id
-       AND ac.metric        = 'active_users'
-       AND ac.window_start  = '-infinity'::timestamptz
+     LEFT JOIN (
+       SELECT dt.department_id, COUNT(DISTINCT doc.owner_user_id) AS active_user_count
+       FROM document doc
+       JOIN document_type dt ON dt.id = doc.document_type_id
+       GROUP BY dt.department_id
+     ) au ON au.department_id = d.id
      WHERE d.archived_at IS NULL
      ORDER BY d.name ASC`,
     [
