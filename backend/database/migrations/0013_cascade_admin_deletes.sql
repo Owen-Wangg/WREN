@@ -1,5 +1,9 @@
 -- ===========================================================================
--- 0013_cascade_document_type_and_department_deletes.sql
+-- 0013_cascade_admin_deletes.sql
+--
+-- (Renamed from 0013_cascade_document_type_and_department_deletes.sql after
+-- the error_category FK was changed to DEFERRABLE, so environments that had
+-- already recorded the old name re-run it. Every statement is idempotent.)
 --
 -- Admin deletion remediation: an admin deleting a Document Type (or a whole
 -- Department) must succeed regardless of how many student Documents still use

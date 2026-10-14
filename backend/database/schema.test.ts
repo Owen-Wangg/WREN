@@ -205,7 +205,7 @@ describe('deletion retention partitioning (Requirement 45.x)', () => {
   describe('0013 admin delete cascade', () => {
     const cascadeSql = stripComments(
       readFileSync(
-        join(MIGRATIONS_DIR, '0013_cascade_document_type_and_department_deletes.sql'),
+        join(MIGRATIONS_DIR, '0013_cascade_admin_deletes.sql'),
         'utf8',
       ),
     );
