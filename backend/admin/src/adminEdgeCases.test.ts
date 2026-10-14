@@ -15,7 +15,7 @@ import {
   updateCustomMetadataField,
   deleteCustomMetadataField,
 } from './customMetadataFieldService';
-import { renameDepartment, archiveDepartment } from './departmentService';
+import { renameDepartment, deleteDepartment } from './departmentService';
 import {
   createDocumentType,
   updateDocumentType,
@@ -213,11 +213,11 @@ describe('Cross-department scope denials — DeptAdmin of dept X denied on dept 
     expect(db.departments.get(DEPT_Y)!.name).toBe('Department Y');
   });
 
-  it('denies archiveDepartment for dept Y (DeptAdmin has no TechnicalAdmin role)', async () => {
+  it('denies deleteDepartment for dept Y (DeptAdmin has no TechnicalAdmin role)', async () => {
     const db = new FakeDb();
     seedCrossDeptFixture(db);
     await expect(
-      archiveDepartment(deptAdminContext([DEPT_X]), DEPT_Y, db),
+      deleteDepartment(deptAdminContext([DEPT_X]), DEPT_Y, db),
     ).rejects.toThrow('TechnicalAdmin role required');
     expect(db.mutationCount).toBe(0);
     expect(db.departments.has(DEPT_Y)).toBe(true);
@@ -339,12 +339,12 @@ describe('TechnicalAdmin catalog bootstrap + denied educational config ops', () 
     expect(db.mutationCount).toBe(0);
   });
 
-  it('allows archiveDepartment for TechnicalAdmin (platform operation)', async () => {
+  it('allows deleteDepartment for TechnicalAdmin (platform operation)', async () => {
     const db = new FakeDb();
-    db.seedDepartment({ id: DEPT_X, name: 'To Archive' });
-    const result = await archiveDepartment(techAdminContext(), DEPT_X, db);
+    db.seedDepartment({ id: DEPT_X, name: 'To Delete' });
+    const result = await deleteDepartment(techAdminContext(), DEPT_X, db);
     expect(result.id).toBe(DEPT_X);
-    expect(result.archivedAt).toBeTruthy();
+    expect(db.departments.has(DEPT_X)).toBe(false);
     expect(db.mutationCount).toBe(1);
   });
 });

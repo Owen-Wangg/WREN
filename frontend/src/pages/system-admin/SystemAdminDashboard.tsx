@@ -62,7 +62,7 @@ export function SystemAdminDashboard() {
       setDeletingDeptId(null);
     },
     onError: (err) => {
-      // 404 means already archived — treat as success and refresh the list
+      // 404 means already deleted — treat as success and refresh the list
       if (err instanceof ApiError && err.status === 404) {
         void queryClient.invalidateQueries({ queryKey: ['system-departments'] });
         setDeletingDeptId(null);
@@ -360,7 +360,8 @@ export function SystemAdminDashboard() {
                     setDeletingDeptId(dept.id);
                   }}
                   className="p-1 text-gray-400 hover:text-red-500 transition hover:bg-gray-100 rounded"
-                  title="Archive department"
+                  title="Delete department"
+                  aria-label={`Delete department ${dept.name}`}
                 >
                   <Trash2 size={18} />
                 </button>
@@ -391,19 +392,19 @@ export function SystemAdminDashboard() {
         </div>
       </div>
 
-      {/* Archive Department Confirmation */}
+      {/* Delete Department Confirmation */}
       {deletingDeptId && (() => {
         const dept = departments.find((d) => d.id === deletingDeptId);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
             <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-              <h2 className="text-lg font-semibold text-gray-900">Archive department?</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Delete department?</h2>
               <p className="mt-2 text-sm text-gray-600">
-                <strong>{dept?.name}</strong> will be archived — it will no longer appear to students and will not accept new submissions. All existing student documents, feedback, and configuration are preserved.
+                <strong>{dept?.name}</strong> will be permanently deleted, along with all of its document types and every student document, draft, and piece of feedback in them. Department Admin appointments for it are removed. This cannot be undone.
               </p>
               {deleteDeptMutation.isError && (
                 <p role="alert" className="mt-3 text-sm text-red-600">
-                  Failed to archive department. Please try again.
+                  Failed to delete department. Please try again.
                 </p>
               )}
               <div className="mt-5 flex justify-end gap-3">
@@ -421,7 +422,7 @@ export function SystemAdminDashboard() {
                   disabled={deleteDeptMutation.isPending}
                   className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
                 >
-                  {deleteDeptMutation.isPending ? 'Archiving…' : 'Yes, archive'}
+                  {deleteDeptMutation.isPending ? 'Deleting…' : 'Yes, delete'}
                 </button>
               </div>
             </div>

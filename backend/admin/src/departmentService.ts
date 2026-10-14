@@ -452,14 +452,24 @@ export async function setDepartmentVisibilityState(
 }
 
 /**
- * Archive a Department (soft-delete). Sets `archived_at` to NOW() so the
- * department is invisible to students and blocks new submissions, but all
- * child data (document types, documents, student feedback) is preserved.
+ * Permanently delete a Department, regardless of how many Document Types or
+ * Documents it still has.
  *
- * TechnicalAdmin only — archiving is a platform-level operation.
- * Returns the archived Department DTO, or throws {@link NotFoundError}.
+ * The `department` row delete cascades at the DB level (migration 0013):
+ * document types → documents → drafts / feedback / anchors / resolution
+ * history, plus reference material, topics and visibility grants.
+ * Activity-log events keep their row with `department_id` set to NULL.
+ *
+ * `role_assignment.scope` is JSONB with no FK, so DepartmentAdmin
+ * appointments scoped to this Department are removed in the SAME statement
+ * (data-modifying CTE) — they would otherwise linger as dangling scopes. A
+ * legacy multi-department `{departmentIds: [...]}` row is only removed when
+ * this was its sole department, so other appointments are never revoked.
+ *
+ * TechnicalAdmin only — a platform-level operation.
+ * Returns the deleted Department DTO, or throws {@link NotFoundError}.
  */
-export async function archiveDepartment(
+export async function deleteDepartment(
   actor: AuthContext,
   id: string,
   db: QueryExecutor,
@@ -469,13 +479,24 @@ export async function archiveDepartment(
   }
 
   const rows = await db.query<DepartmentRow>(
-    `UPDATE department SET archived_at = now() WHERE id = $1 AND archived_at IS NULL RETURNING ${RETURNING}`,
-    [id],
+    `WITH deleted_department AS (
+       DELETE FROM department WHERE id = $1 RETURNING ${RETURNING}
+     ), removed_department_admins AS (
+       DELETE FROM role_assignment
+       WHERE role = 'DepartmentAdmin'
+         AND EXISTS (SELECT 1 FROM deleted_department)
+         AND (
+           scope ->> 'departmentId' = $2
+           OR scope -> 'departmentIds' = jsonb_build_array($2::text)
+         )
+     )
+     SELECT ${RETURNING} FROM deleted_department`,
+    [id, id],
   );
 
   const row = rows[0];
   if (!row) {
-    throw new NotFoundError(`Department '${id}' not found or already archived`);
+    throw new NotFoundError(`Department '${id}' not found`);
   }
   return toDepartment(row);
 }

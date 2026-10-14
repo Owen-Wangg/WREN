@@ -516,7 +516,7 @@ export function DepartmentDetailPage() {
             className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
           >
             <Trash2 className="h-4 w-4" />
-            Archive department
+            Delete department
           </button>
         </div>
 
@@ -526,14 +526,14 @@ export function DepartmentDetailPage() {
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
               <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-                <h2 className="text-lg font-semibold text-gray-900">Archive department?</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Delete department?</h2>
 
                 <p className="mt-2 text-sm text-gray-600">
-                  <strong>{department?.name}</strong> will be archived — it will no longer appear to students and will not accept new submissions. All existing student documents, feedback, and configuration are preserved and can be accessed by administrators.
+                  <strong>{department?.name}</strong> will be permanently deleted, along with all of its document types and every student document, draft, and piece of feedback in them. Department Admin appointments for it are removed. This cannot be undone.
                 </p>
                 {hasDocuments && (
                   <p className="mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    This department has active student submissions. Archiving will not affect existing work.
+                    This department has active student submissions. Their work will be deleted too.
                   </p>
                 )}
 
@@ -558,7 +558,7 @@ export function DepartmentDetailPage() {
                     disabled={deleteMutation.isPending}
                     className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
                   >
-                    {deleteMutation.isPending ? 'Archiving…' : 'Yes, archive'}
+                    {deleteMutation.isPending ? 'Deleting…' : 'Yes, delete'}
                   </button>
                 </div>
               </div>

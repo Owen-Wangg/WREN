@@ -14,7 +14,7 @@ import {
   setDepartmentAccessState,
   setDepartmentVisibilityState,
   listDepartmentUsers,
-  archiveDepartment,
+  deleteDepartment,
 } from './departmentService';
 import {
   createDepartmentVisibilityGrant,
@@ -970,9 +970,9 @@ async function handleDeleteDepartment(event: any): Promise<APIGatewayProxyResult
   const actor = parseAuthContext(event);
   const db = await getDataAccess();
   const { departmentId } = event.pathParameters || {};
-  const department = await archiveDepartment(actor, departmentId, db);
-  // Archiving a Department is a privileged tenant-lifecycle mutation; record it
-  // once the archive succeeded (archiveDepartment throws when absent).
+  const department = await deleteDepartment(actor, departmentId, db);
+  // Deleting a Department is a privileged tenant-lifecycle mutation; record it
+  // once the delete succeeded (deleteDepartment throws when absent).
   await auditConfigEdit(
     actor,
     { field: 'department', action: 'deleted', departmentId, objectType: 'Department' },

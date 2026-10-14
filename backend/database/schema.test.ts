@@ -200,9 +200,42 @@ describe('deletion retention partitioning (Requirement 45.x)', () => {
     );
   });
 
-  it('restricts deleting a Document Type that still scopes Documents', () => {
-    expect(schemaSql).toMatch(
-      /document_type_id[\s\S]{0,120}REFERENCES\s+(?:public\.)?document_type\s*\(id\)\s+ON DELETE RESTRICT/i,
+  // 0013 replaces the baseline's RESTRICT so an admin can delete a Document
+  // Type (or its Department) regardless of how many Documents still use it.
+  describe('0013 admin delete cascade', () => {
+    const cascadeSql = stripComments(
+      readFileSync(
+        join(MIGRATIONS_DIR, '0013_cascade_document_type_and_department_deletes.sql'),
+        'utf8',
+      ),
     );
+
+    it('cascades Documents from a deleted Document Type', () => {
+      expect(cascadeSql).toMatch(
+        /ADD CONSTRAINT document_writing_type_id_fkey FOREIGN KEY \(document_type_id\)\s+REFERENCES public\.document_type\(id\) ON DELETE CASCADE/i,
+      );
+    });
+
+    it('cascades helpfulness ratings from a deleted Document Type', () => {
+      expect(cascadeSql).toMatch(
+        /ADD CONSTRAINT feedback_helpfulness_rating_document_type_id_fkey FOREIGN KEY \(document_type_id\)\s+REFERENCES public\.document_type\(id\) ON DELETE CASCADE/i,
+      );
+    });
+
+    it('defers the error_category check to end of statement so the cascade can finish', () => {
+      expect(cascadeSql).toMatch(
+        /ADD CONSTRAINT feedback_item_error_category_id_fkey FOREIGN KEY \(error_category_id\)\s+REFERENCES public\.error_category\(id\) ON DELETE NO ACTION/i,
+      );
+    });
+
+    it('never cascades into or mutates the append-only activity log', () => {
+      expect(cascadeSql).not.toMatch(/REFERENCES public\.activity_event|aggregate_counter/i);
+      expect(cascadeSql).not.toMatch(/DROP TRIGGER|reject_activity_event_mutation/i);
+    });
+
+    it('drops the activity_event SET NULL FKs that the append-only trigger rejects', () => {
+      expect(cascadeSql).toMatch(/DROP CONSTRAINT IF EXISTS activity_event_department_id_fkey/i);
+      expect(cascadeSql).toMatch(/DROP CONSTRAINT IF EXISTS activity_event_document_type_id_fkey/i);
+    });
   });
 });

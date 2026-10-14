@@ -8,7 +8,7 @@
  * DepartmentAdmin who administers them.
  */
 import {
-  archiveDepartment,
+  deleteDepartment,
   getDepartment,
   listDepartments,
   renameDepartment,
@@ -390,52 +390,87 @@ describe('updateDepartmentAskWrenPrompt (department.manageAskWrenPrompt capabili
   });
 });
 
-describe('archiveDepartment (TechnicalAdmin only — soft-delete)', () => {
-  it('sets archived_at and returns the archived Department DTO', async () => {
+describe('deleteDepartment (TechnicalAdmin only — hard delete)', () => {
+  it('removes the department and returns its DTO', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Law' });
 
-    const result = await archiveDepartment(techAdminContext(), DEPT, db);
+    const result = await deleteDepartment(techAdminContext(), DEPT, db);
     expect(result.id).toBe(DEPT);
-    expect(result.archivedAt).toBeTruthy();
+    expect(db.departments.has(DEPT)).toBe(false);
     expect(db.mutationCount).toBe(1);
   });
 
-  it('throws NotFoundError when already archived or not found', async () => {
+  it('deletes regardless of Document Types and Documents, cascading only its own', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Law' });
-    // First archive succeeds
-    await archiveDepartment(techAdminContext(), DEPT, db);
-    // Second archive on already-archived dept throws NotFoundError
-    await expect(
-      archiveDepartment(techAdminContext(), DEPT, db),
-    ).rejects.toBeInstanceOf(NotFoundError);
+    db.seedDepartment({ id: 'dept-2', name: 'Other' });
+    db.seedDocumentType({ id: 'dt-1', department_id: DEPT, name: 'Memo' });
+    db.seedDocumentType({ id: 'dt-2', department_id: 'dept-2', name: 'Essay' });
+    db.seedDocument({ id: 'doc-1', document_type_id: 'dt-1' });
+    db.seedDocument({ id: 'doc-2', document_type_id: 'dt-2' });
+
+    await deleteDepartment(techAdminContext(), DEPT, db);
+
+    expect(db.documentTypes.has('dt-1')).toBe(false);
+    expect(db.documents.has('doc-1')).toBe(false);
+    expect(db.departments.has('dept-2')).toBe(true);
+    expect(db.documentTypes.has('dt-2')).toBe(true);
+    expect(db.documents.has('doc-2')).toBe(true);
+  });
+
+  it('removes DepartmentAdmin appointments scoped only to the deleted department', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Law' });
+    db.seedRoleAssignment({ id: 'ra-1', role: 'DepartmentAdmin', scope: { departmentId: DEPT } });
+    db.seedRoleAssignment({ id: 'ra-2', role: 'DepartmentAdmin', scope: { departmentId: 'dept-2' } });
+    db.seedRoleAssignment({ id: 'ra-3', role: 'DepartmentAdmin', scope: { departmentIds: [DEPT] } });
+    db.seedRoleAssignment({
+      id: 'ra-4',
+      role: 'DepartmentAdmin',
+      scope: { departmentIds: [DEPT, 'dept-2'] },
+    });
+    db.seedRoleAssignment({ id: 'ra-5', role: 'Student', scope: null });
+
+    await deleteDepartment(techAdminContext(), DEPT, db);
+
+    expect([...db.roleAssignments.keys()].sort()).toEqual(['ra-2', 'ra-4', 'ra-5']);
+  });
+
+  it('throws NotFoundError when the department does not exist', async () => {
+    const db = new FakeDb();
+    db.seedDepartment({ id: DEPT, name: 'Law' });
+    await deleteDepartment(techAdminContext(), DEPT, db);
+    await expect(deleteDepartment(techAdminContext(), DEPT, db)).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
   });
 
   it('denies a DepartmentAdmin with no mutation', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Keep' });
     await expect(
-      archiveDepartment(deptAdminContext([DEPT]), DEPT, db),
+      deleteDepartment(deptAdminContext([DEPT]), DEPT, db),
     ).rejects.toThrow('TechnicalAdmin role required');
     expect(db.mutationCount).toBe(0);
+    expect(db.departments.has(DEPT)).toBe(true);
   });
 
   it('denies a Student with no mutation', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Keep' });
     await expect(
-      archiveDepartment(studentContext(), DEPT, db),
+      deleteDepartment(studentContext(), DEPT, db),
     ).rejects.toThrow('TechnicalAdmin role required');
     expect(db.mutationCount).toBe(0);
   });
 
-  it('archived department no longer appears in listDepartments', async () => {
+  it('deleted department no longer appears in listDepartments', async () => {
     const db = new FakeDb();
     db.seedDepartment({ id: DEPT, name: 'Retiring' });
     db.seedDepartment({ id: 'dept-2', name: 'Active' });
 
-    await archiveDepartment(techAdminContext(), DEPT, db);
+    await deleteDepartment(techAdminContext(), DEPT, db);
     const names = (await listDepartments(studentContext(), db)).map((d) => d.name);
     expect(names).not.toContain('Retiring');
     expect(names).toContain('Active');

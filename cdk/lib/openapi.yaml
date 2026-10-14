@@ -852,7 +852,7 @@ paths:
             format: uuid
       responses:
         "200":
-          description: Document type deleted
+          description: Document type deleted, together with every Document of that type
           content:
             application/json:
               schema:
@@ -866,12 +866,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-        "409":
-          description: Document type still has submitted documents or other blocking references
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
       x-amazon-apigateway-integration:
         type: aws_proxy
         httpMethod: POST
@@ -2879,7 +2873,7 @@ paths:
             format: uuid
       responses:
         "200":
-          description: Department archived (soft-deleted)
+          description: Department permanently deleted, with its Document Types and their Documents
           content:
             application/json:
               schema:

@@ -38,15 +38,26 @@ function deleteErrorMessage(error: unknown): string {
       const msg = (details as { message?: unknown }).message;
       if (typeof msg === 'string' && msg.trim()) return msg;
     }
-    if (error.status === 409) {
-      return 'This document type cannot be deleted while documents still use it. Delete those documents first.';
-    }
     if (error.status === 403) {
       return 'You do not have permission to delete this document type.';
     }
   }
   if (error instanceof Error) return error.message;
   return 'Failed to delete document type. Please try again.';
+}
+
+function listErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 403 || error.status === 404) {
+      return 'Document types for this department could not be loaded: your account is not recognised as an admin of it. Sign out and back in, or ask a System Admin to check your appointment.';
+    }
+    const details = error.details;
+    if (details && typeof details === 'object' && 'message' in details) {
+      const msg = (details as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+  }
+  return 'Document types could not be loaded. Please try again.';
 }
 
 type PromptTabId = 'department' | 'ask-wren';
@@ -126,7 +137,13 @@ export function DepartmentAdminDashboard() {
     },
   });
 
-  const { data: documentTypes = [], isLoading: typesLoading } = useQuery({
+  const {
+    data: documentTypes = [],
+    isLoading: typesLoading,
+    isError: typesIsError,
+    error: typesError,
+    refetch: refetchTypes,
+  } = useQuery({
     queryKey: ['dept-admin-document-types', activeDepartment?.id],
     queryFn: () =>
       activeDepartment?.id ? listDocumentTypes(activeDepartment.id) : Promise.resolve([]),
@@ -369,6 +386,22 @@ export function DepartmentAdminDashboard() {
           My Document Types ({documentTypes.length})
         </p>
 
+        {typesIsError && (
+          <div
+            role="alert"
+            className="mb-6 flex items-center justify-between gap-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            <span>{listErrorMessage(typesError)}</span>
+            <button
+              type="button"
+              onClick={() => void refetchTypes()}
+              className="shrink-0 rounded-lg border border-red-300 px-3 py-1 font-semibold hover:bg-red-100"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         <div className="mb-6">
           <input
             type="text"
@@ -433,9 +466,9 @@ export function DepartmentAdminDashboard() {
             <h2 className="mb-4 text-xl font-semibold text-gray-900">Delete Document Type</h2>
             <p className="mb-4 text-sm text-gray-600">
               Are you sure you want to delete{' '}
-              <span className="font-semibold">{docTypeToDelete.name}</span>? This action cannot be
-              undone. Types that still have submitted documents cannot be deleted until those
-              documents are removed.
+              <span className="font-semibold">{docTypeToDelete.name}</span>? Every student
+              document of this type, including drafts in progress and their feedback, will be
+              permanently deleted. This action cannot be undone.
             </p>
             {deleteDocTypeMutation.isError && (
               <p className="mb-4 text-sm text-red-600">
