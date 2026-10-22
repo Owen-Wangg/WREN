@@ -19,9 +19,24 @@
 --
 -- Every statement here is idempotent and runs only when the role is present:
 --   * REVOKE ALL PRIVILEGES ON DATABASE   -- clears the database-level grants
---   * DROP OWNED BY                        -- revokes every object-level grant
---                                             and drops any objects it owns in
---                                             this database so DROP ROLE succeeds
+--   * GRANT wren_audit TO current_user    -- the migration runner connects as the
+--                                             RDS master user, which is NOT a true
+--                                             superuser (rds_superuser membership
+--                                             only). REASSIGN OWNED / DROP OWNED /
+--                                             DROP ROLE require the executing role
+--                                             to be a MEMBER of the target role, so
+--                                             grant that membership transiently.
+--                                             The grant is dropped together with the
+--                                             role in this same transaction, so no
+--                                             privilege survives the block.
+--   * REASSIGN OWNED BY … TO current_user -- safety belt: wren_audit owns no objects
+--                                             (it only ever held grants), so this is
+--                                             a no-op; but if any environment somehow
+--                                             has owned objects, reassign them rather
+--                                             than let DROP OWNED destroy them.
+--   * DROP OWNED BY                        -- revokes every object-level grant and
+--                                             drops anything it owns in this database
+--                                             so DROP ROLE succeeds
 --   * DROP ROLE                            -- removes the role itself
 -- The pg_roles existence guard makes the whole block a no-op when the role has
 -- already been dropped (or was never created).
@@ -31,6 +46,8 @@ DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'wren_audit') THEN
     EXECUTE format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM wren_audit', current_database());
+    GRANT wren_audit TO current_user;
+    REASSIGN OWNED BY wren_audit TO current_user;
     DROP OWNED BY wren_audit;
     DROP ROLE wren_audit;
   END IF;
