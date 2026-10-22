@@ -145,11 +145,10 @@ describe("ObservabilityStack — authorizer throttling remediation (Task 6)", ()
     const template = synth();
     // The fix: threshold 0, one datapoint, one period — no longer requires two
     // consecutive periods (which sporadic throttles never satisfied).
-    // NOTE: alarm names embed the (already-prefixed) function name, so the
-    // stackPrefix appears twice — matching the deployed
-    // `wren-dev-wren-dev-authorizer-throttles` name from the incident.
+    // The per-function throttle alarm no longer carries an explicit AlarmName
+    // (strategy (a): function-derived logical IDs + CFN-auto-generated physical
+    // names), so match on metric/dimension/threshold instead of by name.
     template.hasResourceProperties("AWS::CloudWatch::Alarm", {
-      AlarmName: "wren-test-wren-test-authorizer-throttles",
       MetricName: "Throttles",
       Namespace: "AWS/Lambda",
       Dimensions: Match.arrayWith([
