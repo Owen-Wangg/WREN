@@ -198,10 +198,15 @@ export class ObservabilityStack extends Stack {
     // Captured so security metric filters (below) can depend on the
     // LogRetention custom resource that upserts each Lambda's log group on a
     // first deploy where the function has never run.
+    // Construct IDs are derived from the function name (sanitized to
+    // alphanumerics) so each function owns a STABLE logical ID regardless of
+    // its position in `functionNames`. Reordering or removing an entry no
+    // longer churns the logical IDs of the others (the index-based scheme did,
+    // which caused the UPDATE_ROLLBACK_COMPLETE "already exists" incident).
+    const idSuffix = (name: string) => name.replace(/[^a-zA-Z0-9]/g, "");
     const logRetentions = new Map<string, logs.LogRetention>();
-    for (let i = 0; i < functionNames.length; i++) {
-      const functionName = functionNames[i]!;
-      const logRetention = new logs.LogRetention(this, `LogRetention${i}`, {
+    for (const functionName of functionNames) {
+      const logRetention = new logs.LogRetention(this, `LogRetention-${idSuffix(functionName)}`, {
         logGroupName: `/aws/lambda/${functionName}`,
         retention: retentionDays,
         removalPolicy: RemovalPolicy.RETAIN,
@@ -215,8 +220,7 @@ export class ObservabilityStack extends Stack {
     // -------------------------------------------------------------------
     // Lambda Error Alarms
     // -------------------------------------------------------------------
-    for (let i = 0; i < functionNames.length; i++) {
-      const functionName = functionNames[i]!;
+    for (const functionName of functionNames) {
       const errorMetric = new cloudwatch.Metric({
         namespace: "AWS/Lambda",
         metricName: "Errors",
@@ -225,8 +229,11 @@ export class ObservabilityStack extends Stack {
         period: Duration.minutes(5),
       });
 
-      const errorAlarm = new cloudwatch.Alarm(this, `ErrorAlarm${i}`, {
-        alarmName: `${config.stackPrefix}-${functionName}-errors`,
+      const errorAlarm = new cloudwatch.Alarm(this, `ErrorAlarm-${idSuffix(functionName)}`, {
+        // alarmName intentionally omitted: a function-derived logical ID plus
+        // an auto-generated physical name avoids the "already exists" collision
+        // when migrating off the old index-based logical IDs (whose explicit
+        // names survive until their delete completes). See the plan's strategy (a).
         metric: errorMetric,
         threshold: 5,
         evaluationPeriods: 1,
@@ -240,8 +247,7 @@ export class ObservabilityStack extends Stack {
     // -------------------------------------------------------------------
     // Lambda Throttle Alarms
     // -------------------------------------------------------------------
-    for (let i = 0; i < functionNames.length; i++) {
-      const functionName = functionNames[i]!;
+    for (const functionName of functionNames) {
       const throttleMetric = new cloudwatch.Metric({
         namespace: "AWS/Lambda",
         metricName: "Throttles",
@@ -258,8 +264,8 @@ export class ObservabilityStack extends Stack {
       // under-informed. Now: ANY throttle in a single 5-min window fires
       // (threshold 0, 1 datapoint). NOT_BREACHING is still correct — a period
       // with no throttles emits no datapoint and must read healthy.
-      const throttleAlarm = new cloudwatch.Alarm(this, `ThrottleAlarm${i}`, {
-        alarmName: `${config.stackPrefix}-${functionName}-throttles`,
+      const throttleAlarm = new cloudwatch.Alarm(this, `ThrottleAlarm-${idSuffix(functionName)}`, {
+        // alarmName intentionally omitted (see strategy (a) in the plan).
         metric: throttleMetric,
         threshold: 0,
         evaluationPeriods: 1,

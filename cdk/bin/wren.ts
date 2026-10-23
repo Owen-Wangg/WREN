@@ -180,9 +180,9 @@ const observabilityStack = new ObservabilityStack(app, stackName(config, "Observ
     computeStack.adminFunction.functionName,
     computeStack.diffAnchorProgressFunction.functionName,
     computeStack.notificationFunction.functionName,
-    // Construct IDs are index-based (LogRetention{i} / ErrorAlarm{i} /
-    // ThrottleAlarm{i}): append new functions at the end; don't reorder or
-    // remove entries in a deployed environment.
+    // Construct IDs are derived from each function name (see ObservabilityStack),
+    // not from list position, so order here no longer affects logical IDs:
+    // you may add, remove, or reorder entries without churning the others.
     computeStack.syncCognitoAdminsFunction.functionName,
   ],
   feedbackQueueName: computeStack.feedbackQueue.queueName,

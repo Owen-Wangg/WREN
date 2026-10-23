@@ -29,7 +29,7 @@ import { parseCorsAllowedOrigins } from "./corsOrigins.js";
  * never by editing other source. See REQ-NFR-APPNAME-01 and the design's
  * Infrastructure section.
  */
-export const DEFAULT_APP_NAME = "LEON";
+export const DEFAULT_APP_NAME = "WREN";
 
 /**
  * The project identifier that drives ALL stack/resource/table naming.
@@ -294,7 +294,7 @@ function resolveCacheEnabledWorkloads(
  * environment variables.
  *
  * Context keys (all optional):
- *   - `appName`         -> defaults to `LEON` (display name only)
+ *   - `appName`         -> defaults to `WREN` (display name only)
  *   - `projectName`     -> defaults to `wren` (drives resource naming)
  *   - `environmentName` -> defaults to `dev`
  *   - `bedrockModelId`  -> defaults to DEFAULT_BEDROCK_MODEL_ID
