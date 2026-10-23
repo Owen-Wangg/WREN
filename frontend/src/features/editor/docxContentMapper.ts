@@ -447,8 +447,9 @@ function blocksFromParagraphOrHeading(
   const footnoteNodes = footnoteNodesFromOfficeNotes(node, footnoteIdCounter);
 
   // Reconstructed Word heading number (e.g. "6.1.1"), attached by
-  // `attachHeadingNumbers`. Prepended as a leading unstyled run so the heading
-  // reads "6.1.1 Definition Terms" like Word shows it.
+  // `attachHeadingNumbers`. Merged into the heading's first text run so the
+  // number inherits that run's formatting (color / fontSize) and sits on the
+  // same baseline — reading "6.1.1 Definition Terms" like Word shows it.
   const headingNumber = isHeading
     ? (node.metadata as { __computedNumber?: string } | undefined)?.__computedNumber
     : undefined;
@@ -463,12 +464,28 @@ function blocksFromParagraphOrHeading(
     // offset within the paragraph is not recoverable from the AST; placing
     // it at the paragraph's end is a documented, defensible interpretation
     // given the available data (Requirement 8.3).
-    const numberRun: JSONContent[] =
-      isHeading && headingNumber && !headingNumberEmitted
-        ? [{ type: 'text', text: `${headingNumber} ` }]
-        : [];
-    if (numberRun.length > 0) headingNumberEmitted = true;
-    const content = [...numberRun, ...textNodes, ...footnoteNodes];
+    let numberedTextNodes = textNodes;
+    if (isHeading && headingNumber && !headingNumberEmitted) {
+      headingNumberEmitted = true;
+      if (textNodes.length > 0) {
+        const first = textNodes[0]!;
+        // Merge the number into the first run so it shares that run's marks
+        // (color / fontSize). Clone — never mutate the input node.
+        numberedTextNodes = [
+          {
+            ...first,
+            text: `${headingNumber} ${first.text ?? ''}`,
+            ...(first.marks ? { marks: first.marks } : {}),
+          },
+          ...textNodes.slice(1),
+        ];
+      } else {
+        // No text runs (e.g. heading split around an image) — fall back to a
+        // standalone number run.
+        numberedTextNodes = [{ type: 'text', text: `${headingNumber} ` }];
+      }
+    }
+    const content = [...numberedTextNodes, ...footnoteNodes];
     if (isHeading) {
       return {
         type: 'heading',

@@ -184,6 +184,48 @@ describe('docxContentMapper', () => {
     expect(headingText).toBe('1 Background');
   });
 
+  it('merges the reconstructed number into the heading title run (shared formatting)', async () => {
+    const document = new Document({
+      numbering: {
+        config: [
+          {
+            reference: 'heading-numbers',
+            levels: [
+              { level: 0, format: 'decimal', text: '%1', alignment: 'left' },
+            ],
+          },
+        ],
+      },
+      sections: [
+        {
+          children: [
+            new Paragraph({
+              heading: HeadingLevel.HEADING_1,
+              numbering: { reference: 'heading-numbers', level: 0 },
+              children: [
+                new TextRun({ text: 'The Challenge', color: '2E74B5', size: 32 }),
+              ],
+            }),
+          ],
+        },
+      ],
+    });
+    const buffer = await Packer.toBuffer(document);
+
+    const content = await docxBytesToTiptapContent(new Uint8Array(buffer));
+
+    const heading = content.content?.find((n) => n.type === 'heading');
+    expect(heading).toBeTruthy();
+    const runs = heading?.content ?? [];
+    // The number is part of the single formatted run, not a separate bare run.
+    expect(runs).toHaveLength(1);
+    const titleRun = runs[0]!;
+    expect(titleRun.text).toBe('1 The Challenge');
+    // The merged run carries the title's own color + fontSize.
+    expect(normalizeHexColor(textStyleAttr(titleRun, 'color'))).toBe('#2e74b5');
+    expect(String(textStyleAttr(titleRun, 'fontSize'))).toMatch(/\d+pt/);
+  });
+
   it('reconstructs multilevel numbering across H1/H2/H3 headings', async () => {
     const headingLevelFor = (level: number) =>
       level === 0
