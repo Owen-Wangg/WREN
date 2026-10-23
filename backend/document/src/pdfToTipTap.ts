@@ -13,6 +13,7 @@ import {
   headingLevelFromPlainText,
   isAllCapsHeadingText,
   isTocTitle,
+  looksLikeBodyCopy,
   looksLikeStandaloneHeading,
   wordCount,
 } from './pdfHeadingHeuristics';
@@ -417,6 +418,10 @@ function headingLevelForLine(line: Line, medianFontSize: number): number | null 
 
   const structural = headingLevelFromPlainText(text);
   if (structural != null) return structural;
+
+  // A long / multi-sentence line is body copy, never a heading — even if it
+  // happens to be set in a larger-than-median font. Mirrors the Textract path.
+  if (looksLikeBodyCopy(text)) return null;
 
   if (line.maxFontSize >= medianFontSize * 1.35) {
     if (line.maxFontSize >= medianFontSize * 1.8) return 1;

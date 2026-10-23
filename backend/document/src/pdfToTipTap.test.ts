@@ -79,6 +79,38 @@ describe('spatialPagesToTipTap', () => {
     expect(blocks?.[1]?.type).toBe('paragraph');
   });
 
+  it('keeps a long body paragraph as a paragraph even when set in a larger font', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          // Short genuine heading in a large font — must stay a heading.
+          { text: 'Solution Overview', x: 50, y: 40, width: 150, height: 20, fontSize: 20 },
+          // Long multi-sentence body line also set larger than the page median.
+          // The old size-ratio branch would have promoted this to a heading.
+          {
+            text: 'This section describes the technical implementation of the prototype developed during the Proof of Concept. It includes information on the system architecture, data flow, and integration points.',
+            x: 50,
+            y: 80,
+            width: 400,
+            height: 16,
+            fontSize: 16,
+          },
+          // Body reference lines keep the page median font size low.
+          { text: 'A short body line.', x: 50, y: 200, width: 120, height: 11, fontSize: 11 },
+          { text: 'Another short body line.', x: 50, y: 230, width: 140, height: 11, fontSize: 11 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = (doc.content as TipTapNode[] | undefined) ?? [];
+    const heading = blocks.find((b) => JSON.stringify(b).includes('Solution Overview'));
+    expect(heading?.type).toBe('heading');
+    const longLine = blocks.find((b) =>
+      JSON.stringify(b).includes('technical implementation of the prototype'),
+    );
+    expect(longLine?.type).toBe('paragraph');
+  });
+
   it('attaches textStyle fontSize on non-heading larger runs', () => {
     const pages: SpatialPage[] = [
       {
