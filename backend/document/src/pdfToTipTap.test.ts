@@ -610,6 +610,52 @@ describe('spatialPagesToTipTap', () => {
     expect(texts[1]).toContain('Second page body');
   });
 
+  it('merges table-of-contents page numbers into their entries (no orphan bullets)', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: '• 1 Introduction', x: 50, y: 20, width: 140, height: 12, fontSize: 12 },
+          { text: '• 3', x: 50, y: 40, width: 20, height: 12, fontSize: 12 },
+          { text: '• 2 The Given Challenge', x: 50, y: 60, width: 180, height: 12, fontSize: 12 },
+          { text: '• 4', x: 50, y: 80, width: 20, height: 12, fontSize: 12 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const list = (doc.content as TipTapNode[] | undefined)?.find(
+      (b) => b.type === 'bulletList' || b.type === 'orderedList',
+    );
+    expect(list).toBeTruthy();
+    const itemTexts = (list?.content ?? []).map((item) =>
+      (item.content?.[0]?.content ?? []).map((n) => n.text ?? '').join('').trim(),
+    );
+    // No orphan bare page-number bullets remain.
+    for (const text of itemTexts) {
+      expect(text).not.toMatch(/^\d{1,4}$/);
+    }
+    // Each entry keeps its page number, folded into the entry.
+    expect(itemTexts).toEqual(['1 Introduction 3', '2 The Given Challenge 4']);
+  });
+
+  it('leaves a genuine numeric-only bullet list unchanged', () => {
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          { text: '• 2020', x: 50, y: 20, width: 40, height: 12, fontSize: 12 },
+          { text: '• 2021', x: 50, y: 40, width: 40, height: 12, fontSize: 12 },
+        ],
+      },
+    ];
+    const doc = spatialPagesToTipTap(pages);
+    const list = (doc.content as TipTapNode[] | undefined)?.find(
+      (b) => b.type === 'bulletList' || b.type === 'orderedList',
+    );
+    const itemTexts = (list?.content ?? []).map((item) =>
+      (item.content?.[0]?.content ?? []).map((n) => n.text ?? '').join('').trim(),
+    );
+    expect(itemTexts).toEqual(['2020', '2021']);
+  });
+
   it('centers a court title and right-aligns a docket date', () => {
     const pages: SpatialPage[] = [
       {

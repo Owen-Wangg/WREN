@@ -473,6 +473,33 @@ function listItemNode(
   };
 }
 
+/** A standalone table-of-contents leader target, e.g. "12". */
+const BARE_PAGE_NUMBER_RE = /^\d{1,4}$/;
+
+/** Plain text of a listItem's first paragraph, or '' when absent. */
+function listItemPlainText(item: TipTapNode): string {
+  const para = item.content?.[0];
+  const runs = (para?.content ?? []) as TipTapNode[];
+  return runs.map((run) => run.text ?? '').join('');
+}
+
+/**
+ * Append a trailing page number to a listItem's first paragraph, in place.
+ * Extends the last run (keeping its marks) so the number inherits the entry's
+ * formatting rather than becoming a separate run.
+ */
+function appendPageNumberToListItem(item: TipTapNode, pageNumber: string): void {
+  const para = item.content?.[0];
+  if (!para) return;
+  const runs = (para.content ?? []) as TipTapNode[];
+  if (runs.length > 0) {
+    const last = runs[runs.length - 1]!;
+    last.text = `${(last.text ?? '').trimEnd()} ${pageNumber}`.trim();
+  } else {
+    para.content = [{ type: 'text', text: pageNumber }];
+  }
+}
+
 /**
  * Consume consecutive list lines starting at `start`, nesting by x-indent depth.
  */
@@ -520,7 +547,23 @@ function consumeNestedList(
       continue;
     }
 
-    items.push(listItemNode(line, list.remaining, medianFontSize));
+    const item = listItemNode(line, list.remaining, medianFontSize);
+    const itemText = listItemPlainText(item).trim();
+    const prev = items[items.length - 1];
+    // A table-of-contents entry's dotted-leader page number is often split onto
+    // its own line, so it would otherwise become an orphan bullet. When an item
+    // is a bare page number and the previous entry has title text (letters),
+    // fold it back into that entry. Guarding on letters keeps genuine
+    // numeric-only lists (e.g. "2020", "2021") intact.
+    if (
+      BARE_PAGE_NUMBER_RE.test(itemText) &&
+      prev &&
+      /[A-Za-z]/.test(listItemPlainText(prev))
+    ) {
+      appendPageNumberToListItem(prev, itemText);
+    } else {
+      items.push(item);
+    }
     i += 1;
   }
 
