@@ -610,31 +610,44 @@ describe('spatialPagesToTipTap', () => {
     expect(texts[1]).toContain('Second page body');
   });
 
-  it('merges table-of-contents page numbers into their entries (no orphan bullets)', () => {
+  it('flattens a table of contents into clean paragraphs (no bullets, no page numbers)', () => {
     const pages: SpatialPage[] = [
       {
         textItems: [
-          { text: '• 1 Introduction', x: 50, y: 20, width: 140, height: 12, fontSize: 12 },
-          { text: '• 3', x: 50, y: 40, width: 20, height: 12, fontSize: 12 },
-          { text: '• 2 The Given Challenge', x: 50, y: 60, width: 180, height: 12, fontSize: 12 },
-          { text: '• 4', x: 50, y: 80, width: 20, height: 12, fontSize: 12 },
+          { text: 'Contents', x: 50, y: 20, width: 90, height: 14, fontSize: 14 },
+          { text: '• 1 Introduction', x: 50, y: 50, width: 140, height: 12, fontSize: 12 },
+          { text: '• 3', x: 50, y: 70, width: 20, height: 12, fontSize: 12 },
+          { text: '• 2 The Given Challenge', x: 50, y: 90, width: 180, height: 12, fontSize: 12 },
+          { text: '• 4', x: 50, y: 110, width: 20, height: 12, fontSize: 12 },
+          { text: '• 3 Success Criteria 4', x: 50, y: 130, width: 190, height: 12, fontSize: 12 },
+          { text: '• 4.1 Component Architecture', x: 50, y: 150, width: 210, height: 12, fontSize: 12 },
+          { text: '• 4.1.1 Definition Terms', x: 50, y: 170, width: 190, height: 12, fontSize: 12 },
         ],
       },
     ];
     const doc = spatialPagesToTipTap(pages);
-    const list = (doc.content as TipTapNode[] | undefined)?.find(
-      (b) => b.type === 'bulletList' || b.type === 'orderedList',
-    );
-    expect(list).toBeTruthy();
-    const itemTexts = (list?.content ?? []).map((item) =>
-      (item.content?.[0]?.content ?? []).map((n) => n.text ?? '').join('').trim(),
-    );
-    // No orphan bare page-number bullets remain.
-    for (const text of itemTexts) {
+    const blocks = (doc.content as TipTapNode[] | undefined) ?? [];
+
+    // The TOC must no longer render as a list.
+    expect(blocks.some((b) => b.type === 'bulletList' || b.type === 'orderedList')).toBe(false);
+
+    const paragraphTexts = blocks
+      .filter((b) => b.type === 'paragraph')
+      .map((b) => (b.content ?? []).map((n) => n.text ?? '').join('').trim());
+
+    // Bare page-number-only lines are gone.
+    for (const text of paragraphTexts) {
       expect(text).not.toMatch(/^\d{1,4}$/);
     }
-    // Each entry keeps its page number, folded into the entry.
-    expect(itemTexts).toEqual(['1 Introduction 3', '2 The Given Challenge 4']);
+    // Entries are clean paragraphs with no trailing page number, but the
+    // leading section numbering is preserved.
+    expect(paragraphTexts).toEqual([
+      '1 Introduction',
+      '2 The Given Challenge',
+      '3 Success Criteria',
+      '4.1 Component Architecture',
+      '4.1.1 Definition Terms',
+    ]);
   });
 
   it('leaves a genuine numeric-only bullet list unchanged', () => {

@@ -12,6 +12,7 @@ import type { TipTapDoc, TipTapNode } from '@wren/types';
 import {
   headingLevelFromPlainText,
   isAllCapsHeadingText,
+  isTocTitle,
   looksLikeStandaloneHeading,
   wordCount,
 } from './pdfHeadingHeuristics';
@@ -476,30 +477,6 @@ function listItemNode(
 /** A standalone table-of-contents leader target, e.g. "12". */
 const BARE_PAGE_NUMBER_RE = /^\d{1,4}$/;
 
-/** Plain text of a listItem's first paragraph, or '' when absent. */
-function listItemPlainText(item: TipTapNode): string {
-  const para = item.content?.[0];
-  const runs = (para?.content ?? []) as TipTapNode[];
-  return runs.map((run) => run.text ?? '').join('');
-}
-
-/**
- * Append a trailing page number to a listItem's first paragraph, in place.
- * Extends the last run (keeping its marks) so the number inherits the entry's
- * formatting rather than becoming a separate run.
- */
-function appendPageNumberToListItem(item: TipTapNode, pageNumber: string): void {
-  const para = item.content?.[0];
-  if (!para) return;
-  const runs = (para.content ?? []) as TipTapNode[];
-  if (runs.length > 0) {
-    const last = runs[runs.length - 1]!;
-    last.text = `${(last.text ?? '').trimEnd()} ${pageNumber}`.trim();
-  } else {
-    para.content = [{ type: 'text', text: pageNumber }];
-  }
-}
-
 /**
  * Consume consecutive list lines starting at `start`, nesting by x-indent depth.
  */
@@ -548,22 +525,7 @@ function consumeNestedList(
     }
 
     const item = listItemNode(line, list.remaining, medianFontSize);
-    const itemText = listItemPlainText(item).trim();
-    const prev = items[items.length - 1];
-    // A table-of-contents entry's dotted-leader page number is often split onto
-    // its own line, so it would otherwise become an orphan bullet. When an item
-    // is a bare page number and the previous entry has title text (letters),
-    // fold it back into that entry. Guarding on letters keeps genuine
-    // numeric-only lists (e.g. "2020", "2021") intact.
-    if (
-      BARE_PAGE_NUMBER_RE.test(itemText) &&
-      prev &&
-      /[A-Za-z]/.test(listItemPlainText(prev))
-    ) {
-      appendPageNumberToListItem(prev, itemText);
-    } else {
-      items.push(item);
-    }
+    items.push(item);
     i += 1;
   }
 
@@ -938,6 +900,80 @@ function spatialItemsToBlocks(items: SpatialTextItem[]): TipTapNode[] {
   return blocks;
 }
 
+/** Concatenated plain text of a TipTap node (all descendant text runs). */
+function nodePlainText(node: TipTapNode): string {
+  if (typeof node.text === 'string') return node.text;
+  const children = (node.content ?? []) as TipTapNode[];
+  return children.map(nodePlainText).join('');
+}
+
+/** Drop a single trailing whitespace-separated bare-page-number token. */
+function stripTrailingPageNumber(text: string): string {
+  return text.replace(/\s+\d{1,4}$/, '').trimEnd();
+}
+
+/**
+ * Flatten a table-of-contents list into clean paragraphs: no bullets, and with
+ * trailing page numbers dropped (the leading section numbering stays part of
+ * the title text). Recursively walks nested sub-lists (e.g. 4.1 / 4.1.1) and
+ * drops bare-page-number-only entries.
+ */
+function tocListToParagraphs(list: TipTapNode): TipTapNode[] {
+  const paragraphs: TipTapNode[] = [];
+  const walk = (items: TipTapNode[]): void => {
+    for (const item of items) {
+      if (item.type !== 'listItem') continue;
+      const children = (item.content ?? []) as TipTapNode[];
+      const entry = children[0];
+      const subLists = children.filter(
+        (c) => c.type === 'bulletList' || c.type === 'orderedList',
+      );
+
+      if (entry && entry.type === 'paragraph') {
+        const entryText = nodePlainText(entry).trim();
+        // Drop bare page-number-only entries (dotted-leader targets).
+        if (!BARE_PAGE_NUMBER_RE.test(entryText) && entryText.length > 0) {
+          const cleaned = stripTrailingPageNumber(entryText);
+          paragraphs.push({
+            type: 'paragraph',
+            content: [{ type: 'text', text: cleaned }],
+          });
+        }
+      }
+
+      for (const sub of subLists) {
+        walk((sub.content ?? []) as TipTapNode[]);
+      }
+    }
+  };
+  walk((list.content ?? []) as TipTapNode[]);
+  return paragraphs;
+}
+
+/**
+ * Post-pass: render a document's table of contents as clean paragraphs. Finds a
+ * top-level TOC title (heading or paragraph whose plain text matches
+ * {@link isTocTitle}); when the next top-level node is a list, replaces it with
+ * flattened paragraphs. Only the one list immediately following the title is
+ * transformed.
+ */
+function flattenTableOfContents(nodes: TipTapNode[]): TipTapNode[] {
+  const out: TipTapNode[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]!;
+    out.push(node);
+    if (node.type !== 'heading' && node.type !== 'paragraph') continue;
+    if (!isTocTitle(nodePlainText(node).trim())) continue;
+
+    const next = nodes[i + 1];
+    if (next && (next.type === 'bulletList' || next.type === 'orderedList')) {
+      out.push(...tocListToParagraphs(next));
+      i += 1; // Consume the transformed list.
+    }
+  }
+  return out;
+}
+
 /** Build a TipTap doc from spatial pages of text items. */
 export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   // Process pages separately so page-local Y coordinates cannot interleave.
@@ -948,7 +984,7 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   }
 
   // Wrap stitching runs in polishPdfTipTapNodes, after heading promotion.
-  const merged = mergeAdjacentLists(blocks);
+  const merged = flattenTableOfContents(mergeAdjacentLists(blocks));
   return {
     type: 'doc',
     content: merged.length > 0 ? merged : [{ type: 'paragraph' }],
