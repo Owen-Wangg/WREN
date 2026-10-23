@@ -12,6 +12,8 @@ import type { TipTapDoc, TipTapNode } from '@wren/types';
 import {
   headingLevelFromPlainText,
   isAllCapsHeadingText,
+  isTocTitle,
+  looksLikeBodyCopy,
   looksLikeStandaloneHeading,
   wordCount,
 } from './pdfHeadingHeuristics';
@@ -417,6 +419,10 @@ function headingLevelForLine(line: Line, medianFontSize: number): number | null 
   const structural = headingLevelFromPlainText(text);
   if (structural != null) return structural;
 
+  // A long / multi-sentence line is body copy, never a heading — even if it
+  // happens to be set in a larger-than-median font. Mirrors the Textract path.
+  if (looksLikeBodyCopy(text)) return null;
+
   if (line.maxFontSize >= medianFontSize * 1.35) {
     if (line.maxFontSize >= medianFontSize * 1.8) return 1;
     if (line.maxFontSize >= medianFontSize * 1.5) return 2;
@@ -442,6 +448,30 @@ function headingLevelForLine(line: Line, medianFontSize: number): number | null 
     return line.maxFontSize >= medianFontSize * 1.12 ? 2 : 3;
   }
   return null;
+}
+
+/**
+ * True when `headingLevelForLine` promotes a line *only* because its font is
+ * larger than the body median — not because it is a structural / TOC / caps /
+ * bold-short heading. Such a "soft" size-heading is often just one visual line
+ * of a body paragraph that happens to be set in a larger-than-median font; the
+ * fragments must stay mergeable so the whole paragraph reassembles as body
+ * copy instead of rendering as a run of giant headings. See
+ * {@link shouldMergeSoftWrap}.
+ */
+function isSizeOnlyHeadingLine(line: Line, medianFontSize: number): boolean {
+  if (headingLevelForLine(line, medianFontSize) == null) return false;
+  if (isListLine(line)) return false;
+  const text = line.text.trim();
+  // Structural titles (TOC / judgment) and standalone ALL-CAPS lines are hard
+  // headings regardless of size.
+  if (headingLevelFromPlainText(text) != null) return false;
+  if (looksLikeStandaloneHeading(text)) return false;
+  if (isAllCapsHeadingText(text)) return false;
+  // Short bold lines are intentional headings in flat-size PDFs.
+  if (lineBoldRatio(line) >= 0.75) return false;
+  // Whatever is left is a heading purely due to the size-ratio branch.
+  return true;
 }
 
 function listItemNode(
@@ -472,6 +502,9 @@ function listItemNode(
     ],
   };
 }
+
+/** A standalone table-of-contents leader target, e.g. "12". */
+const BARE_PAGE_NUMBER_RE = /^\d{1,4}$/;
 
 /**
  * Consume consecutive list lines starting at `start`, nesting by x-indent depth.
@@ -520,7 +553,8 @@ function consumeNestedList(
       continue;
     }
 
-    items.push(listItemNode(line, list.remaining, medianFontSize));
+    const item = listItemNode(line, list.remaining, medianFontSize);
+    items.push(item);
     i += 1;
   }
 
@@ -696,8 +730,25 @@ function shouldMergeSoftWrap(
   indentGap: number,
 ): boolean {
   if (isListLine(prev) || isListLine(next)) return false;
-  if (headingLevelForLine(prev, medianFontSize) != null) return false;
-  if (headingLevelForLine(next, medianFontSize) != null) return false;
+  // Block merging across a genuine heading, but allow a line that is a heading
+  // *only* because of its larger font to merge with another same-size
+  // size-heading: a body paragraph set in a larger font arrives as short
+  // fragments that would each be promoted and then render as giant headings.
+  // Merging them back into one line lets the combined text read as body copy.
+  // The font-size similarity guard below keeps a genuinely larger real heading
+  // from absorbing smaller body lines.
+  if (
+    headingLevelForLine(prev, medianFontSize) != null &&
+    !isSizeOnlyHeadingLine(prev, medianFontSize)
+  ) {
+    return false;
+  }
+  if (
+    headingLevelForLine(next, medianFontSize) != null &&
+    !isSizeOnlyHeadingLine(next, medianFontSize)
+  ) {
+    return false;
+  }
   if (looksLikeStandaloneHeading(prev.text) || looksLikeStandaloneHeading(next.text)) {
     return false;
   }
@@ -779,7 +830,13 @@ function mergeSoftWrappedLines(
         : `${prev.text.trimEnd()} ${line.text.trimStart()}`;
       prev.maxFontSize = Math.max(prev.maxFontSize, line.maxFontSize);
       prev.minX = Math.min(prev.minX, line.minX);
-      // Keep earliest y so table/list ordering stays stable.
+      // Advance y to the line just merged so the next soft-wrap gap is measured
+      // between consecutive lines rather than from the paragraph's first line.
+      // Otherwise the gap accumulates and a paragraph stops merging after a few
+      // lines; for body copy set in a larger-than-median font the unmerged tail
+      // fragments are then promoted to headings and render as giant text.
+      // (Array order is preserved, so list/table ordering is unaffected.)
+      prev.y = line.y;
     } else {
       out.push({
         ...line,
@@ -797,7 +854,6 @@ function lineToBlock(
   indentGap: number,
   bounds: ContentBounds,
 ): TipTapNode {
-  const content = runsToTextNodes(line.runs, medianFontSize, true);
   const align = inferTextAlign(line, bounds);
   const indent =
     align === 'center' ? 0 : lineIndentLevel(line, baselineX, indentGap);
@@ -812,9 +868,16 @@ function lineToBlock(
     return {
       type: 'heading',
       attrs: { level, ...attrs },
-      content: stripFontSizeMarks(content),
+      content: stripFontSizeMarks(runsToTextNodes(line.runs, medianFontSize, true)),
     };
   }
+
+  // A paragraph whose text reads as body copy must not carry an oversized
+  // per-run fontSize mark: a body paragraph set in a larger-than-median font
+  // would otherwise render "huge". Keep size marks only for short non-body
+  // lines (e.g. a slightly larger caption) where the size is meaningful.
+  const attachSizeMarks = !looksLikeBodyCopy(line.text.trim());
+  const content = runsToTextNodes(line.runs, medianFontSize, attachSizeMarks);
 
   return {
     type: 'paragraph',
@@ -895,6 +958,130 @@ function spatialItemsToBlocks(items: SpatialTextItem[]): TipTapNode[] {
   return blocks;
 }
 
+/** Concatenated plain text of a TipTap node (all descendant text runs). */
+function nodePlainText(node: TipTapNode): string {
+  if (typeof node.text === 'string') return node.text;
+  const children = (node.content ?? []) as TipTapNode[];
+  return children.map(nodePlainText).join('');
+}
+
+/** Drop a single trailing whitespace-separated bare-page-number token. */
+function stripTrailingPageNumber(text: string): string {
+  return text.replace(/\s+\d{1,4}$/, '').trimEnd();
+}
+
+/**
+ * Flatten a table-of-contents list into clean paragraphs: no bullets, and with
+ * trailing page numbers dropped (the leading section numbering stays part of
+ * the title text). Recursively walks nested sub-lists (e.g. 4.1 / 4.1.1) and
+ * drops bare-page-number-only entries.
+ */
+function tocListToParagraphs(list: TipTapNode): TipTapNode[] {
+  const paragraphs: TipTapNode[] = [];
+  const walk = (items: TipTapNode[]): void => {
+    for (const item of items) {
+      if (item.type !== 'listItem') continue;
+      const children = (item.content ?? []) as TipTapNode[];
+      const entry = children[0];
+      const subLists = children.filter(
+        (c) => c.type === 'bulletList' || c.type === 'orderedList',
+      );
+
+      if (entry && entry.type === 'paragraph') {
+        const entryText = nodePlainText(entry).trim();
+        // Drop bare page-number-only entries (dotted-leader targets).
+        if (!BARE_PAGE_NUMBER_RE.test(entryText) && entryText.length > 0) {
+          const cleaned = stripTrailingPageNumber(entryText);
+          paragraphs.push({
+            type: 'paragraph',
+            content: [{ type: 'text', text: cleaned }],
+          });
+        }
+      }
+
+      for (const sub of subLists) {
+        walk((sub.content ?? []) as TipTapNode[]);
+      }
+    }
+  };
+  walk((list.content ?? []) as TipTapNode[]);
+  return paragraphs;
+}
+
+/**
+ * Flatten a table-of-contents rendered as a `table` (Word emits TOC entries as
+ * tab-leader rows, so the digital extractor clusters section number, nested
+ * title, and page number into separate columns). Each row becomes one clean
+ * paragraph: page-number-only cells are dropped and a trailing page number is
+ * stripped, while the section numbering in the title cell is kept.
+ */
+function tocTableToParagraphs(table: TipTapNode): TipTapNode[] {
+  const paragraphs: TipTapNode[] = [];
+  for (const row of (table.content ?? []) as TipTapNode[]) {
+    if (row.type !== 'tableRow') continue;
+    const cellTexts = ((row.content ?? []) as TipTapNode[]).map((cell) =>
+      nodePlainText(cell).replace(/\s+/g, ' ').trim(),
+    );
+    // Keep the title cell(s); drop empty cells and bare page-number cells
+    // (the dotted-leader page target sits in its own column).
+    const titleParts = cellTexts.filter(
+      (t) => t.length > 0 && !BARE_PAGE_NUMBER_RE.test(t),
+    );
+    if (titleParts.length === 0) continue;
+    const text = stripTrailingPageNumber(titleParts.join(' ').trim());
+    if (text.length === 0 || BARE_PAGE_NUMBER_RE.test(text)) continue;
+    paragraphs.push({
+      type: 'paragraph',
+      content: [{ type: 'text', text }],
+    });
+  }
+  return paragraphs;
+}
+
+/** First non-empty block at or after `start` (skips blank spacer paragraphs). */
+function nextContentIndex(nodes: TipTapNode[], start: number): number {
+  let j = start;
+  while (j < nodes.length) {
+    const cand = nodes[j]!;
+    const isEmptyParagraph =
+      cand.type === 'paragraph' && nodePlainText(cand).trim() === '';
+    if (!isEmptyParagraph) break;
+    j += 1;
+  }
+  return j;
+}
+
+/**
+ * Post-pass: render a document's table of contents as clean paragraphs. Finds a
+ * top-level TOC title (heading or paragraph whose plain text matches
+ * {@link isTocTitle}); when the next non-empty block is a list *or* a table
+ * (Word TOCs cluster into table columns in the digital path), it is replaced
+ * with flattened, bullet-free paragraphs. Blank spacer paragraphs between the
+ * title and the list/table are skipped. Only the one block associated with the
+ * title is transformed.
+ */
+export function flattenTableOfContents(nodes: TipTapNode[]): TipTapNode[] {
+  const out: TipTapNode[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]!;
+    out.push(node);
+    if (node.type !== 'heading' && node.type !== 'paragraph') continue;
+    if (!isTocTitle(nodePlainText(node).trim())) continue;
+
+    const j = nextContentIndex(nodes, i + 1);
+    const next = nodes[j];
+    if (!next) continue;
+    if (next.type === 'bulletList' || next.type === 'orderedList') {
+      out.push(...tocListToParagraphs(next));
+      i = j; // Consume the skipped spacers and the transformed list.
+    } else if (next.type === 'table') {
+      out.push(...tocTableToParagraphs(next));
+      i = j; // Consume the skipped spacers and the transformed table.
+    }
+  }
+  return out;
+}
+
 /** Build a TipTap doc from spatial pages of text items. */
 export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   // Process pages separately so page-local Y coordinates cannot interleave.
@@ -905,7 +1092,7 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   }
 
   // Wrap stitching runs in polishPdfTipTapNodes, after heading promotion.
-  const merged = mergeAdjacentLists(blocks);
+  const merged = flattenTableOfContents(mergeAdjacentLists(blocks));
   return {
     type: 'doc',
     content: merged.length > 0 ? merged : [{ type: 'paragraph' }],
