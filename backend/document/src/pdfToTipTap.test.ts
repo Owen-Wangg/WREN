@@ -1,4 +1,8 @@
-import { spatialPagesToTipTap, type SpatialPage } from './pdfToTipTap';
+import {
+  flattenTableOfContents,
+  spatialPagesToTipTap,
+  type SpatialPage,
+} from './pdfToTipTap';
 import { polishPdfTipTapNodes } from './promotePdfHeadings';
 import type { TipTapNode } from '@wren/types';
 
@@ -680,6 +684,115 @@ describe('spatialPagesToTipTap', () => {
       '4.1 Component Architecture',
       '4.1.1 Definition Terms',
     ]);
+  });
+
+  it('flattens a table-of-contents rendered as a table (Word tab-leader TOC)', () => {
+    // Word TOCs cluster into columns in the digital path, so the Contents
+    // block arrives as a table: section/sub/sub-sub title columns plus a
+    // trailing page-number column. It must still flatten to clean paragraphs.
+    const cell = (text?: string): TipTapNode => ({
+      type: 'tableCell',
+      content: [
+        text
+          ? { type: 'paragraph', content: [{ type: 'text', text }] }
+          : { type: 'paragraph' },
+      ],
+    });
+    const row = (cells: TipTapNode[]): TipTapNode => ({ type: 'tableRow', content: cells });
+    const nodes: TipTapNode[] = [
+      { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Contents' }] },
+      {
+        type: 'table',
+        content: [
+          row([cell('1 Introduction'), cell(), cell(), cell(' 3')]),
+          row([cell('2 The Given Challenge'), cell(), cell(), cell(' 4')]),
+          row([cell(), cell('4.1 Component Architecture'), cell(), cell(' 4')]),
+          row([cell(), cell(), cell('4.1.1 Definition Terms'), cell(' 4')]),
+        ],
+      },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Body after the TOC.' }] },
+    ];
+
+    const out = flattenTableOfContents(nodes);
+
+    // No table / list remains for the Contents block.
+    expect(out.some((b) => b.type === 'table')).toBe(false);
+    const paragraphTexts = out
+      .filter((b) => b.type === 'paragraph')
+      .map((b) => (b.content ?? []).map((n) => n.text ?? '').join('').trim());
+    expect(paragraphTexts).toContain('1 Introduction');
+    expect(paragraphTexts).toContain('2 The Given Challenge');
+    expect(paragraphTexts).toContain('4.1 Component Architecture');
+    expect(paragraphTexts).toContain('4.1.1 Definition Terms');
+    // Page numbers dropped; the body paragraph is untouched.
+    for (const text of paragraphTexts) expect(text).not.toMatch(/\s\d{1,4}$/);
+    expect(paragraphTexts).toContain('Body after the TOC.');
+  });
+
+  it('keeps a large-font body paragraph as one paragraph, not a run of giant headings', () => {
+    // Body copy set in a larger-than-median font arrives as short visual-line
+    // fragments. Each fragment would otherwise be promoted to a heading and
+    // render as giant text; they must re-merge into a single body paragraph
+    // while a genuine short large-font heading stays a heading.
+    const med = 12;
+    const big = 18;
+    const bodyLine = (text: string, y: number): SpatialPage['textItems'][number] => ({
+      text,
+      x: 72,
+      y,
+      width: 320,
+      height: med,
+      fontSize: med,
+    });
+    const bigLine = (text: string, y: number): SpatialPage['textItems'][number] => ({
+      text,
+      x: 72,
+      y,
+      width: 240,
+      height: big,
+      fontSize: big,
+    });
+    const pages: SpatialPage[] = [
+      {
+        textItems: [
+          bodyLine('Ordinary body sentence one sets the page median font size.', 40),
+          bodyLine('Ordinary body sentence two keeps the median at body size.', 60),
+          bodyLine('Ordinary body sentence three keeps the median at body size.', 80),
+          bodyLine('Ordinary body sentence four keeps the median at body size.', 100),
+          bodyLine('Ordinary body sentence five keeps the median at body size.', 120),
+          bodyLine('Ordinary body sentence six keeps the median at body size.', 140),
+          // Genuine short heading in a larger font — must stay a heading.
+          bigLine('Solution Overview', 180),
+          // Large-font body paragraph, broken into short visual-line fragments.
+          bigLine('This section describes the technical', 215),
+          bigLine('implementation of the prototype developed', 238),
+          bigLine('during the Proof of Concept. It includes', 261),
+          bigLine('information on the system architecture.', 284),
+        ],
+      },
+    ];
+
+    const doc = spatialPagesToTipTap(pages);
+    const blocks = (doc.content as TipTapNode[] | undefined) ?? [];
+    const plain = (b: TipTapNode): string =>
+      (b.content ?? []).map((n) => n.text ?? '').join('');
+
+    // The genuine heading survives.
+    const heading = blocks.find((b) => b.type === 'heading' && plain(b).includes('Solution Overview'));
+    expect(heading).toBeDefined();
+
+    // The body paragraph is a single paragraph that reassembled fully.
+    const bodyBlock = blocks.find((b) => plain(b).includes('This section describes'));
+    expect(bodyBlock?.type).toBe('paragraph');
+    expect(plain(bodyBlock!)).toContain('system architecture');
+
+    // No heading node contains the body sentence fragments.
+    expect(
+      blocks.some((b) => b.type === 'heading' && plain(b).includes('This section describes')),
+    ).toBe(false);
+
+    // And the body paragraph carries no oversized fontSize mark (renders normal).
+    expect(JSON.stringify(bodyBlock)).not.toContain('fontSize');
   });
 
   it('leaves a genuine numeric-only bullet list unchanged', () => {

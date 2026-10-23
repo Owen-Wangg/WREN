@@ -48,6 +48,7 @@ import {
   looksLikeBodyCopy,
 } from './pdfHeadingHeuristics.js';
 import { polishPdfTipTapNodes } from './promotePdfHeadings.js';
+import { flattenTableOfContents } from './pdfToTipTap.js';
 
 const SKIP_LAYOUT = new Set([
   'LAYOUT_HEADER',
@@ -612,10 +613,13 @@ export function textractLayoutBlocksToTipTap(blocks: readonly Block[]): TipTapDo
   }
 
   // Validate output before returning (Requirements 9.1, 9.2, 9.4, 9.5)
+  // Flatten a table-of-contents (Textract tags Word TOCs as a LAYOUT_LIST, so
+  // they would otherwise render as bullets with trailing page numbers) into
+  // clean paragraphs, using the same post-pass as the digital path.
   const polished: TipTapDoc = {
     type: 'doc',
     content: polishPdfTipTapNodes(
-      Array.isArray(result.content) ? result.content : [],
+      flattenTableOfContents(Array.isArray(result.content) ? result.content : []),
     ),
   };
   return validateTipTapOutput(polished);

@@ -450,6 +450,30 @@ function headingLevelForLine(line: Line, medianFontSize: number): number | null 
   return null;
 }
 
+/**
+ * True when `headingLevelForLine` promotes a line *only* because its font is
+ * larger than the body median — not because it is a structural / TOC / caps /
+ * bold-short heading. Such a "soft" size-heading is often just one visual line
+ * of a body paragraph that happens to be set in a larger-than-median font; the
+ * fragments must stay mergeable so the whole paragraph reassembles as body
+ * copy instead of rendering as a run of giant headings. See
+ * {@link shouldMergeSoftWrap}.
+ */
+function isSizeOnlyHeadingLine(line: Line, medianFontSize: number): boolean {
+  if (headingLevelForLine(line, medianFontSize) == null) return false;
+  if (isListLine(line)) return false;
+  const text = line.text.trim();
+  // Structural titles (TOC / judgment) and standalone ALL-CAPS lines are hard
+  // headings regardless of size.
+  if (headingLevelFromPlainText(text) != null) return false;
+  if (looksLikeStandaloneHeading(text)) return false;
+  if (isAllCapsHeadingText(text)) return false;
+  // Short bold lines are intentional headings in flat-size PDFs.
+  if (lineBoldRatio(line) >= 0.75) return false;
+  // Whatever is left is a heading purely due to the size-ratio branch.
+  return true;
+}
+
 function listItemNode(
   line: Line,
   remaining: string,
@@ -706,8 +730,25 @@ function shouldMergeSoftWrap(
   indentGap: number,
 ): boolean {
   if (isListLine(prev) || isListLine(next)) return false;
-  if (headingLevelForLine(prev, medianFontSize) != null) return false;
-  if (headingLevelForLine(next, medianFontSize) != null) return false;
+  // Block merging across a genuine heading, but allow a line that is a heading
+  // *only* because of its larger font to merge with another same-size
+  // size-heading: a body paragraph set in a larger font arrives as short
+  // fragments that would each be promoted and then render as giant headings.
+  // Merging them back into one line lets the combined text read as body copy.
+  // The font-size similarity guard below keeps a genuinely larger real heading
+  // from absorbing smaller body lines.
+  if (
+    headingLevelForLine(prev, medianFontSize) != null &&
+    !isSizeOnlyHeadingLine(prev, medianFontSize)
+  ) {
+    return false;
+  }
+  if (
+    headingLevelForLine(next, medianFontSize) != null &&
+    !isSizeOnlyHeadingLine(next, medianFontSize)
+  ) {
+    return false;
+  }
   if (looksLikeStandaloneHeading(prev.text) || looksLikeStandaloneHeading(next.text)) {
     return false;
   }
@@ -789,7 +830,13 @@ function mergeSoftWrappedLines(
         : `${prev.text.trimEnd()} ${line.text.trimStart()}`;
       prev.maxFontSize = Math.max(prev.maxFontSize, line.maxFontSize);
       prev.minX = Math.min(prev.minX, line.minX);
-      // Keep earliest y so table/list ordering stays stable.
+      // Advance y to the line just merged so the next soft-wrap gap is measured
+      // between consecutive lines rather than from the paragraph's first line.
+      // Otherwise the gap accumulates and a paragraph stops merging after a few
+      // lines; for body copy set in a larger-than-median font the unmerged tail
+      // fragments are then promoted to headings and render as giant text.
+      // (Array order is preserved, so list/table ordering is unaffected.)
+      prev.y = line.y;
     } else {
       out.push({
         ...line,
@@ -807,7 +854,6 @@ function lineToBlock(
   indentGap: number,
   bounds: ContentBounds,
 ): TipTapNode {
-  const content = runsToTextNodes(line.runs, medianFontSize, true);
   const align = inferTextAlign(line, bounds);
   const indent =
     align === 'center' ? 0 : lineIndentLevel(line, baselineX, indentGap);
@@ -822,9 +868,16 @@ function lineToBlock(
     return {
       type: 'heading',
       attrs: { level, ...attrs },
-      content: stripFontSizeMarks(content),
+      content: stripFontSizeMarks(runsToTextNodes(line.runs, medianFontSize, true)),
     };
   }
+
+  // A paragraph whose text reads as body copy must not carry an oversized
+  // per-run fontSize mark: a body paragraph set in a larger-than-median font
+  // would otherwise render "huge". Keep size marks only for short non-body
+  // lines (e.g. a slightly larger caption) where the size is meaningful.
+  const attachSizeMarks = !looksLikeBodyCopy(line.text.trim());
+  const content = runsToTextNodes(line.runs, medianFontSize, attachSizeMarks);
 
   return {
     type: 'paragraph',
@@ -956,13 +1009,58 @@ function tocListToParagraphs(list: TipTapNode): TipTapNode[] {
 }
 
 /**
+ * Flatten a table-of-contents rendered as a `table` (Word emits TOC entries as
+ * tab-leader rows, so the digital extractor clusters section number, nested
+ * title, and page number into separate columns). Each row becomes one clean
+ * paragraph: page-number-only cells are dropped and a trailing page number is
+ * stripped, while the section numbering in the title cell is kept.
+ */
+function tocTableToParagraphs(table: TipTapNode): TipTapNode[] {
+  const paragraphs: TipTapNode[] = [];
+  for (const row of (table.content ?? []) as TipTapNode[]) {
+    if (row.type !== 'tableRow') continue;
+    const cellTexts = ((row.content ?? []) as TipTapNode[]).map((cell) =>
+      nodePlainText(cell).replace(/\s+/g, ' ').trim(),
+    );
+    // Keep the title cell(s); drop empty cells and bare page-number cells
+    // (the dotted-leader page target sits in its own column).
+    const titleParts = cellTexts.filter(
+      (t) => t.length > 0 && !BARE_PAGE_NUMBER_RE.test(t),
+    );
+    if (titleParts.length === 0) continue;
+    const text = stripTrailingPageNumber(titleParts.join(' ').trim());
+    if (text.length === 0 || BARE_PAGE_NUMBER_RE.test(text)) continue;
+    paragraphs.push({
+      type: 'paragraph',
+      content: [{ type: 'text', text }],
+    });
+  }
+  return paragraphs;
+}
+
+/** First non-empty block at or after `start` (skips blank spacer paragraphs). */
+function nextContentIndex(nodes: TipTapNode[], start: number): number {
+  let j = start;
+  while (j < nodes.length) {
+    const cand = nodes[j]!;
+    const isEmptyParagraph =
+      cand.type === 'paragraph' && nodePlainText(cand).trim() === '';
+    if (!isEmptyParagraph) break;
+    j += 1;
+  }
+  return j;
+}
+
+/**
  * Post-pass: render a document's table of contents as clean paragraphs. Finds a
  * top-level TOC title (heading or paragraph whose plain text matches
- * {@link isTocTitle}); when the next top-level node is a list, replaces it with
- * flattened paragraphs. Only the one list immediately following the title is
- * transformed.
+ * {@link isTocTitle}); when the next non-empty block is a list *or* a table
+ * (Word TOCs cluster into table columns in the digital path), it is replaced
+ * with flattened, bullet-free paragraphs. Blank spacer paragraphs between the
+ * title and the list/table are skipped. Only the one block associated with the
+ * title is transformed.
  */
-function flattenTableOfContents(nodes: TipTapNode[]): TipTapNode[] {
+export function flattenTableOfContents(nodes: TipTapNode[]): TipTapNode[] {
   const out: TipTapNode[] = [];
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i]!;
@@ -970,10 +1068,15 @@ function flattenTableOfContents(nodes: TipTapNode[]): TipTapNode[] {
     if (node.type !== 'heading' && node.type !== 'paragraph') continue;
     if (!isTocTitle(nodePlainText(node).trim())) continue;
 
-    const next = nodes[i + 1];
-    if (next && (next.type === 'bulletList' || next.type === 'orderedList')) {
+    const j = nextContentIndex(nodes, i + 1);
+    const next = nodes[j];
+    if (!next) continue;
+    if (next.type === 'bulletList' || next.type === 'orderedList') {
       out.push(...tocListToParagraphs(next));
-      i += 1; // Consume the transformed list.
+      i = j; // Consume the skipped spacers and the transformed list.
+    } else if (next.type === 'table') {
+      out.push(...tocTableToParagraphs(next));
+      i = j; // Consume the skipped spacers and the transformed table.
     }
   }
   return out;
