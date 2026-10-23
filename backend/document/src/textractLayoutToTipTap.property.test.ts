@@ -312,13 +312,21 @@ const spanTableArb: fc.Arbitrary<{
  * Ensures the text is at least 1 char after trimming and avoids
  * problematic whitespace-only strings.
  */
-const headingTextArb = fc
+// A single heading token: letters/digits plus intra-word punctuation, but no
+// sentence-ending punctuation. Capped so assembled titles stay heading-like.
+const headingWordArb = fc
   .stringOf(
-    fc.oneof(
-      fc.char16bits().filter((c) => /[A-Za-z0-9 .,!?;:'\-]/.test(c)),
-    ),
-    { minLength: 1, maxLength: 80 },
+    fc.char16bits().filter((c) => /[A-Za-z0-9,;:'\-]/.test(c)),
+    { minLength: 1, maxLength: 9 },
   )
+  .filter((s) => s.trim().length > 0);
+
+// Genuine heading text: 1–8 short words (≤ ~79 chars, ≤ 12 words, no
+// mid-text sentence punctuation) so the converter keeps it a heading rather
+// than demoting obvious body copy to a paragraph (see looksLikeBodyCopy).
+const headingTextArb = fc
+  .array(headingWordArb, { minLength: 1, maxLength: 8 })
+  .map((words) => words.join(' '))
   .filter((s) => s.trim().length > 0);
 
 /**

@@ -51,6 +51,23 @@ export function looksLikeStandaloneHeading(text: string): boolean {
 }
 
 /**
+ * True when text Textract tagged as a title / section header is really body
+ * copy — too long or clearly multi-sentence to be a heading. Used to demote a
+ * mis-classified `LAYOUT_TITLE` / `LAYOUT_SECTION_HEADER` block to a paragraph
+ * so a body sentence does not render as a giant heading. Mirrors the inverse of
+ * the `short` guard in {@link looksLikeStandaloneHeading}.
+ */
+export function looksLikeBodyCopy(text: string): boolean {
+  const t = text.trim();
+  if (t.length === 0) return false;
+  if (t.length > 90) return true;
+  if (wordCount(t) > 12) return true;
+  // Sentence-ending punctuation followed by more text signals prose, not a title.
+  if (/[.!?]\s/.test(t)) return true;
+  return false;
+}
+
+/**
  * Heading level 1–3, or null for body copy.
  * Size-based promotion is handled by callers that have font metrics.
  */

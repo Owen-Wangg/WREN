@@ -206,6 +206,90 @@ describe('textractLayoutBlocksToTipTap', () => {
     });
   });
 
+  it('merges bare page-number lines into the preceding TOC entry instead of separate bullets', () => {
+    const entryTexts = [
+      '1 Introduction',
+      '3',
+      '2 The Given Challenge',
+      '3 Success Criteria',
+      '4',
+    ];
+    const childIds = entryTexts.map((_, idx) => `l${idx}`);
+    const blocks: Block[] = [
+      {
+        Id: 'toc',
+        BlockType: 'LAYOUT_LIST',
+        Page: 1,
+        Relationships: [{ Type: 'CHILD', Ids: childIds }],
+      },
+      ...entryTexts.map((text, idx) => ({
+        Id: childIds[idx]!,
+        BlockType: 'LINE' as const,
+        Text: text,
+        Page: 1,
+        Geometry: {
+          BoundingBox: { Top: 0.2 + idx * 0.03, Height: 0.02, Left: 0.1, Width: 0.4 },
+        },
+      })),
+    ];
+
+    const doc = textractLayoutBlocksToTipTap(blocks);
+    const content = (doc.content ?? []) as TipTapNode[];
+    const list = content.find((n) => n.type === 'bulletList');
+    expect(list).toBeTruthy();
+
+    const itemTexts = (list?.content ?? []).map((item) =>
+      ((item.content?.[0]?.content ?? []) as TipTapNode[])
+        .map((t) => (t as { text?: string }).text ?? '')
+        .join(''),
+    );
+    // No list item is a bare page number on its own.
+    expect(itemTexts.some((t) => /^\d+$/.test(t))).toBe(false);
+    // The page number is merged into its entry.
+    expect(itemTexts).toContain('1 Introduction 3');
+  });
+
+  it('demotes a multi-sentence LAYOUT_TITLE to a paragraph but keeps a short title a heading', () => {
+    const bodyText =
+      'This section describes the technical implementation of the prototype developed during the proof-of-concept phase.';
+    const blocks: Block[] = [
+      {
+        Id: 'short-title',
+        BlockType: 'LAYOUT_TITLE',
+        Page: 1,
+        Relationships: [{ Type: 'CHILD', Ids: ['st'] }],
+      },
+      {
+        Id: 'body-title',
+        BlockType: 'LAYOUT_TITLE',
+        Page: 1,
+        Relationships: [{ Type: 'CHILD', Ids: ['bt'] }],
+      },
+      {
+        Id: 'st',
+        BlockType: 'LINE',
+        Text: 'Solution Overview',
+        Page: 1,
+        Geometry: { BoundingBox: { Top: 0.1, Height: 0.03, Left: 0.1, Width: 0.3 } },
+      },
+      {
+        Id: 'bt',
+        BlockType: 'LINE',
+        Text: bodyText,
+        Page: 1,
+        Geometry: { BoundingBox: { Top: 0.2, Height: 0.02, Left: 0.1, Width: 0.8 } },
+      },
+    ];
+
+    const doc = textractLayoutBlocksToTipTap(blocks);
+    const content = (doc.content ?? []) as TipTapNode[];
+
+    const short = content.find((n) => JSON.stringify(n).includes('Solution Overview'));
+    const body = content.find((n) => JSON.stringify(n).includes('technical implementation'));
+    expect(short?.type).toBe('heading');
+    expect(body?.type).toBe('paragraph');
+  });
+
   it('keeps a table of contents tagged as LAYOUT_FIGURE instead of dropping it', () => {
     const blocks: Block[] = [
       {
