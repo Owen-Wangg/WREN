@@ -446,6 +446,16 @@ function blocksFromParagraphOrHeading(
   const level = isHeading ? (node.metadata?.level ?? 1) : undefined;
   const footnoteNodes = footnoteNodesFromOfficeNotes(node, footnoteIdCounter);
 
+  // Reconstructed Word heading number (e.g. "6.1.1"), attached by
+  // `attachHeadingNumbers`. Prepended as a leading unstyled run so the heading
+  // reads "6.1.1 Definition Terms" like Word shows it.
+  const headingNumber = isHeading
+    ? (node.metadata as { __computedNumber?: string } | undefined)?.__computedNumber
+    : undefined;
+  // Guard so the number is emitted only on the first block (headings may split
+  // into multiple blocks when they embed an image).
+  let headingNumberEmitted = false;
+
   const makeTextBlock = (textNodes: JSONContent[]): JSONContent => {
     // Footnote reference markers are appended at the end of the paragraph's
     // inline content — officeparser attaches `notes` at the paragraph level
@@ -453,7 +463,12 @@ function blocksFromParagraphOrHeading(
     // offset within the paragraph is not recoverable from the AST; placing
     // it at the paragraph's end is a documented, defensible interpretation
     // given the available data (Requirement 8.3).
-    const content = [...textNodes, ...footnoteNodes];
+    const numberRun: JSONContent[] =
+      isHeading && headingNumber && !headingNumberEmitted
+        ? [{ type: 'text', text: `${headingNumber} ` }]
+        : [];
+    if (numberRun.length > 0) headingNumberEmitted = true;
+    const content = [...numberRun, ...textNodes, ...footnoteNodes];
     if (isHeading) {
       return {
         type: 'heading',
@@ -503,6 +518,108 @@ function blocksFromParagraphOrHeading(
   children.forEach(visitInline);
   flushText();
   return blocks.length > 0 ? blocks : [makeTextBlock([])];
+}
+
+/**
+ * Heading level implied by a node's Word style name (e.g. `"Heading1"` → 1),
+ * or `undefined` when the style is not a heading style.
+ *
+ * Word numbered-heading styles (Heading 1 + an attached numbering definition)
+ * are surfaced by `officeparser` as `type: 'list'` with `metadata.listType:
+ * 'ordered'` and `metadata.style: 'Heading1'`. Left as a list, TipTap renders
+ * them inside an `orderedList` and shows an auto `1.` prefix the author never
+ * typed. Detecting the heading style lets us emit a real heading instead.
+ */
+function officeStyleHeadingLevel(node: OfficeContentNode): number | undefined {
+  const meta = node.metadata as { style?: string } | undefined;
+  const style = meta?.style;
+  if (typeof style !== 'string') return undefined;
+  // Matches "Heading1", "Heading 1", "heading-2", etc. Word only defines
+  // levels 1–9; TipTap supports 1–6 (see HEADING_LEVEL_BY_NUMBER).
+  const match = /^heading[\s_-]*([1-6])$/i.exec(style.trim());
+  return match ? Number(match[1]) : undefined;
+}
+
+/** True when a `list` node is really a (numbered) heading in disguise. */
+function isHeadingStyledList(node: OfficeContentNode): boolean {
+  return node.type === 'list' && officeStyleHeadingLevel(node) !== undefined;
+}
+
+/**
+ * Pre-pass that reconstructs Word's automatic heading numbers.
+ *
+ * `officeparser` surfaces numbered headings as ordered-list nodes but does not
+ * expose the rendered number (e.g. "6.1.1"); it only gives a per-level/document
+ * `itemIndex` that can't be trusted for hierarchy. So we recompute the numbering
+ * ourselves from document order + outline level, exactly as Word would show it.
+ *
+ * Walk the top-level nodes in order, keeping a counter array per `listId`
+ * (one multilevel list). For a heading at level `L` (0-based outline level =
+ * `metadata.indentation`): bump `counters[L]`, reset deeper levels to 0, and the
+ * number is `counters[0..L]` joined with ".". Only ordered (decimal) heading
+ * lists are numbered; bulleted heading styles are left number-free. The result is
+ * stashed on `metadata.__computedNumber` for the heading-building path to prepend.
+ *
+ * Only the top-level `ast.content` array is walked (not table-cell children), so
+ * recursion into cells can't double-count the document's heading sequence.
+ */
+function attachHeadingNumbers(nodes: OfficeContentNode[]): void {
+  const countersByListId = new Map<string, number[]>();
+  for (const node of nodes) {
+    if (!isHeadingStyledList(node)) continue;
+    const meta = node.metadata as
+      | { listType?: string; listId?: string }
+      | undefined;
+    // Only decimal/ordered heading lists carry a reconstructed number.
+    if (meta?.listType !== 'ordered') continue;
+    const listId = typeof meta?.listId === 'string' ? meta.listId : 'default';
+    const level = listNestingLevel(node);
+    const counters = countersByListId.get(listId) ?? [];
+    countersByListId.set(listId, counters);
+    // Ensure the counter array covers this level, then bump it and reset deeper.
+    for (let i = counters.length; i <= level; i += 1) counters[i] = 0;
+    counters[level] += 1;
+    for (let i = level + 1; i < counters.length; i += 1) counters[i] = 0;
+    (node.metadata as { __computedNumber?: string }).__computedNumber = counters
+      .slice(0, level + 1)
+      .join('.');
+  }
+}
+
+/**
+ * Reinterpret a heading-styled `list` node as a heading node so shared block
+ * mapping emits a `heading` (no `orderedList`, no injected `1.` prefix).
+ */
+function listNodeAsHeading(
+  node: OfficeContentNode,
+  level: number,
+): Extract<OfficeContentNode, { type: 'heading' }> {
+  const meta = node.metadata as
+    | { alignment?: string; __computedNumber?: string }
+    | undefined;
+  const alignment =
+    meta?.alignment === 'left' ||
+    meta?.alignment === 'center' ||
+    meta?.alignment === 'right' ||
+    meta?.alignment === 'justify'
+      ? meta.alignment
+      : undefined;
+  const computedNumber =
+    typeof meta?.__computedNumber === 'string' ? meta.__computedNumber : undefined;
+  return {
+    type: 'heading',
+    text: node.text,
+    children: node.children,
+    formatting: node.formatting,
+    comments: node.comments,
+    notes: node.notes,
+    rawContent: node.rawContent,
+    metadata: {
+      level,
+      ...(alignment ? { alignment } : {}),
+      ...(computedNumber ? { __computedNumber: computedNumber } : {}),
+    },
+  };
 }
 
 /** Reinterpret a list item as a paragraph node for shared block mapping. */
@@ -583,6 +700,9 @@ function consumeListGroup(
   let i = startIndex;
   while (i < nodes.length && nodes[i]?.type === 'list') {
     const node = nodes[i]!;
+    // A heading-styled list node is not a real list item — stop the group so
+    // the caller emits it as a heading instead of folding it into this list.
+    if (isHeadingStyledList(node)) break;
     const level = listNestingLevel(node);
     const nodeListType =
       node.metadata && 'listType' in node.metadata && node.metadata.listType === 'ordered'
@@ -690,6 +810,20 @@ function officeNodesToTiptapBlocks(
       continue;
     }
     if (node.type === 'list') {
+      // Word numbered-heading styles arrive as ordered-list nodes; emit a real
+      // heading so they don't render as an orderedList with an auto `1.` prefix.
+      const headingLevel = officeStyleHeadingLevel(node);
+      if (headingLevel !== undefined) {
+        blocks.push(
+          ...blocksFromParagraphOrHeading(
+            listNodeAsHeading(node, headingLevel),
+            attachments,
+            footnoteIdCounter,
+          ),
+        );
+        i += 1;
+        continue;
+      }
       const group = consumeListGroup(nodes, i, attachments, footnoteIdCounter);
       blocks.push(...group.blocks);
       i = group.nextIndex;
@@ -752,6 +886,9 @@ export async function docxBytesToTiptapContent(
     for (const attachment of ast.attachments ?? []) {
       if (attachment?.name) attachments.set(attachment.name, attachment);
     }
+    // Reconstruct Word's automatic heading numbers across the whole document
+    // (in order) before mapping, so numbered headings read "6.1.1 ..." like Word.
+    attachHeadingNumbers(ast.content);
     const footnoteIdCounter = { next: 1 };
     const blocks = officeNodesToTiptapBlocks(ast.content, attachments, footnoteIdCounter);
 

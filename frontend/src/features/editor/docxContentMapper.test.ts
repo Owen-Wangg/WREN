@@ -141,6 +141,115 @@ describe('docxContentMapper', () => {
     expect(hasMark(thirdParagraphRuns[0]!, 'italic')).toBe(true);
   });
 
+  it('reconstructs and prepends Word auto-numbering on numbered headings', async () => {
+    const document = new Document({
+      numbering: {
+        config: [
+          {
+            reference: 'heading-numbers',
+            levels: [
+              { level: 0, format: 'decimal', text: '%1.', alignment: 'left' },
+            ],
+          },
+        ],
+      },
+      sections: [
+        {
+          children: [
+            new Paragraph({
+              heading: HeadingLevel.HEADING_1,
+              numbering: { reference: 'heading-numbers', level: 0 },
+              children: [new TextRun({ text: 'Background' })],
+            }),
+            new Paragraph({
+              children: [new TextRun({ text: 'Body text follows.' })],
+            }),
+          ],
+        },
+      ],
+    });
+    const buffer = await Packer.toBuffer(document);
+
+    const content = await docxBytesToTiptapContent(new Uint8Array(buffer));
+
+    const heading = content.content?.find((n) => n.type === 'heading');
+    expect(heading).toBeTruthy();
+    // The heading must not be coerced into an ordered list.
+    const types = (content.content ?? []).map((n) => n.type);
+    expect(types).not.toContain('orderedList');
+    // The reconstructed number is prepended (single space), matching Word.
+    const headingText = (heading?.content ?? [])
+      .map((run) => run.text ?? '')
+      .join('');
+    expect(headingText).toBe('1 Background');
+  });
+
+  it('reconstructs multilevel numbering across H1/H2/H3 headings', async () => {
+    const headingLevelFor = (level: number) =>
+      level === 0
+        ? HeadingLevel.HEADING_1
+        : level === 1
+          ? HeadingLevel.HEADING_2
+          : HeadingLevel.HEADING_3;
+
+    const sequence: ReadonlyArray<{ level: number; text: string }> = [
+      { level: 0, text: 'Introduction' },
+      { level: 0, text: 'Background' },
+      { level: 0, text: 'Solution Overview' },
+      { level: 1, text: 'Component Architecture' },
+      { level: 2, text: 'Definition Terms' },
+      { level: 1, text: 'Data Definitions' },
+      { level: 0, text: 'Public Repo' },
+    ];
+
+    const document = new Document({
+      numbering: {
+        config: [
+          {
+            reference: 'multilevel-headings',
+            levels: [
+              { level: 0, format: 'decimal', text: '%1', alignment: 'left' },
+              { level: 1, format: 'decimal', text: '%1.%2', alignment: 'left' },
+              { level: 2, format: 'decimal', text: '%1.%2.%3', alignment: 'left' },
+            ],
+          },
+        ],
+      },
+      sections: [
+        {
+          children: sequence.map(
+            (item) =>
+              new Paragraph({
+                heading: headingLevelFor(item.level),
+                numbering: { reference: 'multilevel-headings', level: item.level },
+                children: [new TextRun({ text: item.text })],
+              }),
+          ),
+        },
+      ],
+    });
+    const buffer = await Packer.toBuffer(document);
+
+    const content = await docxBytesToTiptapContent(new Uint8Array(buffer));
+
+    const types = (content.content ?? []).map((n) => n.type);
+    expect(types).not.toContain('orderedList');
+
+    const headingTexts = (content.content ?? [])
+      .filter((n) => n.type === 'heading')
+      .map((n) => (n.content ?? []).map((run) => run.text ?? '').join(''));
+
+    expect(headingTexts).toEqual([
+      '1 Introduction',
+      '2 Background',
+      '3 Solution Overview',
+      '3.1 Component Architecture',
+      '3.1.1 Definition Terms',
+      '3.2 Data Definitions',
+      '4 Public Repo',
+    ]);
+  });
+
   it('maps lists and tables from a richer fixture', async () => {
     const { Table, TableRow, TableCell, WidthType } = await import('docx');
     const document = new Document({
