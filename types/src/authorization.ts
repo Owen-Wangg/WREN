@@ -55,6 +55,10 @@ import { idSchema } from './common';
  *   administered Departments, and a `TechnicalAdmin` at platform scope.
  * - `departmentVisibility.manage` — change student-catalog visibility and
  *   manage explicit Department visibility grants (TechnicalAdmin only).
+ * - `departmentEnrollment.manage` — bulk-enroll Students into a Department by
+ *   email (roster import). Enrollment issues the visibility permission and an
+ *   Access Grant for every Document Type in the Department, so this is a
+ *   distinct capability from `accessGrant.create` (TechnicalAdmin only).
  * - `accessGrant.create` / `accessGrant.revoke` — create/revoke Access Grants
  *   (DepartmentAdmin within administered Departments; TechnicalAdmin).
  * - `usageLimit.configure` — configure usage limits (TechnicalAdmin only).
@@ -84,6 +88,7 @@ export const capabilitySchema = z.enum([
   'department.manageAskWrenPrompt',
   'department.managePrompt',
   'departmentVisibility.manage',
+  'departmentEnrollment.manage',
   'accessGrant.create',
   'accessGrant.revoke',
   'usageLimit.configure',

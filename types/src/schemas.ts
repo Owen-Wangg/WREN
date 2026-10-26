@@ -594,6 +594,84 @@ export type CreateDepartmentVisibilityGrantInput = z.infer<
   typeof createDepartmentVisibilityGrantInputSchema
 >;
 
+/* -------------------------------------------------------------------------- */
+/* DepartmentEnrollment — bulk roster import by email (System Admin)           */
+/* -------------------------------------------------------------------------- */
+
+/** Upper bound on emails accepted by one roster import request. */
+export const MAX_DEPARTMENT_ENROLLMENT_IMPORT = 2000;
+
+/**
+ * Roster import: each email is enrolled in the Department. An email that
+ * already belongs to a WREN account is enrolled immediately (visibility
+ * permission + an Access Grant for every Document Type in the Department);
+ * any other email is held as a pending enrollment and redeemed when a user
+ * first signs in with that verified email.
+ */
+export const importDepartmentEnrollmentsInputSchema = z
+  .object({
+    emails: z.array(z.string().min(1).max(320)).min(1).max(MAX_DEPARTMENT_ENROLLMENT_IMPORT),
+    /**
+     * `add` (default) keeps everyone already on the roster. `replace` makes the
+     * file the whole roster: students not in it are removed and lose the
+     * Department access their enrollment gave them.
+     */
+    mode: z.enum(['add', 'replace']).default('add'),
+    /** Compute the outcome without saving anything (preview before replace). */
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+export type ImportDepartmentEnrollmentsInput = z.input<
+  typeof importDepartmentEnrollmentsInputSchema
+>;
+
+export const departmentEnrollmentImportResultSchema = z
+  .object({
+    /** Emails linked to an existing account and enrolled now. */
+    enrolled: z.array(z.string()),
+    /** Emails with no account yet — enrolled automatically on first sign-in. */
+    pending: z.array(z.string()),
+    /** Submitted values rejected as not being an email address. */
+    invalid: z.array(z.string()),
+    /** How many of the valid emails were already on this Department's roster. */
+    alreadyOnRoster: z.number().int().nonnegative(),
+    /** Roster emails removed because they were not in a `replace` upload. */
+    removed: z.array(z.string()),
+    /** True when nothing was saved (`dryRun`). */
+    dryRun: z.boolean(),
+  })
+  .strict();
+export type DepartmentEnrollmentImportResult = z.infer<
+  typeof departmentEnrollmentImportResultSchema
+>;
+
+/** One active roster row, as shown in the System Admin roster list. */
+export const departmentEnrollmentSchema = z
+  .object({
+    id: idSchema,
+    departmentId: idSchema,
+    email: z.string(),
+    /** `enrolled` once linked to an account; `pending` until they sign up. */
+    status: z.enum(['enrolled', 'pending']),
+    userId: idSchema.nullable(),
+    firstName: z.string().nullable(),
+    lastName: z.string().nullable(),
+    invitedAt: isoDateTimeSchema,
+    linkedAt: isoDateTimeSchema.nullable(),
+  })
+  .strict();
+export type DepartmentEnrollment = z.infer<typeof departmentEnrollmentSchema>;
+
+export const departmentEnrollmentListSchema = z
+  .object({
+    items: z.array(departmentEnrollmentSchema),
+    total: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+  })
+  .strict();
+export type DepartmentEnrollmentList = z.infer<typeof departmentEnrollmentListSchema>;
+
 /**
  * A pending access request for a LOCKED Document Type (Requirement 4.6): a
  * User requesting a Document Type they cannot currently reach. Approving a
