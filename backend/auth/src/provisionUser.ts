@@ -189,6 +189,31 @@ VALUES ($1, $2)
 ON CONFLICT (idp_subject) DO NOTHING
 `;
 
+const REDEEM_DEPARTMENT_ENROLLMENTS_SQL =
+  'SELECT apply_department_enrollments(NULL::uuid, $1::uuid, NULL::text[]) AS linked';
+
+/**
+ * Redeem pending Department roster enrollments (migration 0014) for a freshly
+ * provisioned user: any roster row a System Admin created for this user's
+ * email is linked and its visibility permission + Access Grants are issued.
+ *
+ * Must only run AFTER {@link ensureAppUser} succeeded — provisioning refuses an
+ * unverified email, so the email match here is backed by Cognito
+ * verification. The SQL function is SECURITY DEFINER; the authorizer holds
+ * EXECUTE on it and no write privilege on the grant tables themselves.
+ * Returns the number of roster rows linked.
+ */
+export async function redeemDepartmentEnrollments(
+  db: QueryExecutor,
+  userId: string,
+): Promise<number> {
+  const rows = await db.query<{ linked: number | null }>(
+    REDEEM_DEPARTMENT_ENROLLMENTS_SQL,
+    [userId],
+  );
+  return Number(rows[0]?.linked ?? 0);
+}
+
 /** Synthetic audit actor for TechnicalAdmin grants performed by the bootstrap path. */
 export const BOOTSTRAP_AUDIT_ACTOR = '__system:technical-admin-bootstrap__';
 
