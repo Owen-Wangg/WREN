@@ -42,8 +42,13 @@ import {
   computePageConfidence,
   computeDocumentConfidence,
 } from './textractConfidence.js';
-import { isCanliiOverlayStamp, looksLikeStandaloneHeading } from './pdfHeadingHeuristics.js';
+import {
+  isCanliiOverlayStamp,
+  looksLikeStandaloneHeading,
+  looksLikeBodyCopy,
+} from './pdfHeadingHeuristics.js';
 import { polishPdfTipTapNodes } from './promotePdfHeadings.js';
+import { flattenTableOfContents } from './pdfToTipTap.js';
 
 const SKIP_LAYOUT = new Set([
   'LAYOUT_HEADER',
@@ -295,6 +300,26 @@ function looksLikeTextFigure(lineBlocks: Block[]): boolean {
   return headingLines.length >= 2;
 }
 
+/** A standalone page number, e.g. a table-of-contents leader target like "12". */
+function isBarePageNumber(text: string): boolean {
+  return /^\d{1,4}$/.test(text.trim());
+}
+
+/** Plain text of a listItem's first paragraph, or '' when absent. */
+function listItemText(item: TipTapNode): string {
+  const para = item.content?.[0];
+  const runs = (para?.content ?? []) as TipTapNode[];
+  return runs.map((run) => (run as { text?: string }).text ?? '').join('');
+}
+
+/** Append a trailing page number to a listItem's first paragraph in place. */
+function appendPageNumberToItem(item: TipTapNode, pageNumber: string): void {
+  const para = item.content?.[0];
+  if (!para) return;
+  const existing = listItemText(item);
+  para.content = [{ type: 'text', text: `${existing} ${pageNumber}`.trim() }];
+}
+
 function listFromLayout(block: Block, byId: Map<string, Block>): TipTapNode | null {
   const items: TipTapNode[] = [];
   for (const id of childIds(block)) {
@@ -311,6 +336,16 @@ function listFromLayout(block: Block, byId: Map<string, Block>): TipTapNode | nu
         : collectChildLines(child, byId);
     const text = linesToPlainText(lines);
     if (!text) continue;
+    // Textract splits a table-of-contents entry's title and its dotted-leader
+    // page number onto separate LINE children, so each would otherwise become
+    // its own bullet. When a child is a bare page number and the previous
+    // entry has title text (letters), fold it back into that entry. Guarding
+    // on letters keeps genuine numeric-only lists (e.g. "2020", "2021") intact.
+    const prev = items[items.length - 1];
+    if (isBarePageNumber(text) && prev && /[A-Za-z]/.test(listItemText(prev))) {
+      appendPageNumberToItem(prev, text.trim());
+      continue;
+    }
     items.push({
       type: 'listItem',
       content: [paragraphNode(text)],
@@ -578,10 +613,13 @@ export function textractLayoutBlocksToTipTap(blocks: readonly Block[]): TipTapDo
   }
 
   // Validate output before returning (Requirements 9.1, 9.2, 9.4, 9.5)
+  // Flatten a table-of-contents (Textract tags Word TOCs as a LAYOUT_LIST, so
+  // they would otherwise render as bullets with trailing page numbers) into
+  // clean paragraphs, using the same post-pass as the digital path.
   const polished: TipTapDoc = {
     type: 'doc',
     content: polishPdfTipTapNodes(
-      Array.isArray(result.content) ? result.content : [],
+      flattenTableOfContents(Array.isArray(result.content) ? result.content : []),
     ),
   };
   return validateTipTapOutput(polished);
@@ -751,12 +789,19 @@ function enrichedPipeline(
       const lines = collectChildLines(block, byId);
       const text = linesToPlainText(lines);
       if (text) {
-        const page = block.Page ?? 1;
-        const metrics = pageMetricsMap.get(page) ?? computePageMetricsForPage(page, [], []);
-        const childLineBlocks = collectChildLineBlocks(block, byId);
-        const extra = headingAttrsFromLine(childLineBlocks[0], metrics);
-        const level: 1 | 2 = type === 'LAYOUT_TITLE' ? 1 : 2;
-        nodes.push(headingNode(text, level, extra));
+        // Textract sometimes tags a body sentence as a title/section header,
+        // which would render as a giant heading. Demote obvious body copy to a
+        // paragraph; keep genuine (short, non-sentence) titles as headings.
+        if (looksLikeBodyCopy(text)) {
+          nodes.push(paragraphNode(text));
+        } else {
+          const page = block.Page ?? 1;
+          const metrics = pageMetricsMap.get(page) ?? computePageMetricsForPage(page, [], []);
+          const childLineBlocks = collectChildLineBlocks(block, byId);
+          const extra = headingAttrsFromLine(childLineBlocks[0], metrics);
+          const level: 1 | 2 = type === 'LAYOUT_TITLE' ? 1 : 2;
+          nodes.push(headingNode(text, level, extra));
+        }
       }
       if (block.Id) consumedLayoutIds.add(block.Id);
       markDescendantLayoutsConsumed(block);
