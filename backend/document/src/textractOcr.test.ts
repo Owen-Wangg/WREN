@@ -341,6 +341,35 @@ describe('textractLayoutBlocksToTipTap', () => {
     expect(body?.type).toBe('paragraph');
   });
 
+  it('keeps numbered and case-name section headers as headings', () => {
+    const headerTexts = ['1. Introduction', 'A. Background', 'Part II. Analysis', 'R. v. Smith'];
+    const blocks: Block[] = headerTexts.flatMap((text, idx) => [
+      {
+        Id: `h${idx}`,
+        BlockType: 'LAYOUT_SECTION_HEADER' as const,
+        Page: 1,
+        Relationships: [{ Type: 'CHILD' as const, Ids: [`hl${idx}`] }],
+      },
+      {
+        Id: `hl${idx}`,
+        BlockType: 'LINE' as const,
+        Text: text,
+        Page: 1,
+        Geometry: {
+          BoundingBox: { Top: 0.1 + idx * 0.1, Height: 0.03, Left: 0.1, Width: 0.3 },
+        },
+      },
+    ]);
+
+    const doc = textractLayoutBlocksToTipTap(blocks);
+    const content = (doc.content ?? []) as TipTapNode[];
+
+    for (const text of headerTexts) {
+      const node = content.find((n) => JSON.stringify(n).includes(text));
+      expect(node?.type).toBe('heading');
+    }
+  });
+
   it('keeps a table of contents tagged as LAYOUT_FIGURE instead of dropping it', () => {
     const blocks: Block[] = [
       {
