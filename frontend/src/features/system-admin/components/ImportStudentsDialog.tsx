@@ -41,8 +41,8 @@ function EmailSample({ emails }: { readonly emails: readonly string[] }) {
 }
 
 /**
- * System Admin roster upload: a CSV of student emails either adds to the
- * Department's roster or replaces it. Students with an account are enrolled
+ * System Admin CSV upload for Permitted users: a CSV of student emails either
+ * adds to the list or replaces it. Students with an account are enrolled
  * now; the rest are enrolled automatically the first time they sign in with
  * that email. Replacing always shows a preview of who would be removed first.
  */
@@ -102,7 +102,7 @@ export function ImportStudentsDialog({
     if (!file) return;
     setFileName(file.name);
     if (file.size > MAX_FILE_BYTES) {
-      setFileError('This file is larger than 1 MB. Split the roster into smaller files.');
+      setFileError('This file is larger than 1 MB. Split it into smaller files.');
       return;
     }
     const parsed = parseRosterCsv(await file.text());
@@ -136,8 +136,8 @@ export function ImportStudentsDialog({
       : 'Checking…'
     : preview
       ? preview.removed.length > 0
-        ? `Replace roster and remove ${plural(preview.removed.length, 'student')}`
-        : 'Replace roster'
+        ? `Replace list and remove ${plural(preview.removed.length, 'user')}`
+        : 'Replace list'
       : mode === 'replace'
         ? 'Review changes'
         : roster
@@ -161,7 +161,7 @@ export function ImportStudentsDialog({
         >
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <Dialog.Title className="text-lg font-semibold text-gray-900">
-              Import students
+              Import permitted users
             </Dialog.Title>
             <Dialog.Close
               disabled={importMutation.isPending}
@@ -174,17 +174,17 @@ export function ImportStudentsDialog({
 
           <div className="space-y-4 px-6 py-5">
             <Dialog.Description className="text-sm text-gray-600">
-              Upload a CSV of student email addresses for the{' '}
-              <strong>{departmentName ?? 'this department'}</strong> roster. Use the email each
-              student signs in to WREN with. Students who already have an account are enrolled
-              right away; everyone else is enrolled automatically the first time they sign in.
+              Upload a CSV of student email addresses to add to Permitted users for{' '}
+              <strong>{departmentName ?? 'this department'}</strong>. Use the email each student
+              signs in to WREN with. Students who already have an account are added right away;
+              everyone else is added automatically the first time they sign in.
             </Dialog.Description>
 
             <p className="rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600">
-              Enrolled students can see this department and submit to every document type in it,
+              Permitted users can see this department and submit to every document type in it,
               including ones added later.
               {!isLocked &&
-                ' This department is currently open, so enrollment takes effect if it is locked or its visibility is limited.'}
+                ' This department is currently open, so this takes effect if it is locked or its visibility is limited.'}
             </p>
 
             {!result && !preview && (
@@ -235,15 +235,15 @@ export function ImportStudentsDialog({
 
                 <fieldset className="space-y-2">
                   <legend className="mb-1 text-sm font-semibold text-gray-900">
-                    How should this file update the roster?
+                    How should this file update Permitted users?
                   </legend>
                   {(
                     [
-                      ['add', 'Add to the roster', 'Enroll these students. Everyone already on the roster stays.'],
+                      ['add', 'Add to the list', 'Add these students. Everyone already permitted stays.'],
                       [
                         'replace',
-                        'Replace the roster',
-                        'Make this file the whole roster. Students not in it are removed and lose access to this department. You’ll review the changes first.',
+                        'Replace the list',
+                        'Make this file the whole list. Permitted users not in it are removed and lose access to this department. You’ll review the changes first.',
                       ],
                     ] as const
                   ).map(([value, label, help]) => (
@@ -276,9 +276,9 @@ export function ImportStudentsDialog({
 
             {preview && (
               <div className="space-y-3 rounded-lg border border-gray-200 p-4 text-sm">
-                <p className="font-semibold text-gray-900">Review roster changes</p>
+                <p className="font-semibold text-gray-900">Review changes</p>
                 <p className="text-gray-700">
-                  After replacing, the roster will have{' '}
+                  After replacing, Permitted users will have{' '}
                   {plural(preview.enrolled.length + preview.pending.length, 'student')} (
                   {preview.enrolled.length} with accounts, {preview.pending.length} waiting to sign
                   up).
@@ -302,7 +302,7 @@ export function ImportStudentsDialog({
 
             {result && (
               <div role="status" className="space-y-2 rounded-lg border border-gray-200 p-4 text-sm">
-                <p className="font-semibold text-gray-900">Roster updated</p>
+                <p className="font-semibold text-gray-900">Permitted users updated</p>
                 <ul className="space-y-1 text-gray-700">
                   <li>
                     <span className="font-medium text-green-700">{result.enrolled.length}</span>{' '}
@@ -315,12 +315,12 @@ export function ImportStudentsDialog({
                   {result.removed.length > 0 && (
                     <li>
                       <span className="font-medium text-red-700">{result.removed.length}</span>{' '}
-                      removed from the roster
+                      removed from Permitted users
                     </li>
                   )}
                   {result.alreadyOnRoster > 0 && (
                     <li className="text-gray-500">
-                      {plural(result.alreadyOnRoster, 'email')} were already on the roster
+                      {plural(result.alreadyOnRoster, 'email')} were already permitted
                     </li>
                   )}
                   {result.invalid.length > 0 && (

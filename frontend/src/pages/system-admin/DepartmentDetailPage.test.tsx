@@ -265,11 +265,11 @@ describe('DepartmentDetailPage visibility management', () => {
       );
     });
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'Visibility permission granted.',
+      'User added to Permitted users.',
     );
 
     await user.click(screen.getByRole('button', {
-      name: "Revoke Explicit Student's explicit department visibility permission",
+      name: 'Revoke Explicit Student from Permitted users',
     }));
     await waitFor(() => {
       expect(apiMocks.revokeDepartmentVisibilityGrant).toHaveBeenCalledWith(
@@ -278,7 +278,7 @@ describe('DepartmentDetailPage visibility management', () => {
       );
     });
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'Visibility permission revoked.',
+      'User removed from Permitted users.',
     );
   });
 
@@ -424,57 +424,53 @@ if (typeof File.prototype.text !== 'function') {
     });
   };
 }
-describe('DepartmentDetailPage student roster', () => {
-  const enrolled = {
-    id: 'enr-1',
-    departmentId: 'department-1',
-    email: 'ada@example.edu',
-    status: 'enrolled' as const,
-    userId: 'user-ada',
-    firstName: 'Ada',
-    lastName: 'Lovelace',
-    invitedAt: '2026-10-01T00:00:00.000Z',
-    linkedAt: '2026-10-02T00:00:00.000Z',
-  };
+describe('DepartmentDetailPage permitted users CSV import', () => {
   const pending = {
-    ...enrolled,
     id: 'enr-2',
+    departmentId: 'department-1',
     email: 'new@example.edu',
     status: 'pending' as const,
     userId: null,
     firstName: null,
     lastName: null,
+    invitedAt: '2026-10-01T00:00:00.000Z',
     linkedAt: null,
   };
 
-  it('lists enrolled and pending students and removes one after confirmation', async () => {
+  it('has no separate roster panel', async () => {
+    renderPage();
+    await screen.findByRole('region', { name: 'Permitted users' });
+    expect(screen.queryByRole('region', { name: 'Student roster' })).not.toBeInTheDocument();
+  });
+
+  it('lists emails waiting for sign-up inside Permitted users and removes one after confirmation', async () => {
     const user = userEvent.setup();
     apiMocks.listDepartmentEnrollments.mockResolvedValue({
-      items: [enrolled, pending],
-      total: 2,
+      items: [pending],
+      total: 1,
       limit: 20,
       offset: 0,
     });
     apiMocks.removeDepartmentEnrollment.mockResolvedValue({ removed: true });
     renderPage();
 
-    const roster = await screen.findByRole('region', { name: 'Student roster' });
-    expect(await within(roster).findByText('Ada Lovelace')).toBeInTheDocument();
-    expect(within(roster).getByText('Enrolled', { selector: 'span' })).toBeInTheDocument();
-    expect(within(roster).getByText('new@example.edu')).toBeInTheDocument();
-    expect(within(roster).getByText('Waiting for sign-up', { selector: 'span' })).toBeInTheDocument();
+    const permitted = await screen.findByRole('region', { name: 'Permitted users' });
+    expect(await within(permitted).findByText('Waiting for sign-up (1)')).toBeInTheDocument();
+    expect(apiMocks.listDepartmentEnrollments).toHaveBeenCalledWith(
+      'department-1',
+      expect.objectContaining({ status: 'pending' }),
+    );
 
     await user.click(
-      within(roster).getByRole('button', { name: 'Remove ada@example.edu from the roster' }),
+      within(permitted).getByRole('button', { name: 'Remove new@example.edu from Permitted users' }),
     );
-    const dialog = await screen.findByRole('dialog', { name: 'Remove from roster?' });
+    const dialog = await screen.findByRole('dialog', { name: 'Remove pending email?' });
     expect(apiMocks.removeDepartmentEnrollment).not.toHaveBeenCalled();
     await user.click(within(dialog).getByRole('button', { name: 'Remove' }));
 
     await waitFor(() =>
-      expect(apiMocks.removeDepartmentEnrollment).toHaveBeenCalledWith('department-1', 'enr-1'),
+      expect(apiMocks.removeDepartmentEnrollment).toHaveBeenCalledWith('department-1', 'enr-2'),
     );
-    expect(await screen.findByText('ada@example.edu was removed from the roster.')).toBeInTheDocument();
   });
 
   it('previews a replace upload and only saves after confirming removals', async () => {
@@ -491,16 +487,16 @@ describe('DepartmentDetailPage student roster', () => {
     );
     renderPage();
 
-    const roster = await screen.findByRole('region', { name: 'Student roster' });
-    await user.click(within(roster).getByRole('button', { name: 'Import CSV' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Import students' });
+    const permitted = await screen.findByRole('region', { name: 'Permitted users' });
+    await user.click(within(permitted).getByRole('button', { name: 'Import CSV' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Import permitted users' });
 
     await user.upload(
       within(dialog).getByLabelText(/Choose a CSV file/),
       new File(['email\nstays@example.edu\n'], 'roster.csv', { type: 'text/csv' }),
     );
     expect(await within(dialog).findByText('1 email found')).toBeInTheDocument();
-    await user.click(within(dialog).getByRole('radio', { name: /Replace the roster/ }));
+    await user.click(within(dialog).getByRole('radio', { name: /Replace the list/ }));
     await user.click(within(dialog).getByRole('button', { name: 'Review changes' }));
 
     expect(await within(dialog).findByText('leaves@example.edu')).toBeInTheDocument();
@@ -512,9 +508,9 @@ describe('DepartmentDetailPage student roster', () => {
     );
 
     await user.click(
-      within(dialog).getByRole('button', { name: 'Replace roster and remove 1 student' }),
+      within(dialog).getByRole('button', { name: 'Replace list and remove 1 user' }),
     );
-    expect(await within(dialog).findByText('Roster updated')).toBeInTheDocument();
+    expect(await within(dialog).findByText('Permitted users updated')).toBeInTheDocument();
     expect(apiMocks.importDepartmentEnrollments).toHaveBeenLastCalledWith(
       'department-1',
       ['stays@example.edu'],

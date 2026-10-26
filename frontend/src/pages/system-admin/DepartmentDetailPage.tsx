@@ -16,7 +16,7 @@ function getServerErrorMessage(error: unknown, fallback: string): string {
 }
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, Edit2, Trash2, X } from 'lucide-react';
+import { ChevronLeft, Edit2, Trash2, Upload, X } from 'lucide-react';
 import { purgeDeletedCatalogCaches } from '@/hooks/purgeDeletedCatalog';
 import {
   assignRole,
@@ -41,7 +41,7 @@ import {
 
 import { systemAdminApi } from '@/features/system-admin/systemAdminApi';
 import { DepartmentPromptEditor } from '@/features/department-admin/DepartmentPromptEditor';
-import { DepartmentRosterSection } from '@/features/system-admin/components/DepartmentRosterSection';
+import { PendingSignupsList } from '@/features/system-admin/components/PendingSignupsList';
 import { ImportStudentsDialog } from '@/features/system-admin/components/ImportStudentsDialog';
 
 interface EditingUser {
@@ -298,11 +298,12 @@ export function DepartmentDetailPage() {
     mutationFn: (userId: string) =>
       createDepartmentVisibilityGrant(departmentId!, userId),
     onSuccess: () => {
-      setPermissionStatus('Visibility permission granted.');
+      setPermissionStatus('User added to Permitted users.');
       setPermissionOffset(0);
       void queryClient.invalidateQueries({
         queryKey: ['department-visibility-grants', departmentId],
       });
+      void queryClient.invalidateQueries({ queryKey: departmentRosterQueryKey(departmentId!) });
     },
   });
 
@@ -310,13 +311,14 @@ export function DepartmentDetailPage() {
     mutationFn: (grantId: string) =>
       revokeDepartmentVisibilityGrant(departmentId!, grantId),
     onSuccess: () => {
-      setPermissionStatus('Visibility permission revoked.');
+      setPermissionStatus('User removed from Permitted users.');
       if ((permissionsQuery.data?.items.length ?? 0) === 1 && permissionOffset > 0) {
         setPermissionOffset(Math.max(0, permissionOffset - PERMISSION_PAGE_SIZE));
       }
       void queryClient.invalidateQueries({
         queryKey: ['department-visibility-grants', departmentId],
       });
+      void queryClient.invalidateQueries({ queryKey: departmentRosterQueryKey(departmentId!) });
     },
   });
 
@@ -582,25 +584,29 @@ export function DepartmentDetailPage() {
               </div>
 
               {canManageVisibility && departmentId && (
-                <DepartmentRosterSection
-                  departmentId={departmentId}
-                  departmentName={department?.name}
-                  onImport={() => setImportStudentsOpen(true)}
-                />
-              )}
-
-              {canManageVisibility && departmentId && (
                 <section
                   aria-labelledby="permitted-users-heading"
                   className="mb-8 rounded-lg border border-gray-200 bg-white p-6"
                 >
-                  <h3 id="permitted-users-heading" className="text-xl font-semibold text-gray-900">
-                    Permitted users
-                  </h3>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <h3 id="permitted-users-heading" className="text-xl font-semibold text-gray-900">
+                      Permitted users
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setImportStudentsOpen(true)}
+                      className="flex shrink-0 items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                    >
+                      <Upload size={16} />
+                      Import CSV
+                    </button>
+                  </div>
                   <p className="mt-1 text-sm text-gray-600">
-                    Explicit permissions are retained in both visibility modes and take effect when
-                    this department is set to Permitted users only. Technical Admins and appointed
-                    Department Admins can always discover it automatically.
+                    Permitted users can find this department when its visibility is limited and can
+                    submit to every document type in it while it is locked. Grant users one at a
+                    time below, or import a CSV of emails — including students who have not signed
+                    up yet. Technical Admins and appointed Department Admins can always discover it
+                    automatically.
                   </p>
                   {!isPermittedOnly && (
                     <p className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-800">
@@ -719,14 +725,14 @@ export function DepartmentDetailPage() {
                         <p role="alert" className="mt-2 text-sm text-red-600">
                           {getServerErrorMessage(
                             grantVisibilityMutation.error,
-                            'Failed to grant visibility. Please try again.',
+                            'Failed to add this user. Please try again.',
                           )}
                         </p>
                       )}
                     </div>
 
                     <div>
-                      <h4 className="text-sm font-semibold text-gray-900">Active explicit permissions</h4>
+                      <h4 className="text-sm font-semibold text-gray-900">Active permissions</h4>
                       <div className="mt-2 rounded-lg border border-gray-200">
                         {permissionsQuery.isLoading && (
                           <p role="status" className="p-4 text-sm text-gray-600">Loading permissions…</p>
@@ -744,7 +750,7 @@ export function DepartmentDetailPage() {
                           </div>
                         )}
                         {permissionsQuery.isSuccess && permissionsQuery.data.items.length === 0 && (
-                          <p className="p-4 text-sm text-gray-500">No explicit permitted users.</p>
+                          <p className="p-4 text-sm text-gray-500">No permitted users yet.</p>
                         )}
                         {permissionsQuery.isSuccess && permissionsQuery.data.items.map((permission) => {
                           const automaticLabel = automaticVisibilityLabel(permission.user, departmentId);
@@ -763,7 +769,7 @@ export function DepartmentDetailPage() {
                                 <p className="truncate text-xs text-gray-500">{permission.user.email}</p>
                                 {automaticLabel && (
                                   <p className="mt-1 text-xs text-gray-600">
-                                    {automaticLabel}; revoking this explicit permission will not remove automatic access.
+                                    {automaticLabel}; revoking will not remove their automatic access.
                                   </p>
                                 )}
                               </div>
@@ -778,7 +784,7 @@ export function DepartmentDetailPage() {
                                   revokeVisibilityMutation.isPending ||
                                   grantVisibilityMutation.isPending
                                 }
-                                aria-label={`Revoke ${permission.user.firstName} ${permission.user.lastName}'s explicit department visibility permission`}
+                                aria-label={`Revoke ${permission.user.firstName} ${permission.user.lastName} from Permitted users`}
                                 className="shrink-0 rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
                               >
                                 {isRevoking ? 'Revoking…' : 'Revoke'}
@@ -827,7 +833,7 @@ export function DepartmentDetailPage() {
                         <p role="alert" className="mt-2 text-sm text-red-600">
                           {getServerErrorMessage(
                             revokeVisibilityMutation.error,
-                            'Failed to revoke visibility. Please try again.',
+                            'Failed to remove this user. Please try again.',
                           )}
                         </p>
                       )}
@@ -836,6 +842,7 @@ export function DepartmentDetailPage() {
                           {permissionStatus}
                         </p>
                       )}
+                      <PendingSignupsList departmentId={departmentId} />
                     </div>
                   </div>
                 </section>
