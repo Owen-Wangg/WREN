@@ -434,10 +434,143 @@ describe('docxContentMapper', () => {
   });
 });
 
+describe('docxContentMapper — Word style cascade fidelity', () => {
+  /** Imports a single-section document and returns the runs of every block, flattened. */
+  async function importRuns(document: Document) {
+    const buffer = await Packer.toBuffer(document);
+    const content = await docxBytesToTiptapContent(new Uint8Array(buffer));
+    return (content.content ?? []).flatMap((block) => block.content ?? []);
+  }
+
+  function runWithText(runs: Awaited<ReturnType<typeof importRuns>>, text: string) {
+    const run = runs.find((r) => r.text === text);
+    expect(run).toBeTruthy();
+    return run!;
+  }
+
+  it('does not apply paragraph-mark (pPr/rPr) formatting to the paragraph text', async () => {
+    const runs = await importRuns(
+      new Document({
+        styles: { default: { document: { run: { size: 24 } } } },
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                run: { bold: true, size: 32 },
+                children: [new TextRun('Plain text, bold pilcrow')],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    const run = runWithText(runs, 'Plain text, bold pilcrow');
+    expect(hasMark(run, 'bold')).toBe(false);
+    expect(textStyleAttr(run, 'fontSize')).toBe('12pt');
+  });
+
+  it('applies docDefaults so runs without a direct size match their neighbours', async () => {
+    const runs = await importRuns(
+      new Document({
+        styles: { default: { document: { run: { size: 24, font: 'Georgia' } } } },
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun('No direct size'),
+                  new TextRun({ text: ' explicit size', size: 24 }),
+                ],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    const implicit = runWithText(runs, 'No direct size');
+    const explicit = runWithText(runs, ' explicit size');
+    expect(textStyleAttr(implicit, 'fontSize')).toBe('12pt');
+    expect(textStyleAttr(explicit, 'fontSize')).toBe('12pt');
+    expect(textStyleAttr(implicit, 'fontFamily')?.toLowerCase()).toContain('georgia');
+  });
+
+  it('follows basedOn chains and lets direct formatting override styles', async () => {
+    const runs = await importRuns(
+      new Document({
+        styles: {
+          paragraphStyles: [
+            { id: 'BaseBody', name: 'Base Body', run: { size: 26, italics: true } },
+            { id: 'DerivedBody', name: 'Derived Body', basedOn: 'BaseBody', run: { color: '1D4ED8' } },
+          ],
+        },
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                style: 'DerivedBody',
+                children: [
+                  new TextRun('Inherited'),
+                  new TextRun({ text: 'Overridden', size: 20, italics: false }),
+                ],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    const inherited = runWithText(runs, 'Inherited');
+    expect(textStyleAttr(inherited, 'fontSize')).toBe('13pt');
+    expect(hasMark(inherited, 'italic')).toBe(true);
+    expect(normalizeHexColor(textStyleAttr(inherited, 'color'))).toBe('#1d4ed8');
+
+    const overridden = runWithText(runs, 'Overridden');
+    expect(textStyleAttr(overridden, 'fontSize')).toBe('10pt');
+    expect(hasMark(overridden, 'italic')).toBe(false);
+  });
+
+  it('applies the toggle rule when paragraph and character styles both set bold', async () => {
+    const runs = await importRuns(
+      new Document({
+        styles: {
+          paragraphStyles: [{ id: 'BoldPara', name: 'Bold Para', run: { bold: true } }],
+          characterStyles: [{ id: 'BoldChar', name: 'Bold Char', run: { bold: true } }],
+        },
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                style: 'BoldPara',
+                children: [
+                  new TextRun('Bold from paragraph style'),
+                  new TextRun({ text: 'Toggled off', style: 'BoldChar' }),
+                ],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    expect(hasMark(runWithText(runs, 'Bold from paragraph style'), 'bold')).toBe(true);
+    expect(hasMark(runWithText(runs, 'Toggled off'), 'bold')).toBe(false);
+  });
+
+  it('keeps half-point sizes instead of rounding them', async () => {
+    const runs = await importRuns(
+      new Document({
+        sections: [
+          { children: [new Paragraph({ children: [new TextRun({ text: 'Half', size: 21 })] })] },
+        ],
+      }),
+    );
+    expect(textStyleAttr(runWithText(runs, 'Half'), 'fontSize')).toBe('10.5pt');
+  });
+});
+
 describe('normalizeFontSize / twipsToIndentLevel / color helpers', () => {
   it('normalizes pt and inch sizes', () => {
     expect(normalizeFontSize('14pt')).toBe('14pt');
-    expect(normalizeFontSize('14.4pt')).toBe('14pt');
+    expect(normalizeFontSize('14.4pt')).toBe('14.5pt');
+    expect(normalizeFontSize('10.5pt')).toBe('10.5pt');
     expect(normalizeFontSize('0.5in')).toBe('36pt');
     expect(normalizeFontSize(undefined)).toBeUndefined();
   });

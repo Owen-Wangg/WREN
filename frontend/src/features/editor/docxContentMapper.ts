@@ -34,6 +34,7 @@ import {
   type OfficeContentNode,
 } from 'officeparser';
 
+import { createDocxRunFormatter, type DocxRunFormatter } from './docxRunFormatting';
 import { MAX_INDENT_LEVEL } from './tiptapIndent';
 
 const HEADING_LEVEL_BY_NUMBER: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
@@ -85,6 +86,11 @@ export class DocxClientParseError extends Error {
   }
 }
 
+/** Round to Word's half-point granularity (10.5pt stays 10.5pt). */
+function toHalfPointString(points: number): string {
+  return `${Math.round(points * 2) / 2}pt`;
+}
+
 /** Normalize officeparser size strings ("14pt", "0.5in") to a TipTap fontSize value. */
 export function normalizeFontSize(size: string | undefined): string | undefined {
   if (!size || typeof size !== 'string') return undefined;
@@ -94,19 +100,19 @@ export function normalizeFontSize(size: string | undefined): string | undefined 
   if (pt) {
     const n = Number.parseFloat(pt[1]!);
     if (!Number.isFinite(n) || n <= 0) return undefined;
-    return `${Math.round(n)}pt`;
+    return toHalfPointString(n);
   }
   const inch = /^([\d.]+)\s*in$/i.exec(trimmed);
   if (inch) {
     const n = Number.parseFloat(inch[1]!);
     if (!Number.isFinite(n) || n <= 0) return undefined;
-    return `${Math.round(n * 72)}pt`;
+    return toHalfPointString(n * 72);
   }
   const bare = /^([\d.]+)$/.exec(trimmed);
   if (bare) {
     const n = Number.parseFloat(bare[1]!);
     if (!Number.isFinite(n) || n <= 0) return undefined;
-    return `${Math.round(n)}pt`;
+    return toHalfPointString(n);
   }
   return trimmed;
 }
@@ -716,6 +722,60 @@ function officeNodesToTiptapBlocks(
   return blocks;
 }
 
+/** Leaf `text` nodes under `node`, in the same order `collectTextRuns` visits them. */
+function collectOfficeTextNodes(node: OfficeContentNode): OfficeContentNode[] {
+  const out: OfficeContentNode[] = [];
+  const visit = (current: OfficeContentNode) => {
+    if (current.type === 'text') {
+      if (current.text) out.push(current);
+      return;
+    }
+    current.children?.forEach(visit);
+  };
+  node.children?.forEach(visit);
+  return out;
+}
+
+/** How far ahead to look for a matching `w:t` before giving up on a text node. */
+const RUN_RESYNC_WINDOW = 8;
+
+/**
+ * Replaces officeparser's per-run `formatting` with the correctly cascaded
+ * values from {@link DocxRunFormatter} (see `docxRunFormatting.ts` for why).
+ * Text nodes are matched to the paragraph's `w:t` elements in order by text;
+ * any node that can't be matched keeps officeparser's formatting.
+ */
+function applyResolvedRunFormatting(
+  nodes: readonly OfficeContentNode[],
+  formatter: DocxRunFormatter,
+): void {
+  for (const node of nodes) {
+    const isParagraphLike =
+      node.type === 'paragraph' || node.type === 'heading' || node.type === 'list';
+    if (isParagraphLike && typeof node.rawContent === 'string') {
+      const resolved = formatter.resolveParagraph(node.rawContent);
+      if (resolved) {
+        const runs = resolved.filter((run) => run.text.length > 0);
+        let cursor = 0;
+        for (const textNode of collectOfficeTextNodes(node)) {
+          const limit = Math.min(runs.length, cursor + RUN_RESYNC_WINDOW);
+          for (let k = cursor; k < limit; k += 1) {
+            if (runs[k]!.text === textNode.text) {
+              textNode.formatting = runs[k]!.formatting;
+              cursor = k + 1;
+              break;
+            }
+          }
+        }
+      }
+      continue;
+    }
+    if (node.children && node.children.length > 0) {
+      applyResolvedRunFormatting(node.children, formatter);
+    }
+  }
+}
+
 /**
  * Recursively walks an `officeparser` AST node (legacy entry for single roots).
  */
@@ -747,7 +807,10 @@ export async function docxBytesToTiptapContent(
     const ast = await OfficeParser.parseOffice(bytes, {
       fileType: 'docx',
       extractAttachments: true,
+      includeRawContent: true,
     });
+    const runFormatter = createDocxRunFormatter(bytes);
+    if (runFormatter) applyResolvedRunFormatting(ast.content, runFormatter);
     const attachments = new Map<string, OfficeAttachment>();
     for (const attachment of ast.attachments ?? []) {
       if (attachment?.name) attachments.set(attachment.name, attachment);
@@ -773,9 +836,9 @@ function fontSizeToDocxHalfPoints(fontSize: string | undefined): number | undefi
   if (!fontSize) return undefined;
   const normalized = normalizeFontSize(fontSize);
   if (!normalized) return undefined;
-  const m = /^(\d+)pt$/i.exec(normalized);
+  const m = /^(\d+(?:\.\d+)?)pt$/i.exec(normalized);
   if (!m) return undefined;
-  return Number.parseInt(m[1]!, 10) * 2;
+  return Math.round(Number.parseFloat(m[1]!) * 2);
 }
 
 function textStyleAttrs(
