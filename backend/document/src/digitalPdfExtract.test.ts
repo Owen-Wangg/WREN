@@ -12,7 +12,7 @@ import {
   pageNeedsOcr,
 } from './digitalPdfExtract';
 import { spatialPagesToTipTap } from './pdfToTipTap';
-import { buildPdf, type PdfPageSpec } from './testFixtures/buildPdf';
+import { buildPdf, type PdfPageSpec, type PdfTextSpec } from './testFixtures/buildPdf';
 
 const BODY =
   'The plaintiff seeks an order that a gift of a half-interest as a joint tenant was valid.';
@@ -164,5 +164,68 @@ describe('imageCoverageFromOperatorList', () => {
       [0, 0, 400, 400],
     );
     expect(coverage).toBeCloseTo((200 * 100 + 1) / (400 * 400), 5);
+  });
+});
+
+describe('ruled tables (real pdf.js)', () => {
+  const rowYs = [200, 230, 275, 305];
+  const colXs = [72, 222, 372, 522];
+  const left = colXs[0]!;
+  const right = colXs[colXs.length - 1]!;
+  const top = rowYs[0]!;
+  const bottom = rowYs[rowYs.length - 1]!;
+  const cell = (s: string, col: number, baseline: number, font?: 'bold'): PdfTextSpec => ({
+    text: s,
+    x: colXs[col]! + 6,
+    y: baseline,
+    size: 10,
+    ...(font ? { font } : {}),
+  });
+  const texts: PdfTextSpec[] = [
+    { text: 'The parties are listed in the table below.', x: 72, y: 150, size: 12 },
+    cell('Party', 0, 218, 'bold'),
+    cell('Role', 1, 218, 'bold'),
+    cell('Counsel', 2, 218, 'bold'),
+    cell('Smith', 0, 246),
+    // Column 1 left empty on purpose.
+    cell('Jane Doe of Doe', 2, 246),
+    cell('and Partners LLP', 2, 258),
+    cell('Jones', 0, 294),
+    cell('Defendant', 1, 294),
+    cell('Self', 2, 294),
+    { text: 'The table above is complete.', x: 72, y: 360, size: 12 },
+  ];
+
+  function rowTexts(table: TipTapNode): string[][] {
+    return (table.content ?? []).map((row) => (row.content ?? []).map((c) => allText([c])));
+  }
+
+  async function convert(spec: PdfPageSpec): Promise<TipTapNode[]> {
+    const pages = await extractSpatialPagesFromPdf(buildPdf([spec]));
+    return (spatialPagesToTipTap(pages).content ?? []) as TipTapNode[];
+  }
+
+  it('keeps empty cells and joins wrapped cell text from stroked borders', async () => {
+    const lines = [
+      ...rowYs.map((y) => ({ x1: left, y1: y, x2: right, y2: y })),
+      ...colXs.map((x) => ({ x1: x, y1: top, x2: x, y2: bottom })),
+    ];
+    const content = await convert({ texts, lines });
+    expect(content.map((n) => n.type)).toEqual(['paragraph', 'table', 'paragraph']);
+    expect(rowTexts(content[1]!)).toEqual([
+      ['Party', 'Role', 'Counsel'],
+      ['Smith', '', 'Jane Doe of Doe and Partners LLP'],
+      ['Jones', 'Defendant', 'Self'],
+    ]);
+  });
+
+  it('reads borders drawn as thin filled rectangles', async () => {
+    const fills = [
+      ...rowYs.map((y) => ({ x: left, y: y - 0.25, width: right - left, height: 0.5 })),
+      ...colXs.map((x) => ({ x: x - 0.25, y: top, width: 0.5, height: bottom - top })),
+    ];
+    const content = await convert({ texts, fills });
+    expect(content.map((n) => n.type)).toEqual(['paragraph', 'table', 'paragraph']);
+    expect(rowTexts(content[1]!)[1]).toEqual(['Smith', '', 'Jane Doe of Doe and Partners LLP']);
   });
 });

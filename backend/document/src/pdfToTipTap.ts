@@ -17,6 +17,13 @@ import {
   looksLikeStandaloneHeading,
   wordCount,
 } from './pdfHeadingHeuristics';
+import {
+  bandIndex,
+  cellAt,
+  detectRuledTables,
+  type PageRulings,
+  type RuledTable,
+} from './pdfRuledTables';
 import { filterWatermarkPages } from './pdfWatermarks';
 
 export interface SpatialTextItem {
@@ -43,6 +50,8 @@ export interface SpatialPage {
    * operator list was unavailable; callers then classify by text alone.
    */
   imageCoverage?: number;
+  /** Table-border rulings painted on the page (digital text layer only). */
+  rulings?: PageRulings;
 }
 
 type LineRun = {
@@ -909,19 +918,166 @@ function percentile(sorted: number[], p: number): number {
   return sorted[idx]!;
 }
 
-function spatialItemsToBlocks(items: SpatialTextItem[]): TipTapNode[] {
-  const rawLines = itemsToLines(items);
-  if (rawLines.length === 0) return [];
+/** Page-wide metrics shared by every block builder on a page. */
+type PageLayout = {
+  medianFontSize: number;
+  baselineX: number;
+  scale: LayoutScale;
+  bounds: ContentBounds;
+};
 
-  const sizes = rawLines.map((l) => l.maxFontSize).sort((a, b) => a - b);
+/** Text items assigned to one ruled table's grid cells. */
+type PlacedRuledTable = {
+  table: RuledTable;
+  cellItems: Map<string, SpatialTextItem[]>;
+};
+
+function itemCenter(item: SpatialTextItem): { x: number; y: number } {
+  return { x: item.x + item.width / 2, y: item.y + item.height / 2 };
+}
+
+/**
+ * Split page items into those inside a ruled table's grid and the rest.
+ * Tables holding fewer than two non-empty cells are decorative boxes and
+ * their text stays in the normal flow.
+ */
+function placeItemsInRuledTables(
+  items: SpatialTextItem[],
+  tables: RuledTable[],
+): { placed: PlacedRuledTable[]; free: SpatialTextItem[] } {
+  const placed: PlacedRuledTable[] = tables.map((table) => ({ table, cellItems: new Map() }));
+  const owner = new Map<SpatialTextItem, number>();
+  for (const item of items) {
+    const { x, y } = itemCenter(item);
+    const t = tables.findIndex(
+      (tb) => x >= tb.left && x <= tb.right && y >= tb.top && y <= tb.bottom,
+    );
+    if (t < 0) continue;
+    const table = tables[t]!;
+    const cell = cellAt(table, bandIndex(table.rowYs, y), bandIndex(table.colXs, x));
+    if (!cell) continue;
+    const key = `${cell.row}:${cell.col}`;
+    const list = placed[t]!.cellItems.get(key) ?? [];
+    list.push(item);
+    placed[t]!.cellItems.set(key, list);
+    owner.set(item, t);
+  }
+
+  const kept = new Set<number>();
+  placed.forEach((p, t) => {
+    const nonEmpty = [...p.cellItems.values()].filter((list) =>
+      list.some((i) => i.text.trim().length > 0),
+    ).length;
+    if (nonEmpty >= 2) kept.add(t);
+  });
+
+  return {
+    placed: placed.filter((_, t) => kept.has(t)),
+    free: items.filter((item) => {
+      const t = owner.get(item);
+      return t === undefined || !kept.has(t);
+    }),
+  };
+}
+
+/** Cell lines → paragraphs: wrapped lines join; a clear vertical gap splits. */
+function cellParagraphs(items: SpatialTextItem[], medianFontSize: number): TipTapNode[] {
+  const lines = itemsToLines(items);
+  const paragraphs: LineRun[][] = [];
+  let prev: Line | undefined;
+  for (const line of lines) {
+    const current = paragraphs[paragraphs.length - 1];
+    const gap = prev ? line.y - prev.y : 0;
+    if (!current || !prev || gap > prev.maxFontSize * SOFT_WRAP_GAP_RATIO || isListLine(line)) {
+      paragraphs.push(line.runs.map((r) => ({ ...r })));
+    } else {
+      const hyphenated = endsWithHyphen(prev.text);
+      if (hyphenated) {
+        current.splice(0, current.length, ...trimTrailingHyphen(current));
+      }
+      const next = line.runs.map((r) => ({ ...r }));
+      const last = current[current.length - 1];
+      if (!hyphenated && next[0] && !next[0].text.startsWith(' ') && !last?.text.endsWith(' ')) {
+        next[0] = { ...next[0], text: ` ${next[0].text}` };
+      }
+      current.push(...next);
+    }
+    prev = line;
+  }
+  const nodes = paragraphs.map((runs) => {
+    const content = runsToTextNodes(runs, medianFontSize, false);
+    return { type: 'paragraph', ...(content.length > 0 ? { content } : {}) } as TipTapNode;
+  });
+  return nodes.length > 0 ? nodes : [{ type: 'paragraph' }];
+}
+
+function ruledTableToNode(placed: PlacedRuledTable, medianFontSize: number): TipTapNode {
+  const { table, cellItems } = placed;
+  const rows = table.rowYs.length - 1;
+  const content: TipTapNode[] = [];
+  for (let r = 0; r < rows; r++) {
+    const cells = table.cells
+      .filter((c) => c.row === r)
+      .sort((a, b) => a.col - b.col)
+      .map((c) => {
+        const node: TipTapNode = {
+          type: r === 0 ? 'tableHeader' : 'tableCell',
+          content: cellParagraphs(cellItems.get(`${c.row}:${c.col}`) ?? [], medianFontSize),
+        };
+        if (c.colSpan > 1 || c.rowSpan > 1) {
+          node.attrs = {
+            ...(c.colSpan > 1 ? { colspan: c.colSpan } : {}),
+            ...(c.rowSpan > 1 ? { rowspan: c.rowSpan } : {}),
+          };
+        }
+        return node;
+      });
+    // A row fully covered by rowspans from above has no origin cells.
+    if (cells.length > 0) content.push({ type: 'tableRow', content: cells });
+  }
+  return { type: 'table', content };
+}
+
+function spatialItemsToBlocks(items: SpatialTextItem[], rulings?: PageRulings): TipTapNode[] {
+  const allLines = itemsToLines(items);
+  if (allLines.length === 0) return [];
+
+  // Page metrics come from every line (table text included) so heading and
+  // indent heuristics see the same page as before table extraction.
+  const sizes = allLines.map((l) => l.maxFontSize).sort((a, b) => a - b);
   // Lower median so a single large title still counts as a heading vs body.
   const medianFontSize = sizes[Math.floor((sizes.length - 1) / 2)] ?? 12;
 
-  const minXs = rawLines.map((l) => l.minX).sort((a, b) => a - b);
-  const baselineX = percentile(minXs, 0.1);
-  const scale = resolveLayoutScale(rawLines, medianFontSize);
-  const bounds = estimateContentBounds(rawLines);
+  const minXs = allLines.map((l) => l.minX).sort((a, b) => a - b);
+  const layout: PageLayout = {
+    medianFontSize,
+    baselineX: percentile(minXs, 0.1),
+    scale: resolveLayoutScale(allLines, medianFontSize),
+    bounds: estimateContentBounds(allLines),
+  };
 
+  const { placed, free } = placeItemsInRuledTables(items, detectRuledTables(rulings));
+  if (placed.length === 0) return linesToBlocks(allLines, layout);
+
+  // Splice each ruled table between the free lines above and below it.
+  const freeLines = itemsToLines(free);
+  const blocks: TipTapNode[] = [];
+  let li = 0;
+  for (const p of placed) {
+    const before: Line[] = [];
+    while (li < freeLines.length && freeLines[li]!.y < p.table.top) {
+      before.push(freeLines[li]!);
+      li += 1;
+    }
+    blocks.push(...linesToBlocks(before, layout));
+    blocks.push(ruledTableToNode(p, medianFontSize));
+  }
+  blocks.push(...linesToBlocks(freeLines.slice(li), layout));
+  return blocks;
+}
+
+function linesToBlocks(rawLines: Line[], layout: PageLayout): TipTapNode[] {
+  const { medianFontSize, baselineX, scale, bounds } = layout;
   const lines = mergeSoftWrappedLines(rawLines, medianFontSize, baselineX, scale.indentGap);
 
   const blocks: TipTapNode[] = [];
@@ -1088,7 +1244,7 @@ export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   const cleaned = filterWatermarkPages(pages);
   const blocks: TipTapNode[] = [];
   for (const page of cleaned) {
-    blocks.push(...spatialItemsToBlocks(page.textItems ?? []));
+    blocks.push(...spatialItemsToBlocks(page.textItems ?? [], page.rulings));
   }
 
   // Wrap stitching runs in polishPdfTipTapNodes, after heading promotion.
