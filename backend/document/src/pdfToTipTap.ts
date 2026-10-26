@@ -579,10 +579,22 @@ function runGap(prev: LineRun, next: LineRun): number {
 }
 
 /**
+ * Relaxed column gap (× font size) for a row whose cells all line up with a
+ * table's established columns. Well above a word space, so prose never splits.
+ */
+const ALIGNED_COLUMN_GAP_RATIO = 0.9;
+
+function lineRight(line: Line): number {
+  return line.runs.reduce((max, r) => Math.max(max, r.x + r.width), line.minX);
+}
+
+/**
  * Split a line into column cells by large gaps after run widths.
  * Falls back to 2+ space splits when runs are glued into one item.
+ * `minGap` overrides the page-scale threshold (used only for rows already
+ * known to align with a table's columns).
  */
-function splitColumnRuns(line: Line, scale: LayoutScale): LineRun[][] {
+function splitColumnRuns(line: Line, scale: LayoutScale, minGap?: number): LineRun[][] {
   const sorted = [...line.runs].sort((a, b) => a.x - b.x);
   if (sorted.length >= 2) {
     const cells: LineRun[][] = [[sorted[0]!]];
@@ -590,7 +602,7 @@ function splitColumnRuns(line: Line, scale: LayoutScale): LineRun[][] {
       const prev = sorted[i - 1]!;
       const cur = sorted[i]!;
       const gap = runGap(prev, cur);
-      const threshold = Math.max(scale.columnGap, prev.fontSize * 1.6);
+      const threshold = minGap ?? Math.max(scale.columnGap, prev.fontSize * 1.6);
       if (gap > threshold) {
         cells.push([cur]);
       } else {
@@ -602,19 +614,26 @@ function splitColumnRuns(line: Line, scale: LayoutScale): LineRun[][] {
 
   const parts = line.text.split(/\s{2,}/).map((p) => p.trim()).filter(Boolean);
   if (parts.length < 2) return [];
-  // Single-run fallback: approximate cells as plain runs (no per-cell marks).
-  return parts.map((text, idx) => [
-    {
-      text,
-      bold: false,
-      italic: false,
-      underline: false,
-      strike: false,
-      x: line.minX + idx * 50,
-      width: Math.max(1, text.length * 6),
-      fontSize: line.maxFontSize,
-    },
-  ]);
+  // Single-run fallback: approximate cells as plain runs (no per-cell marks),
+  // positioned by character offset so column clustering stays meaningful.
+  const perChar = line.text.length > 0 ? (lineRight(line) - line.minX) / line.text.length : 6;
+  let from = 0;
+  return parts.map((text) => {
+    const at = Math.max(0, line.text.indexOf(text, from));
+    from = at + text.length;
+    return [
+      {
+        text,
+        bold: false,
+        italic: false,
+        underline: false,
+        strike: false,
+        x: line.minX + at * perChar,
+        width: Math.max(1, text.length * perChar),
+        fontSize: line.maxFontSize,
+      },
+    ];
+  });
 }
 
 function clusterXs(xs: number[], clusterTolerance: number): number[] {
@@ -634,23 +653,97 @@ function clusterXs(xs: number[], clusterTolerance: number): number[] {
   return clusters.map((c) => c.reduce((a, b) => a + b, 0) / c.length);
 }
 
-function assignRunsToColumns(line: Line, columnXs: number[]): LineRun[][] {
+/**
+ * Assign each run to the right-most column starting at or before it. Nearest
+ * column start would push the later words of a long left-aligned cell into
+ * the next column.
+ */
+function assignRunsToColumns(line: Line, columnXs: number[], tolerance: number): LineRun[][] {
   const cells: LineRun[][] = columnXs.map(() => []);
   const sorted = [...line.runs].sort((a, b) => a.x - b.x);
   for (const run of sorted) {
     let best = 0;
-    let bestDist = Infinity;
     for (let c = 0; c < columnXs.length; c++) {
-      const d = Math.abs(run.x - columnXs[c]!);
-      if (d < bestDist) {
-        bestDist = d;
-        best = c;
-      }
+      if (columnXs[c]! <= run.x + tolerance) best = c;
     }
     cells[best]!.push(run);
   }
   return cells;
 }
+
+function cellStarts(cells: LineRun[][], fallbackX: number): number[] {
+  return cells.map((cell) => cell[0]?.x ?? fallbackX);
+}
+
+/** True when every cell starts on one of the table's known columns. */
+function alignsToColumns(cells: LineRun[][], columnXs: number[], tolerance: number): boolean {
+  return cells.every((cell) =>
+    columnXs.some((x) => Math.abs((cell[0]?.x ?? Number.NaN) - x) <= tolerance),
+  );
+}
+
+/**
+ * Column index a single-column line continues (wrapped cell text), or -1.
+ * The line must sit tightly below the previous table line, start on a known
+ * column, and end before the next column so body prose is never absorbed.
+ */
+function continuationColumn(
+  line: Line,
+  prev: Line,
+  columnXs: number[],
+  scale: LayoutScale,
+): number {
+  const gap = line.y - prev.y;
+  if (gap <= 0 || gap > line.maxFontSize * SOFT_WRAP_GAP_RATIO) return -1;
+  const col = columnXs.findIndex((x) => Math.abs(line.minX - x) <= scale.columnCluster);
+  if (col < 0) return -1;
+  const nextX = columnXs[col + 1];
+  if (nextX !== undefined && lineRight(line) > nextX - scale.columnCluster / 2) return -1;
+  return col;
+}
+
+/** Append wrapped cell text, de-hyphenating or inserting the line-break space. */
+function appendWrappedRuns(target: LineRun[], next: LineRun[]): void {
+  if (next.length === 0) return;
+  const lastText = target.map((r) => r.text).join('');
+  if (target.length === 0) {
+    target.push(...next);
+    return;
+  }
+  const copy = next.map((r) => ({ ...r }));
+  if (endsWithHyphen(lastText)) {
+    target.splice(0, target.length, ...trimTrailingHyphen(target));
+  } else if (!copy[0]!.text.startsWith(' ') && !lastText.endsWith(' ')) {
+    copy[0] = { ...copy[0]!, text: ` ${copy[0]!.text}` };
+  }
+  target.push(...copy);
+}
+
+/**
+ * True when two consecutive lines both split at the relaxed gap into the same
+ * columns: a tightly spaced table, since prose with an occasional wide space
+ * never lines up like that twice in a row.
+ */
+function relaxedColumnsAlign(a: Line, b: Line, scale: LayoutScale): boolean {
+  const aCells = splitColumnRuns(a, scale, a.maxFontSize * ALIGNED_COLUMN_GAP_RATIO);
+  if (aCells.length < 2) return false;
+  const bCells = splitColumnRuns(b, scale, b.maxFontSize * ALIGNED_COLUMN_GAP_RATIO);
+  return (
+    bCells.length === aCells.length &&
+    alignsToColumns(bCells, cellStarts(aCells, a.minX), scale.columnCluster)
+  );
+}
+
+/** Copy of a cell's runs without the inter-run spacer at its edges. */
+function trimCellRuns(runs: LineRun[]): LineRun[] {
+  const out = runs.map((r) => ({ ...r }));
+  if (out[0]) out[0].text = out[0].text.trimStart();
+  const last = out[out.length - 1];
+  if (last) last.text = last.text.trimEnd();
+  return out.filter((r) => r.text.length > 0);
+}
+
+type RawTableRow = { line: Line; continuations: Line[] };
 
 function tryTableBlock(
   lines: Line[],
@@ -658,29 +751,64 @@ function tryTableBlock(
   medianFontSize: number,
   scale: LayoutScale,
 ): { table: TipTapNode; end: number } | null {
-  const firstCells = splitColumnRuns(lines[start]!, scale);
-  if (firstCells.length < 2) return null;
+  const first = lines[start]!;
+  let firstCells = splitColumnRuns(first, scale);
+  if (firstCells.length < 2) {
+    const next = lines[start + 1];
+    if (!next || !relaxedColumnsAlign(first, next, scale)) return null;
+    firstCells = splitColumnRuns(first, scale, first.maxFontSize * ALIGNED_COLUMN_GAP_RATIO);
+  }
 
-  // Gather a window of multi-column rows (allow slight column-count jitter).
-  const rawRows: Line[] = [lines[start]!];
+  // Gather rows: multi-column lines, plus wrapped cell text continuing a row.
+  const rawRows: RawTableRow[] = [{ line: first, continuations: [] }];
+  const starts = cellStarts(firstCells, first.minX);
+  let columnXs = clusterXs(starts, scale.columnCluster);
   let i = start + 1;
   while (i < lines.length) {
-    const cols = splitColumnRuns(lines[i]!, scale);
-    if (cols.length < 2) break;
-    // Stop if column count diverges wildly (not the same table).
-    if (Math.abs(cols.length - firstCells.length) > 1) break;
-    rawRows.push(lines[i]!);
+    const line = lines[i]!;
+    let cols = splitColumnRuns(line, scale);
+    if (cols.length < 2) {
+      // Tightly spaced columns: accept a smaller gap when it lands on known columns.
+      const relaxed = splitColumnRuns(line, scale, line.maxFontSize * ALIGNED_COLUMN_GAP_RATIO);
+      if (relaxed.length >= 2 && alignsToColumns(relaxed, columnXs, scale.columnCluster)) {
+        cols = relaxed;
+      }
+    }
+
+    if (cols.length >= 2) {
+      // Stop if column count diverges wildly and the cells do not line up
+      // with the columns seen so far (not the same table).
+      if (
+        Math.abs(cols.length - columnXs.length) > 1 &&
+        !alignsToColumns(cols, columnXs, scale.columnCluster)
+      ) {
+        break;
+      }
+      rawRows.push({ line, continuations: [] });
+      starts.push(...cellStarts(cols, line.minX));
+      columnXs = clusterXs(starts, scale.columnCluster);
+      i += 1;
+      continue;
+    }
+
+    const row = rawRows[rawRows.length - 1]!;
+    const prev = row.continuations[row.continuations.length - 1] ?? row.line;
+    if (continuationColumn(line, prev, columnXs, scale) < 0) break;
+    row.continuations.push(line);
     i += 1;
   }
   if (rawRows.length < 2) return null;
-
-  const allXs = rawRows.flatMap((row) =>
-    splitColumnRuns(row, scale).map((cell) => cell[0]?.x ?? row.minX),
-  );
-  const columnXs = clusterXs(allXs, scale.columnCluster);
   if (columnXs.length < 2) return null;
 
-  const rows: TableRowCells[] = rawRows.map((row) => assignRunsToColumns(row, columnXs));
+  const rows: TableRowCells[] = rawRows.map((row) => {
+    const cells = assignRunsToColumns(row.line, columnXs, scale.columnCluster);
+    for (const cont of row.continuations) {
+      assignRunsToColumns(cont, columnXs, scale.columnCluster).forEach((runs, c) =>
+        appendWrappedRuns(cells[c]!, runs),
+      );
+    }
+    return cells.map(trimCellRuns);
+  });
 
   return {
     end: i,
@@ -770,7 +898,8 @@ function shouldMergeSoftWrap(
   };
   if (
     splitColumnRuns(prev, probeScale).length >= 2 ||
-    splitColumnRuns(next, probeScale).length >= 2
+    splitColumnRuns(next, probeScale).length >= 2 ||
+    relaxedColumnsAlign(prev, next, probeScale)
   ) {
     return false;
   }
@@ -1238,13 +1367,76 @@ export function flattenTableOfContents(nodes: TipTapNode[]): TipTapNode[] {
   return out;
 }
 
+/** Page furniture that may sit between a table's halves across a page break. */
+const PAGE_FURNITURE_RE = /^(?:page\s+)?\d{1,4}(?:\s+of\s+\d{1,4})?$/i;
+
+function isPageFurniture(node: TipTapNode): boolean {
+  return node.type === 'paragraph' && PAGE_FURNITURE_RE.test(nodePlainText(node).trim());
+}
+
+function tableColumnCount(table: TipTapNode): number {
+  const firstRow = (table.content ?? [])[0];
+  return (firstRow?.content ?? []).reduce(
+    (n, cell) => n + (Number((cell.attrs as { colspan?: number } | undefined)?.colspan) || 1),
+    0,
+  );
+}
+
+function rowText(row: TipTapNode | undefined): string {
+  return (row?.content ?? []).map((cell) => nodePlainText(cell).trim()).join('\u0001');
+}
+
+/**
+ * Append one page's blocks, continuing a table split by the page break: when
+ * the previous page ends with a table and this page starts with one of the
+ * same column count, their rows are joined (a repeated header row is dropped).
+ */
+function appendPageBlocks(blocks: TipTapNode[], pageBlocks: TipTapNode[]): void {
+  let tail = blocks.length - 1;
+  while (tail >= 0 && isPageFurniture(blocks[tail]!)) tail -= 1;
+  let head = 0;
+  while (head < pageBlocks.length && isPageFurniture(pageBlocks[head]!)) head += 1;
+
+  const prev = blocks[tail];
+  const next = pageBlocks[head];
+  if (
+    prev?.type !== 'table' ||
+    next?.type !== 'table' ||
+    tableColumnCount(prev) !== tableColumnCount(next)
+  ) {
+    blocks.push(...pageBlocks);
+    return;
+  }
+
+  const prevRows = prev.content ?? [];
+  let nextRows = next.content ?? [];
+  if (rowText(nextRows[0]) === rowText(prevRows[0])) {
+    nextRows = nextRows.slice(1);
+  } else {
+    // Continuation rows are body rows, not a second header.
+    nextRows = nextRows.map((row, r) =>
+      r === 0
+        ? {
+            ...row,
+            content: (row.content ?? []).map((cell) =>
+              cell.type === 'tableHeader' ? { ...cell, type: 'tableCell' } : cell,
+            ),
+          }
+        : row,
+    );
+  }
+  prev.content = [...prevRows, ...nextRows];
+  blocks.splice(tail + 1); // drop page furniture between the halves
+  blocks.push(...pageBlocks.slice(head + 1));
+}
+
 /** Build a TipTap doc from spatial pages of text items. */
 export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   // Process pages separately so page-local Y coordinates cannot interleave.
   const cleaned = filterWatermarkPages(pages);
   const blocks: TipTapNode[] = [];
   for (const page of cleaned) {
-    blocks.push(...spatialItemsToBlocks(page.textItems ?? [], page.rulings));
+    appendPageBlocks(blocks, spatialItemsToBlocks(page.textItems ?? [], page.rulings));
   }
 
   // Wrap stitching runs in polishPdfTipTapNodes, after heading promotion.
