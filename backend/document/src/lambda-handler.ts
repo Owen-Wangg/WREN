@@ -151,6 +151,12 @@ async function wrapHandler(fn: () => Promise<APIGatewayProxyResult>): Promise<AP
 }
 
 const DEFAULT_MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+/**
+ * Lambda time reserved after Textract for converting blocks, size-gating and
+ * writing the draft / failed-job row, so a slow OCR job fails cleanly instead
+ * of hitting the Lambda timeout mid-write.
+ */
+const INGEST_FINALIZE_HEADROOM_MS = 20_000;
 const ORPHAN_UPLOAD_TAGGING =
   '<Tagging><TagSet><Tag><Key>orphan-upload</Key><Value>true</Value></Tag></TagSet></Tagging>';
 
@@ -430,7 +436,16 @@ export const handler = async (
         console.warn('Dropping ingest queue message with invalid body');
         continue;
       }
-      await processIngestQueueMessage(trigger, readS3ObjectBytes);
+      await processIngestQueueMessage(trigger, readS3ObjectBytes, {
+        // Let Textract use the Lambda's remaining time, minus headroom to
+        // convert the result and record the job outcome before timeout.
+        ...(context
+          ? {
+              textractDeadlineMs:
+                Date.now() + context.getRemainingTimeInMillis() - INGEST_FINALIZE_HEADROOM_MS,
+            }
+          : {}),
+      });
     }
     return;
   }

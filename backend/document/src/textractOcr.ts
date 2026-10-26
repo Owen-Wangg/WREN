@@ -63,8 +63,12 @@ export class TextractOcrError extends Error {
 }
 
 const POLL_INTERVAL_MS = 1500;
-/** ~120s of Textract wait, leaving headroom before the 3-minute Lambda timeout. */
-const MAX_POLL_ATTEMPTS = 80;
+/**
+ * Textract wait budget when the caller gives no deadline (~120s, leaving
+ * headroom before the 3-minute Lambda timeout). The SQS ingest worker passes
+ * a deadline derived from the Lambda's remaining time instead.
+ */
+const DEFAULT_MAX_WAIT_MS = 120_000;
 
 const ANALYSIS_FEATURES = ['LAYOUT', 'TABLES'] as const;
 
@@ -133,10 +137,11 @@ async function sleep(ms: number): Promise<void> {
 async function collectAsyncAnalysisBlocks(
   client: TextractClient,
   jobId: string,
+  deadlineMs: number,
 ): Promise<Block[]> {
   const blocks: Block[] = [];
   let nextToken: string | undefined;
-  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
+  for (;;) {
     const page = await client.send(
       new GetDocumentAnalysisCommand({
         JobId: jobId,
@@ -157,9 +162,11 @@ async function collectAsyncAnalysisBlocks(
       if (!nextToken && status === 'PARTIAL_SUCCESS') return blocks;
       continue;
     }
+    if (Date.now() + POLL_INTERVAL_MS > deadlineMs) {
+      throw new TextractOcrError('Timed out waiting for Textract analysis job', 'TIMEOUT');
+    }
     await sleep(POLL_INTERVAL_MS);
   }
-  throw new TextractOcrError('Timed out waiting for Textract analysis job', 'TIMEOUT');
 }
 
 export interface ExtractTextractInput {
@@ -168,6 +175,12 @@ export interface ExtractTextractInput {
   /** S3 location for async multi-page PDF. */
   readonly s3Bucket?: string;
   readonly s3Key?: string;
+  /**
+   * Epoch ms by which an async Textract job must finish (polling stops and
+   * throws `TIMEOUT` after it). Defaults to {@link DEFAULT_MAX_WAIT_MS} from
+   * when the job starts.
+   */
+  readonly deadlineMs?: number;
 }
 
 function resultFromBlocks(
@@ -262,7 +275,11 @@ export async function analyzeTextractBlocks(input: ExtractTextractInput): Promis
       if (!start.JobId) {
         throw new TextractOcrError('Textract did not return a job id', 'FAILED');
       }
-      return await collectAsyncAnalysisBlocks(client, start.JobId);
+      return await collectAsyncAnalysisBlocks(
+        client,
+        start.JobId,
+        input.deadlineMs ?? Date.now() + DEFAULT_MAX_WAIT_MS,
+      );
     }
 
     if (!input.bytes || input.bytes.length === 0) {

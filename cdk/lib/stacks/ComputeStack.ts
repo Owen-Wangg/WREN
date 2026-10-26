@@ -139,9 +139,21 @@ export class ComputeStack extends Stack {
     };
     // pdf.js / pdf-parse must ship as real node_modules (workers + ESM), not
     // an esbuild bundle — otherwise Lambda cannot load the digital PDF path.
+    // nodeModules are installed on the deploying machine, so a Windows/macOS
+    // deploy would ship only that platform's @napi-rs/canvas binding (needed
+    // by pdf.js) — add the Linux one Lambda actually loads.
+    // inputDir is the monorepo root (projectRoot) for both local and Docker bundling.
     const documentBundling: lambdaNodejs.BundlingOptions = {
       ...sharedBundling,
       nodeModules: ["pdfjs-dist", "pdf-parse"],
+      commandHooks: {
+        beforeBundling: () => [],
+        beforeInstall: () => [],
+        afterBundling: (inputDir: string, outputDir: string) => [
+          // Forward slashes work for node on Windows and inside the Linux container.
+          `node "${inputDir}/cdk/scripts/installLinuxCanvasBinding.mjs" "${outputDir}"`,
+        ],
+      },
     };
 
     // One-way salt for activity-log actor pseudonyms. Generated into Secrets
