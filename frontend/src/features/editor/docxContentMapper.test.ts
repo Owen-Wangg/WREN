@@ -743,3 +743,93 @@ describe('normalizeFontSize / twipsToIndentLevel / color helpers', () => {
     expect(mapWordFontToTipTap('Times New Roman')?.toLowerCase()).toContain('times');
   });
 });
+
+describe('docx tables: merged cells and nested tables', () => {
+  type Node = NonNullable<Awaited<ReturnType<typeof docxBytesToTiptapContent>>['content']>[number];
+  const cellText = (cell: Node): string => {
+    const walk = (n: Node): string =>
+      typeof n.text === 'string' ? n.text : (n.content ?? []).map(walk).join('');
+    return walk(cell);
+  };
+  const firstTable = (nodes: Node[] | undefined): Node | undefined =>
+    nodes?.find((n) => n.type === 'table');
+
+  async function buildMergedNestedDocx(): Promise<Uint8Array> {
+    const { Table, TableRow, TableCell, VerticalMergeType, WidthType } = await import('docx');
+    const p = (text: string) => new Paragraph({ children: [new TextRun({ text })] });
+    const inner = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          children: [new TableCell({ children: [p('In1')] }), new TableCell({ children: [p('In2')] })],
+        }),
+      ],
+    });
+    const document = new Document({
+      sections: [
+        {
+          children: [
+            new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: [
+                new TableRow({
+                  children: [
+                    new TableCell({ columnSpan: 2, children: [p('Wide header')] }),
+                    new TableCell({ children: [p('H3')] }),
+                  ],
+                }),
+                new TableRow({
+                  children: [
+                    new TableCell({
+                      verticalMerge: VerticalMergeType.RESTART,
+                      children: [p('Tall')],
+                    }),
+                    new TableCell({ children: [p('B2')] }),
+                    new TableCell({ children: [inner, p('')] }),
+                  ],
+                }),
+                new TableRow({
+                  children: [
+                    new TableCell({ verticalMerge: VerticalMergeType.CONTINUE, children: [p('')] }),
+                    new TableCell({ children: [p('C2')] }),
+                    new TableCell({ children: [p('C3')] }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        },
+      ],
+    });
+    return new Uint8Array(await Packer.toBuffer(document));
+  }
+
+  it('imports colspan / rowspan and keeps a nested table inside its cell', async () => {
+    const content = await docxBytesToTiptapContent(await buildMergedNestedDocx());
+    const table = firstTable(content.content)!;
+    const rows = table.content ?? [];
+    expect(rows).toHaveLength(3);
+
+    const [header, second, third] = rows;
+    expect(header!.content?.[0]).toMatchObject({ attrs: { colspan: 2 } });
+    expect(cellText(header!.content![0]!)).toBe('Wide header');
+    expect(second!.content?.[0]).toMatchObject({ attrs: { rowspan: 2 } });
+    // The vertically merged continuation cell is not emitted again.
+    expect((third!.content ?? []).map(cellText)).toEqual(['C2', 'C3']);
+
+    const nested = firstTable(second!.content?.[2]?.content);
+    expect(nested).toBeDefined();
+    expect(cellText(nested!)).toBe('In1In2');
+  });
+
+  it('round-trips spans and nested tables through export', async () => {
+    const imported = await docxBytesToTiptapContent(await buildMergedNestedDocx());
+    const exported = await tiptapContentToDocxBytes(imported);
+    const reimported = await docxBytesToTiptapContent(exported);
+
+    const rows = firstTable(reimported.content)!.content ?? [];
+    expect(rows[0]!.content?.[0]).toMatchObject({ attrs: { colspan: 2 } });
+    expect(rows[1]!.content?.[0]).toMatchObject({ attrs: { rowspan: 2 } });
+    expect(firstTable(rows[1]!.content?.[2]?.content)).toBeDefined();
+  });
+});

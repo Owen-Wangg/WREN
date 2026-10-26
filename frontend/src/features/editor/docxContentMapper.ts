@@ -770,6 +770,11 @@ function tableFromOffice(
     return {
       type: 'tableRow',
       content: cells.map((cell) => {
+        // officeparser resolves w:gridSpan / w:vMerge into spans and omits
+        // the vertically merged continuation cells.
+        const meta = cell.metadata as { colSpan?: number; rowSpan?: number } | undefined;
+        const colspan = positiveSpan(meta?.colSpan);
+        const rowspan = positiveSpan(meta?.rowSpan);
         const cellBlocks = (cell.children ?? []).flatMap((child) =>
           officeNodesToTiptapBlocks([child], attachments, footnoteIdCounter),
         );
@@ -787,13 +792,17 @@ function tableFromOffice(
               ];
         return {
           type: rowIndex === 0 ? 'tableHeader' : 'tableCell',
+          ...(colspan || rowspan
+            ? { attrs: { ...(colspan ? { colspan } : {}), ...(rowspan ? { rowspan } : {}) } }
+            : {}),
           content: cellContent.filter(
             (b) =>
               b.type === 'paragraph' ||
               b.type === 'heading' ||
               b.type === 'bulletList' ||
               b.type === 'orderedList' ||
-              b.type === 'image',
+              b.type === 'image' ||
+              b.type === 'table',
           ),
         };
       }),
@@ -1219,21 +1228,33 @@ function listToDocxParagraphs(
   return out;
 }
 
-function cellBlocksToParagraphs(cell: JSONContent, footnotesById: Map<number, Paragraph[]>): Paragraph[] {
+function cellBlocksToDocx(
+  cell: JSONContent,
+  footnotesById: Map<number, Paragraph[]>,
+): Array<Paragraph | DocxTable> {
   const blocks = cell.content ?? [];
   if (blocks.length === 0) return [new Paragraph({})];
-  const paragraphs: Paragraph[] = [];
+  const children: Array<Paragraph | DocxTable> = [];
   for (const block of blocks) {
     if (block.type === 'paragraph' || block.type === 'heading') {
-      paragraphs.push(blockToDocxParagraph(block, footnotesById));
+      children.push(blockToDocxParagraph(block, footnotesById));
     } else if (block.type === 'image') {
       const imagePara = imageBlockToDocxParagraph(block);
-      if (imagePara) paragraphs.push(imagePara);
+      if (imagePara) children.push(imagePara);
     } else if (block.type === 'bulletList' || block.type === 'orderedList') {
-      paragraphs.push(...listToDocxParagraphs(block, footnotesById));
+      children.push(...listToDocxParagraphs(block, footnotesById));
+    } else if (block.type === 'table') {
+      children.push(tableToDocx(block, footnotesById));
+      // Word requires a cell to end with a paragraph.
+      children.push(new Paragraph({}));
     }
   }
-  return paragraphs.length > 0 ? paragraphs : [new Paragraph({})];
+  return children.length > 0 ? children : [new Paragraph({})];
+}
+
+function positiveSpan(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 1 ? n : undefined;
 }
 
 function tableToDocx(node: JSONContent, footnotesById: Map<number, Paragraph[]>): DocxTable {
@@ -1245,12 +1266,15 @@ function tableToDocx(node: JSONContent, footnotesById: Map<number, Paragraph[]>)
         new TableRow({
           children: (row.content ?? [])
             .filter((c) => c.type === 'tableCell' || c.type === 'tableHeader')
-            .map(
-              (cell) =>
-                new TableCell({
-                  children: cellBlocksToParagraphs(cell, footnotesById),
-                }),
-            ),
+            .map((cell) => {
+              const columnSpan = positiveSpan(cell.attrs?.colspan);
+              const rowSpan = positiveSpan(cell.attrs?.rowspan);
+              return new TableCell({
+                children: cellBlocksToDocx(cell, footnotesById),
+                ...(columnSpan ? { columnSpan } : {}),
+                ...(rowSpan ? { rowSpan } : {}),
+              });
+            }),
         }),
     ),
   });
