@@ -3047,7 +3047,7 @@ paths:
         uri:
           Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AdminFunctionArn}/invocations"
     post:
-      summary: Grant explicit Department visibility (TechnicalAdmin only)
+      summary: Add a Permitted user — visibility plus enrollment (Access Grants for every Document Type) (TechnicalAdmin only)
       tags: [Departments]
       operationId: createDepartmentVisibilityGrant
       parameters:
@@ -3094,7 +3094,7 @@ paths:
 
   /v1/departments/{departmentId}/visibility-grants/{grantId}:
     delete:
-      summary: Revoke explicit Department visibility (TechnicalAdmin only)
+      summary: Remove a Permitted user — revokes visibility and the enrollment's Access Grants (TechnicalAdmin only)
       tags: [Departments]
       operationId: revokeDepartmentVisibilityGrant
       parameters:

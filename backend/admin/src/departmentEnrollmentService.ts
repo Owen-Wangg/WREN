@@ -287,6 +287,66 @@ export async function listDepartmentEnrollments(
 }
 
 /**
+ * Enroll one existing user, picked by id (the Permitted users "Grant" action).
+ * Same outcome as a roster row for their email: visibility permission plus an
+ * Access Grant for every Document Type in the Department. Linked by id rather
+ * than by email match, since the admin chose this exact account.
+ */
+export async function enrollUserInDepartment(
+  actor: AuthContext,
+  departmentId: string,
+  userId: string,
+  db: QueryExecutor,
+): Promise<void> {
+  requireRosterManager(actor, departmentId);
+  await assertActiveDepartment(departmentId, db);
+
+  const users = await db.query<{ email: string }>(
+    'SELECT lower(email) AS email FROM app_user WHERE id = $1',
+    [userId],
+  );
+  const email = users[0]?.email;
+  if (!email) {
+    throw new NotFoundError(`User '${userId}' not found`);
+  }
+
+  await db.query(
+    `INSERT INTO department_enrollment (department_id, email, user_id, invited_by, linked_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (department_id, email) WHERE revoked_at IS NULL
+     DO UPDATE SET user_id = COALESCE(department_enrollment.user_id, EXCLUDED.user_id),
+                   linked_at = COALESCE(department_enrollment.linked_at, EXCLUDED.linked_at)`,
+    [departmentId, email, userId, actor.userId],
+  );
+  await db.query(
+    'SELECT apply_department_enrollments($1::uuid, NULL::uuid, $2::text[])',
+    [departmentId, [email]],
+  );
+}
+
+/**
+ * Unenroll a user from a Department (the Permitted users "Revoke" action):
+ * their roster row is removed and the Department access it gave is revoked.
+ * A user with no roster row is left as is. Returns the removed roster row ids.
+ */
+export async function removeUserFromDepartment(
+  actor: AuthContext,
+  departmentId: string,
+  userId: string,
+  db: QueryExecutor,
+): Promise<string[]> {
+  requireRosterManager(actor, departmentId);
+  const rows = await db.query<{ id: string }>(
+    `SELECT id FROM department_enrollment
+     WHERE department_id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+    [departmentId, userId],
+  );
+  const ids = rows.map((row) => row.id);
+  await revokeEnrollments(departmentId, ids, db);
+  return ids;
+}
+
+/**
  * Remove one student from the roster and take away the Department access the
  * enrollment gave them. Returns the removed email, or `null` when the row was
  * already removed (idempotent).

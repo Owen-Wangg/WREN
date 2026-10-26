@@ -22,9 +22,11 @@ import {
   revokeDepartmentVisibilityGrant,
 } from './departmentVisibilityGrantService';
 import {
+  enrollUserInDepartment,
   importDepartmentEnrollments,
   listDepartmentEnrollments,
   removeDepartmentEnrollment,
+  removeUserFromDepartment,
   type EnrollmentImportOutcome,
 } from './departmentEnrollmentService';
 import {
@@ -601,6 +603,9 @@ async function handleCreateDepartmentVisibilityGrant(event: any): Promise<APIGat
   const body = event.body ? JSON.parse(event.body) : {};
   const result = await db.transaction(async (tx) => {
     const created = await createDepartmentVisibilityGrant(actor, departmentId, body, tx);
+    // A permitted user is an enrolled user: the same access a roster row gives
+    // (submission to every Document Type while the Department is LOCKED).
+    await enrollUserInDepartment(actor, departmentId, created.grant.userId, tx);
     if (created.changed) {
       await auditDepartmentVisibilityChange(
         actor,
@@ -632,6 +637,17 @@ async function handleRevokeDepartmentVisibilityGrant(event: any): Promise<APIGat
       grantId,
       tx,
     );
+    // Revoking a permitted user also unenrolls them, taking away the
+    // submission access their enrollment gave.
+    const unenrolledIds = await removeUserFromDepartment(
+      actor,
+      departmentId,
+      revoked.grant.userId,
+      tx,
+    );
+    for (const enrollmentId of unenrolledIds) {
+      await auditDepartmentEnrollmentRemoval(actor, { departmentId, enrollmentId }, tx);
+    }
     if (revoked.changed) {
       await auditDepartmentVisibilityChange(
         actor,

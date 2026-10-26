@@ -1,8 +1,10 @@
 import {
+  enrollUserInDepartment,
   importDepartmentEnrollments,
   listDepartmentEnrollments,
   normalizeEnrollmentEmails,
   removeDepartmentEnrollment,
+  removeUserFromDepartment,
 } from './departmentEnrollmentService';
 import type { QueryExecutor } from './db';
 import { AuthorizationError, NotFoundError } from './errors';
@@ -32,6 +34,7 @@ function scriptedDb(options: {
   departmentExists?: boolean;
   existingAccounts?: string[];
   onRoster?: Array<{ email: string; userId?: string }>;
+  usersById?: Record<string, string>;
 }) {
   const calls: Call[] = [];
   let nextId = 1;
@@ -50,6 +53,20 @@ function scriptedDb(options: {
       const out = (rows: unknown[]) => rows as T[];
       if (sql.startsWith('SELECT id FROM department WHERE')) {
         return out(options.departmentExists === false ? [] : [{ id: DEPARTMENT_ID }]);
+      }
+      if (sql.startsWith('SELECT lower(email) AS email FROM app_user')) {
+        const email = options.usersById?.[params[0] as string];
+        return out(email ? [{ email }] : []);
+      }
+      if (sql.startsWith('INSERT INTO department_enrollment (department_id, email, user_id')) {
+        const [, email, userId] = params as [string, string, string];
+        const existing = active().find((row) => row.email === email);
+        if (existing) existing.userId = existing.userId ?? userId;
+        else roster.push({ id: `enr-${nextId++}`, email, userId, revoked: false });
+        return out([]);
+      }
+      if (sql.includes('FROM department_enrollment') && sql.includes('AND user_id = $2')) {
+        return out(active().filter((row) => row.userId === params[1]).map(({ id }) => ({ id })));
       }
       if (sql.startsWith('INSERT INTO department_enrollment')) {
         const added = (params[1] as string[]).filter(
@@ -357,5 +374,67 @@ describe('removeDepartmentEnrollment', () => {
     await expect(
       removeDepartmentEnrollment(techAdminContext(), DEPARTMENT_ID, 'missing', db),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe('enrollUserInDepartment (Permitted users "Grant")', () => {
+  it('adds a linked roster row for the user and issues their grants', async () => {
+    const { db, calls, roster } = scriptedDb({ usersById: { 'u-ada': 'ada@example.edu' } });
+
+    await enrollUserInDepartment(techAdminContext(), DEPARTMENT_ID, 'u-ada', db);
+
+    expect(roster).toEqual([
+      expect.objectContaining({ email: 'ada@example.edu', userId: 'u-ada', revoked: false }),
+    ]);
+    const apply = calls.find((c) => c.sql.startsWith('SELECT apply_department_enrollments'));
+    expect(apply?.params).toEqual([DEPARTMENT_ID, ['ada@example.edu']]);
+  });
+
+  it('links an existing pending row for the same email instead of duplicating it', async () => {
+    const { db, roster } = scriptedDb({
+      usersById: { 'u-ada': 'ada@example.edu' },
+      onRoster: [{ email: 'ada@example.edu' }],
+    });
+
+    await enrollUserInDepartment(techAdminContext(), DEPARTMENT_ID, 'u-ada', db);
+
+    expect(roster).toHaveLength(1);
+    expect(roster[0].userId).toBe('u-ada');
+  });
+
+  it('404s for an unknown user', async () => {
+    const { db } = scriptedDb({});
+    await expect(
+      enrollUserInDepartment(techAdminContext(), DEPARTMENT_ID, 'missing', db),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('denies a DepartmentAdmin', async () => {
+    const { db } = scriptedDb({ usersById: { 'u-ada': 'ada@example.edu' } });
+    await expect(
+      enrollUserInDepartment(deptAdminContext([DEPARTMENT_ID]), DEPARTMENT_ID, 'u-ada', db),
+    ).rejects.toBeInstanceOf(AuthorizationError);
+  });
+});
+
+describe('removeUserFromDepartment (Permitted users "Revoke")', () => {
+  it('removes the user\'s roster row and revokes their department access', async () => {
+    const { db, calls, roster } = scriptedDb({
+      onRoster: [{ email: 'ada@example.edu', userId: 'u-ada' }, { email: 'b@example.edu', userId: 'u-b' }],
+    });
+
+    const removed = await removeUserFromDepartment(techAdminContext(), DEPARTMENT_ID, 'u-ada', db);
+
+    expect(removed).toEqual([roster[0].id]);
+    expect(roster.map((r) => r.revoked)).toEqual([true, false]);
+    expect(grantRevocations(calls)).toHaveLength(2);
+  });
+
+  it('does nothing for a user with no roster row', async () => {
+    const { db, calls } = scriptedDb({});
+    await expect(
+      removeUserFromDepartment(techAdminContext(), DEPARTMENT_ID, 'u-none', db),
+    ).resolves.toEqual([]);
+    expect(grantRevocations(calls)).toHaveLength(0);
   });
 });
