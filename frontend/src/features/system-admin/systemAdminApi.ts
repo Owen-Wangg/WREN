@@ -6,6 +6,8 @@
  */
 import { z } from 'zod';
 import {
+  departmentEnrollmentImportResultSchema,
+  departmentEnrollmentListSchema,
   departmentSchema,
   departmentVisibilityGrantSchema,
   departmentVisibilityPermissionListSchema,
@@ -159,6 +161,50 @@ export async function createDepartmentVisibilityGrant(
     method: 'POST',
     body: { userId },
     schema: departmentVisibilityGrantSchema,
+  });
+}
+
+/**
+ * Upload a student roster by the email each student signs in with. `replace`
+ * removes roster students missing from `emails`; `dryRun` previews without saving.
+ */
+export async function importDepartmentEnrollments(
+  departmentId: string,
+  emails: string[],
+  options: { mode?: 'add' | 'replace'; dryRun?: boolean } = {},
+) {
+  return apiClient.request(`/v1/departments/${departmentId}/enrollments/import`, {
+    method: 'POST',
+    body: { emails, mode: options.mode ?? 'add', dryRun: options.dryRun ?? false },
+    schema: departmentEnrollmentImportResultSchema,
+  });
+}
+
+/** Query-key prefix for a Department's roster list (all pages and filters). */
+export const departmentRosterQueryKey = (departmentId: string) =>
+  ['department-enrollments', departmentId] as const;
+
+export async function listDepartmentEnrollments(
+  departmentId: string,
+  params: { q?: string; status?: 'enrolled' | 'pending'; limit?: number; offset?: number } = {},
+) {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.status) qs.set('status', params.status);
+  if (params.limit !== undefined) qs.set('limit', String(params.limit));
+  if (params.offset !== undefined) qs.set('offset', String(params.offset));
+  const query = qs.toString();
+  return apiClient.request(
+    `/v1/departments/${departmentId}/enrollments${query ? `?${query}` : ''}`,
+    { schema: departmentEnrollmentListSchema },
+  );
+}
+
+/** Remove a student from the roster; they lose the access enrollment gave them. */
+export async function removeDepartmentEnrollment(departmentId: string, enrollmentId: string) {
+  return apiClient.request(`/v1/departments/${departmentId}/enrollments/${enrollmentId}`, {
+    method: 'DELETE',
+    schema: z.object({ removed: z.boolean() }),
   });
 }
 
@@ -379,6 +425,9 @@ export const systemAdminApi = {
   listDepartmentVisibilityGrants,
   createDepartmentVisibilityGrant,
   revokeDepartmentVisibilityGrant,
+  importDepartmentEnrollments,
+  listDepartmentEnrollments,
+  removeDepartmentEnrollment,
   searchAllUsers,
   getUsageReport,
   getPlatformUsageLimits,

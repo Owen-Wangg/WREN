@@ -22,6 +22,10 @@ const apiMocks = vi.hoisted(() => ({
   createDepartmentVisibilityGrant: vi.fn(),
   revokeDepartmentVisibilityGrant: vi.fn(),
   searchAllUsers: vi.fn(),
+  listDepartmentEnrollments: vi.fn(),
+  removeDepartmentEnrollment: vi.fn(),
+  importDepartmentEnrollments: vi.fn(),
+  departmentRosterQueryKey: (departmentId: string) => ['department-enrollments', departmentId],
 }));
 
 vi.mock('@/features/auth/AuthContext', () => ({ useAuth: vi.fn() }));
@@ -88,6 +92,12 @@ beforeEach(() => {
     items: [],
     total: 0,
     limit: 100,
+    offset: 0,
+  });
+  apiMocks.listDepartmentEnrollments.mockResolvedValue({
+    items: [],
+    total: 0,
+    limit: 20,
     offset: 0,
   });
   apiMocks.setDepartmentVisibilityState.mockImplementation(
@@ -398,6 +408,117 @@ describe('DepartmentDetailPage Ask WREN prompt tab', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Prompt content rejected: instructs the model to rewrite the text.',
+    );
+  });
+});
+
+
+// jsdom does not implement Blob.text(); browsers do. Read through FileReader.
+if (typeof File.prototype.text !== 'function') {
+  File.prototype.text = function text(this: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(this);
+    });
+  };
+}
+describe('DepartmentDetailPage student roster', () => {
+  const enrolled = {
+    id: 'enr-1',
+    departmentId: 'department-1',
+    email: 'ada@example.edu',
+    status: 'enrolled' as const,
+    userId: 'user-ada',
+    firstName: 'Ada',
+    lastName: 'Lovelace',
+    invitedAt: '2026-10-01T00:00:00.000Z',
+    linkedAt: '2026-10-02T00:00:00.000Z',
+  };
+  const pending = {
+    ...enrolled,
+    id: 'enr-2',
+    email: 'new@example.edu',
+    status: 'pending' as const,
+    userId: null,
+    firstName: null,
+    lastName: null,
+    linkedAt: null,
+  };
+
+  it('lists enrolled and pending students and removes one after confirmation', async () => {
+    const user = userEvent.setup();
+    apiMocks.listDepartmentEnrollments.mockResolvedValue({
+      items: [enrolled, pending],
+      total: 2,
+      limit: 20,
+      offset: 0,
+    });
+    apiMocks.removeDepartmentEnrollment.mockResolvedValue({ removed: true });
+    renderPage();
+
+    const roster = await screen.findByRole('region', { name: 'Student roster' });
+    expect(await within(roster).findByText('Ada Lovelace')).toBeInTheDocument();
+    expect(within(roster).getByText('Enrolled', { selector: 'span' })).toBeInTheDocument();
+    expect(within(roster).getByText('new@example.edu')).toBeInTheDocument();
+    expect(within(roster).getByText('Waiting for sign-up', { selector: 'span' })).toBeInTheDocument();
+
+    await user.click(
+      within(roster).getByRole('button', { name: 'Remove ada@example.edu from the roster' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Remove from roster?' });
+    expect(apiMocks.removeDepartmentEnrollment).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() =>
+      expect(apiMocks.removeDepartmentEnrollment).toHaveBeenCalledWith('department-1', 'enr-1'),
+    );
+    expect(await screen.findByText('ada@example.edu was removed from the roster.')).toBeInTheDocument();
+  });
+
+  it('previews a replace upload and only saves after confirming removals', async () => {
+    const user = userEvent.setup();
+    apiMocks.importDepartmentEnrollments.mockImplementation(
+      async (_departmentId: string, emails: string[], options: { dryRun?: boolean }) => ({
+        enrolled: [],
+        pending: emails,
+        invalid: [],
+        alreadyOnRoster: 0,
+        removed: ['leaves@example.edu'],
+        dryRun: options.dryRun ?? false,
+      }),
+    );
+    renderPage();
+
+    const roster = await screen.findByRole('region', { name: 'Student roster' });
+    await user.click(within(roster).getByRole('button', { name: 'Import CSV' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Import students' });
+
+    await user.upload(
+      within(dialog).getByLabelText(/Choose a CSV file/),
+      new File(['email\nstays@example.edu\n'], 'roster.csv', { type: 'text/csv' }),
+    );
+    expect(await within(dialog).findByText('1 email found')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('radio', { name: /Replace the roster/ }));
+    await user.click(within(dialog).getByRole('button', { name: 'Review changes' }));
+
+    expect(await within(dialog).findByText('leaves@example.edu')).toBeInTheDocument();
+    expect(apiMocks.importDepartmentEnrollments).toHaveBeenCalledTimes(1);
+    expect(apiMocks.importDepartmentEnrollments).toHaveBeenLastCalledWith(
+      'department-1',
+      ['stays@example.edu'],
+      { mode: 'replace', dryRun: true },
+    );
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Replace roster and remove 1 student' }),
+    );
+    expect(await within(dialog).findByText('Roster updated')).toBeInTheDocument();
+    expect(apiMocks.importDepartmentEnrollments).toHaveBeenLastCalledWith(
+      'department-1',
+      ['stays@example.edu'],
+      { mode: 'replace', dryRun: false },
     );
   });
 });

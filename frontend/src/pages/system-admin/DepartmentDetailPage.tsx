@@ -22,6 +22,7 @@ import {
   assignRole,
   createDepartmentVisibilityGrant,
   deleteDepartment,
+  departmentRosterQueryKey,
   getAnalyticsSummary,
   getDepartmentUsers,
   listDepartmentVisibilityGrants,
@@ -40,6 +41,8 @@ import {
 
 import { systemAdminApi } from '@/features/system-admin/systemAdminApi';
 import { DepartmentPromptEditor } from '@/features/department-admin/DepartmentPromptEditor';
+import { DepartmentRosterSection } from '@/features/system-admin/components/DepartmentRosterSection';
+import { ImportStudentsDialog } from '@/features/system-admin/components/ImportStudentsDialog';
 
 interface EditingUser {
   id: string;
@@ -119,6 +122,7 @@ export function DepartmentDetailPage() {
   const queryClient = useQueryClient();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [visibilityConfirmOpen, setVisibilityConfirmOpen] = useState(false);
+  const [importStudentsOpen, setImportStudentsOpen] = useState(false);
   const [visibilityStatus, setVisibilityStatus] = useState<string | null>(null);
   const visibilityToggleRef = useRef<HTMLButtonElement>(null);
   const visibilityCancelRef = useRef<HTMLButtonElement>(null);
@@ -576,6 +580,14 @@ export function DepartmentDetailPage() {
               <div className="mb-6 flex items-center justify-between">
                 <h2 className="text-3xl font-bold text-gray-900">Manage Users</h2>
               </div>
+
+              {canManageVisibility && departmentId && (
+                <DepartmentRosterSection
+                  departmentId={departmentId}
+                  departmentName={department?.name}
+                  onImport={() => setImportStudentsOpen(true)}
+                />
+              )}
 
               {canManageVisibility && departmentId && (
                 <section
@@ -1165,6 +1177,23 @@ export function DepartmentDetailPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {canManageVisibility && departmentId && (
+        <ImportStudentsDialog
+          open={importStudentsOpen}
+          onOpenChange={setImportStudentsOpen}
+          departmentId={departmentId}
+          departmentName={department?.name}
+          isLocked={isLocked}
+          onImported={() => {
+            void queryClient.invalidateQueries({ queryKey: departmentRosterQueryKey(departmentId) });
+            void queryClient.invalidateQueries({ queryKey: ['department-users', departmentId] });
+            void queryClient.invalidateQueries({
+              queryKey: ['department-visibility-grants', departmentId],
+            });
+          }}
+        />
+      )}
 
       {/* Edit Role Dialog */}
       {editingUser && (
