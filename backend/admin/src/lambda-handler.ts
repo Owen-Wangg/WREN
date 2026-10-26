@@ -22,6 +22,12 @@ import {
   revokeDepartmentVisibilityGrant,
 } from './departmentVisibilityGrantService';
 import {
+  importDepartmentEnrollments,
+  listDepartmentEnrollments,
+  removeDepartmentEnrollment,
+  type EnrollmentImportOutcome,
+} from './departmentEnrollmentService';
+import {
   listDocumentTypes,
   listAllDocumentTypes,
   createDocumentType,
@@ -54,6 +60,8 @@ import { assertCanListDepartmentUsers, requireCapability } from './capabilityGua
 import {
   auditAccessStateChange,
   auditConfigEdit,
+  auditDepartmentEnrollmentImport,
+  auditDepartmentEnrollmentRemoval,
   auditDepartmentVisibilityChange,
   auditOverrideGrant,
   auditPlatformPolicyChange,
@@ -184,6 +192,18 @@ export const handler: APIGatewayProxyHandler = async (event: any, context): Prom
       httpMethod === 'DELETE'
     ) {
       return await wrapHandler(() => handleRevokeDepartmentVisibilityGrant(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/enrollments' && httpMethod === 'GET') {
+      return await wrapHandler(() => handleListDepartmentEnrollments(event));
+    }
+    if (resource === '/v1/departments/{departmentId}/enrollments/import' && httpMethod === 'POST') {
+      return await wrapHandler(() => handleImportDepartmentEnrollments(event));
+    }
+    if (
+      resource === '/v1/departments/{departmentId}/enrollments/{enrollmentId}' &&
+      httpMethod === 'DELETE'
+    ) {
+      return await wrapHandler(() => handleRemoveDepartmentEnrollment(event));
     }
     if (resource === '/v1/document-types' && httpMethod === 'GET') {
       return await wrapHandler(() => handleListDocumentTypes(event));
@@ -627,6 +647,78 @@ async function handleRevokeDepartmentVisibilityGrant(event: any): Promise<APIGat
     return revoked;
   });
   return { statusCode: 200, body: JSON.stringify(result.grant) };
+}
+
+/** Thrown to roll back a dry-run import while carrying its computed outcome out. */
+class DryRunRollback extends Error {
+  public constructor(public readonly outcome: EnrollmentImportOutcome) {
+    super('dry run');
+  }
+}
+
+async function handleListDepartmentEnrollments(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const qs = event.queryStringParameters || {};
+  if (qs.status !== undefined && qs.status !== 'enrolled' && qs.status !== 'pending') {
+    throw Object.assign(new Error("status must be 'enrolled' or 'pending'"), { statusCode: 400 });
+  }
+  const result = await listDepartmentEnrollments(actor, departmentId, db, {
+    q: qs.q,
+    status: qs.status,
+    limit: parseOptionalIntegerQuery(qs.limit, 'limit', 1, 100),
+    offset: parseOptionalIntegerQuery(qs.offset, 'offset', 0),
+  });
+  return { statusCode: 200, body: JSON.stringify(result) };
+}
+
+async function handleImportDepartmentEnrollments(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId } = event.pathParameters || {};
+  const body = event.body ? JSON.parse(event.body) : {};
+  let outcome: EnrollmentImportOutcome;
+  try {
+    outcome = await db.transaction(async (tx) => {
+      const imported = await importDepartmentEnrollments(actor, departmentId, body, tx);
+      // A preview runs the real import, then rolls it back so the counts it
+      // reports are exactly what a real import would do.
+      if (imported.result.dryRun) throw new DryRunRollback(imported);
+      await auditDepartmentEnrollmentImport(
+        actor,
+        {
+          departmentId,
+          mode: body.mode === 'replace' ? 'replace' : 'add',
+          added: imported.added,
+          enrolled: imported.result.enrolled.length,
+          pending: imported.result.pending.length,
+          invalid: imported.result.invalid.length,
+          removed: imported.result.removed.length,
+        },
+        tx,
+      );
+      return imported;
+    });
+  } catch (error) {
+    if (!(error instanceof DryRunRollback)) throw error;
+    outcome = error.outcome;
+  }
+  return { statusCode: 200, body: JSON.stringify(outcome.result) };
+}
+
+async function handleRemoveDepartmentEnrollment(event: any): Promise<APIGatewayProxyResult> {
+  const actor = parseAuthContext(event);
+  const db = await getDataAccess();
+  const { departmentId, enrollmentId } = event.pathParameters || {};
+  const removed = await db.transaction(async (tx) => {
+    const email = await removeDepartmentEnrollment(actor, departmentId, enrollmentId, tx);
+    if (email !== null) {
+      await auditDepartmentEnrollmentRemoval(actor, { departmentId, enrollmentId }, tx);
+    }
+    return email !== null;
+  });
+  return { statusCode: 200, body: JSON.stringify({ removed }) };
 }
 
 async function handleSearchUsers(event: any): Promise<APIGatewayProxyResult> {

@@ -268,6 +268,64 @@ export async function auditDepartmentVisibilityChange(
 }
 
 /**
+ * Record a Department roster import. Only counts are recorded: the activity
+ * log is pseudonymized, so imported email addresses never enter it — the
+ * roster itself (`department_enrollment`) is the record of who was enrolled.
+ */
+export async function auditDepartmentEnrollmentImport(
+  actor: AuthContext,
+  detail: {
+    departmentId: string;
+    mode: 'add' | 'replace';
+    added: number;
+    enrolled: number;
+    pending: number;
+    invalid: number;
+    removed: number;
+  },
+  db: QueryExecutor,
+): Promise<void> {
+  await recordActivityEvent(
+    {
+      actorUserId: actor.userId,
+      verb: 'department_enrollment.imported',
+      objectType: 'Department',
+      objectRef: detail.departmentId,
+      departmentId: detail.departmentId,
+      context: {
+        role: actor.roles[0],
+        mode: detail.mode,
+        added: detail.added,
+        enrolled: detail.enrolled,
+        pending: detail.pending,
+        invalid: detail.invalid,
+        removed: detail.removed,
+      },
+    },
+    db,
+  );
+}
+
+/** Record removal of one roster row (by id — never the email, see above). */
+export async function auditDepartmentEnrollmentRemoval(
+  actor: AuthContext,
+  detail: { departmentId: string; enrollmentId: string },
+  db: QueryExecutor,
+): Promise<void> {
+  await recordActivityEvent(
+    {
+      actorUserId: actor.userId,
+      verb: 'department_enrollment.removed',
+      objectType: 'DepartmentEnrollment',
+      objectRef: detail.enrollmentId,
+      departmentId: detail.departmentId,
+      context: { role: actor.roles[0] },
+    },
+    db,
+  );
+}
+
+/**
  * Record an audit event for a usage-limit override grant. Requirement 54.6:
  * "log the granting actor's identity and role, the affected Student, the
  * Document Type, the reason, and a timestamp."
