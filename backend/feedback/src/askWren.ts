@@ -496,6 +496,87 @@ export function expandQuotesAgainstDraft(
   });
 }
 
+/** Plain-text repeating page header/footer of a draft ('' when absent). */
+export interface PageRegions {
+  header: string;
+  footer: string;
+}
+
+/** Per-region cap; parity with MAX_PAGE_REGION_CHARS in wren_engine/page_regions.py. */
+const MAX_PAGE_REGION_CHARS = 2_000;
+
+const PAGE_REGION_PLACEHOLDERS: Record<string, string> = {
+  pageNumber: '[page number]',
+  date: '[date]',
+};
+
+const PAGE_REGION_BLOCK_TYPES = new Set(['paragraph', 'heading', 'listItem', 'blockquote']);
+
+/**
+ * Flatten a `draft.header` / `draft.footer` TipTap doc to one line of text.
+ *
+ * Node port of `page_region_text` in backend/engine/python/wren_engine/page_regions.py;
+ * keep the output identical. Page-number and date chips become placeholders and
+ * block / hard-break boundaries become ` / `.
+ */
+export function pageRegionText(doc: unknown): string {
+  let root = doc;
+  if (typeof root === 'string') {
+    try {
+      root = JSON.parse(root);
+    } catch {
+      return '';
+    }
+  }
+  const lines: string[] = [];
+  let current: string[] = [];
+  const flush = () => {
+    lines.push(current.join(''));
+    current = [];
+  };
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return;
+    const { type, text, content } = node as { type?: string; text?: unknown; content?: unknown };
+    if (type && type in PAGE_REGION_PLACEHOLDERS) {
+      current.push(PAGE_REGION_PLACEHOLDERS[type]!);
+      return;
+    }
+    if (type === 'hardBreak') {
+      flush();
+      return;
+    }
+    if (typeof text === 'string') {
+      current.push(text);
+      return;
+    }
+    if (!Array.isArray(content)) return;
+    content.forEach(walk);
+    if (type && PAGE_REGION_BLOCK_TYPES.has(type)) flush();
+  };
+  walk(root);
+  if (current.length) flush();
+  return lines
+    .map((line) => line.split(/\s+/).filter(Boolean).join(' '))
+    .filter(Boolean)
+    .join(' / ');
+}
+
+export function pageRegionsFromColumns(header: unknown, footer: unknown): PageRegions {
+  return { header: pageRegionText(header), footer: pageRegionText(footer) };
+}
+
+function capPageRegion(value: string): string {
+  return value.length <= MAX_PAGE_REGION_CHARS ? value : `${value.slice(0, MAX_PAGE_REGION_CHARS)}…`;
+}
+
+function formatPageRegions(regions: PageRegions | undefined): string | null {
+  if (!regions || (!regions.header && !regions.footer)) return null;
+  const lines: string[] = [];
+  if (regions.header) lines.push(`HEADER (top of every page): ${capPageRegion(regions.header)}`);
+  if (regions.footer) lines.push(`FOOTER (bottom of every page): ${capPageRegion(regions.footer)}`);
+  return lines.join('\n');
+}
+
 function formatDraftContext(
   segments: Array<{ index?: number; text?: string }>,
 ): string {
@@ -645,6 +726,8 @@ export async function generateAskWrenReply(input: {
   userText: string;
   priorMessages: ChatMessage[];
   draftSegments: Array<{ index?: number; text?: string }>;
+  /** Repeating page header/footer, stored outside the draft segments. */
+  pageRegions?: PageRegions;
   documentTypeContext?: DocumentTypeContext;
   /** Department-level Ask WREN coaching context (department.ask_wren_prompt). */
   departmentAskWrenContext?: string;
@@ -665,9 +748,20 @@ export async function generateAskWrenReply(input: {
 
   // Trusted headers stay OUTSIDE the data blocks; all student-controlled text
   // (draft paragraphs and the question) sits INSIDE them.
+  // The header/footer block is added only when the draft has one, so a draft
+  // without them sends byte-identical content.
+  const pageRegionsText = formatPageRegions(input.pageRegions);
   const userContent = [
     'Draft context (paragraphs):',
     renderUntrustedDataBlock(formatDraftContext(input.draftSegments), 'student_draft'),
+    ...(pageRegionsText
+      ? [
+          '',
+          'Page header/footer (repeats on every page and counts as present in the ' +
+            'document; [page number] and [date] are filled in at export):',
+          renderUntrustedDataBlock(pageRegionsText, 'student_page_header_footer'),
+        ]
+      : []),
     '',
     'Student question:',
     renderUntrustedDataBlock(input.userText.trim(), 'student_question'),
@@ -822,6 +916,8 @@ export async function appendAskWrenTurn(input: {
   draftId: string;
   userText: string;
   draftSegments: Array<{ index?: number; text?: string }>;
+  /** Repeating page header/footer, stored outside the draft segments. */
+  pageRegions?: PageRegions;
   documentTypeContext?: DocumentTypeContext;
   /** Department-level Ask WREN coaching context (department.ask_wren_prompt). */
   departmentAskWrenContext?: string;
@@ -860,6 +956,7 @@ export async function appendAskWrenTurn(input: {
     userText: userMessage.text,
     priorMessages: prior,
     draftSegments: input.draftSegments,
+    ...(input.pageRegions ? { pageRegions: input.pageRegions } : {}),
     documentTypeContext: input.documentTypeContext,
     departmentAskWrenContext: input.departmentAskWrenContext,
     modelId: input.modelId,

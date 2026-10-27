@@ -20,7 +20,9 @@ import {
   buildSessionId,
   loadDocumentConversation,
   MAX_ASK_WREN_MESSAGE_LENGTH,
+  pageRegionsFromColumns,
   type DocumentTypeContext,
+  type PageRegions,
 } from './askWren.js';
 import {
   upsertSectionApplicability,
@@ -759,7 +761,11 @@ async function loadDraftSegments(
   draftId: string,
   userId: string,
 ): Promise<
-  | { ok: true; segments: Array<{ index?: number; text?: string }> }
+  | {
+      ok: true;
+      segments: Array<{ index?: number; text?: string }>;
+      pageRegions: PageRegions;
+    }
   | { ok: false; response: APIGatewayProxyResult }
 > {
   const ownership = await assertDocumentOwner(documentId, userId);
@@ -778,7 +784,7 @@ async function loadDraftSegments(
 
   const db = await getDataAccess();
   const draftRows = await db.query(
-    `SELECT id, segments FROM draft
+    `SELECT id, segments, header, footer FROM draft
      WHERE id = $1 AND document_id = $2`,
     [validDraftId, documentId],
   );
@@ -797,6 +803,7 @@ async function loadDraftSegments(
   return {
     ok: true,
     segments: Array.isArray(parsed) ? parsed : [],
+    pageRegions: pageRegionsFromColumns(draftRows[0].header, draftRows[0].footer),
   };
 }
 
@@ -1023,6 +1030,7 @@ async function handlePostAskWren(event: any): Promise<APIGatewayProxyResult> {
     draftId,
     userText: text,
     draftSegments: draft.segments,
+    pageRegions: draft.pageRegions,
     documentTypeContext,
     departmentAskWrenContext,
     modelId,
