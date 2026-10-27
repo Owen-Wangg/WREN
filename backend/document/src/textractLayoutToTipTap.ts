@@ -49,6 +49,7 @@ import {
 } from './pdfHeadingHeuristics.js';
 import { polishPdfTipTapNodes } from './promotePdfHeadings.js';
 import { flattenTableOfContents } from './pdfToTipTap.js';
+import { orderedListAttrs, parseListMarker } from './listMarkers.js';
 
 const SKIP_LAYOUT = new Set([
   'LAYOUT_HEADER',
@@ -194,6 +195,30 @@ function childIds(block: Block): string[] {
     }
   }
   return ids;
+}
+
+/**
+ * Ids of LAYOUT_* blocks nested under another LAYOUT_* block. Every container
+ * (list, figure, table, text) renders its descendants' lines itself, so these
+ * must never be emitted on their own. Collected up front because Textract
+ * does not promise a parent precedes its children in `Blocks` — marking them
+ * only once the parent is reached let a LAYOUT_LIST's items render twice.
+ */
+function nestedLayoutIds(blocks: readonly Block[], byId: Map<string, Block>): Set<string> {
+  const nested = new Set<string>();
+  const visit = (block: Block, depth: number): void => {
+    if (depth > 8) return;
+    for (const id of childIds(block)) {
+      const child = byId.get(id);
+      if (!child?.Id || !child.BlockType?.startsWith('LAYOUT_') || nested.has(child.Id)) continue;
+      nested.add(child.Id);
+      visit(child, depth + 1);
+    }
+  };
+  for (const block of blocks) {
+    if (block.BlockType?.startsWith('LAYOUT_')) visit(block, 0);
+  }
+  return nested;
 }
 
 function indexBlocks(blocks: readonly Block[]): Map<string, Block> {
@@ -352,7 +377,27 @@ function listFromLayout(block: Block, byId: Map<string, Block>): TipTapNode | nu
     });
   }
   if (items.length === 0) return null;
-  return { type: 'bulletList', content: items };
+  return listWithMarkersStripped(items);
+}
+
+/**
+ * Textract keeps the printed marker ("1.", "•") in each item's text. Lift it
+ * out: a list whose items are all numbered becomes an `orderedList` that
+ * starts at the first item's number; bullet glyphs are dropped so they don't
+ * render twice next to the editor's own bullet.
+ */
+function listWithMarkersStripped(items: TipTapNode[]): TipTapNode {
+  const markers = items.map((item) => parseListMarker(listItemText(item).trim()));
+  const ordered = markers.every((m) => m?.kind === 'ordered');
+  const stripped = items.map((item, k) => {
+    const marker = markers[k];
+    if (!marker || (marker.kind === 'ordered' && !ordered)) return item;
+    return { ...item, content: [paragraphNode(marker.remaining)] };
+  });
+  if (!ordered) return { type: 'bulletList', content: stripped };
+  const first = markers[0];
+  const attrs = orderedListAttrs(first?.kind === 'ordered' ? first : undefined);
+  return { type: 'orderedList', ...(attrs ? { attrs } : {}), content: stripped };
 }
 
 function cellText(cell: Block, byId: Map<string, Block>): string {
@@ -773,7 +818,7 @@ function enrichedPipeline(
 
   // --- Step 4–11: Process layout blocks in reading order with enrichment ---
   const nodes: TipTapNode[] = [];
-  const consumedLayoutIds = new Set<string>();
+  const consumedLayoutIds = nestedLayoutIds(blocks, byId);
   const consumedTableIds = new Set<string>();
   const tableBlocks = allBlocks.filter((b) => b.BlockType === 'TABLE');
   const allLineConfidences: number[] = [];
@@ -1253,7 +1298,7 @@ function legacyLayoutConversion(
   byId: Map<string, Block>,
 ): TipTapDoc {
   const nodes: TipTapNode[] = [];
-  const consumedLayoutIds = new Set<string>();
+  const consumedLayoutIds = nestedLayoutIds(blocks, byId);
   const consumedTableIds = new Set<string>();
   const tableBlocks = blocks.filter((b) => b.BlockType === 'TABLE');
 
