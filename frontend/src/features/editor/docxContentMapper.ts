@@ -35,6 +35,7 @@ import {
 } from 'officeparser';
 
 import { createDocxRunFormatter, type DocxRunFormatter } from './docxRunFormatting';
+import { acceptDocxTrackedChanges } from './docxTrackedChanges';
 import { MAX_INDENT_LEVEL } from './tiptapIndent';
 
 const HEADING_LEVEL_BY_NUMBER: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
@@ -205,6 +206,24 @@ function listNestingLevel(node: OfficeContentNode): number {
   if (typeof meta.indentation === 'number') return meta.indentation;
   if (typeof meta.level === 'number') return meta.level;
   return 0;
+}
+
+/** officeparser list metadata the list grouping relies on. */
+function listMeta(node: OfficeContentNode): { listId?: string; itemIndex?: number } {
+  const meta = node.metadata as { listId?: unknown; itemIndex?: unknown } | undefined;
+  return {
+    listId: typeof meta?.listId === 'string' ? meta.listId : undefined,
+    itemIndex: typeof meta?.itemIndex === 'number' ? meta.itemIndex : undefined,
+  };
+}
+
+/**
+ * `<w:numId w:val="0"/>` is Word's "no numbering" (used to break a list or
+ * override a numbered style). officeparser still reports it as a list item,
+ * so treat it as the plain paragraph Word shows.
+ */
+function isNumberingRemoved(node: OfficeContentNode): boolean {
+  return node.type === 'list' && listMeta(node).listId === '0';
 }
 
 function formattingToMarks(
@@ -589,7 +608,7 @@ function isHeadingStyledList(node: OfficeContentNode): boolean {
 function attachHeadingNumbers(nodes: OfficeContentNode[]): void {
   const countersByListId = new Map<string, number[]>();
   for (const node of nodes) {
-    if (!isHeadingStyledList(node)) continue;
+    if (!isHeadingStyledList(node) || isNumberingRemoved(node)) continue;
     const meta = node.metadata as
       | { listType?: string; listId?: string }
       | undefined;
@@ -705,12 +724,19 @@ function listItemFromOffice(
 /**
  * Group consecutive office `list` items into TipTap bulletList / orderedList.
  * Nested levels become nested lists under the previous item when level increases.
+ *
+ * A different Word list (`listId`) at the same level starts a new TipTap list,
+ * and a top-level ordered list starts at Word's own number for its first item
+ * (officeparser's 0-based `itemIndex` continues a list across interruptions).
+ * Nested lists keep the default start: officeparser doesn't restart deeper
+ * counters when the parent advances, so their `itemIndex` can't be trusted.
  */
 function consumeListGroup(
   nodes: OfficeContentNode[],
   startIndex: number,
   attachments: AttachmentLookup,
   footnoteIdCounter: { next: number },
+  nested = false,
 ): { blocks: JSONContent[]; nextIndex: number } {
   const first = nodes[startIndex]!;
   const listType =
@@ -718,6 +744,7 @@ function consumeListGroup(
       ? 'orderedList'
       : 'bulletList';
   const baseLevel = listNestingLevel(first);
+  const { listId, itemIndex } = listMeta(first);
 
   const items: JSONContent[] = [];
   let i = startIndex;
@@ -726,6 +753,8 @@ function consumeListGroup(
     // A heading-styled list node is not a real list item — stop the group so
     // the caller emits it as a heading instead of folding it into this list.
     if (isHeadingStyledList(node)) break;
+    // Numbering switched off: the caller emits it as a plain paragraph.
+    if (isNumberingRemoved(node)) break;
     const level = listNestingLevel(node);
     const nodeListType =
       node.metadata && 'listType' in node.metadata && node.metadata.listType === 'ordered'
@@ -733,9 +762,10 @@ function consumeListGroup(
         : 'bulletList';
     if (nodeListType !== listType && level <= baseLevel) break;
     if (level < baseLevel) break;
+    if (level === baseLevel && listMeta(node).listId !== listId) break;
 
     if (level > baseLevel) {
-      const nested = consumeListGroup(nodes, i, attachments, footnoteIdCounter);
+      const nested = consumeListGroup(nodes, i, attachments, footnoteIdCounter, true);
       const prev = items[items.length - 1];
       if (prev) {
         prev.content = [...(prev.content ?? []), ...nested.blocks];
@@ -753,8 +783,10 @@ function consumeListGroup(
     i += 1;
   }
 
+  const start =
+    listType === 'orderedList' && !nested && itemIndex !== undefined ? itemIndex + 1 : 1;
   return {
-    blocks: [{ type: listType, content: items }],
+    blocks: [{ type: listType, ...(start > 1 ? { attrs: { start } } : {}), content: items }],
     nextIndex: i,
   };
 }
@@ -852,6 +884,13 @@ function officeNodesToTiptapBlocks(
             attachments,
             footnoteIdCounter,
           ),
+        );
+        i += 1;
+        continue;
+      }
+      if (isNumberingRemoved(node)) {
+        blocks.push(
+          ...blocksFromParagraphOrHeading(listNodeAsParagraph(node), attachments, footnoteIdCounter),
         );
         i += 1;
         continue;
@@ -964,12 +1003,13 @@ export async function docxBytesToTiptapContent(
   bytes: Uint8Array,
 ): Promise<JSONContent> {
   try {
-    const ast = await OfficeParser.parseOffice(bytes, {
+    const accepted = acceptDocxTrackedChanges(bytes);
+    const ast = await OfficeParser.parseOffice(accepted, {
       fileType: 'docx',
       extractAttachments: true,
       includeRawContent: true,
     });
-    const runFormatter = createDocxRunFormatter(bytes);
+    const runFormatter = createDocxRunFormatter(accepted);
     if (runFormatter) applyResolvedRunFormatting(ast.content, runFormatter);
     const attachments = new Map<string, OfficeAttachment>();
     for (const attachment of ast.attachments ?? []) {
