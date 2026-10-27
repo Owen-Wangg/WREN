@@ -24,6 +24,13 @@ import {
   type PageRulings,
   type RuledTable,
 } from './pdfRuledTables';
+import {
+  formatOrderedMarker,
+  orderedListAttrs,
+  orderedListStart,
+  parseListMarker,
+  type ListMarker,
+} from './listMarkers';
 import { filterWatermarkPages } from './pdfWatermarks';
 
 export interface SpatialTextItem {
@@ -371,34 +378,40 @@ function itemsToLines(items: SpatialTextItem[]): Line[] {
   return lines;
 }
 
-// Glyph bullets + common OCR stand-ins ("o ", "O ", hollow/square).
-const BULLET_RE =
-  /^(?:[\u2022\u2023\u25E6\u2043\u2219•·▪‣*◦○●■□-]|(?:o|O)(?=\s))\s*/;
-// Numbered / lettered / roman — require a following space so "A.Long" stays prose.
-const NUMBERED_RE = /^(\d+[\.)]|[a-zA-Z][\.)]|[ivxlcdmIVXLCDM]+[\.)])\s+/;
-
-function isListLine(line: Line): { kind: 'bullet' | 'ordered'; remaining: string } | null {
-  const raw = line.text.trim();
-  const bullet = BULLET_RE.exec(raw);
-  if (bullet) {
-    const remaining = raw.slice(bullet[0].length).trim();
-    // Lone bullet glyph with no body — still a list item.
-    return { kind: 'bullet', remaining };
-  }
-
-  const numbered = NUMBERED_RE.exec(raw);
-  if (!numbered) return null;
-
-  const prefix = numbered[1] ?? '';
-  const remaining = raw.slice(numbered[0].length).trim();
+function isListLine(line: Line): ListMarker | null {
+  // Lone bullet glyph with no body — still a list item.
+  const marker = parseListMarker(line.text.trim());
+  if (!marker || marker.kind === 'bullet') return marker;
 
   // Letter markers like "A." often start prose sentences in OCR output.
   // Keep them as lists only when the item looks short / outline-like.
-  if (/^[a-zA-Z][\.)]$/.test(prefix) && wordCount(remaining) > 18) {
+  if (/^[a-zA-Z][\.)]\s*$/.test(marker.marker) && wordCount(marker.remaining) > 18) {
     return null;
   }
 
-  return { kind: 'ordered', remaining };
+  return marker;
+}
+
+/**
+ * Drop the first `count` characters (after leading whitespace) from `runs`,
+ * spanning run boundaries — the list marker is often its own text item.
+ */
+function stripLeadingChars(runs: LineRun[], count: number): LineRun[] {
+  const out: LineRun[] = [];
+  let toDrop = count;
+  let leading = true;
+  for (const run of runs) {
+    let text = run.text;
+    if (leading) text = text.trimStart();
+    const dropped = Math.min(toDrop, text.length);
+    text = text.slice(dropped);
+    toDrop -= dropped;
+    if (toDrop === 0 && leading) text = text.trimStart();
+    if (text.length === 0) continue;
+    leading = false;
+    out.push({ ...run, text });
+  }
+  return out;
 }
 
 function lineIndentLevel(line: Line, baselineX: number, indentGap = INDENT_GAP_FALLBACK): number {
@@ -483,23 +496,10 @@ function isSizeOnlyHeadingLine(line: Line, medianFontSize: number): boolean {
   return true;
 }
 
-function listItemNode(
-  line: Line,
-  remaining: string,
-  medianFontSize: number,
-): TipTapNode {
-  const runs = line.runs.map((r, idx) =>
-    idx === 0
-      ? {
-          ...r,
-          text: r.text.replace(BULLET_RE, '').replace(NUMBERED_RE, ''),
-        }
-      : r,
-  );
-  const contentRuns =
-    remaining.length > 0
-      ? [{ ...runs[0]!, text: remaining }, ...runs.slice(1)]
-      : runs;
+function listItemNode(line: Line, marker: ListMarker, medianFontSize: number): TipTapNode {
+  // Strip the marker from the runs themselves: rebuilding the item from the
+  // line-level `remaining` text would repeat every run after the first.
+  const contentRuns = stripLeadingChars(line.runs, marker.marker.trimEnd().length);
 
   return {
     type: 'listItem',
@@ -517,6 +517,8 @@ const BARE_PAGE_NUMBER_RE = /^\d{1,4}$/;
 
 /**
  * Consume consecutive list lines starting at `start`, nesting by x-indent depth.
+ * Deeper lines nest under the previous item whatever their marker kind, so a
+ * bulleted sub-list does not split (and renumber) its numbered parent list.
  */
 function consumeNestedList(
   lines: Line[],
@@ -529,12 +531,13 @@ function consumeNestedList(
 ): { block: TipTapNode; end: number } {
   const listType = listKind === 'ordered' ? 'orderedList' : 'bulletList';
   const items: TipTapNode[] = [];
+  let firstOrdered: Extract<ListMarker, { kind: 'ordered' }> | undefined;
   let i = start;
 
   while (i < lines.length) {
     const line = lines[i]!;
     const list = isListLine(line);
-    if (!list || list.kind !== listKind) break;
+    if (!list) break;
 
     const depth = lineIndentLevel(line, baselineX, indentGap);
     if (depth < parentDepth) break;
@@ -546,7 +549,7 @@ function consumeNestedList(
         baselineX,
         medianFontSize,
         depth,
-        listKind,
+        list.kind,
         indentGap,
       );
       const prev = items[items.length - 1];
@@ -562,13 +565,15 @@ function consumeNestedList(
       continue;
     }
 
-    const item = listItemNode(line, list.remaining, medianFontSize);
-    items.push(item);
+    if (list.kind !== listKind) break;
+    if (list.kind === 'ordered' && items.length === 0) firstOrdered = list;
+    items.push(listItemNode(line, list, medianFontSize));
     i += 1;
   }
 
+  const attrs = listType === 'orderedList' ? orderedListAttrs(firstOrdered) : undefined;
   return {
-    block: { type: listType, content: items },
+    block: { type: listType, ...(attrs ? { attrs } : {}), content: items },
     end: i,
   };
 }
@@ -1028,10 +1033,18 @@ function mergeAdjacentLists(blocks: TipTapNode[]): TipTapNode[] {
   const out: TipTapNode[] = [];
   for (const block of blocks) {
     const prev = out[out.length - 1];
+    // Numbered lists only join when the next one picks up the count (e.g.
+    // across a page break); a list that restarts at 1 stays separate.
+    const continuesNumbering =
+      block.type !== 'orderedList' ||
+      (prev !== undefined &&
+        orderedListStart(block) === orderedListStart(prev) + (prev.content?.length ?? 0) &&
+        block.attrs?.type === prev.attrs?.type);
     if (
       prev &&
       (block.type === 'bulletList' || block.type === 'orderedList') &&
-      prev.type === block.type
+      prev.type === block.type &&
+      continuesNumbering
     ) {
       prev.content = [...(prev.content ?? []), ...(block.content ?? [])];
     } else {
@@ -1263,14 +1276,20 @@ function stripTrailingPageNumber(text: string): string {
  */
 function tocListToParagraphs(list: TipTapNode): TipTapNode[] {
   const paragraphs: TipTapNode[] = [];
-  const walk = (items: TipTapNode[]): void => {
-    for (const item of items) {
+  const walk = (current: TipTapNode): void => {
+    // Ordered-list markers were stripped into list attrs; restore them so a
+    // "1. Introduction" entry keeps its number once flattened.
+    const ordered = current.type === 'orderedList';
+    let ordinal = ordered ? orderedListStart(current) : 0;
+    for (const item of (current.content ?? []) as TipTapNode[]) {
       if (item.type !== 'listItem') continue;
       const children = (item.content ?? []) as TipTapNode[];
       const entry = children[0];
       const subLists = children.filter(
         (c) => c.type === 'bulletList' || c.type === 'orderedList',
       );
+      const marker = ordered ? `${formatOrderedMarker(ordinal, current.attrs?.type)} ` : '';
+      ordinal += 1;
 
       if (entry && entry.type === 'paragraph') {
         const entryText = nodePlainText(entry).trim();
@@ -1279,17 +1298,17 @@ function tocListToParagraphs(list: TipTapNode): TipTapNode[] {
           const cleaned = stripTrailingPageNumber(entryText);
           paragraphs.push({
             type: 'paragraph',
-            content: [{ type: 'text', text: cleaned }],
+            content: [{ type: 'text', text: `${marker}${cleaned}` }],
           });
         }
       }
 
       for (const sub of subLists) {
-        walk((sub.content ?? []) as TipTapNode[]);
+        walk(sub);
       }
     }
   };
-  walk((list.content ?? []) as TipTapNode[]);
+  walk(list);
   return paragraphs;
 }
 
