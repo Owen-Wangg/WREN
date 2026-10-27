@@ -158,8 +158,15 @@ function renderNode(node: JSONContent): string {
     }
     case 'bulletList':
       return `<ul>${(node.content ?? []).map(renderNode).join('')}</ul>`;
-    case 'orderedList':
-      return `<ol>${(node.content ?? []).map(renderNode).join('')}</ol>`;
+    case 'orderedList': {
+      // Validated before interpolation: only a positive integer / known list type.
+      const start = Number(node.attrs?.start);
+      const type = node.attrs?.type;
+      const startAttr = Number.isInteger(start) && start > 1 ? ` start="${start}"` : '';
+      const typeAttr =
+        type === 'a' || type === 'A' || type === 'i' || type === 'I' ? ` type="${type}"` : '';
+      return `<ol${startAttr}${typeAttr}>${(node.content ?? []).map(renderNode).join('')}</ol>`;
+    }
     case 'listItem':
       return `<li>${(node.content ?? []).map(renderNode).join('')}</li>`;
     case 'blockquote':
