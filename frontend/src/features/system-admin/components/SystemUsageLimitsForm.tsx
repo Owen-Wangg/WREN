@@ -56,7 +56,7 @@ export function SystemUsageLimitsForm({
       <div className="space-y-6">
         <div>
           <label className="block text-sm font-semibold text-gray-900">
-            LEON Message Limit per Document
+            WREN Message Limit per Document
           </label>
           <input
             type="number"
