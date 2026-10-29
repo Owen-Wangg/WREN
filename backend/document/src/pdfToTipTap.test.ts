@@ -847,3 +847,120 @@ describe('spatialPagesToTipTap', () => {
     expect(date?.attrs?.textAlign).toBe('right');
   });
 });
+
+describe('spatialPagesToTipTap borderless tables', () => {
+  type Item = SpatialPage['textItems'][number];
+  const item = (text: string, x: number, y: number, width = text.length * 5): Item => ({
+    text,
+    x,
+    y,
+    width,
+    height: 10,
+    fontSize: 10,
+  });
+  const prose = (text: string, y: number): Item => item(text, 72, y, 430);
+
+  const content = (pages: SpatialPage[]) =>
+    (spatialPagesToTipTap(pages).content ?? []) as TipTapNode[];
+  const cellText = (cell: TipTapNode): string =>
+    (cell.content ?? [])
+      .map((p) => (p.content ?? []).map((t) => t.text ?? '').join(''))
+      .join('\n');
+  const rows = (table: TipTapNode): string[][] =>
+    (table.content ?? []).map((row) => (row.content ?? []).map(cellText));
+
+  it('keeps wrapped cell text and empty cells inside the table', () => {
+    const blocks = content([
+      {
+        textItems: [
+          prose('The status of each party is summarised in the following table.', 60),
+          item('Name', 72, 100),
+          item('Status', 250, 100),
+          item('Notes', 400, 100),
+          item('Smith', 72, 114),
+          item('Active', 250, 114),
+          item('Filed the claim in', 400, 114),
+          item('March 2024', 400, 126),
+          item('Jones', 72, 140),
+          item('Settled', 400, 140),
+          prose('Both parties have been served with the amended pleadings.', 200),
+        ],
+      },
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'table', 'paragraph']);
+    expect(rows(blocks[1]!)).toEqual([
+      ['Name', 'Status', 'Notes'],
+      ['Smith', 'Active', 'Filed the claim in March 2024'],
+      ['Jones', '', 'Settled'],
+    ]);
+  });
+
+  it('detects tightly spaced columns that line up across rows', () => {
+    // 12pt gaps between cells: below the page-scale column gap.
+    const row = (y: number, a: string, b: string, c: string) => [
+      item(a, 72, y, 46),
+      item(b, 130, y, 48),
+      item(c, 190, y, 40),
+    ];
+    const blocks = content([
+      {
+        textItems: [
+          ...row(100, 'Item', 'Qty', 'Price'),
+          ...row(114, 'Apples', '12', '$4.00'),
+          ...row(128, 'Pears', '7', '$3.50'),
+        ],
+      },
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(['table']);
+    expect(rows(blocks[0]!)[2]).toEqual(['Pears', '7', '$3.50']);
+  });
+
+  it('does not turn prose with unaligned wide spaces into a table', () => {
+    const blocks = content([
+      {
+        textItems: [
+          item('The court', 72, 100, 50),
+          item('held that', 134, 100, 45),
+          item('the claim was', 72, 114, 70),
+          item('barred.', 154, 114, 35),
+        ],
+      },
+    ]);
+    expect(blocks.some((b) => b.type === 'table')).toBe(false);
+  });
+
+  it('joins a table split by a page break and drops the repeated header', () => {
+    const header = [item('Date', 72, 0), item('Event', 300, 0)];
+    const at = (y: number, list: Item[]) => list.map((i) => ({ ...i, y }));
+    const blocks = content([
+      {
+        textItems: [
+          prose('A chronology of the relevant events is set out below for reference.', 600),
+          ...at(640, header),
+          item('2021-01-04', 72, 654),
+          item('Contract signed', 300, 654),
+          item('2021-03-15', 72, 668),
+          item('First payment missed', 300, 668),
+          item('1', 300, 760),
+        ],
+      },
+      {
+        textItems: [
+          ...at(60, header),
+          item('2021-05-02', 72, 74),
+          item('Notice of default', 300, 74),
+          item('2021-06-30', 72, 88),
+          item('Claim filed', 300, 88),
+        ],
+      },
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'table']);
+    expect(rows(blocks[1]!).map((r) => r[0])).toEqual([
+      'Date',
+      '2021-01-04',
+      '2021-03-15',
+      '2021-05-02',
+      '2021-06-30',
+    ]);
+  });
+});

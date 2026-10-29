@@ -585,10 +585,143 @@ describe('docxContentMapper', () => {
   });
 });
 
+describe('docxContentMapper — Word style cascade fidelity', () => {
+  /** Imports a single-section document and returns the runs of every block, flattened. */
+  async function importRuns(document: Document) {
+    const buffer = await Packer.toBuffer(document);
+    const content = await docxBytesToTiptapContent(new Uint8Array(buffer));
+    return (content.content ?? []).flatMap((block) => block.content ?? []);
+  }
+
+  function runWithText(runs: Awaited<ReturnType<typeof importRuns>>, text: string) {
+    const run = runs.find((r) => r.text === text);
+    expect(run).toBeTruthy();
+    return run!;
+  }
+
+  it('does not apply paragraph-mark (pPr/rPr) formatting to the paragraph text', async () => {
+    const runs = await importRuns(
+      new Document({
+        styles: { default: { document: { run: { size: 24 } } } },
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                run: { bold: true, size: 32 },
+                children: [new TextRun('Plain text, bold pilcrow')],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    const run = runWithText(runs, 'Plain text, bold pilcrow');
+    expect(hasMark(run, 'bold')).toBe(false);
+    expect(textStyleAttr(run, 'fontSize')).toBe('12pt');
+  });
+
+  it('applies docDefaults so runs without a direct size match their neighbours', async () => {
+    const runs = await importRuns(
+      new Document({
+        styles: { default: { document: { run: { size: 24, font: 'Georgia' } } } },
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun('No direct size'),
+                  new TextRun({ text: ' explicit size', size: 24 }),
+                ],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    const implicit = runWithText(runs, 'No direct size');
+    const explicit = runWithText(runs, ' explicit size');
+    expect(textStyleAttr(implicit, 'fontSize')).toBe('12pt');
+    expect(textStyleAttr(explicit, 'fontSize')).toBe('12pt');
+    expect(textStyleAttr(implicit, 'fontFamily')?.toLowerCase()).toContain('georgia');
+  });
+
+  it('follows basedOn chains and lets direct formatting override styles', async () => {
+    const runs = await importRuns(
+      new Document({
+        styles: {
+          paragraphStyles: [
+            { id: 'BaseBody', name: 'Base Body', run: { size: 26, italics: true } },
+            { id: 'DerivedBody', name: 'Derived Body', basedOn: 'BaseBody', run: { color: '1D4ED8' } },
+          ],
+        },
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                style: 'DerivedBody',
+                children: [
+                  new TextRun('Inherited'),
+                  new TextRun({ text: 'Overridden', size: 20, italics: false }),
+                ],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    const inherited = runWithText(runs, 'Inherited');
+    expect(textStyleAttr(inherited, 'fontSize')).toBe('13pt');
+    expect(hasMark(inherited, 'italic')).toBe(true);
+    expect(normalizeHexColor(textStyleAttr(inherited, 'color'))).toBe('#1d4ed8');
+
+    const overridden = runWithText(runs, 'Overridden');
+    expect(textStyleAttr(overridden, 'fontSize')).toBe('10pt');
+    expect(hasMark(overridden, 'italic')).toBe(false);
+  });
+
+  it('applies the toggle rule when paragraph and character styles both set bold', async () => {
+    const runs = await importRuns(
+      new Document({
+        styles: {
+          paragraphStyles: [{ id: 'BoldPara', name: 'Bold Para', run: { bold: true } }],
+          characterStyles: [{ id: 'BoldChar', name: 'Bold Char', run: { bold: true } }],
+        },
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                style: 'BoldPara',
+                children: [
+                  new TextRun('Bold from paragraph style'),
+                  new TextRun({ text: 'Toggled off', style: 'BoldChar' }),
+                ],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+    expect(hasMark(runWithText(runs, 'Bold from paragraph style'), 'bold')).toBe(true);
+    expect(hasMark(runWithText(runs, 'Toggled off'), 'bold')).toBe(false);
+  });
+
+  it('keeps half-point sizes instead of rounding them', async () => {
+    const runs = await importRuns(
+      new Document({
+        sections: [
+          { children: [new Paragraph({ children: [new TextRun({ text: 'Half', size: 21 })] })] },
+        ],
+      }),
+    );
+    expect(textStyleAttr(runWithText(runs, 'Half'), 'fontSize')).toBe('10.5pt');
+  });
+});
+
 describe('normalizeFontSize / twipsToIndentLevel / color helpers', () => {
   it('normalizes pt and inch sizes', () => {
     expect(normalizeFontSize('14pt')).toBe('14pt');
-    expect(normalizeFontSize('14.4pt')).toBe('14pt');
+    expect(normalizeFontSize('14.4pt')).toBe('14.5pt');
+    expect(normalizeFontSize('10.5pt')).toBe('10.5pt');
     expect(normalizeFontSize('0.5in')).toBe('36pt');
     expect(normalizeFontSize(undefined)).toBeUndefined();
   });
@@ -608,5 +741,95 @@ describe('normalizeFontSize / twipsToIndentLevel / color helpers', () => {
     expect(hexForDocx('#bbf7d0')).toBe('bbf7d0');
     expect(primaryFontFamily('"Times New Roman", Times, serif')).toBe('Times New Roman');
     expect(mapWordFontToTipTap('Times New Roman')?.toLowerCase()).toContain('times');
+  });
+});
+
+describe('docx tables: merged cells and nested tables', () => {
+  type Node = NonNullable<Awaited<ReturnType<typeof docxBytesToTiptapContent>>['content']>[number];
+  const cellText = (cell: Node): string => {
+    const walk = (n: Node): string =>
+      typeof n.text === 'string' ? n.text : (n.content ?? []).map(walk).join('');
+    return walk(cell);
+  };
+  const firstTable = (nodes: Node[] | undefined): Node | undefined =>
+    nodes?.find((n) => n.type === 'table');
+
+  async function buildMergedNestedDocx(): Promise<Uint8Array> {
+    const { Table, TableRow, TableCell, VerticalMergeType, WidthType } = await import('docx');
+    const p = (text: string) => new Paragraph({ children: [new TextRun({ text })] });
+    const inner = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          children: [new TableCell({ children: [p('In1')] }), new TableCell({ children: [p('In2')] })],
+        }),
+      ],
+    });
+    const document = new Document({
+      sections: [
+        {
+          children: [
+            new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: [
+                new TableRow({
+                  children: [
+                    new TableCell({ columnSpan: 2, children: [p('Wide header')] }),
+                    new TableCell({ children: [p('H3')] }),
+                  ],
+                }),
+                new TableRow({
+                  children: [
+                    new TableCell({
+                      verticalMerge: VerticalMergeType.RESTART,
+                      children: [p('Tall')],
+                    }),
+                    new TableCell({ children: [p('B2')] }),
+                    new TableCell({ children: [inner, p('')] }),
+                  ],
+                }),
+                new TableRow({
+                  children: [
+                    new TableCell({ verticalMerge: VerticalMergeType.CONTINUE, children: [p('')] }),
+                    new TableCell({ children: [p('C2')] }),
+                    new TableCell({ children: [p('C3')] }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        },
+      ],
+    });
+    return new Uint8Array(await Packer.toBuffer(document));
+  }
+
+  it('imports colspan / rowspan and keeps a nested table inside its cell', async () => {
+    const content = await docxBytesToTiptapContent(await buildMergedNestedDocx());
+    const table = firstTable(content.content)!;
+    const rows = table.content ?? [];
+    expect(rows).toHaveLength(3);
+
+    const [header, second, third] = rows;
+    expect(header!.content?.[0]).toMatchObject({ attrs: { colspan: 2 } });
+    expect(cellText(header!.content![0]!)).toBe('Wide header');
+    expect(second!.content?.[0]).toMatchObject({ attrs: { rowspan: 2 } });
+    // The vertically merged continuation cell is not emitted again.
+    expect((third!.content ?? []).map(cellText)).toEqual(['C2', 'C3']);
+
+    const nested = firstTable(second!.content?.[2]?.content);
+    expect(nested).toBeDefined();
+    expect(cellText(nested!)).toBe('In1In2');
+  });
+
+  it('round-trips spans and nested tables through export', async () => {
+    const imported = await docxBytesToTiptapContent(await buildMergedNestedDocx());
+    const exported = await tiptapContentToDocxBytes(imported);
+    const reimported = await docxBytesToTiptapContent(exported);
+
+    const rows = firstTable(reimported.content)!.content ?? [];
+    expect(rows[0]!.content?.[0]).toMatchObject({ attrs: { colspan: 2 } });
+    expect(rows[1]!.content?.[0]).toMatchObject({ attrs: { rowspan: 2 } });
+    expect(firstTable(rows[1]!.content?.[2]?.content)).toBeDefined();
   });
 });

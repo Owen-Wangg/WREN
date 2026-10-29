@@ -10,6 +10,8 @@ export interface PdfExtractorOptions {
   readonly engine?: string | null;
   readonly s3Bucket?: string;
   readonly s3Key?: string;
+  /** Epoch ms deadline for async Textract polling. */
+  readonly deadlineMs?: number;
 }
 
 export function createPdfExtractor(options: PdfExtractorOptions = {}): {
@@ -19,6 +21,7 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): {
   const ocr = new TextractPdfExtractor({
     s3Bucket: options.s3Bucket,
     s3Key: options.s3Key,
+    deadlineMs: options.deadlineMs,
   });
   return {
     extractor: new HybridPdfExtractor(ocr),

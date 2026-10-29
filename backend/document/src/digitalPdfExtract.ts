@@ -6,6 +6,7 @@
  * scanned pages to OCR while keeping exact text for born-digital pages.
  */
 import { isCanliiOverlayStamp } from './pdfHeadingHeuristics.js';
+import type { PageRulings } from './pdfRuledTables.js';
 import type { SpatialPage, SpatialTextItem } from './pdfToTipTap.js';
 
 export interface PdfjsTextItem {
@@ -235,6 +236,144 @@ export function imageCoverageFromOperatorList(
   return Math.min(1, painted / pageArea);
 }
 
+/** pdf.js `DrawOPS` codes inside a `constructPath` path buffer. */
+const DRAW_MOVE_TO = 0;
+const DRAW_LINE_TO = 1;
+const DRAW_CURVE_TO = 2;
+const DRAW_CLOSE_PATH = 3;
+/** Axis-aligned slack for a stroked segment, in page units. */
+const RULING_AXIS_SLACK = 1;
+/** A filled rectangle at most this thick is a border line, not shading. */
+const MAX_RULING_THICKNESS = 3;
+
+function applyMatrix(m: Matrix, x: number, y: number): [number, number] {
+  return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+}
+
+/** Split a pdf.js path buffer into subpaths of page-space points (curves dropped). */
+function pathSubpaths(path: ArrayLike<number>, ctm: Matrix): Array<Array<[number, number]>> {
+  const subpaths: Array<Array<[number, number]>> = [];
+  let current: Array<[number, number]> = [];
+  const flush = () => {
+    if (current.length > 0) subpaths.push(current);
+    current = [];
+  };
+  let i = 0;
+  while (i < path.length) {
+    const op = path[i]!;
+    if (op === DRAW_MOVE_TO) {
+      flush();
+      current.push(applyMatrix(ctm, path[i + 1]!, path[i + 2]!));
+      i += 3;
+    } else if (op === DRAW_LINE_TO) {
+      current.push(applyMatrix(ctm, path[i + 1]!, path[i + 2]!));
+      i += 3;
+    } else if (op === DRAW_CURVE_TO) {
+      // Curves (rounded corners, glyph-like art) are never table rulings.
+      flush();
+      i += 7;
+    } else if (op === DRAW_CLOSE_PATH) {
+      if (current.length > 1) current.push(current[0]!);
+      flush();
+      i += 1;
+    } else {
+      break;
+    }
+  }
+  flush();
+  return subpaths;
+}
+
+/**
+ * Horizontal / vertical rulings (table borders) painted on a page, in
+ * top-origin coordinates matching {@link pdfjsItemToSpatial}. Stroked
+ * axis-aligned segments and thin filled rectangles both count; curves,
+ * diagonals and large fills (cell shading, backgrounds) are ignored.
+ */
+export function rulingsFromOperatorList(
+  opList: PdfjsOperatorList,
+  ops: PdfjsOps,
+  pageHeight: number,
+): PageRulings {
+  const horizontal: PageRulings['horizontal'] = [];
+  const vertical: PageRulings['vertical'] = [];
+  const strokeOps = new Set(
+    ['stroke', 'closeStroke', 'fillStroke', 'eoFillStroke', 'closeFillStroke', 'closeEOFillStroke']
+      .map((k) => ops[k])
+      .filter((v): v is number => typeof v === 'number'),
+  );
+  const fillOps = new Set(
+    ['fill', 'eoFill', 'fillStroke', 'eoFillStroke', 'closeFillStroke', 'closeEOFillStroke']
+      .map((k) => ops[k])
+      .filter((v): v is number => typeof v === 'number'),
+  );
+  if (typeof ops.constructPath !== 'number') return { horizontal, vertical };
+
+  const addSegment = (a: [number, number], b: [number, number]) => {
+    const [x1, y1] = a;
+    const [x2, y2] = b;
+    if (Math.abs(y1 - y2) <= RULING_AXIS_SLACK && Math.abs(x1 - x2) > RULING_AXIS_SLACK) {
+      horizontal.push({ y: pageHeight - (y1 + y2) / 2, x1: Math.min(x1, x2), x2: Math.max(x1, x2) });
+    } else if (Math.abs(x1 - x2) <= RULING_AXIS_SLACK && Math.abs(y1 - y2) > RULING_AXIS_SLACK) {
+      vertical.push({
+        x: (x1 + x2) / 2,
+        y1: pageHeight - Math.max(y1, y2),
+        y2: pageHeight - Math.min(y1, y2),
+      });
+    }
+  };
+
+  const addThinFill = (points: Array<[number, number]>) => {
+    const xs = points.map((p) => p[0]);
+    const ys = points.map((p) => p[1]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const w = maxX - minX;
+    const h = maxY - minY;
+    if (h <= MAX_RULING_THICKNESS && w > h) {
+      horizontal.push({ y: pageHeight - (minY + maxY) / 2, x1: minX, x2: maxX });
+    } else if (w <= MAX_RULING_THICKNESS && h > w) {
+      vertical.push({ x: (minX + maxX) / 2, y1: pageHeight - maxY, y2: pageHeight - minY });
+    }
+  };
+
+  let ctm: Matrix = IDENTITY;
+  const stack: Matrix[] = [];
+  opList.fnArray.forEach((fn, i) => {
+    const args = opList.argsArray[i] as unknown[] | null | undefined;
+    if (fn === ops.save) {
+      stack.push(ctm);
+    } else if (fn === ops.restore) {
+      ctm = stack.pop() ?? IDENTITY;
+    } else if (fn === ops.transform && Array.isArray(args) && args.length >= 6) {
+      ctm = multiply(ctm, args as number[]);
+    } else if (fn === ops.paintFormXObjectBegin) {
+      stack.push(ctm);
+      const matrix = Array.isArray(args) ? args[0] : undefined;
+      if (isMatrix(matrix)) ctm = multiply(ctm, Array.from(matrix));
+    } else if (fn === ops.paintFormXObjectEnd) {
+      ctm = stack.pop() ?? IDENTITY;
+    } else if (fn === ops.constructPath && Array.isArray(args)) {
+      // pdf.js 5: [paintOp, [Float32Array path], minMax]
+      const paintOp = Number(args[0]);
+      const buffers = args[1];
+      const path = Array.isArray(buffers) ? buffers[0] : undefined;
+      if (!path || typeof (path as ArrayLike<number>).length !== 'number') return;
+      for (const sub of pathSubpaths(path as ArrayLike<number>, ctm)) {
+        if (strokeOps.has(paintOp)) {
+          for (let p = 1; p < sub.length; p++) addSegment(sub[p - 1]!, sub[p]!);
+        } else if (fillOps.has(paintOp) && sub.length >= 3) {
+          addThinFill(sub);
+        }
+      }
+    }
+  });
+
+  return { horizontal, vertical };
+}
+
 async function defaultLoadPdf(bytes: Uint8Array): Promise<PdfjsDocumentProxy> {
   // Worker polyfill for Node / Lambda before pdf.js loads. Dynamic Function
   // import keeps tsc from requiring package export types that Jest also skips.
@@ -334,11 +473,16 @@ export async function extractSpatialPagesFromPdf(
       const box = page.view ?? [0, 0, viewport.width, viewport.height];
       const imageCoverage =
         opList && doc.ops ? imageCoverageFromOperatorList(opList, doc.ops, box) : undefined;
+      const rulings =
+        opList && doc.ops ? rulingsFromOperatorList(opList, doc.ops, viewport.height) : undefined;
 
       pages.push({
         textItems,
         textChars: countTextChars(textItems),
         ...(imageCoverage !== undefined ? { imageCoverage } : {}),
+        ...(rulings && (rulings.horizontal.length > 0 || rulings.vertical.length > 0)
+          ? { rulings }
+          : {}),
       });
       page.cleanup?.();
     }

@@ -100,6 +100,13 @@ async function loadSizeLimitsForDocument(
 export async function processIngestQueueMessage(
   message: IngestQueueTrigger,
   readS3ObjectBytes: ReadS3Bytes,
+  options: {
+    /**
+     * Epoch ms by which Textract must finish so the job can still be marked
+     * completed/failed before the Lambda times out.
+     */
+    readonly textractDeadlineMs?: number;
+  } = {},
 ): Promise<void> {
   const db = await getDataAccess();
   const job = await loadIngestJob(db, message.jobId);
@@ -131,6 +138,7 @@ export async function processIngestQueueMessage(
     const { extractor } = createPdfExtractor({
       s3Bucket: bucket,
       s3Key: job.s3Key,
+      deadlineMs: options.textractDeadlineMs,
     });
 
     const ingestResult = await ingestUpload(

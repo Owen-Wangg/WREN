@@ -33,6 +33,12 @@ from wren_engine.footnote_metadata import (
     MAX_FOOTNOTE_NUMBER,
     build_footnotes_untrusted_content,
 )
+from wren_engine.page_regions import (
+    PAGE_REGIONS_DIRECTIVE,
+    PageRegions,
+    build_page_regions_untrusted_content,
+    page_regions_from_columns,
+)
 from wren_engine.diff_engine import DiffEngine
 from wren_engine.anchor_service import AnchorService
 from wren_engine.anchor_service import compute_fingerprint as compute_anchor_fingerprint
@@ -392,6 +398,28 @@ def load_draft_footnotes(draft_id: str, conn: psycopg.Connection) -> list[Footno
         return []
 
 
+def load_draft_page_regions(draft_id: str, conn: psycopg.Connection) -> PageRegions:
+    """Load the repeating page header/footer text for a draft.
+
+    The header and footer live in their own ``draft.header`` / ``draft.footer``
+    columns, not in ``content``/``segments``, so they must be loaded separately
+    or the model never sees them. Returns empty regions on any error so a
+    header/footer problem never fails the feedback job.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT header, footer FROM draft WHERE id = %s
+            """, (draft_id,))
+            result = cur.fetchone()
+            if not result:
+                return PageRegions()
+            return page_regions_from_columns(result[0], result[1])
+    except Exception as e:
+        logger.error(f"Error loading draft header/footer: {str(e)}")
+        return PageRegions()
+
+
 def load_document_type_meta(document_type_id: str, conn: psycopg.Connection) -> dict[str, Any]:
     """Return { name, category_names, category_ids, category_guidance } for a document type.
 
@@ -490,6 +518,7 @@ def assemble_prompt(
     *,
     focus_paragraph_indices: set[int] | None = None,
     footnotes: list[FootnoteMetadata] | None = None,
+    page_regions: PageRegions | None = None,
 ) -> str:
     """Assemble the layered prompt for Bedrock as the legacy flat wire string.
 
@@ -505,6 +534,7 @@ def assemble_prompt(
         reference_materials,
         focus_paragraph_indices=focus_paragraph_indices,
         footnotes=footnotes,
+        page_regions=page_regions,
     )
     # invoke_bedrock expects a single string; we pass system + user together
     # separated by a clear marker so invoke_bedrock can split them if needed,
@@ -521,6 +551,7 @@ def build_structured_prompt(
     *,
     focus_paragraph_indices: set[int] | None = None,
     footnotes: list[FootnoteMetadata] | None = None,
+    page_regions: PageRegions | None = None,
 ) -> StructuredFeedbackPrompt:
     """Assemble the layered prompt as a segment-separated structured view.
 
@@ -629,14 +660,27 @@ def build_structured_prompt(
         "covering every instance."
     )
 
+    # Header/footer directive: only when the draft has a header or footer, so a
+    # draft without them renders byte-identically. Per-submission, so it lives
+    # with the dynamic directives, never in the cached document-type block.
+    page_regions_block = build_page_regions_untrusted_content(page_regions)
+    page_regions_fragment = (
+        f"\n\n{PAGE_REGIONS_DIRECTIVE}" if page_regions_block is not None else ""
+    )
+
     # OFF-path view: directives embedded in place exactly as the legacy code did
     # (base instructions, then focus, then density), so render() is byte-identical.
-    legacy_type_instructions = type_instructions + focus_directive_fragment + density_cap_fragment
+    legacy_type_instructions = (
+        type_instructions + focus_directive_fragment + density_cap_fragment
+        + page_regions_fragment
+    )
 
-    # The dynamic-directive segment (focus + density), stripped of the leading
-    # separator, kept as its own identifiable segment (never embedded in the
-    # stable/trusted config).
-    dynamic_directives = (focus_directive_fragment + density_cap_fragment).strip()
+    # The dynamic-directive segment (focus + density + header/footer), stripped
+    # of the leading separator, kept as its own identifiable segment (never
+    # embedded in the stable/trusted config).
+    dynamic_directives = (
+        focus_directive_fragment + density_cap_fragment + page_regions_fragment
+    ).strip()
 
     # Tone description goes into the grounding note as plain text.
     tone_desc = config.get('tone_description', '')
@@ -779,6 +823,11 @@ def build_structured_prompt(
         footnotes_block = build_footnotes_untrusted_content(footnotes)
         if footnotes_block is not None:
             student_content.append(footnotes_block)
+
+    # Append the PAGE HEADER/FOOTER block only when the draft has one, so the
+    # model does not flag header/footer content as missing.
+    if page_regions_block is not None:
+        student_content.append(page_regions_block)
 
     # Structural (segment-separated) assembly. render() reproduces the exact
     # legacy string, so invoke_bedrock and every existing caller/test observe
@@ -2327,6 +2376,16 @@ def persist_resolution_status(
         # Add structural items to the judge batch — they have no anchor/diff
         # but can still be evaluated using quoted_text + full revised draft.
         full_revised_text = '\n'.join(s.text for s in curr_segs)
+        if structural_items:
+            # Structural items (e.g. "missing running head") can be resolved by
+            # a header/footer edit, which lives outside the segments.
+            revised_page_regions = load_draft_page_regions(new_draft_id, conn)
+            if not revised_page_regions.is_empty():
+                full_revised_text = (
+                    f"{full_revised_text}\n\n"
+                    f"[PAGE HEADER] {revised_page_regions.header}\n"
+                    f"[PAGE FOOTER] {revised_page_regions.footer}"
+                )
         for si in structural_items:
             changed_items.append({
                 'id': si['id'],
@@ -2542,6 +2601,22 @@ def _build_config_snapshot(
     )
 
 
+def _document_hash_text(
+    segments: list[dict[str, Any]],
+    page_regions: PageRegions | None = None,
+) -> str:
+    """Full-document text the carry-forward document hash is computed over.
+
+    Includes the page header/footer when present, so a header/footer-only edit
+    invalidates structural items instead of carrying a stale "missing running
+    head" item forward. Drafts without a header/footer hash exactly as before.
+    """
+    text = '\n'.join(seg.get('text', '') for seg in segments)
+    if page_regions is not None and not page_regions.is_empty():
+        text = f"{text}\n{page_regions.combined_text()}"
+    return text
+
+
 def _load_prior_cached_items(
     document_id: str,
     current_draft_id: str,
@@ -2557,7 +2632,7 @@ def _load_prior_cached_items(
     """
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT d.id, d.segments
+            SELECT d.id, d.segments, d.header, d.footer
             FROM draft d
             WHERE d.document_id = %s
               AND d.id != %s
@@ -2568,7 +2643,11 @@ def _load_prior_cached_items(
         if not prev_row:
             return [], None
 
-        prev_draft_id, prev_segments_raw = prev_row
+        prev_draft_id, prev_segments_raw = prev_row[0], prev_row[1]
+        prev_page_regions = page_regions_from_columns(
+            prev_row[2] if len(prev_row) > 2 else None,
+            prev_row[3] if len(prev_row) > 3 else None,
+        )
         prev_segments = json.loads(prev_segments_raw) if isinstance(prev_segments_raw, str) else prev_segments_raw
 
         cur.execute("""
@@ -2584,7 +2663,7 @@ def _load_prior_cached_items(
     if not prior_rows:
         return [], prev_segments
 
-    full_prior_text = '\n'.join(seg.get('text', '') for seg in prev_segments)
+    full_prior_text = _document_hash_text(prev_segments, prev_page_regions)
     prior_doc_hash = CarryForwardCache.compute_document_hash(full_prior_text)
 
     cached_items: list[CachedFeedbackItem] = []
@@ -2898,6 +2977,10 @@ def process_feedback_request(
         logger.info("Loading draft footnotes...")
         draft_footnotes = load_draft_footnotes(draft_id, conn)
 
+        # Step 3c: Load the repeating page header/footer (stored outside body)
+        logger.info("Loading draft header/footer...")
+        draft_page_regions = load_draft_page_regions(draft_id, conn)
+
         # ─── Carry-forward evaluation (guard gate) ───────────────────────────
         focus_paragraph_indices: set[int] | None = None
 
@@ -2916,7 +2999,7 @@ def process_feedback_request(
                 else:
                     current_fps = _compute_current_fingerprints(segments)
                     doc_hash = CarryForwardCache.compute_document_hash(
-                        '\n'.join(seg.get('text', '') for seg in segments)
+                        _document_hash_text(segments, draft_page_regions)
                     )
                     decision = CarryForwardCache().evaluate(
                         prior_items=prior_cached,
@@ -3046,6 +3129,7 @@ def process_feedback_request(
             config, doc_type_meta, department_prompt, segments, reference_materials,
             focus_paragraph_indices=focus_paragraph_indices,
             footnotes=draft_footnotes if draft_footnotes else None,
+            page_regions=draft_page_regions,
         )
         output_tokens = debrief_max_tokens(
             inline_cap=compute_density_cap(

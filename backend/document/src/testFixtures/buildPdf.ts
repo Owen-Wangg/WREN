@@ -3,7 +3,8 @@
  *
  * Produces real PDF bytes that pdf.js can parse, so tests exercise the actual
  * text-layer path instead of a fake loader. Supports the standard 14 Helvetica
- * faces, positioned / rotated text, and grayscale image XObjects.
+ * faces, positioned / rotated text, grayscale image XObjects, and stroked
+ * lines / filled rectangles (table borders).
  *
  * Coordinates are top-origin (y grows downward) in PDF points, matching the
  * `SpatialTextItem` convention. Text `y` is the baseline.
@@ -30,11 +31,29 @@ export interface PdfImageSpec {
   readonly height: number;
 }
 
+/** A stroked straight line (top-origin coordinates). */
+export interface PdfLineSpec {
+  readonly x1: number;
+  readonly y1: number;
+  readonly x2: number;
+  readonly y2: number;
+}
+
+/** A filled rectangle; `y` is the top edge distance from the top of the page. */
+export interface PdfRectSpec {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 export interface PdfPageSpec {
   readonly width?: number;
   readonly height?: number;
   readonly texts?: readonly PdfTextSpec[];
   readonly images?: readonly PdfImageSpec[];
+  readonly lines?: readonly PdfLineSpec[];
+  readonly fills?: readonly PdfRectSpec[];
 }
 
 const FONT_RESOURCES: Record<PdfFontStyle, { readonly key: string; readonly base: string }> = {
@@ -59,6 +78,15 @@ function pageContentStream(page: PdfPageSpec, height: number): string {
       `q ${num(img.width)} 0 0 ${num(img.height)} ${num(img.x)} ${num(bottom)} cm /Im${i + 1} Do Q`,
     );
   });
+  for (const l of page.lines ?? []) {
+    ops.push(
+      `0.5 w ${num(l.x1)} ${num(height - l.y1)} m ${num(l.x2)} ${num(height - l.y2)} l S`,
+    );
+  }
+  for (const r of page.fills ?? []) {
+    const bottom = height - r.y - r.height;
+    ops.push(`${num(r.x)} ${num(bottom)} ${num(r.width)} ${num(r.height)} re f`);
+  }
   for (const t of page.texts ?? []) {
     const size = t.size ?? 12;
     const font = FONT_RESOURCES[t.font ?? 'regular'];

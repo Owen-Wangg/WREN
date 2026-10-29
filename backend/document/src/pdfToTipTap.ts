@@ -17,6 +17,20 @@ import {
   looksLikeStandaloneHeading,
   wordCount,
 } from './pdfHeadingHeuristics';
+import {
+  bandIndex,
+  cellAt,
+  detectRuledTables,
+  type PageRulings,
+  type RuledTable,
+} from './pdfRuledTables';
+import {
+  formatOrderedMarker,
+  orderedListAttrs,
+  orderedListStart,
+  parseListMarker,
+  type ListMarker,
+} from './listMarkers';
 import { filterWatermarkPages } from './pdfWatermarks';
 
 export interface SpatialTextItem {
@@ -43,6 +57,8 @@ export interface SpatialPage {
    * operator list was unavailable; callers then classify by text alone.
    */
   imageCoverage?: number;
+  /** Table-border rulings painted on the page (digital text layer only). */
+  rulings?: PageRulings;
 }
 
 type LineRun = {
@@ -362,34 +378,40 @@ function itemsToLines(items: SpatialTextItem[]): Line[] {
   return lines;
 }
 
-// Glyph bullets + common OCR stand-ins ("o ", "O ", hollow/square).
-const BULLET_RE =
-  /^(?:[\u2022\u2023\u25E6\u2043\u2219•·▪‣*◦○●■□-]|(?:o|O)(?=\s))\s*/;
-// Numbered / lettered / roman — require a following space so "A.Long" stays prose.
-const NUMBERED_RE = /^(\d+[\.)]|[a-zA-Z][\.)]|[ivxlcdmIVXLCDM]+[\.)])\s+/;
-
-function isListLine(line: Line): { kind: 'bullet' | 'ordered'; remaining: string } | null {
-  const raw = line.text.trim();
-  const bullet = BULLET_RE.exec(raw);
-  if (bullet) {
-    const remaining = raw.slice(bullet[0].length).trim();
-    // Lone bullet glyph with no body — still a list item.
-    return { kind: 'bullet', remaining };
-  }
-
-  const numbered = NUMBERED_RE.exec(raw);
-  if (!numbered) return null;
-
-  const prefix = numbered[1] ?? '';
-  const remaining = raw.slice(numbered[0].length).trim();
+function isListLine(line: Line): ListMarker | null {
+  // Lone bullet glyph with no body — still a list item.
+  const marker = parseListMarker(line.text.trim());
+  if (!marker || marker.kind === 'bullet') return marker;
 
   // Letter markers like "A." often start prose sentences in OCR output.
   // Keep them as lists only when the item looks short / outline-like.
-  if (/^[a-zA-Z][\.)]$/.test(prefix) && wordCount(remaining) > 18) {
+  if (/^[a-zA-Z][\.)]\s*$/.test(marker.marker) && wordCount(marker.remaining) > 18) {
     return null;
   }
 
-  return { kind: 'ordered', remaining };
+  return marker;
+}
+
+/**
+ * Drop the first `count` characters (after leading whitespace) from `runs`,
+ * spanning run boundaries — the list marker is often its own text item.
+ */
+function stripLeadingChars(runs: LineRun[], count: number): LineRun[] {
+  const out: LineRun[] = [];
+  let toDrop = count;
+  let leading = true;
+  for (const run of runs) {
+    let text = run.text;
+    if (leading) text = text.trimStart();
+    const dropped = Math.min(toDrop, text.length);
+    text = text.slice(dropped);
+    toDrop -= dropped;
+    if (toDrop === 0 && leading) text = text.trimStart();
+    if (text.length === 0) continue;
+    leading = false;
+    out.push({ ...run, text });
+  }
+  return out;
 }
 
 function lineIndentLevel(line: Line, baselineX: number, indentGap = INDENT_GAP_FALLBACK): number {
@@ -474,23 +496,10 @@ function isSizeOnlyHeadingLine(line: Line, medianFontSize: number): boolean {
   return true;
 }
 
-function listItemNode(
-  line: Line,
-  remaining: string,
-  medianFontSize: number,
-): TipTapNode {
-  const runs = line.runs.map((r, idx) =>
-    idx === 0
-      ? {
-          ...r,
-          text: r.text.replace(BULLET_RE, '').replace(NUMBERED_RE, ''),
-        }
-      : r,
-  );
-  const contentRuns =
-    remaining.length > 0
-      ? [{ ...runs[0]!, text: remaining }, ...runs.slice(1)]
-      : runs;
+function listItemNode(line: Line, marker: ListMarker, medianFontSize: number): TipTapNode {
+  // Strip the marker from the runs themselves: rebuilding the item from the
+  // line-level `remaining` text would repeat every run after the first.
+  const contentRuns = stripLeadingChars(line.runs, marker.marker.trimEnd().length);
 
   return {
     type: 'listItem',
@@ -508,6 +517,8 @@ const BARE_PAGE_NUMBER_RE = /^\d{1,4}$/;
 
 /**
  * Consume consecutive list lines starting at `start`, nesting by x-indent depth.
+ * Deeper lines nest under the previous item whatever their marker kind, so a
+ * bulleted sub-list does not split (and renumber) its numbered parent list.
  */
 function consumeNestedList(
   lines: Line[],
@@ -520,12 +531,13 @@ function consumeNestedList(
 ): { block: TipTapNode; end: number } {
   const listType = listKind === 'ordered' ? 'orderedList' : 'bulletList';
   const items: TipTapNode[] = [];
+  let firstOrdered: Extract<ListMarker, { kind: 'ordered' }> | undefined;
   let i = start;
 
   while (i < lines.length) {
     const line = lines[i]!;
     const list = isListLine(line);
-    if (!list || list.kind !== listKind) break;
+    if (!list) break;
 
     const depth = lineIndentLevel(line, baselineX, indentGap);
     if (depth < parentDepth) break;
@@ -537,7 +549,7 @@ function consumeNestedList(
         baselineX,
         medianFontSize,
         depth,
-        listKind,
+        list.kind,
         indentGap,
       );
       const prev = items[items.length - 1];
@@ -553,13 +565,15 @@ function consumeNestedList(
       continue;
     }
 
-    const item = listItemNode(line, list.remaining, medianFontSize);
-    items.push(item);
+    if (list.kind !== listKind) break;
+    if (list.kind === 'ordered' && items.length === 0) firstOrdered = list;
+    items.push(listItemNode(line, list, medianFontSize));
     i += 1;
   }
 
+  const attrs = listType === 'orderedList' ? orderedListAttrs(firstOrdered) : undefined;
   return {
-    block: { type: listType, content: items },
+    block: { type: listType, ...(attrs ? { attrs } : {}), content: items },
     end: i,
   };
 }
@@ -570,10 +584,22 @@ function runGap(prev: LineRun, next: LineRun): number {
 }
 
 /**
+ * Relaxed column gap (× font size) for a row whose cells all line up with a
+ * table's established columns. Well above a word space, so prose never splits.
+ */
+const ALIGNED_COLUMN_GAP_RATIO = 0.9;
+
+function lineRight(line: Line): number {
+  return line.runs.reduce((max, r) => Math.max(max, r.x + r.width), line.minX);
+}
+
+/**
  * Split a line into column cells by large gaps after run widths.
  * Falls back to 2+ space splits when runs are glued into one item.
+ * `minGap` overrides the page-scale threshold (used only for rows already
+ * known to align with a table's columns).
  */
-function splitColumnRuns(line: Line, scale: LayoutScale): LineRun[][] {
+function splitColumnRuns(line: Line, scale: LayoutScale, minGap?: number): LineRun[][] {
   const sorted = [...line.runs].sort((a, b) => a.x - b.x);
   if (sorted.length >= 2) {
     const cells: LineRun[][] = [[sorted[0]!]];
@@ -581,7 +607,7 @@ function splitColumnRuns(line: Line, scale: LayoutScale): LineRun[][] {
       const prev = sorted[i - 1]!;
       const cur = sorted[i]!;
       const gap = runGap(prev, cur);
-      const threshold = Math.max(scale.columnGap, prev.fontSize * 1.6);
+      const threshold = minGap ?? Math.max(scale.columnGap, prev.fontSize * 1.6);
       if (gap > threshold) {
         cells.push([cur]);
       } else {
@@ -593,19 +619,26 @@ function splitColumnRuns(line: Line, scale: LayoutScale): LineRun[][] {
 
   const parts = line.text.split(/\s{2,}/).map((p) => p.trim()).filter(Boolean);
   if (parts.length < 2) return [];
-  // Single-run fallback: approximate cells as plain runs (no per-cell marks).
-  return parts.map((text, idx) => [
-    {
-      text,
-      bold: false,
-      italic: false,
-      underline: false,
-      strike: false,
-      x: line.minX + idx * 50,
-      width: Math.max(1, text.length * 6),
-      fontSize: line.maxFontSize,
-    },
-  ]);
+  // Single-run fallback: approximate cells as plain runs (no per-cell marks),
+  // positioned by character offset so column clustering stays meaningful.
+  const perChar = line.text.length > 0 ? (lineRight(line) - line.minX) / line.text.length : 6;
+  let from = 0;
+  return parts.map((text) => {
+    const at = Math.max(0, line.text.indexOf(text, from));
+    from = at + text.length;
+    return [
+      {
+        text,
+        bold: false,
+        italic: false,
+        underline: false,
+        strike: false,
+        x: line.minX + at * perChar,
+        width: Math.max(1, text.length * perChar),
+        fontSize: line.maxFontSize,
+      },
+    ];
+  });
 }
 
 function clusterXs(xs: number[], clusterTolerance: number): number[] {
@@ -625,23 +658,97 @@ function clusterXs(xs: number[], clusterTolerance: number): number[] {
   return clusters.map((c) => c.reduce((a, b) => a + b, 0) / c.length);
 }
 
-function assignRunsToColumns(line: Line, columnXs: number[]): LineRun[][] {
+/**
+ * Assign each run to the right-most column starting at or before it. Nearest
+ * column start would push the later words of a long left-aligned cell into
+ * the next column.
+ */
+function assignRunsToColumns(line: Line, columnXs: number[], tolerance: number): LineRun[][] {
   const cells: LineRun[][] = columnXs.map(() => []);
   const sorted = [...line.runs].sort((a, b) => a.x - b.x);
   for (const run of sorted) {
     let best = 0;
-    let bestDist = Infinity;
     for (let c = 0; c < columnXs.length; c++) {
-      const d = Math.abs(run.x - columnXs[c]!);
-      if (d < bestDist) {
-        bestDist = d;
-        best = c;
-      }
+      if (columnXs[c]! <= run.x + tolerance) best = c;
     }
     cells[best]!.push(run);
   }
   return cells;
 }
+
+function cellStarts(cells: LineRun[][], fallbackX: number): number[] {
+  return cells.map((cell) => cell[0]?.x ?? fallbackX);
+}
+
+/** True when every cell starts on one of the table's known columns. */
+function alignsToColumns(cells: LineRun[][], columnXs: number[], tolerance: number): boolean {
+  return cells.every((cell) =>
+    columnXs.some((x) => Math.abs((cell[0]?.x ?? Number.NaN) - x) <= tolerance),
+  );
+}
+
+/**
+ * Column index a single-column line continues (wrapped cell text), or -1.
+ * The line must sit tightly below the previous table line, start on a known
+ * column, and end before the next column so body prose is never absorbed.
+ */
+function continuationColumn(
+  line: Line,
+  prev: Line,
+  columnXs: number[],
+  scale: LayoutScale,
+): number {
+  const gap = line.y - prev.y;
+  if (gap <= 0 || gap > line.maxFontSize * SOFT_WRAP_GAP_RATIO) return -1;
+  const col = columnXs.findIndex((x) => Math.abs(line.minX - x) <= scale.columnCluster);
+  if (col < 0) return -1;
+  const nextX = columnXs[col + 1];
+  if (nextX !== undefined && lineRight(line) > nextX - scale.columnCluster / 2) return -1;
+  return col;
+}
+
+/** Append wrapped cell text, de-hyphenating or inserting the line-break space. */
+function appendWrappedRuns(target: LineRun[], next: LineRun[]): void {
+  if (next.length === 0) return;
+  const lastText = target.map((r) => r.text).join('');
+  if (target.length === 0) {
+    target.push(...next);
+    return;
+  }
+  const copy = next.map((r) => ({ ...r }));
+  if (endsWithHyphen(lastText)) {
+    target.splice(0, target.length, ...trimTrailingHyphen(target));
+  } else if (!copy[0]!.text.startsWith(' ') && !lastText.endsWith(' ')) {
+    copy[0] = { ...copy[0]!, text: ` ${copy[0]!.text}` };
+  }
+  target.push(...copy);
+}
+
+/**
+ * True when two consecutive lines both split at the relaxed gap into the same
+ * columns: a tightly spaced table, since prose with an occasional wide space
+ * never lines up like that twice in a row.
+ */
+function relaxedColumnsAlign(a: Line, b: Line, scale: LayoutScale): boolean {
+  const aCells = splitColumnRuns(a, scale, a.maxFontSize * ALIGNED_COLUMN_GAP_RATIO);
+  if (aCells.length < 2) return false;
+  const bCells = splitColumnRuns(b, scale, b.maxFontSize * ALIGNED_COLUMN_GAP_RATIO);
+  return (
+    bCells.length === aCells.length &&
+    alignsToColumns(bCells, cellStarts(aCells, a.minX), scale.columnCluster)
+  );
+}
+
+/** Copy of a cell's runs without the inter-run spacer at its edges. */
+function trimCellRuns(runs: LineRun[]): LineRun[] {
+  const out = runs.map((r) => ({ ...r }));
+  if (out[0]) out[0].text = out[0].text.trimStart();
+  const last = out[out.length - 1];
+  if (last) last.text = last.text.trimEnd();
+  return out.filter((r) => r.text.length > 0);
+}
+
+type RawTableRow = { line: Line; continuations: Line[] };
 
 function tryTableBlock(
   lines: Line[],
@@ -649,29 +756,64 @@ function tryTableBlock(
   medianFontSize: number,
   scale: LayoutScale,
 ): { table: TipTapNode; end: number } | null {
-  const firstCells = splitColumnRuns(lines[start]!, scale);
-  if (firstCells.length < 2) return null;
+  const first = lines[start]!;
+  let firstCells = splitColumnRuns(first, scale);
+  if (firstCells.length < 2) {
+    const next = lines[start + 1];
+    if (!next || !relaxedColumnsAlign(first, next, scale)) return null;
+    firstCells = splitColumnRuns(first, scale, first.maxFontSize * ALIGNED_COLUMN_GAP_RATIO);
+  }
 
-  // Gather a window of multi-column rows (allow slight column-count jitter).
-  const rawRows: Line[] = [lines[start]!];
+  // Gather rows: multi-column lines, plus wrapped cell text continuing a row.
+  const rawRows: RawTableRow[] = [{ line: first, continuations: [] }];
+  const starts = cellStarts(firstCells, first.minX);
+  let columnXs = clusterXs(starts, scale.columnCluster);
   let i = start + 1;
   while (i < lines.length) {
-    const cols = splitColumnRuns(lines[i]!, scale);
-    if (cols.length < 2) break;
-    // Stop if column count diverges wildly (not the same table).
-    if (Math.abs(cols.length - firstCells.length) > 1) break;
-    rawRows.push(lines[i]!);
+    const line = lines[i]!;
+    let cols = splitColumnRuns(line, scale);
+    if (cols.length < 2) {
+      // Tightly spaced columns: accept a smaller gap when it lands on known columns.
+      const relaxed = splitColumnRuns(line, scale, line.maxFontSize * ALIGNED_COLUMN_GAP_RATIO);
+      if (relaxed.length >= 2 && alignsToColumns(relaxed, columnXs, scale.columnCluster)) {
+        cols = relaxed;
+      }
+    }
+
+    if (cols.length >= 2) {
+      // Stop if column count diverges wildly and the cells do not line up
+      // with the columns seen so far (not the same table).
+      if (
+        Math.abs(cols.length - columnXs.length) > 1 &&
+        !alignsToColumns(cols, columnXs, scale.columnCluster)
+      ) {
+        break;
+      }
+      rawRows.push({ line, continuations: [] });
+      starts.push(...cellStarts(cols, line.minX));
+      columnXs = clusterXs(starts, scale.columnCluster);
+      i += 1;
+      continue;
+    }
+
+    const row = rawRows[rawRows.length - 1]!;
+    const prev = row.continuations[row.continuations.length - 1] ?? row.line;
+    if (continuationColumn(line, prev, columnXs, scale) < 0) break;
+    row.continuations.push(line);
     i += 1;
   }
   if (rawRows.length < 2) return null;
-
-  const allXs = rawRows.flatMap((row) =>
-    splitColumnRuns(row, scale).map((cell) => cell[0]?.x ?? row.minX),
-  );
-  const columnXs = clusterXs(allXs, scale.columnCluster);
   if (columnXs.length < 2) return null;
 
-  const rows: TableRowCells[] = rawRows.map((row) => assignRunsToColumns(row, columnXs));
+  const rows: TableRowCells[] = rawRows.map((row) => {
+    const cells = assignRunsToColumns(row.line, columnXs, scale.columnCluster);
+    for (const cont of row.continuations) {
+      assignRunsToColumns(cont, columnXs, scale.columnCluster).forEach((runs, c) =>
+        appendWrappedRuns(cells[c]!, runs),
+      );
+    }
+    return cells.map(trimCellRuns);
+  });
 
   return {
     end: i,
@@ -761,7 +903,8 @@ function shouldMergeSoftWrap(
   };
   if (
     splitColumnRuns(prev, probeScale).length >= 2 ||
-    splitColumnRuns(next, probeScale).length >= 2
+    splitColumnRuns(next, probeScale).length >= 2 ||
+    relaxedColumnsAlign(prev, next, probeScale)
   ) {
     return false;
   }
@@ -890,10 +1033,18 @@ function mergeAdjacentLists(blocks: TipTapNode[]): TipTapNode[] {
   const out: TipTapNode[] = [];
   for (const block of blocks) {
     const prev = out[out.length - 1];
+    // Numbered lists only join when the next one picks up the count (e.g.
+    // across a page break); a list that restarts at 1 stays separate.
+    const continuesNumbering =
+      block.type !== 'orderedList' ||
+      (prev !== undefined &&
+        orderedListStart(block) === orderedListStart(prev) + (prev.content?.length ?? 0) &&
+        block.attrs?.type === prev.attrs?.type);
     if (
       prev &&
       (block.type === 'bulletList' || block.type === 'orderedList') &&
-      prev.type === block.type
+      prev.type === block.type &&
+      continuesNumbering
     ) {
       prev.content = [...(prev.content ?? []), ...(block.content ?? [])];
     } else {
@@ -909,19 +1060,166 @@ function percentile(sorted: number[], p: number): number {
   return sorted[idx]!;
 }
 
-function spatialItemsToBlocks(items: SpatialTextItem[]): TipTapNode[] {
-  const rawLines = itemsToLines(items);
-  if (rawLines.length === 0) return [];
+/** Page-wide metrics shared by every block builder on a page. */
+type PageLayout = {
+  medianFontSize: number;
+  baselineX: number;
+  scale: LayoutScale;
+  bounds: ContentBounds;
+};
 
-  const sizes = rawLines.map((l) => l.maxFontSize).sort((a, b) => a - b);
+/** Text items assigned to one ruled table's grid cells. */
+type PlacedRuledTable = {
+  table: RuledTable;
+  cellItems: Map<string, SpatialTextItem[]>;
+};
+
+function itemCenter(item: SpatialTextItem): { x: number; y: number } {
+  return { x: item.x + item.width / 2, y: item.y + item.height / 2 };
+}
+
+/**
+ * Split page items into those inside a ruled table's grid and the rest.
+ * Tables holding fewer than two non-empty cells are decorative boxes and
+ * their text stays in the normal flow.
+ */
+function placeItemsInRuledTables(
+  items: SpatialTextItem[],
+  tables: RuledTable[],
+): { placed: PlacedRuledTable[]; free: SpatialTextItem[] } {
+  const placed: PlacedRuledTable[] = tables.map((table) => ({ table, cellItems: new Map() }));
+  const owner = new Map<SpatialTextItem, number>();
+  for (const item of items) {
+    const { x, y } = itemCenter(item);
+    const t = tables.findIndex(
+      (tb) => x >= tb.left && x <= tb.right && y >= tb.top && y <= tb.bottom,
+    );
+    if (t < 0) continue;
+    const table = tables[t]!;
+    const cell = cellAt(table, bandIndex(table.rowYs, y), bandIndex(table.colXs, x));
+    if (!cell) continue;
+    const key = `${cell.row}:${cell.col}`;
+    const list = placed[t]!.cellItems.get(key) ?? [];
+    list.push(item);
+    placed[t]!.cellItems.set(key, list);
+    owner.set(item, t);
+  }
+
+  const kept = new Set<number>();
+  placed.forEach((p, t) => {
+    const nonEmpty = [...p.cellItems.values()].filter((list) =>
+      list.some((i) => i.text.trim().length > 0),
+    ).length;
+    if (nonEmpty >= 2) kept.add(t);
+  });
+
+  return {
+    placed: placed.filter((_, t) => kept.has(t)),
+    free: items.filter((item) => {
+      const t = owner.get(item);
+      return t === undefined || !kept.has(t);
+    }),
+  };
+}
+
+/** Cell lines → paragraphs: wrapped lines join; a clear vertical gap splits. */
+function cellParagraphs(items: SpatialTextItem[], medianFontSize: number): TipTapNode[] {
+  const lines = itemsToLines(items);
+  const paragraphs: LineRun[][] = [];
+  let prev: Line | undefined;
+  for (const line of lines) {
+    const current = paragraphs[paragraphs.length - 1];
+    const gap = prev ? line.y - prev.y : 0;
+    if (!current || !prev || gap > prev.maxFontSize * SOFT_WRAP_GAP_RATIO || isListLine(line)) {
+      paragraphs.push(line.runs.map((r) => ({ ...r })));
+    } else {
+      const hyphenated = endsWithHyphen(prev.text);
+      if (hyphenated) {
+        current.splice(0, current.length, ...trimTrailingHyphen(current));
+      }
+      const next = line.runs.map((r) => ({ ...r }));
+      const last = current[current.length - 1];
+      if (!hyphenated && next[0] && !next[0].text.startsWith(' ') && !last?.text.endsWith(' ')) {
+        next[0] = { ...next[0], text: ` ${next[0].text}` };
+      }
+      current.push(...next);
+    }
+    prev = line;
+  }
+  const nodes = paragraphs.map((runs) => {
+    const content = runsToTextNodes(runs, medianFontSize, false);
+    return { type: 'paragraph', ...(content.length > 0 ? { content } : {}) } as TipTapNode;
+  });
+  return nodes.length > 0 ? nodes : [{ type: 'paragraph' }];
+}
+
+function ruledTableToNode(placed: PlacedRuledTable, medianFontSize: number): TipTapNode {
+  const { table, cellItems } = placed;
+  const rows = table.rowYs.length - 1;
+  const content: TipTapNode[] = [];
+  for (let r = 0; r < rows; r++) {
+    const cells = table.cells
+      .filter((c) => c.row === r)
+      .sort((a, b) => a.col - b.col)
+      .map((c) => {
+        const node: TipTapNode = {
+          type: r === 0 ? 'tableHeader' : 'tableCell',
+          content: cellParagraphs(cellItems.get(`${c.row}:${c.col}`) ?? [], medianFontSize),
+        };
+        if (c.colSpan > 1 || c.rowSpan > 1) {
+          node.attrs = {
+            ...(c.colSpan > 1 ? { colspan: c.colSpan } : {}),
+            ...(c.rowSpan > 1 ? { rowspan: c.rowSpan } : {}),
+          };
+        }
+        return node;
+      });
+    // A row fully covered by rowspans from above has no origin cells.
+    if (cells.length > 0) content.push({ type: 'tableRow', content: cells });
+  }
+  return { type: 'table', content };
+}
+
+function spatialItemsToBlocks(items: SpatialTextItem[], rulings?: PageRulings): TipTapNode[] {
+  const allLines = itemsToLines(items);
+  if (allLines.length === 0) return [];
+
+  // Page metrics come from every line (table text included) so heading and
+  // indent heuristics see the same page as before table extraction.
+  const sizes = allLines.map((l) => l.maxFontSize).sort((a, b) => a - b);
   // Lower median so a single large title still counts as a heading vs body.
   const medianFontSize = sizes[Math.floor((sizes.length - 1) / 2)] ?? 12;
 
-  const minXs = rawLines.map((l) => l.minX).sort((a, b) => a - b);
-  const baselineX = percentile(minXs, 0.1);
-  const scale = resolveLayoutScale(rawLines, medianFontSize);
-  const bounds = estimateContentBounds(rawLines);
+  const minXs = allLines.map((l) => l.minX).sort((a, b) => a - b);
+  const layout: PageLayout = {
+    medianFontSize,
+    baselineX: percentile(minXs, 0.1),
+    scale: resolveLayoutScale(allLines, medianFontSize),
+    bounds: estimateContentBounds(allLines),
+  };
 
+  const { placed, free } = placeItemsInRuledTables(items, detectRuledTables(rulings));
+  if (placed.length === 0) return linesToBlocks(allLines, layout);
+
+  // Splice each ruled table between the free lines above and below it.
+  const freeLines = itemsToLines(free);
+  const blocks: TipTapNode[] = [];
+  let li = 0;
+  for (const p of placed) {
+    const before: Line[] = [];
+    while (li < freeLines.length && freeLines[li]!.y < p.table.top) {
+      before.push(freeLines[li]!);
+      li += 1;
+    }
+    blocks.push(...linesToBlocks(before, layout));
+    blocks.push(ruledTableToNode(p, medianFontSize));
+  }
+  blocks.push(...linesToBlocks(freeLines.slice(li), layout));
+  return blocks;
+}
+
+function linesToBlocks(rawLines: Line[], layout: PageLayout): TipTapNode[] {
+  const { medianFontSize, baselineX, scale, bounds } = layout;
   const lines = mergeSoftWrappedLines(rawLines, medianFontSize, baselineX, scale.indentGap);
 
   const blocks: TipTapNode[] = [];
@@ -978,14 +1276,20 @@ function stripTrailingPageNumber(text: string): string {
  */
 function tocListToParagraphs(list: TipTapNode): TipTapNode[] {
   const paragraphs: TipTapNode[] = [];
-  const walk = (items: TipTapNode[]): void => {
-    for (const item of items) {
+  const walk = (current: TipTapNode): void => {
+    // Ordered-list markers were stripped into list attrs; restore them so a
+    // "1. Introduction" entry keeps its number once flattened.
+    const ordered = current.type === 'orderedList';
+    let ordinal = ordered ? orderedListStart(current) : 0;
+    for (const item of (current.content ?? []) as TipTapNode[]) {
       if (item.type !== 'listItem') continue;
       const children = (item.content ?? []) as TipTapNode[];
       const entry = children[0];
       const subLists = children.filter(
         (c) => c.type === 'bulletList' || c.type === 'orderedList',
       );
+      const marker = ordered ? `${formatOrderedMarker(ordinal, current.attrs?.type)} ` : '';
+      ordinal += 1;
 
       if (entry && entry.type === 'paragraph') {
         const entryText = nodePlainText(entry).trim();
@@ -994,17 +1298,17 @@ function tocListToParagraphs(list: TipTapNode): TipTapNode[] {
           const cleaned = stripTrailingPageNumber(entryText);
           paragraphs.push({
             type: 'paragraph',
-            content: [{ type: 'text', text: cleaned }],
+            content: [{ type: 'text', text: `${marker}${cleaned}` }],
           });
         }
       }
 
       for (const sub of subLists) {
-        walk((sub.content ?? []) as TipTapNode[]);
+        walk(sub);
       }
     }
   };
-  walk((list.content ?? []) as TipTapNode[]);
+  walk(list);
   return paragraphs;
 }
 
@@ -1082,13 +1386,76 @@ export function flattenTableOfContents(nodes: TipTapNode[]): TipTapNode[] {
   return out;
 }
 
+/** Page furniture that may sit between a table's halves across a page break. */
+const PAGE_FURNITURE_RE = /^(?:page\s+)?\d{1,4}(?:\s+of\s+\d{1,4})?$/i;
+
+function isPageFurniture(node: TipTapNode): boolean {
+  return node.type === 'paragraph' && PAGE_FURNITURE_RE.test(nodePlainText(node).trim());
+}
+
+function tableColumnCount(table: TipTapNode): number {
+  const firstRow = (table.content ?? [])[0];
+  return (firstRow?.content ?? []).reduce(
+    (n, cell) => n + (Number((cell.attrs as { colspan?: number } | undefined)?.colspan) || 1),
+    0,
+  );
+}
+
+function rowText(row: TipTapNode | undefined): string {
+  return (row?.content ?? []).map((cell) => nodePlainText(cell).trim()).join('\u0001');
+}
+
+/**
+ * Append one page's blocks, continuing a table split by the page break: when
+ * the previous page ends with a table and this page starts with one of the
+ * same column count, their rows are joined (a repeated header row is dropped).
+ */
+function appendPageBlocks(blocks: TipTapNode[], pageBlocks: TipTapNode[]): void {
+  let tail = blocks.length - 1;
+  while (tail >= 0 && isPageFurniture(blocks[tail]!)) tail -= 1;
+  let head = 0;
+  while (head < pageBlocks.length && isPageFurniture(pageBlocks[head]!)) head += 1;
+
+  const prev = blocks[tail];
+  const next = pageBlocks[head];
+  if (
+    prev?.type !== 'table' ||
+    next?.type !== 'table' ||
+    tableColumnCount(prev) !== tableColumnCount(next)
+  ) {
+    blocks.push(...pageBlocks);
+    return;
+  }
+
+  const prevRows = prev.content ?? [];
+  let nextRows = next.content ?? [];
+  if (rowText(nextRows[0]) === rowText(prevRows[0])) {
+    nextRows = nextRows.slice(1);
+  } else {
+    // Continuation rows are body rows, not a second header.
+    nextRows = nextRows.map((row, r) =>
+      r === 0
+        ? {
+            ...row,
+            content: (row.content ?? []).map((cell) =>
+              cell.type === 'tableHeader' ? { ...cell, type: 'tableCell' } : cell,
+            ),
+          }
+        : row,
+    );
+  }
+  prev.content = [...prevRows, ...nextRows];
+  blocks.splice(tail + 1); // drop page furniture between the halves
+  blocks.push(...pageBlocks.slice(head + 1));
+}
+
 /** Build a TipTap doc from spatial pages of text items. */
 export function spatialPagesToTipTap(pages: SpatialPage[]): TipTapDoc {
   // Process pages separately so page-local Y coordinates cannot interleave.
   const cleaned = filterWatermarkPages(pages);
   const blocks: TipTapNode[] = [];
   for (const page of cleaned) {
-    blocks.push(...spatialItemsToBlocks(page.textItems ?? []));
+    appendPageBlocks(blocks, spatialItemsToBlocks(page.textItems ?? [], page.rulings));
   }
 
   // Wrap stitching runs in polishPdfTipTapNodes, after heading promotion.

@@ -53,6 +53,10 @@ const TECHNICAL_ADMIN_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   'usageOverride.grant',
   'user.search',
   'departmentVisibility.manage',
+  // Roster import: bulk-enrolls Students (visibility + Access Grants) into a
+  // Department by email. Narrower than `accessGrant.create`, which stays
+  // DepartmentAdmin-only for individual grants.
+  'departmentEnrollment.manage',
   // Shared dept-admin UI: System Admins may bootstrap Document Types and their
   // initial taxonomy/config (same screens DepartmentAdmins use).
   // Department-wide OPEN/LOCKED is TechnicalAdmin-only.

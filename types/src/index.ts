@@ -40,6 +40,9 @@ import type {
   CreateUsageLimitInput,
   CustomMetadataField,
   Department,
+  DepartmentEnrollment,
+  DepartmentEnrollmentImportResult,
+  DepartmentEnrollmentList,
   DepartmentVisibilityGrant,
   DepartmentVisibilityPermission,
   DepartmentVisibilityPermissionList,
@@ -50,6 +53,7 @@ import type {
   Draft,
   ErrorCategory,
   FeedbackItem,
+  ImportDepartmentEnrollmentsInput,
   Override,
   OverrideBounds,
   PromptGuardrailViolation,
@@ -110,6 +114,14 @@ type _GuardUpdateDepartmentVisibilityInput = Expect<
 type _GuardCreateDepartmentVisibilityGrantInput = Expect<
   LacksReplacementProse<CreateDepartmentVisibilityGrantInput>
 >;
+type _GuardImportDepartmentEnrollmentsInput = Expect<
+  LacksReplacementProse<ImportDepartmentEnrollmentsInput>
+>;
+type _GuardDepartmentEnrollmentImportResult = Expect<
+  LacksReplacementProse<DepartmentEnrollmentImportResult>
+>;
+type _GuardDepartmentEnrollment = Expect<LacksReplacementProse<DepartmentEnrollment>>;
+type _GuardDepartmentEnrollmentList = Expect<LacksReplacementProse<DepartmentEnrollmentList>>;
 type _GuardOverrideBounds = Expect<LacksReplacementProse<OverrideBounds>>;
 type _GuardOverride = Expect<LacksReplacementProse<Override>>;
 type _GuardCreateOverrideInput = Expect<LacksReplacementProse<CreateOverrideInput>>;
@@ -177,6 +189,10 @@ export type NoGhostwritingGuards = [
   _GuardDepartmentVisibilityPermissionList,
   _GuardUpdateDepartmentVisibilityInput,
   _GuardCreateDepartmentVisibilityGrantInput,
+  _GuardImportDepartmentEnrollmentsInput,
+  _GuardDepartmentEnrollmentImportResult,
+  _GuardDepartmentEnrollment,
+  _GuardDepartmentEnrollmentList,
   _GuardOverrideBounds,
   _GuardOverride,
   _GuardCreateOverrideInput,

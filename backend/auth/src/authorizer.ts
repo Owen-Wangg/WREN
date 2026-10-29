@@ -61,6 +61,7 @@ import {
   ensureAppUser,
   grantTechnicalAdminBootstrapOnce,
   IdentityProvisioningRefusedError,
+  redeemDepartmentEnrollments,
   type ProvisioningDb,
   type ProvisionUserDeps,
 } from './provisionUser';
@@ -222,8 +223,9 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
       let context = await mapSubjectToAuthContext(subject, db);
       if (!context) {
         const profile = await lookupProfile(subject, username);
+        let provisionedUserId: string;
         try {
-          await ensureAppUser(
+          provisionedUserId = await ensureAppUser(
             db,
             {
               idpSubject: subject,
@@ -251,6 +253,20 @@ export function createAuthorizerHandler(depsProvider: DepsProvider) {
             principalId: subject,
             policyDocument: policy('Deny', stageWildcardResource(event.methodArn)),
           };
+        }
+        // A System Admin may have rostered this email into Departments before
+        // the account existed. Redemption failure must not block sign-in: the
+        // roster row stays pending and a re-import links it later.
+        try {
+          await redeemDepartmentEnrollments(db, provisionedUserId);
+        } catch (error) {
+          console.warn(
+            JSON.stringify({
+              event: 'department_enrollment_redeem_failed',
+              userId: provisionedUserId,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
         }
         context = await mapSubjectToAuthContext(subject, db);
         if (!context) {

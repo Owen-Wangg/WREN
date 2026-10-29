@@ -34,6 +34,8 @@ import {
   type OfficeContentNode,
 } from 'officeparser';
 
+import { createDocxRunFormatter, type DocxRunFormatter } from './docxRunFormatting';
+import { acceptDocxTrackedChanges } from './docxTrackedChanges';
 import { MAX_INDENT_LEVEL } from './tiptapIndent';
 
 const HEADING_LEVEL_BY_NUMBER: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
@@ -85,6 +87,11 @@ export class DocxClientParseError extends Error {
   }
 }
 
+/** Round to Word's half-point granularity (10.5pt stays 10.5pt). */
+function toHalfPointString(points: number): string {
+  return `${Math.round(points * 2) / 2}pt`;
+}
+
 /** Normalize officeparser size strings ("14pt", "0.5in") to a TipTap fontSize value. */
 export function normalizeFontSize(size: string | undefined): string | undefined {
   if (!size || typeof size !== 'string') return undefined;
@@ -94,19 +101,19 @@ export function normalizeFontSize(size: string | undefined): string | undefined 
   if (pt) {
     const n = Number.parseFloat(pt[1]!);
     if (!Number.isFinite(n) || n <= 0) return undefined;
-    return `${Math.round(n)}pt`;
+    return toHalfPointString(n);
   }
   const inch = /^([\d.]+)\s*in$/i.exec(trimmed);
   if (inch) {
     const n = Number.parseFloat(inch[1]!);
     if (!Number.isFinite(n) || n <= 0) return undefined;
-    return `${Math.round(n * 72)}pt`;
+    return toHalfPointString(n * 72);
   }
   const bare = /^([\d.]+)$/.exec(trimmed);
   if (bare) {
     const n = Number.parseFloat(bare[1]!);
     if (!Number.isFinite(n) || n <= 0) return undefined;
-    return `${Math.round(n)}pt`;
+    return toHalfPointString(n);
   }
   return trimmed;
 }
@@ -199,6 +206,24 @@ function listNestingLevel(node: OfficeContentNode): number {
   if (typeof meta.indentation === 'number') return meta.indentation;
   if (typeof meta.level === 'number') return meta.level;
   return 0;
+}
+
+/** officeparser list metadata the list grouping relies on. */
+function listMeta(node: OfficeContentNode): { listId?: string; itemIndex?: number } {
+  const meta = node.metadata as { listId?: unknown; itemIndex?: unknown } | undefined;
+  return {
+    listId: typeof meta?.listId === 'string' ? meta.listId : undefined,
+    itemIndex: typeof meta?.itemIndex === 'number' ? meta.itemIndex : undefined,
+  };
+}
+
+/**
+ * `<w:numId w:val="0"/>` is Word's "no numbering" (used to break a list or
+ * override a numbered style). officeparser still reports it as a list item,
+ * so treat it as the plain paragraph Word shows.
+ */
+function isNumberingRemoved(node: OfficeContentNode): boolean {
+  return node.type === 'list' && listMeta(node).listId === '0';
 }
 
 function formattingToMarks(
@@ -583,7 +608,7 @@ function isHeadingStyledList(node: OfficeContentNode): boolean {
 function attachHeadingNumbers(nodes: OfficeContentNode[]): void {
   const countersByListId = new Map<string, number[]>();
   for (const node of nodes) {
-    if (!isHeadingStyledList(node)) continue;
+    if (!isHeadingStyledList(node) || isNumberingRemoved(node)) continue;
     const meta = node.metadata as
       | { listType?: string; listId?: string }
       | undefined;
@@ -699,12 +724,19 @@ function listItemFromOffice(
 /**
  * Group consecutive office `list` items into TipTap bulletList / orderedList.
  * Nested levels become nested lists under the previous item when level increases.
+ *
+ * A different Word list (`listId`) at the same level starts a new TipTap list,
+ * and a top-level ordered list starts at Word's own number for its first item
+ * (officeparser's 0-based `itemIndex` continues a list across interruptions).
+ * Nested lists keep the default start: officeparser doesn't restart deeper
+ * counters when the parent advances, so their `itemIndex` can't be trusted.
  */
 function consumeListGroup(
   nodes: OfficeContentNode[],
   startIndex: number,
   attachments: AttachmentLookup,
   footnoteIdCounter: { next: number },
+  nested = false,
 ): { blocks: JSONContent[]; nextIndex: number } {
   const first = nodes[startIndex]!;
   const listType =
@@ -712,6 +744,7 @@ function consumeListGroup(
       ? 'orderedList'
       : 'bulletList';
   const baseLevel = listNestingLevel(first);
+  const { listId, itemIndex } = listMeta(first);
 
   const items: JSONContent[] = [];
   let i = startIndex;
@@ -720,6 +753,8 @@ function consumeListGroup(
     // A heading-styled list node is not a real list item — stop the group so
     // the caller emits it as a heading instead of folding it into this list.
     if (isHeadingStyledList(node)) break;
+    // Numbering switched off: the caller emits it as a plain paragraph.
+    if (isNumberingRemoved(node)) break;
     const level = listNestingLevel(node);
     const nodeListType =
       node.metadata && 'listType' in node.metadata && node.metadata.listType === 'ordered'
@@ -727,9 +762,10 @@ function consumeListGroup(
         : 'bulletList';
     if (nodeListType !== listType && level <= baseLevel) break;
     if (level < baseLevel) break;
+    if (level === baseLevel && listMeta(node).listId !== listId) break;
 
     if (level > baseLevel) {
-      const nested = consumeListGroup(nodes, i, attachments, footnoteIdCounter);
+      const nested = consumeListGroup(nodes, i, attachments, footnoteIdCounter, true);
       const prev = items[items.length - 1];
       if (prev) {
         prev.content = [...(prev.content ?? []), ...nested.blocks];
@@ -747,8 +783,10 @@ function consumeListGroup(
     i += 1;
   }
 
+  const start =
+    listType === 'orderedList' && !nested && itemIndex !== undefined ? itemIndex + 1 : 1;
   return {
-    blocks: [{ type: listType, content: items }],
+    blocks: [{ type: listType, ...(start > 1 ? { attrs: { start } } : {}), content: items }],
     nextIndex: i,
   };
 }
@@ -764,6 +802,11 @@ function tableFromOffice(
     return {
       type: 'tableRow',
       content: cells.map((cell) => {
+        // officeparser resolves w:gridSpan / w:vMerge into spans and omits
+        // the vertically merged continuation cells.
+        const meta = cell.metadata as { colSpan?: number; rowSpan?: number } | undefined;
+        const colspan = positiveSpan(meta?.colSpan);
+        const rowspan = positiveSpan(meta?.rowSpan);
         const cellBlocks = (cell.children ?? []).flatMap((child) =>
           officeNodesToTiptapBlocks([child], attachments, footnoteIdCounter),
         );
@@ -781,13 +824,17 @@ function tableFromOffice(
               ];
         return {
           type: rowIndex === 0 ? 'tableHeader' : 'tableCell',
+          ...(colspan || rowspan
+            ? { attrs: { ...(colspan ? { colspan } : {}), ...(rowspan ? { rowspan } : {}) } }
+            : {}),
           content: cellContent.filter(
             (b) =>
               b.type === 'paragraph' ||
               b.type === 'heading' ||
               b.type === 'bulletList' ||
               b.type === 'orderedList' ||
-              b.type === 'image',
+              b.type === 'image' ||
+              b.type === 'table',
           ),
         };
       }),
@@ -841,6 +888,13 @@ function officeNodesToTiptapBlocks(
         i += 1;
         continue;
       }
+      if (isNumberingRemoved(node)) {
+        blocks.push(
+          ...blocksFromParagraphOrHeading(listNodeAsParagraph(node), attachments, footnoteIdCounter),
+        );
+        i += 1;
+        continue;
+      }
       const group = consumeListGroup(nodes, i, attachments, footnoteIdCounter);
       blocks.push(...group.blocks);
       i = group.nextIndex;
@@ -865,6 +919,60 @@ function officeNodesToTiptapBlocks(
     i += 1;
   }
   return blocks;
+}
+
+/** Leaf `text` nodes under `node`, in the same order `collectTextRuns` visits them. */
+function collectOfficeTextNodes(node: OfficeContentNode): OfficeContentNode[] {
+  const out: OfficeContentNode[] = [];
+  const visit = (current: OfficeContentNode) => {
+    if (current.type === 'text') {
+      if (current.text) out.push(current);
+      return;
+    }
+    current.children?.forEach(visit);
+  };
+  node.children?.forEach(visit);
+  return out;
+}
+
+/** How far ahead to look for a matching `w:t` before giving up on a text node. */
+const RUN_RESYNC_WINDOW = 8;
+
+/**
+ * Replaces officeparser's per-run `formatting` with the correctly cascaded
+ * values from {@link DocxRunFormatter} (see `docxRunFormatting.ts` for why).
+ * Text nodes are matched to the paragraph's `w:t` elements in order by text;
+ * any node that can't be matched keeps officeparser's formatting.
+ */
+function applyResolvedRunFormatting(
+  nodes: readonly OfficeContentNode[],
+  formatter: DocxRunFormatter,
+): void {
+  for (const node of nodes) {
+    const isParagraphLike =
+      node.type === 'paragraph' || node.type === 'heading' || node.type === 'list';
+    if (isParagraphLike && typeof node.rawContent === 'string') {
+      const resolved = formatter.resolveParagraph(node.rawContent);
+      if (resolved) {
+        const runs = resolved.filter((run) => run.text.length > 0);
+        let cursor = 0;
+        for (const textNode of collectOfficeTextNodes(node)) {
+          const limit = Math.min(runs.length, cursor + RUN_RESYNC_WINDOW);
+          for (let k = cursor; k < limit; k += 1) {
+            if (runs[k]!.text === textNode.text) {
+              textNode.formatting = runs[k]!.formatting;
+              cursor = k + 1;
+              break;
+            }
+          }
+        }
+      }
+      continue;
+    }
+    if (node.children && node.children.length > 0) {
+      applyResolvedRunFormatting(node.children, formatter);
+    }
+  }
 }
 
 /**
@@ -895,10 +1003,14 @@ export async function docxBytesToTiptapContent(
   bytes: Uint8Array,
 ): Promise<JSONContent> {
   try {
-    const ast = await OfficeParser.parseOffice(bytes, {
+    const accepted = acceptDocxTrackedChanges(bytes);
+    const ast = await OfficeParser.parseOffice(accepted, {
       fileType: 'docx',
       extractAttachments: true,
+      includeRawContent: true,
     });
+    const runFormatter = createDocxRunFormatter(accepted);
+    if (runFormatter) applyResolvedRunFormatting(ast.content, runFormatter);
     const attachments = new Map<string, OfficeAttachment>();
     for (const attachment of ast.attachments ?? []) {
       if (attachment?.name) attachments.set(attachment.name, attachment);
@@ -927,9 +1039,9 @@ function fontSizeToDocxHalfPoints(fontSize: string | undefined): number | undefi
   if (!fontSize) return undefined;
   const normalized = normalizeFontSize(fontSize);
   if (!normalized) return undefined;
-  const m = /^(\d+)pt$/i.exec(normalized);
+  const m = /^(\d+(?:\.\d+)?)pt$/i.exec(normalized);
   if (!m) return undefined;
-  return Number.parseInt(m[1]!, 10) * 2;
+  return Math.round(Number.parseFloat(m[1]!) * 2);
 }
 
 function textStyleAttrs(
@@ -1156,21 +1268,33 @@ function listToDocxParagraphs(
   return out;
 }
 
-function cellBlocksToParagraphs(cell: JSONContent, footnotesById: Map<number, Paragraph[]>): Paragraph[] {
+function cellBlocksToDocx(
+  cell: JSONContent,
+  footnotesById: Map<number, Paragraph[]>,
+): Array<Paragraph | DocxTable> {
   const blocks = cell.content ?? [];
   if (blocks.length === 0) return [new Paragraph({})];
-  const paragraphs: Paragraph[] = [];
+  const children: Array<Paragraph | DocxTable> = [];
   for (const block of blocks) {
     if (block.type === 'paragraph' || block.type === 'heading') {
-      paragraphs.push(blockToDocxParagraph(block, footnotesById));
+      children.push(blockToDocxParagraph(block, footnotesById));
     } else if (block.type === 'image') {
       const imagePara = imageBlockToDocxParagraph(block);
-      if (imagePara) paragraphs.push(imagePara);
+      if (imagePara) children.push(imagePara);
     } else if (block.type === 'bulletList' || block.type === 'orderedList') {
-      paragraphs.push(...listToDocxParagraphs(block, footnotesById));
+      children.push(...listToDocxParagraphs(block, footnotesById));
+    } else if (block.type === 'table') {
+      children.push(tableToDocx(block, footnotesById));
+      // Word requires a cell to end with a paragraph.
+      children.push(new Paragraph({}));
     }
   }
-  return paragraphs.length > 0 ? paragraphs : [new Paragraph({})];
+  return children.length > 0 ? children : [new Paragraph({})];
+}
+
+function positiveSpan(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 1 ? n : undefined;
 }
 
 function tableToDocx(node: JSONContent, footnotesById: Map<number, Paragraph[]>): DocxTable {
@@ -1182,12 +1306,15 @@ function tableToDocx(node: JSONContent, footnotesById: Map<number, Paragraph[]>)
         new TableRow({
           children: (row.content ?? [])
             .filter((c) => c.type === 'tableCell' || c.type === 'tableHeader')
-            .map(
-              (cell) =>
-                new TableCell({
-                  children: cellBlocksToParagraphs(cell, footnotesById),
-                }),
-            ),
+            .map((cell) => {
+              const columnSpan = positiveSpan(cell.attrs?.colspan);
+              const rowSpan = positiveSpan(cell.attrs?.rowspan);
+              return new TableCell({
+                children: cellBlocksToDocx(cell, footnotesById),
+                ...(columnSpan ? { columnSpan } : {}),
+                ...(rowSpan ? { rowSpan } : {}),
+              });
+            }),
         }),
     ),
   });

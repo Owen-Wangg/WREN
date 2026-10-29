@@ -49,6 +49,7 @@ import {
 } from './pdfHeadingHeuristics.js';
 import { polishPdfTipTapNodes } from './promotePdfHeadings.js';
 import { flattenTableOfContents } from './pdfToTipTap.js';
+import { orderedListAttrs, parseListMarker } from './listMarkers.js';
 
 const SKIP_LAYOUT = new Set([
   'LAYOUT_HEADER',
@@ -194,6 +195,30 @@ function childIds(block: Block): string[] {
     }
   }
   return ids;
+}
+
+/**
+ * Ids of LAYOUT_* blocks nested under another LAYOUT_* block. Every container
+ * (list, figure, table, text) renders its descendants' lines itself, so these
+ * must never be emitted on their own. Collected up front because Textract
+ * does not promise a parent precedes its children in `Blocks` — marking them
+ * only once the parent is reached let a LAYOUT_LIST's items render twice.
+ */
+function nestedLayoutIds(blocks: readonly Block[], byId: Map<string, Block>): Set<string> {
+  const nested = new Set<string>();
+  const visit = (block: Block, depth: number): void => {
+    if (depth > 8) return;
+    for (const id of childIds(block)) {
+      const child = byId.get(id);
+      if (!child?.Id || !child.BlockType?.startsWith('LAYOUT_') || nested.has(child.Id)) continue;
+      nested.add(child.Id);
+      visit(child, depth + 1);
+    }
+  };
+  for (const block of blocks) {
+    if (block.BlockType?.startsWith('LAYOUT_')) visit(block, 0);
+  }
+  return nested;
 }
 
 function indexBlocks(blocks: readonly Block[]): Map<string, Block> {
@@ -352,7 +377,27 @@ function listFromLayout(block: Block, byId: Map<string, Block>): TipTapNode | nu
     });
   }
   if (items.length === 0) return null;
-  return { type: 'bulletList', content: items };
+  return listWithMarkersStripped(items);
+}
+
+/**
+ * Textract keeps the printed marker ("1.", "•") in each item's text. Lift it
+ * out: a list whose items are all numbered becomes an `orderedList` that
+ * starts at the first item's number; bullet glyphs are dropped so they don't
+ * render twice next to the editor's own bullet.
+ */
+function listWithMarkersStripped(items: TipTapNode[]): TipTapNode {
+  const markers = items.map((item) => parseListMarker(listItemText(item).trim()));
+  const ordered = markers.every((m) => m?.kind === 'ordered');
+  const stripped = items.map((item, k) => {
+    const marker = markers[k];
+    if (!marker || (marker.kind === 'ordered' && !ordered)) return item;
+    return { ...item, content: [paragraphNode(marker.remaining)] };
+  });
+  if (!ordered) return { type: 'bulletList', content: stripped };
+  const first = markers[0];
+  const attrs = orderedListAttrs(first?.kind === 'ordered' ? first : undefined);
+  return { type: 'orderedList', ...(attrs ? { attrs } : {}), content: stripped };
 }
 
 function cellText(cell: Block, byId: Map<string, Block>): string {
@@ -564,6 +609,87 @@ function findChildTable(block: Block, byId: Map<string, Block>): Block | null {
   return null;
 }
 
+/** Minimum share of a LAYOUT_TABLE's box that must sit inside a TABLE box to match. */
+const TABLE_OVERLAP_MIN = 0.5;
+/**
+ * Stricter share for text-like layout blocks: Textract's layout model sometimes
+ * tags a table region as LAYOUT_TEXT while the TABLES feature still finds the
+ * grid. Kept high so captions and body text beside a table are not absorbed.
+ */
+const TEXT_IN_TABLE_OVERLAP_MIN = 0.8;
+/** Layout types that may be replaced by a TABLE they sit inside. */
+const TABLE_ABSORBABLE_LAYOUT = new Set(['LAYOUT_TEXT', 'LAYOUT_KEY_VALUE']);
+
+/** Area of `a` that lies inside `b`, as a fraction of `a`'s area (0 when unknown). */
+function boxOverlapRatio(a: Block, b: Block): number {
+  const ab = a.Geometry?.BoundingBox;
+  const bb = b.Geometry?.BoundingBox;
+  if (!ab || !bb) return 0;
+  const aLeft = ab.Left ?? 0;
+  const aTop = ab.Top ?? 0;
+  const aW = ab.Width ?? 0;
+  const aH = ab.Height ?? 0;
+  const bLeft = bb.Left ?? 0;
+  const bTop = bb.Top ?? 0;
+  const w = Math.min(aLeft + aW, bLeft + (bb.Width ?? 0)) - Math.max(aLeft, bLeft);
+  const h = Math.min(aTop + aH, bTop + (bb.Height ?? 0)) - Math.max(aTop, bTop);
+  const area = aW * aH;
+  if (w <= 0 || h <= 0 || area <= 0) return 0;
+  return (w * h) / area;
+}
+
+/**
+ * Resolve the TABLE block for a layout block. Real AnalyzeDocument output links
+ * LAYOUT_* blocks only to their LINE children; the TABLE (from the TABLES
+ * feature) is a sibling, so it is matched by page + bounding-box overlap. A
+ * direct CHILD link is still honoured first.
+ */
+function findTableForLayout(
+  block: Block,
+  byId: Map<string, Block>,
+  tables: readonly Block[],
+  minRatio = TABLE_OVERLAP_MIN,
+): Block | null {
+  const direct = findChildTable(block, byId);
+  if (direct) return direct;
+  const page = block.Page ?? 1;
+  let best: Block | null = null;
+  let bestRatio = minRatio;
+  for (const table of tables) {
+    if ((table.Page ?? 1) !== page) continue;
+    const ratio = boxOverlapRatio(block, table);
+    if (ratio >= bestRatio) {
+      best = table;
+      bestRatio = ratio;
+    }
+  }
+  return best;
+}
+
+/**
+ * Emit the table matched to a layout block, at the layout block's reading-order
+ * position. Returns true when the block is covered by a table (whether emitted
+ * now or already emitted for an earlier fragment), so its LINE text must not
+ * be rendered again as paragraphs.
+ */
+function emitTableForLayout(
+  block: Block,
+  byId: Map<string, Block>,
+  tables: readonly Block[],
+  consumedTableIds: Set<string>,
+  nodes: TipTapNode[],
+  minRatio = TABLE_OVERLAP_MIN,
+): boolean {
+  const tableBlock = findTableForLayout(block, byId, tables, minRatio);
+  if (!tableBlock?.Id) return false;
+  if (consumedTableIds.has(tableBlock.Id)) return true;
+  const table = tableFromBlock(tableBlock, byId);
+  if (!table) return false;
+  nodes.push(table);
+  consumedTableIds.add(tableBlock.Id);
+  return true;
+}
+
 /**
  * Convert AnalyzeDocument blocks (LAYOUT + TABLES) into a TipTap document.
  *
@@ -692,8 +818,9 @@ function enrichedPipeline(
 
   // --- Step 4–11: Process layout blocks in reading order with enrichment ---
   const nodes: TipTapNode[] = [];
-  const consumedLayoutIds = new Set<string>();
+  const consumedLayoutIds = nestedLayoutIds(blocks, byId);
   const consumedTableIds = new Set<string>();
+  const tableBlocks = allBlocks.filter((b) => b.BlockType === 'TABLE');
   const allLineConfidences: number[] = [];
   const pageLineConfidences = new Map<number, number[]>();
 
@@ -767,18 +894,27 @@ function enrichedPipeline(
     }
 
     if (type === 'LAYOUT_TABLE') {
-      const tableBlock = findChildTable(block, byId);
-      if (tableBlock?.Id) {
-        const table = tableFromBlock(tableBlock, byId);
-        if (table) {
-          nodes.push(table);
-          consumedTableIds.add(tableBlock.Id);
-        }
-      } else {
+      if (!emitTableForLayout(block, byId, tableBlocks, consumedTableIds, nodes)) {
         const lines = collectChildLines(block, byId);
         const text = linesToPlainText(lines);
         if (text) nodes.push(paragraphNode(text));
       }
+      if (block.Id) consumedLayoutIds.add(block.Id);
+      markDescendantLayoutsConsumed(block);
+      continue;
+    }
+
+    if (
+      TABLE_ABSORBABLE_LAYOUT.has(type) &&
+      emitTableForLayout(
+        block,
+        byId,
+        tableBlocks,
+        consumedTableIds,
+        nodes,
+        TEXT_IN_TABLE_OVERLAP_MIN,
+      )
+    ) {
       if (block.Id) consumedLayoutIds.add(block.Id);
       markDescendantLayoutsConsumed(block);
       continue;
@@ -1162,8 +1298,9 @@ function legacyLayoutConversion(
   byId: Map<string, Block>,
 ): TipTapDoc {
   const nodes: TipTapNode[] = [];
-  const consumedLayoutIds = new Set<string>();
+  const consumedLayoutIds = nestedLayoutIds(blocks, byId);
   const consumedTableIds = new Set<string>();
+  const tableBlocks = blocks.filter((b) => b.BlockType === 'TABLE');
 
   const markDescendantLayoutsConsumed = (block: Block) => {
     for (const id of childIds(block)) {
@@ -1193,18 +1330,27 @@ function legacyLayoutConversion(
     }
 
     if (type === 'LAYOUT_TABLE') {
-      const tableBlock = findChildTable(block, byId);
-      if (tableBlock?.Id) {
-        const table = tableFromBlock(tableBlock, byId);
-        if (table) {
-          nodes.push(table);
-          consumedTableIds.add(tableBlock.Id);
-        }
-      } else {
+      if (!emitTableForLayout(block, byId, tableBlocks, consumedTableIds, nodes)) {
         const lines = collectChildLines(block, byId);
         const text = linesToPlainText(lines);
         if (text) nodes.push(paragraphNode(text));
       }
+      if (block.Id) consumedLayoutIds.add(block.Id);
+      markDescendantLayoutsConsumed(block);
+      continue;
+    }
+
+    if (
+      TABLE_ABSORBABLE_LAYOUT.has(type) &&
+      emitTableForLayout(
+        block,
+        byId,
+        tableBlocks,
+        consumedTableIds,
+        nodes,
+        TEXT_IN_TABLE_OVERLAP_MIN,
+      )
+    ) {
       if (block.Id) consumedLayoutIds.add(block.Id);
       markDescendantLayoutsConsumed(block);
       continue;

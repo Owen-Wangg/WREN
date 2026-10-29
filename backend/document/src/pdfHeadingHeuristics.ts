@@ -44,27 +44,89 @@ export function looksLikeStandaloneHeading(text: string): boolean {
   if (/[A-Za-z]-$/.test(t)) return false;
   if (isTocTitle(t) || isJudgmentTitle(t)) return true;
 
-  const words = wordCount(t);
-  const short = t.length <= 90 && words <= 12 && !/[.!?].*\s/.test(t);
-  if (!short) return false;
-  return isAllCapsHeadingText(t);
+  if (looksLikeBodyCopy(t)) return false;
+  // Judge the title after any outline marker so `1. INTRODUCTION` counts.
+  return isAllCapsHeadingText(stripOutlineMarker(t));
+}
+
+/**
+ * Leading outline marker on a heading: `1.`, `4.1.`, `A.`, `(a)`, `II.`, `iv)`,
+ * optionally preceded by `Part` / `Chapter` / `Section` / `Article` /
+ * `Schedule` / `Appendix`. Roman numerals must be single-case so ordinary
+ * words made of roman letters (e.g. `Civil.`) are not stripped.
+ */
+const LEADING_OUTLINE_MARKER_RE =
+  /^(?:(?:part|chapter|section|article|schedule|appendix)\s+)?\(?(?:\d+(?:\.\d+)*|[IVXLCDM]{1,6}|[ivxlcdm]{1,6}|[A-Za-z])[.):]\s+/i;
+
+/** `text` without a leading outline marker (see {@link LEADING_OUTLINE_MARKER_RE}). */
+function stripOutlineMarker(text: string): string {
+  return text.replace(LEADING_OUTLINE_MARKER_RE, '');
+}
+
+/**
+ * Tokens that end in `.` without ending a sentence — case-name and citation
+ * abbreviations common in legal writing (`R. v. Smith`, `Smith Ltd.`, `para.`).
+ * Compared lowercased with dots removed.
+ */
+const NON_TERMINAL_ABBREVIATIONS = new Set([
+  'v', 'vs', 'mr', 'mrs', 'ms', 'dr', 'st', 'no', 'nos', 'inc', 'ltd', 'co', 'corp',
+  'jj', 'cj', 'ja', 'etc', 'al', 'cf', 'eg', 'ie', 's', 'ss', 'para', 'paras', 'art',
+  'arts', 'sec', 'ch', 'p', 'pp', 'ref', 'reg', 'supp', 'approx', 'gen', 'gov', 'dept',
+]);
+
+/** Minimum words on each side of a sentence break for it to count as prose. */
+const MIN_SENTENCE_WORDS = 2;
+
+/**
+ * True when `token` (whitespace-delimited, ending in `.`) is an abbreviation or
+ * initial rather than the end of a sentence: a single letter (`R.`, `J.`), an
+ * internally dotted form (`U.S.`, `e.g.`), or a known abbreviation (`v.`).
+ */
+function isNonTerminalPeriodToken(token: string): boolean {
+  const core = token.replace(/["')\]]+$/, '').replace(/\.$/, '');
+  if (core.length <= 1) return true;
+  if (core.includes('.')) return true;
+  return NON_TERMINAL_ABBREVIATIONS.has(core.replace(/^["'(\[]+/, '').toLowerCase());
+}
+
+/**
+ * True when `text` contains a real sentence boundary: `.` / `!` / `?` (plus any
+ * closing quote/bracket) followed by a capitalised word, with at least
+ * {@link MIN_SENTENCE_WORDS} words on both sides. Abbreviations and initials
+ * (see {@link isNonTerminalPeriodToken}) are not boundaries.
+ */
+function hasSentenceBreak(text: string): boolean {
+  const tokens = text.split(/\s+/).filter(Boolean);
+  let sentenceStart = 0;
+  for (let i = 0; i < tokens.length - 1; i += 1) {
+    const token = tokens[i]!;
+    if (!/[.!?]["')\]]*$/.test(token)) continue;
+    if (!/^["'(\[]?[A-Z]/.test(tokens[i + 1]!)) continue;
+    if (/\.["')\]]*$/.test(token) && isNonTerminalPeriodToken(token)) continue;
+    const wordsBefore = i + 1 - sentenceStart;
+    const wordsAfter = tokens.length - (i + 1);
+    if (wordsBefore >= MIN_SENTENCE_WORDS && wordsAfter >= MIN_SENTENCE_WORDS) return true;
+    sentenceStart = i + 1;
+  }
+  return false;
 }
 
 /**
  * True when text Textract tagged as a title / section header is really body
  * copy — too long or clearly multi-sentence to be a heading. Used to demote a
  * mis-classified `LAYOUT_TITLE` / `LAYOUT_SECTION_HEADER` block to a paragraph
- * so a body sentence does not render as a giant heading. Mirrors the inverse of
- * the `short` guard in {@link looksLikeStandaloneHeading}.
+ * so a body sentence does not render as a giant heading.
+ *
+ * Outline markers (`1.`, `A.`, `Part II.`) and legal abbreviations
+ * (`R. v. Smith`, `Smith v. Jones`) are not sentence breaks, so numbered and
+ * case-name headings stay headings.
  */
 export function looksLikeBodyCopy(text: string): boolean {
   const t = text.trim();
   if (t.length === 0) return false;
   if (t.length > 90) return true;
   if (wordCount(t) > 12) return true;
-  // Sentence-ending punctuation followed by more text signals prose, not a title.
-  if (/[.!?]\s/.test(t)) return true;
-  return false;
+  return hasSentenceBreak(stripOutlineMarker(t));
 }
 
 /**

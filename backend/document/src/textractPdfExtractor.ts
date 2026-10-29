@@ -19,6 +19,8 @@ export class TextractPdfExtractor implements RichPdfExtractor {
     private readonly options: {
       readonly s3Bucket?: string;
       readonly s3Key?: string;
+      /** Epoch ms deadline for async Textract polling (see `ExtractTextractInput`). */
+      readonly deadlineMs?: number;
     } = {},
   ) {}
 
@@ -36,6 +38,7 @@ export class TextractPdfExtractor implements RichPdfExtractor {
       ...(this.options.s3Bucket && this.options.s3Key
         ? { s3Bucket: this.options.s3Bucket, s3Key: this.options.s3Key }
         : {}),
+      ...(this.options.deadlineMs !== undefined ? { deadlineMs: this.options.deadlineMs } : {}),
     };
 
     if (extractOptions.pageGroups && extractOptions.pageGroups.length > 0) {

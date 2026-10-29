@@ -22,6 +22,10 @@ const apiMocks = vi.hoisted(() => ({
   createDepartmentVisibilityGrant: vi.fn(),
   revokeDepartmentVisibilityGrant: vi.fn(),
   searchAllUsers: vi.fn(),
+  listDepartmentEnrollments: vi.fn(),
+  removeDepartmentEnrollment: vi.fn(),
+  importDepartmentEnrollments: vi.fn(),
+  departmentRosterQueryKey: (departmentId: string) => ['department-enrollments', departmentId],
 }));
 
 vi.mock('@/features/auth/AuthContext', () => ({ useAuth: vi.fn() }));
@@ -88,6 +92,12 @@ beforeEach(() => {
     items: [],
     total: 0,
     limit: 100,
+    offset: 0,
+  });
+  apiMocks.listDepartmentEnrollments.mockResolvedValue({
+    items: [],
+    total: 0,
+    limit: 20,
     offset: 0,
   });
   apiMocks.setDepartmentVisibilityState.mockImplementation(
@@ -255,11 +265,11 @@ describe('DepartmentDetailPage visibility management', () => {
       );
     });
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'Visibility permission granted.',
+      'User added to Permitted users.',
     );
 
     await user.click(screen.getByRole('button', {
-      name: "Revoke Explicit Student's explicit department visibility permission",
+      name: 'Revoke Explicit Student from Permitted users',
     }));
     await waitFor(() => {
       expect(apiMocks.revokeDepartmentVisibilityGrant).toHaveBeenCalledWith(
@@ -268,7 +278,7 @@ describe('DepartmentDetailPage visibility management', () => {
       );
     });
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'Visibility permission revoked.',
+      'User removed from Permitted users.',
     );
   });
 
@@ -398,6 +408,113 @@ describe('DepartmentDetailPage Ask WREN prompt tab', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Prompt content rejected: instructs the model to rewrite the text.',
+    );
+  });
+});
+
+
+// jsdom does not implement Blob.text(); browsers do. Read through FileReader.
+if (typeof File.prototype.text !== 'function') {
+  File.prototype.text = function text(this: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(this);
+    });
+  };
+}
+describe('DepartmentDetailPage permitted users CSV import', () => {
+  const pending = {
+    id: 'enr-2',
+    departmentId: 'department-1',
+    email: 'new@example.edu',
+    status: 'pending' as const,
+    userId: null,
+    firstName: null,
+    lastName: null,
+    invitedAt: '2026-10-01T00:00:00.000Z',
+    linkedAt: null,
+  };
+
+  it('has no separate roster panel', async () => {
+    renderPage();
+    await screen.findByRole('region', { name: 'Permitted users' });
+    expect(screen.queryByRole('region', { name: 'Student roster' })).not.toBeInTheDocument();
+  });
+
+  it('lists emails waiting for sign-up inside Permitted users and removes one after confirmation', async () => {
+    const user = userEvent.setup();
+    apiMocks.listDepartmentEnrollments.mockResolvedValue({
+      items: [pending],
+      total: 1,
+      limit: 20,
+      offset: 0,
+    });
+    apiMocks.removeDepartmentEnrollment.mockResolvedValue({ removed: true });
+    renderPage();
+
+    const permitted = await screen.findByRole('region', { name: 'Permitted users' });
+    expect(await within(permitted).findByText('Waiting for sign-up (1)')).toBeInTheDocument();
+    expect(apiMocks.listDepartmentEnrollments).toHaveBeenCalledWith(
+      'department-1',
+      expect.objectContaining({ status: 'pending' }),
+    );
+
+    await user.click(
+      within(permitted).getByRole('button', { name: 'Remove new@example.edu from Permitted users' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Remove pending email?' });
+    expect(apiMocks.removeDepartmentEnrollment).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() =>
+      expect(apiMocks.removeDepartmentEnrollment).toHaveBeenCalledWith('department-1', 'enr-2'),
+    );
+  });
+
+  it('previews a replace upload and only saves after confirming removals', async () => {
+    const user = userEvent.setup();
+    apiMocks.importDepartmentEnrollments.mockImplementation(
+      async (_departmentId: string, emails: string[], options: { dryRun?: boolean }) => ({
+        enrolled: [],
+        pending: emails,
+        invalid: [],
+        alreadyOnRoster: 0,
+        removed: ['leaves@example.edu'],
+        dryRun: options.dryRun ?? false,
+      }),
+    );
+    renderPage();
+
+    const permitted = await screen.findByRole('region', { name: 'Permitted users' });
+    await user.click(within(permitted).getByRole('button', { name: 'Import CSV' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Import permitted users' });
+
+    await user.upload(
+      within(dialog).getByLabelText(/Choose a CSV file/),
+      new File(['email\nstays@example.edu\n'], 'roster.csv', { type: 'text/csv' }),
+    );
+    expect(await within(dialog).findByText('1 email found')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('radio', { name: /Replace the list/ }));
+    await user.click(within(dialog).getByRole('button', { name: 'Review changes' }));
+
+    expect(await within(dialog).findByText('leaves@example.edu')).toBeInTheDocument();
+    expect(apiMocks.importDepartmentEnrollments).toHaveBeenCalledTimes(1);
+    expect(apiMocks.importDepartmentEnrollments).toHaveBeenLastCalledWith(
+      'department-1',
+      ['stays@example.edu'],
+      { mode: 'replace', dryRun: true },
+    );
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Replace list and remove 1 user' }),
+    );
+    expect(await within(dialog).findByText('Permitted users updated')).toBeInTheDocument();
+    expect(apiMocks.importDepartmentEnrollments).toHaveBeenLastCalledWith(
+      'department-1',
+      ['stays@example.edu'],
+      { mode: 'replace', dryRun: false },
     );
   });
 });
