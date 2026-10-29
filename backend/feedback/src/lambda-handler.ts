@@ -18,6 +18,7 @@ import {
 import {
   appendAskWrenTurn,
   buildSessionId,
+  draftSegmentsFromColumns,
   loadDocumentConversation,
   MAX_ASK_WREN_MESSAGE_LENGTH,
   pageRegionsFromColumns,
@@ -784,7 +785,7 @@ async function loadDraftSegments(
 
   const db = await getDataAccess();
   const draftRows = await db.query(
-    `SELECT id, segments, header, footer FROM draft
+    `SELECT id, segments, content, header, footer FROM draft
      WHERE id = $1 AND document_id = $2`,
     [validDraftId, documentId],
   );
@@ -798,11 +799,10 @@ async function loadDraftSegments(
     };
   }
 
-  const raw = draftRows[0].segments;
-  const parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? []);
   return {
     ok: true,
-    segments: Array.isArray(parsed) ? parsed : [],
+    // Autosaved TipTap content first: `segments` is frozen at draft creation.
+    segments: draftSegmentsFromColumns(draftRows[0].segments, draftRows[0].content),
     pageRegions: pageRegionsFromColumns(draftRows[0].header, draftRows[0].footer),
   };
 }

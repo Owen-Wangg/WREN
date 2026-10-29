@@ -19,6 +19,7 @@ import {
   PutCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { isTipTapDoc, tipTapContentToSegments } from '@wren/types';
 
 import { resolveBedrockModelId } from './bedrockModelId.js';
 import { emitTelemetry, parseInvocationUsage } from './bedrockTelemetry.js';
@@ -577,17 +578,65 @@ function formatPageRegions(regions: PageRegions | undefined): string | null {
   return lines.join('\n');
 }
 
-function formatDraftContext(
+function parseJsonColumn(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Paragraph segments for the draft as the student currently sees it.
+ *
+ * Autosave updates `draft.content` (TipTap) in place but never `draft.segments`,
+ * which is frozen when the draft version is created. Reading `segments` alone
+ * meant Ask WREN coached on the original upload — or saw nothing at all for a
+ * document started blank in the editor. Prefer the TipTap content, derived the
+ * same way draft creation derives segments; fall back to the stored segments
+ * when there is no TipTap doc.
+ */
+export function draftSegmentsFromColumns(
+  segments: unknown,
+  content: unknown,
+): Array<{ index?: number; text?: string }> {
+  const doc = parseJsonColumn(content);
+  if (isTipTapDoc(doc)) return tipTapContentToSegments(doc);
+  const parsed = parseJsonColumn(segments);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+/**
+ * Character ceiling for the draft text sent to Bedrock. Sized so a draft at the
+ * default 10,000-word size limit fits whole; it only guards against outliers.
+ */
+export const MAX_DRAFT_CONTEXT_CHARS = 80_000;
+
+/**
+ * Location-hinted draft paragraphs for the Bedrock prompt, capped at
+ * {@link MAX_DRAFT_CONTEXT_CHARS}. `omitted` counts the trailing paragraphs
+ * cut by the cap so the caller can say so outside the untrusted data block.
+ */
+export function formatDraftContext(
   segments: Array<{ index?: number; text?: string }>,
-): string {
-  if (!segments.length) return '(Draft has no paragraph text yet.)';
+): { text: string; omitted: number } {
   const filtered = segments
-    .map((s, i) => ({ text: (s.text ?? '').trim(), i }))
-    .filter(({ text }) => text.length > 4)
-    .slice(0, 40);
-  return filtered
-    .map(({ text, i }) => `[${locationHint(i, filtered.length)}] ${text}`)
-    .join('\n');
+    .map((s) => (s.text ?? '').trim())
+    .filter((text) => text.length > 4);
+  if (!filtered.length) return { text: '(Draft has no paragraph text yet.)', omitted: 0 };
+
+  const kept: string[] = [];
+  let used = 0;
+  for (const text of filtered) {
+    if (kept.length && used + text.length + 1 > MAX_DRAFT_CONTEXT_CHARS) break;
+    kept.push(text);
+    used += text.length + 1;
+  }
+  return {
+    text: kept.map((text, i) => `[${locationHint(i, kept.length)}] ${text}`).join('\n'),
+    omitted: filtered.length - kept.length,
+  };
 }
 
 /**
@@ -751,9 +800,14 @@ export async function generateAskWrenReply(input: {
   // The header/footer block is added only when the draft has one, so a draft
   // without them sends byte-identical content.
   const pageRegionsText = formatPageRegions(input.pageRegions);
+  const draftContext = formatDraftContext(input.draftSegments);
   const userContent = [
-    'Draft context (paragraphs):',
-    renderUntrustedDataBlock(formatDraftContext(input.draftSegments), 'student_draft'),
+    draftContext.omitted > 0
+      ? `Draft context (paragraphs; the draft is too long to send whole, so its last ` +
+        `${draftContext.omitted} paragraph(s) are not shown — do not conclude a point is ` +
+        'missing because it is absent here):'
+      : 'Draft context (paragraphs):',
+    renderUntrustedDataBlock(draftContext.text, 'student_draft'),
     ...(pageRegionsText
       ? [
           '',
