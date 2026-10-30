@@ -28,13 +28,13 @@
  *   cd cdk
  *   npx cdk synth ${prefix}-Cicd -c githubOwner=… -c githubRepo=…
  *   npx tsx scripts/extractDeployRolePolicy.ts \
- *     --account 364408542662 --region ca-central-1 --prefix wren-dev \
+ *     --account 123456789012 --region ca-central-1 --prefix wren-dev \
  *     --out /tmp/deploy-role-policy.json
  *
  *   aws iam simulate-custom-policy \
  *     --policy-input-list "$(cat /tmp/deploy-role-policy.json)" \
  *     --action-names iam:CreateRole \
- *     --resource-arns arn:aws:iam::364408542662:role/Attacker
+ *     --resource-arns arn:aws:iam::123456789012:role/Attacker
  *
  * Requirements: 4.4, 4.5, 4.6, 10.2.
  */
