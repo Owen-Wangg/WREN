@@ -59,7 +59,7 @@
       "RouteTables": []
     },
     {
-      "Service": "com.amazonaws.vpce.ca-central-1.vpce-svc-0a268b84d32edc322",
+      "Service": "com.amazonaws.vpce.ca-central-1.vpce-svc-0123456789abcdef0",
       "State": "available",
       "PrivateDns": false,
       "Subnets": ["subnet-private-a", "subnet-private-b"],
@@ -86,7 +86,7 @@
     {
       "Name": "aws-controltower-BaselineCloudTrail",
       "HomeRegion": "ca-central-1",
-      "LogGroup": "arn:aws:logs:ca-central-1:952783327393:log-group:aws-controltower/CloudTrailLogs:*",
+      "LogGroup": "arn:aws:logs:ca-central-1:123456789012:log-group:aws-controltower/CloudTrailLogs:*",
       "MultiRegion": true
     }
   ],
