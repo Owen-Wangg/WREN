@@ -13,6 +13,22 @@
 import { appConfig } from '@/config/env';
 import { authService } from '@/features/auth/defaultAuthService';
 
+/**
+ * Sanitize an untrusted value before writing it to a console log.
+ *
+ * Strips CR/LF and other C0/C1 control characters so a crafted WebSocket frame
+ * cannot forge or split log lines (CWE-117, js/log-injection), and caps length
+ * so an oversized frame cannot flood the console. Returns a string safe to
+ * interpolate into a single log entry; the original value is still parsed
+ * verbatim by the caller.
+ */
+function sanitizeForLog(value: unknown): string {
+  const str = typeof value === 'string' ? value : String(value);
+  // eslint-disable-next-line no-control-regex
+  const stripped = str.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ');
+  return stripped.length > 2000 ? stripped.slice(0, 2000) + '…' : stripped;
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export interface SubscriptionHandlers {
@@ -83,7 +99,9 @@ export async function subscribeToAppSync(
     };
 
     ws.onmessage = (evt: MessageEvent) => {
-      console.debug('[appSyncClient] ws message:', evt.data);
+      // evt.data is an untrusted WebSocket frame — sanitize control characters
+      // before logging to prevent log forgery/splitting (CWE-117).
+      console.debug('[appSyncClient] ws message:', sanitizeForLog(evt.data));
       let msg: { type: string; id?: string; payload?: unknown };
       try {
         msg = JSON.parse(evt.data as string) as typeof msg;
