@@ -103,7 +103,7 @@ function spaceSeparateInlineNodes(content: TipTapNode[]): TipTapNode[] {
       typeof next.text === 'string' &&
       needsSpaceBetween(node.text, next.text)
     ) {
-      out.push({ ...node, text: `${node.text.replace(/\s+$/, '')} ` });
+      out.push({ ...node, text: `${node.text.trimEnd()} ` });
       continue;
     }
 
