@@ -29,8 +29,20 @@ export function sanitizeValue(value: string): string {
   return value.replace(/[&<>"'/]/g, (char) => HTML_ENTITIES[char] ?? char);
 }
 
-/** Regex matching mustache-style placeholders: {{name}} */
-const PLACEHOLDER_RE = /\{\{\s*([^}\s]+)\s*\}\}/g;
+/**
+ * Regex matching mustache-style placeholders: {{name}}
+ *
+ * The name class `[^{}\s]+` excludes `{`, `}`, and whitespace. Excluding `{`
+ * (in addition to the original `}` and `\s`) is what removes the polynomial
+ * backtracking CodeQL flags (js/polynomial-redos): on an input such as `{{`
+ * followed by many `{{!` repetitions, a name class that allowed `{` let the
+ * engine re-enter the name at every `{{` offset while hunting for a closing
+ * `}}` that never arrives. With `{` excluded, each `{{` can only ever begin a
+ * fresh match attempt, so matching stays linear in the input length. The
+ * surrounding `\s*` still trims any whitespace (including newlines) around the
+ * name, preserving the original behavior for well-formed placeholders.
+ */
+const PLACEHOLDER_RE = /\{\{\s*([^{}\s]+)\s*\}\}/g;
 
 export interface RenderResult {
   content: string;
