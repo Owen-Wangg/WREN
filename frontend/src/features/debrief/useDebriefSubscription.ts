@@ -17,6 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 
 import { subscribeToAppSync } from '@/services/appSyncClient';
+import { sanitizeForLog } from '@/lib/logSanitize';
 import { fetchDebrief } from './debriefApi';
 import { queryKeys } from '@/hooks/queryKeys';
 import { apiClient } from '@/services';
@@ -105,9 +106,11 @@ export function useDebriefSubscription(
           });
         },
         error: (err: unknown) => {
+          // err originates from the untrusted AppSync subscription channel —
+          // sanitize before logging to prevent log forgery/splitting (CWE-117).
           console.error(
             '[useDebriefSubscription] subscription error',
-            JSON.stringify(err),
+            sanitizeForLog(JSON.stringify(err)),
           );
         },
       },
@@ -118,9 +121,11 @@ export function useDebriefSubscription(
         unsubscribe = unsub;
       }
     }).catch((err: unknown) => {
+      // err may carry attacker-influenced text from the WebSocket connection —
+      // sanitize before logging to prevent log forgery/splitting (CWE-117).
       console.error(
         '[useDebriefSubscription] failed to connect',
-        err instanceof Error ? err.message : String(err),
+        sanitizeForLog(err instanceof Error ? err.message : String(err)),
       );
     });
 
