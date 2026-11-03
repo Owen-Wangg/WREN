@@ -246,6 +246,7 @@ The diagram is generated from [`wren-schema.dbml`](./wren-schema.dbml) via [dbdi
 | Store | Contents |
 | --- | --- |
 | S3 documents bucket | Upload objects, draft bytes (`draft.s3_key`) |
+| S3 reference bucket | Reference material files |
 | DynamoDB `{prefix}-ConversationHistory` | Ask WREN messages (`sessionId`, `ttl`) |
 | Cognito | Passwords, MFA, `SystemAdmin` group — not app roles after first login |
 | Systems Manager Parameter Store | Bedrock model id and other non-secret runtime config |
